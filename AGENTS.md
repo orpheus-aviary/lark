@@ -49,7 +49,7 @@ lark/
 
 ## Commit 规范
 
-遵循上级 `orpheus-aviary/.claude/CLAUDE.md` 的 Conventional Commits。
+遵循上级 `orpheus-aviary/.Codex/AGENTS.md` 的 Conventional Commits。
 
 Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `lyrics` / `search` / `library` / `settings` / `cache` / `link` / `skybridge` / `db` / `config`
 

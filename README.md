@@ -4,13 +4,13 @@
 
 ## 定位
 
-音乐桌面工具，隶属 orpheus-aviary。核心能力参考 lark-go 现有实现（播放 / 下载 / 歌词 / 搜索 / daemon 模式），新增需求待补充。技术栈对齐 owl，后续接入 skybridge 做多设备同步（歌单、播放记录等元数据）。
+音乐桌面工具，隶属 orpheus-aviary。核心能力参考 lark-go 现有实现（播放 / 下载 / 歌词 / 搜索 / daemon 模式），新增歌曲链接体系、统一缓存模型、歌单导入导出等。技术栈对齐 owl，v0.2 起接入 skybridge 做多设备同步（歌单、歌曲元数据含来源链接；不同步歌曲文件与播放记录）。
 
 ## 状态
 
-⏳ **待启动**。仓内基本为空。启动时机：**owl 完成 skybridge Phase 3 对接后**，技术模式已验证，直接复用。
+🚀 **开发中**（2026-07-16 启动）。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
-详见 `docs/DESIGN.md`（需求占位）与 `../aviary/docs/ROADMAP.md`。
+详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
 ## 技术栈（预定）
 
