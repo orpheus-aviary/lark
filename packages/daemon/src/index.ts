@@ -11,5 +11,5 @@ export {
   type AppContext,
   type Logger,
 } from './context.js';
-export { created, fail, ok } from './response.js';
+export { fail, ok } from './response.js';
 export { buildServer } from './server.js';

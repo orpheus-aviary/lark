@@ -12,10 +12,6 @@ export function ok<T>(reply: FastifyReply, data: T, message?: string, total?: nu
   reply.send(body);
 }
 
-export function created<T>(reply: FastifyReply, data: T, message?: string): void {
-  reply.status(201).send({ success: true, data, message } satisfies ApiResponse<T>);
-}
-
 export function fail(
   reply: FastifyReply,
   status: number,

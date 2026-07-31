@@ -46,11 +46,6 @@ export function baseUrl(): string {
   return config.baseUrl();
 }
 
-/** Host-supplied headers for every request (REST + SSE). */
-export function authHeaders(): Record<string, string> {
-  return config.getAuthHeaders();
-}
-
 const RETRY_BACKOFF_MS = 500;
 
 /**

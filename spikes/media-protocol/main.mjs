@@ -23,7 +23,7 @@ const TOKEN_PATH = join(SPIKE_DIR, '.runtime', 'daemon-token');
 const DAEMON_ORIGIN = 'http://127.0.0.1:47190';
 
 /** The single song id the spike serves; the fixture is the same file either way. */
-export const FIXTURE_ID = '9e107d9d-372b-4e39-a3ee-8b2f3d1c4a5b';
+const FIXTURE_ID = '9e107d9d-372b-4e39-a3ee-8b2f3d1c4a5b';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const PASSTHROUGH_HEADERS = [
@@ -62,7 +62,7 @@ function readToken() {
  * no credentials, no port, no query, no fragment, no extra path segments.
  * Returns the song id, or null when anything is off.
  */
-export function songIdFromUrl(rawUrl) {
+function songIdFromUrl(rawUrl) {
   let url;
   try {
     url = new URL(rawUrl);

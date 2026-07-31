@@ -4,7 +4,7 @@ import type { LarkApi } from '../shared/lark-api.js';
 const DAEMON_URL_FLAG = '--daemon-url=';
 
 /** Read the daemon base URL main injected via `webPreferences.additionalArguments`. */
-export function daemonUrlFromArgv(argv: readonly string[]): string | null {
+function daemonUrlFromArgv(argv: readonly string[]): string | null {
   const hit = argv.find((arg) => arg.startsWith(DAEMON_URL_FLAG));
   return hit ? hit.slice(DAEMON_URL_FLAG.length) : null;
 }
