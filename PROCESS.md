@@ -6,10 +6,14 @@
 
 - [x] **M0 脚手架 + 媒体 spike**（2026-07-31）— pnpm workspace、tsconfig.base、Biome、justfile、五包骨架、信封 helper、`GET /status` 端到端、lark-media:// Electron spike（Range/206/seek/CSP/token 轮换）｜子计划：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`
   - spike 结论：**六项判据全过（Electron 43.2.0），不启用签名 URL fallback，主计划 §2.4 维持**；判据 4 标准按实测修订（Chromium multibuffer 保留约 6 条 range 连接，改判「有上界且不随 seek 增长」），M4 移植清单见子计划 §6.3
-- [ ] **M1 core 数据层** — config/paths/logger、schema v1（CHECK/unique index）+ migration runner、device_uuid、songs/playlists CRUD（core 单一写入路径 + 本地字段独立更新）、Go 版 DB 迁移协议（§3.3，DB 级排他 + backup API + 原子交换，真实旧库 fixture 测试）
+- [ ] **M1 core 数据层**（下一个，**先出子计划**）— config/paths/logger、schema v1（CHECK/unique index）+ migration runner、device_uuid、songs/playlists CRUD（core 单一写入路径 + 本地字段独立更新）、Go 版 DB 迁移协议（§3.3，DB 级排他 + backup API + 原子交换，真实旧库 fixture 测试）
+  - M0 遗留入口：`paths.ts` 已落地（`LARK_NEST_DIR` 覆盖 + 单测）；daemon 现用 console logger（`context.ts`），M1 换成 core 的 pino/pino-roll 时是 drop-in
+  - 随 better-sqlite3 一起补 justfile 的 `ensure-node-abi` / `ensure-electron-abi`（占位注释已在 justfile，含 owl 的两条血泪教训），落地时**记录 host Node 与 Electron 两侧的 `process.versions.modules`**
 - [ ] **M2 daemon 基础路由** — 扩展 M0 daemon 骨架（buildServer/信封/status/CORS 已落地）：PID 锁、Bearer 鉴权 + local-token、SSE（role=gui 在线判定 + player 命令 ack）、songs/playlists/audio(Range)/lyrics/player/config(PATCH)/events 路由
+  - `/audio` 三条硬义务（M0 spike 实测，见子计划 §6.2）：尊重 backpressure、按「单曲并存约 6 条 range 流」预算 fd、响应 `close`/`error` 一次性清理；**不要用「按块封顶 206」**（实测把媒体元素打进 `MEDIA_ERR_NETWORK`）
 - [ ] **M3 下载管线 + 链接路由** — LLM client、bilibili、URL 规范化（provider/key）、ffmpeg 封装、歌词三平台（含无 LLM 降级）、队列/进度/取消/原子落盘、resolveSongFile 链接优先 + source_* 回写、recognize-url（预览）/redownload/download 路由
 - [ ] **M4 GUI 基座** — 扩展 M0 GUI 骨架（electron-vite 三段/CSP 已落地）：daemon spawn/确权、单实例、lark-media:// 协议代理（移植 spike 定稿）、Tailwind/shadcn、播放器/列表/歌单/搜索/歌词/快捷键/下载栏（对齐 Go 版）
+  - 移植清单在子计划 §6.3（privileges / URL 校验 / net.fetch 透传头 / CSP / ESM main 不得顶层 await / 401 重试风暴 / daemon 重启后重建播放器）；移植后按 T5 六项矩阵完整回归，**Electron 升级大版本同样必须重跑**
 - [ ] **M5 新特性 + 对应路由** — 链接右键菜单 + 编辑对话框、缓存上限 + LRU + 固定 + /cache 路由、导入导出 + 疑似重复 UI、拖拽 reorder（稀疏 rank）、按需下载、设置页
 - [ ] **M6 CLI** — 扩展 M0 CLI 骨架（@lark/cli status 命令已落地）：双后端（--direct）、全命令、GUI 拉起、skill export
 - [ ] **M7 打包发布 v0.1.0** — electron-builder mac arm64（asar:false）、ffmpeg-static/ffprobe-static 锁版本 + 打包后冒烟测试、FFmpeg 许可交付、ABI recipes、验收清单
