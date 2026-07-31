@@ -17,6 +17,11 @@
     "@types/node": "24.13.3",
     "typescript": "5.9.3"
   },
+  "pnpm": {
+    "overrides": {
+      "vite": "7.3.6"
+    }
+  },
   "engines": {
     "node": ">=22.12",
     "pnpm": ">=10"
