@@ -1,0 +1,43 @@
+/* Bare M0 styling. Tailwind v4 + shadcn/ui land in M4. */
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "PingFang SC", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 3rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.hint {
+  margin: 0;
+  opacity: 0.6;
+}
+
+.status {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  background: rgba(127, 127, 127, 0.12);
+  font-variant-numeric: tabular-nums;
+}
+
+.status.online {
+  color: #1a7f37;
+}
+
+.status.offline {
+  color: #b3261e;
+}

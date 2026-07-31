@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/core" },
+    { "path": "packages/daemon" },
+    { "path": "packages/gui/tsconfig.node.json" },
+    { "path": "packages/gui/tsconfig.web.json" },
+    { "path": "apps/cli" }
+  ]
+}

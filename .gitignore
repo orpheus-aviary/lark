@@ -1,6 +1,21 @@
 node_modules/
+
+# Build output
 dist/
+out/
 build/
+release/
+*.tsbuildinfo
+
+# Spike runtime state / generated fixtures
+spikes/**/fixtures/
+spikes/**/.runtime/
+
+# SQLite
+*.db
+*.db-wal
+*.db-shm
+
 .env
 .env.local
 *.log
