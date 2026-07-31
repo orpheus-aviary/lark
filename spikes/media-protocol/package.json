@@ -1,0 +1,13 @@
+{
+  "name": "@lark/spike-media-protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "M0 spike: validate lark-media:// (registration / Range / 206 / seek / CSP / token rotation) before M4 ports it into the GUI",
+  "scripts": {
+    "test": "node harness.mjs"
+  },
+  "devDependencies": {
+    "electron": "43.2.0"
+  }
+}

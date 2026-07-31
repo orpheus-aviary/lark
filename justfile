@@ -31,7 +31,7 @@ shared-node-free:
     bash scripts/check-shared-node-free.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node-free
+check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node-free spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
@@ -121,6 +121,54 @@ gui-preview: build-gui
 [group('dev')]
 cli *args: build-cli
     node apps/cli/dist/index.js {{args}}
+
+# ─── Media spike (M0 T4/T5) ─────────────────────────────
+#
+# `spikes/media-protocol/` validates lark-media:// before M4 ports it into the
+# GUI. It is kept (not deleted after M0) as the porting reference and as the
+# regression rig for Electron upgrades — hence two anti-rot layers below.
+
+# Real fixture: 320kbps CBR / 30 min, so the throttled stream always has an
+# unbuffered far end. Idempotent; the file is gitignored. Needs system ffmpeg.
+[group('spike')]
+spike-media-fixture:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p spikes/media-protocol/fixtures
+    if [ -f spikes/media-protocol/fixtures/fixture.mp3 ]; then
+        echo "[fixture] already present — skip"
+    else
+        ffmpeg -v error -f lavfi -i "sine=frequency=440:duration=1800" -b:a 320k -ac 2 \
+            spikes/media-protocol/fixtures/fixture.mp3
+        echo "[fixture] generated"
+    fi
+
+# Terminal 1 — the mock daemon (throttled, real fixture). Ctrl-C rotates the
+# token; that is the criterion-6 trigger.
+[group('spike')]
+spike-media-server: spike-media-fixture
+    node spikes/media-protocol/server.mjs
+
+# Terminal 2 — the Electron app. Separate recipe on purpose: restarting the
+# server must not take the app down with it.
+[group('spike')]
+spike-media-app:
+    pnpm --filter @lark/spike-media-protocol exec electron main.mjs
+
+# Fast anti-rot layer — no ffmpeg, no display. Part of `just check`.
+[group('spike')]
+spike-media-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in spikes/media-protocol/*.mjs; do node --check "$f"; done
+    node spikes/media-protocol/harness.mjs
+
+# Full layer — real fixture, throttling, and `electron main.mjs --smoke` against
+# the live server. Run at M0 acceptance, on protocol changes, and on EVERY
+# Electron major upgrade (Range/seek behaviour rides on Chromium).
+[group('spike')]
+spike-media-check: spike-media-fixture
+    node spikes/media-protocol/harness.mjs --full
 
 # ─── Clean ──────────────────────────────────────────────
 

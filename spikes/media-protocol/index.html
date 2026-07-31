@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Criterion 5. Strict from the start; `media-src lark-media:` is the
+         directive under test. No vite here, so this meta IS the single source. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src lark-media:; connect-src http://127.0.0.1:47190; object-src 'none'; base-uri 'none'"
+    />
+    <title>lark-media:// spike</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 1.5rem;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.1rem;
+      }
+      p.hint {
+        margin: 0 0 1rem;
+        color: #666;
+        font-size: 0.85rem;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin: 0.75rem 0;
+      }
+      audio {
+        width: 100%;
+      }
+      pre {
+        height: 18rem;
+        overflow: auto;
+        padding: 0.5rem;
+        border-radius: 0.4rem;
+        background: #f4f4f5;
+        font-size: 0.75rem;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>lark-media:// spike</h1>
+    <p class="hint">
+      对照 <code>just spike-media-server</code> 的日志观察：新 <code>#seq</code> / Range /
+      206 / streams 回落 / gen N+1。
+    </p>
+    <audio id="audio" controls preload="metadata"></audio>
+    <div class="row">
+      <button id="play" type="button">播放 / 暂停</button>
+      <button id="seek-far" type="button">seek 到 90%（未缓冲远端）</button>
+      <button id="burst" type="button">乱序连点 seek ×12</button>
+      <button id="recover" type="button">恢复（load() 后 seek）</button>
+    </div>
+    <pre id="log"></pre>
+    <script src="./renderer.mjs"></script>
+  </body>
+</html>
