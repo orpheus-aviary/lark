@@ -6,6 +6,7 @@
 
 - [x] **M0 脚手架 + 媒体 spike**（2026-07-31）— pnpm workspace、tsconfig.base、Biome、justfile、五包骨架、信封 helper、`GET /status` 端到端、lark-media:// Electron spike（Range/206/seek/CSP/token 轮换）｜子计划：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`
   - spike 结论：**六项判据全过（Electron 43.2.0），不启用签名 URL fallback，主计划 §2.4 维持**；判据 4 标准按实测修订（Chromium multibuffer 保留约 6 条 range 连接，改判「有上界且不随 seek 增长」），M4 移植清单见子计划 §6.3
+  - 用户验收四项全过（2026-07-31）：`curl /status` · `just cli status` · GUI dev/build 两态显示在线且 console 无 CSP/CORS 报错 · spike 演示（播放出声 → 跳 90% 出成比例新 Range → **重启 server 换 token 后免刷新继续 seek，日志见 gen 45 `auth=ok`**）
 - [ ] **M1 core 数据层**（下一个，**先出子计划**）— config/paths/logger、schema v1（CHECK/unique index）+ migration runner、device_uuid、songs/playlists CRUD（core 单一写入路径 + 本地字段独立更新）、Go 版 DB 迁移协议（§3.3，DB 级排他 + backup API + 原子交换，真实旧库 fixture 测试）
   - M0 遗留入口：`paths.ts` 已落地（`LARK_NEST_DIR` 覆盖 + 单测）；daemon 现用 console logger（`context.ts`），M1 换成 core 的 pino/pino-roll 时是 drop-in
   - 随 better-sqlite3 一起补 justfile 的 `ensure-node-abi` / `ensure-electron-abi`（占位注释已在 justfile，含 owl 的两条血泪教训），落地时**记录 host Node 与 Electron 两侧的 `process.versions.modules`**
