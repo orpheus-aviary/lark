@@ -41,12 +41,23 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-await app.whenReady();
-createWindow();
+/**
+ * NOT top-level await: Electron emits `ready` only after the ESM entry module
+ * finishes evaluating, so awaiting `app.whenReady()` at the top level deadlocks
+ * the app — no window, no output, no exit (found by the M0 media spike on
+ * Electron 43.2.0). Inside an async function, evaluation completes and `ready`
+ * fires normally.
+ */
+async function bootstrap(): Promise<void> {
+  await app.whenReady();
+  createWindow();
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+}
+
+void bootstrap();
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
