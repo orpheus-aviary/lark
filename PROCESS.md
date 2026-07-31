@@ -4,13 +4,13 @@
 
 ## v0.1 本地全功能
 
-- [ ] **M0 脚手架 + 媒体 spike** — pnpm workspace、tsconfig.base、Biome、justfile、五包骨架、信封 helper、`GET /status` 端到端、lark-media:// Electron spike（Range/206/seek/CSP/token 轮换）
+- [ ] **M0 脚手架 + 媒体 spike** — pnpm workspace、tsconfig.base、Biome、justfile、五包骨架、信封 helper、`GET /status` 端到端、lark-media:// Electron spike（Range/206/seek/CSP/token 轮换）｜子计划：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`
 - [ ] **M1 core 数据层** — config/paths/logger、schema v1（CHECK/unique index）+ migration runner、device_uuid、songs/playlists CRUD（core 单一写入路径 + 本地字段独立更新）、Go 版 DB 迁移协议（§3.3，DB 级排他 + backup API + 原子交换，真实旧库 fixture 测试）
-- [ ] **M2 daemon 基础路由** — buildServer、PID 锁、Bearer 鉴权、SSE（role=gui 在线判定 + player 命令 ack）、status/songs/playlists/audio(Range)/lyrics/player/config(PATCH)/events
+- [ ] **M2 daemon 基础路由** — 扩展 M0 daemon 骨架（buildServer/信封/status/CORS 已落地）：PID 锁、Bearer 鉴权 + local-token、SSE（role=gui 在线判定 + player 命令 ack）、songs/playlists/audio(Range)/lyrics/player/config(PATCH)/events 路由
 - [ ] **M3 下载管线 + 链接路由** — LLM client、bilibili、URL 规范化（provider/key）、ffmpeg 封装、歌词三平台（含无 LLM 降级）、队列/进度/取消/原子落盘、resolveSongFile 链接优先 + source_* 回写、recognize-url（预览）/redownload/download 路由
-- [ ] **M4 GUI 基座** — electron-vite、daemon spawn、lark-media:// 协议代理、播放器/列表/歌单/搜索/歌词/快捷键/下载栏（对齐 Go 版）
+- [ ] **M4 GUI 基座** — 扩展 M0 GUI 骨架（electron-vite 三段/CSP 已落地）：daemon spawn/确权、单实例、lark-media:// 协议代理（移植 spike 定稿）、Tailwind/shadcn、播放器/列表/歌单/搜索/歌词/快捷键/下载栏（对齐 Go 版）
 - [ ] **M5 新特性 + 对应路由** — 链接右键菜单 + 编辑对话框、缓存上限 + LRU + 固定 + /cache 路由、导入导出 + 疑似重复 UI、拖拽 reorder（稀疏 rank）、按需下载、设置页
-- [ ] **M6 CLI** — 双后端、全命令、GUI 拉起、skill export
+- [ ] **M6 CLI** — 扩展 M0 CLI 骨架（@lark/cli status 命令已落地）：双后端（--direct）、全命令、GUI 拉起、skill export
 - [ ] **M7 打包发布 v0.1.0** — electron-builder mac arm64（asar:false）、ffmpeg-static/ffprobe-static 锁版本 + 打包后冒烟测试、FFmpeg 许可交付、ABI recipes、验收清单
 
 ## 后续
