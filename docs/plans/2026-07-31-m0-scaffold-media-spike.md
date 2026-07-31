@@ -41,6 +41,7 @@
 | M0-6 | 不做 `apps/web` / `@lark/server` 对应物 | 主计划 §0 已排除联网 web UI；owl 的 typecheck-web 分岔不需要 |
 | M0-7 | **transport 重试语义不照抄 owl**：owl `request()` 对任意 method 默认重试 2 次，POST/PUT/DELETE 在「服务端已提交但响应断线」时会重复建歌单/导入/下载。lark 定死：**仅 GET 默认重试（2 次 + 退避），且只重试 fetch 网络层异常（fetch reject/超时）——一旦收到 HTTP 响应，401/5xx/JSON 解析失败一律不重试；其余 method（含 HEAD）默认 0 重试**——HEAD 响应无 body，与照抄的 `res.json()` 信封解析不兼容，未来若需要 HEAD 先给 transport 加无 body 响应路径再放开。写方法要重试必须显式传参且该端点具备幂等键（机制届时定义）。owl 同款隐患记一条跨仓待办 | 防重复写入是线协议层责任，M0 定死后面全部端点受益 |
 | M0-8 | **CLI 命名统一**：包名用内部名 `@lark/cli`（对齐主计划 §2.1 / AGENTS / CLAUDE），bin 名 `lark`；发布名 `@orpheus-aviary/lark-cli` 的改名/publishConfig 机制推迟 M7 发布时定。**依赖方向统一表述**：`cli → shared`（HTTP backend，M0 仅此）`+ core`（`--direct` backend，M6 起用）。分工：`packages/daemon` 的 `./cli` 入口只管 daemon 自身生命周期（M0：`daemon` 前台启动；M2 加 stop）；`apps/cli` 是面向用户/agent 的全功能 CLI，后续代理 daemon 生命周期命令（M6） | 消除本计划首版与主计划/AGENTS 间的名称、方向矛盾 |
+| M0-9 | **vite 用 `pnpm.overrides` 钉在 7.3.6**（2026-07-31 实测补充）：直接依赖精确锁版挡不住传递依赖——vitest 允许 `vite ^6\|\|^7\|\|^8`，一次 install 就把 hoisted 的 vite 抬到 8.2.0，而 electron-vite 5 的 peer 只到 `^7`。后果是**静默的**：build 仍然「成功」，但 `externalizeDepsPlugin` 失效，`electron` 的 npm shim 被打进 main bundle，preload 产物从 `index.mjs` 变成 `index.js`，运行时才炸在 `getElectronPath`。凡是有 peer 上限的构建工具，其 peer 必须 override 钉死，不能只锁直接依赖 | 精确锁版策略在 hoisted + 传递范围下的漏洞 |
 
 ## 3. 任务分解
 

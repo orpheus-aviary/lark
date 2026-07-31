@@ -8,9 +8,30 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike 已完成，当前可跑通 daemon / CLI / GUI 的 `GET /status` 垂直链路。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
+
+## 开发
+
+前置：Node ≥ 22.12（本仓锁 `.node-version` = 24.13.0）、pnpm ≥ 10、`just`、`rg`；`ffmpeg` 仅完整 spike 校验层需要。
+
+```bash
+pnpm install
+
+just dev-daemon      # 前台起 daemon（127.0.0.1:47100）
+curl http://127.0.0.1:47100/status
+
+just cli status      # 经 HTTP 查 daemon（--json 输出原始信封）
+just dev             # 起 GUI（M0 不自动拉 daemon，需先开上面那个）
+just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一方式
+
+just check           # lint + tsc -b + 依赖方向守卫 + spike fast 层
+just test            # 全部 vitest
+```
+
+媒体协议 spike（M4 移植参照）：`just spike-media-server` / `just spike-media-app` 双终端手动跑，
+`just spike-media-check` 跑完整校验层。结论见 `docs/plans/2026-07-31-m0-scaffold-media-spike.md` §6。
 
 ## 技术栈（预定）
 
