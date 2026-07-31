@@ -136,8 +136,8 @@ CLI --direct ─────▶ core（同一写入路径；仅限曲库/歌单�
 - **token 模型对齐 owl（R21/R29）**：token 由 **daemon** 内存生成、成功监听后**原子发布** 0600 文件（owl `local-token.ts` 模式——daemon 可独立于 GUI 运行，token 归 daemon 所有）；Electron main 只把文件路径传给 preload；preload 的 `getDaemonToken()` 与 main 的媒体代理**每次调用都重新读文件**，天然适应 token 轮换（daemon 重启换 token）。renderer 经 `configureTransport` 把 token 注入 Authorization header，HTTP 与 fetch-based SSE 都走这条路。接受可信 renderer 持有本地 daemon token；硬约束是 token **不进 URL、不进 DOM、不进日志（pino redact）、不进媒体 src**。
 - renderer 的 `<audio>` 指向 `lark-media://song/<uuid>`（媒体 src 无法带 header，也不许带 token）；Electron main 用 `protocol.handle` 将其代理为对 daemon `GET /audio/:id` 的请求：main 自行读 token 文件附 `Authorization`、透传 `Range` 请求头与 `206/Content-Range` 响应，流式转发。
 - daemon 侧 `GET /audio/:id` 支持 Range（seek 必需），响应流式读文件，并更新 `last_accessed_at`。
-- **M0 spike（R21）**：最小 Electron 工程先行验证——自定义协议注册、Range 透传、206、连续 seek、CSP 兼容、token 轮换（daemon 重启换 token 后媒体照常）。spike 不通过则启用 fallback 并回改本节。
-- fallback：带作用域、短时、可刷新的签名媒体 URL + pino 脱敏。
+- **M0 spike（R21）：已验证 2026-07-31（Electron 43.2.0），六项判据全过，本节维持，fallback 未启用。** 实测记录、定稿参数与 M4 移植清单见 `2026-07-31-m0-scaffold-media-spike.md` §6。定稿要点：privileges = `{ standard, stream, supportFetchAPI }`；`net.fetch` 回程必须透传 `Content-Length` 与 `Accept-Ranges`（漏则总时长/可 seek 判定错）；判据 4 的标准修订为「并发流有上界且不随 seek 次数增长」（Chromium multibuffer 会保留约 6 条 range 连接），因此 `/audio` 必须尊重 backpressure、按多流预算 fd、在 `close`/`error` 上一次性清理。
+- fallback（未启用，留档）：带作用域、短时、可刷新的签名媒体 URL + pino 脱敏。
 - CLI/agent 不拉音频流（播放发生在 GUI）。
 
 ## 3. 数据模型（schema v1）

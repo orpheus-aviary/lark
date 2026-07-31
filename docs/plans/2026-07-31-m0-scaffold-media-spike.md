@@ -201,6 +201,48 @@ spikes/media-protocol/
 | Electron 大版本节奏快（约 8 周一版），M0 选定版本到 M7 发布时可能滑出支持窗口 | M7 发布清单加「复查 Electron 支持窗口」项；**升级 Electron 大版本必重跑 T5 六项完整矩阵 + `just spike-media-check`**——Range 透传与连续 seek 正是 Chromium 升级最可能影响的部分，不允许抽测 |
 | 依赖精确锁版后与安全更新脱节 | 升级一律独立 chore 任务走 lockfile diff review，不混进功能里程碑 |
 
-## 6. spike 结论（执行后回填）
+## 6. spike 结论（2026-07-31 执行，Electron 43.2.0 / Chromium）
 
-> 待 T5 完成后填写：六项判据实测结果 · 归因记录（如有）· privileges 定稿 · CSP 定稿字符串 · URL 校验实测行为 · net.fetch 透传注意点 · 是否触发 fallback。
+**判定：六项判据全过（判据 4 的「回落至 1」按实测修订为「有上界且不随 seek 次数增长」，理由见下），不触发签名 URL fallback，§2.4 维持。**
+
+执行方式：`just spike-media-check`（HTTP 契约 + `electron main.mjs --smoke`）跑自动层；交互判据（2/4/6）用 CDP（`--remote-debugging-port` + `Runtime.evaluate` 点按钮）驱动真实窗口，对照 server 日志判读——比手点更可重复，用户验收仍按 T7 ④ 手动演示一遍。
+
+### 6.1 六项判据实测
+
+| # | 判据 | 实测证据 | 结论 |
+|---|---|---|---|
+| 1 | 协议注册 | `loadedmetadata @ 0.0s / 1800.0s`（30 分钟 fixture 总时长正确 → `Content-Length`/`Accept-Ranges` 透传有效）→ `canplay` → 播放 `currentTime` 推进；首个请求 `Range=bytes=0- → 206`，`Content-Type: audio/mpeg` | ✅ |
+| 2 | Range 透传 | seek 到 90% 产生**新 `#seq`**：`[gen 7] #3 Range=bytes=64782336-`，64782336 / 72002917 = 89.97%，与位置成比例；限速保证该位置未缓冲，排除「缓冲区内 seek 不发请求」的假通过 | ✅ |
+| 3 | 206 / 416 | 全部 seek 走 206；harness 断言 `Content-Range: bytes 100-1123/<size>` 精确匹配、越界与畸形 Range 均 416 + `bytes */<size>` | ✅ |
+| 4 | 连续 seek | 12 次乱序连点：无卡死、无白屏、`audio.error === null`，停在最后位置继续播；**并发流上界 6，之后再点 36 次 seek 产生 0 个新请求、计数不再增长**；窗口关闭后计数归 0 | ✅（标准修订，见 6.2） |
+| 5 | CSP | 严格 CSP + 外置 `renderer.mjs` 下 1–4 全部通过，console 无 violation；token 不在 URL/DOM/媒体 src（src 只有 `lark-media://song/<uuid>`，`Authorization` 由 main 附加）。**正向反证**：renderer 里 `fetch('lark-media://…')` 被 `connect-src` 拒绝并打印 violation——说明该 CSP 确实在生效，且 `media-src` 只覆盖媒体元素、不覆盖 fetch | ✅ |
+| 6 | token 轮换 | 播放中 Ctrl-C 重启 server（gen 9 → gen 10，新 token），**不刷新 renderer**直接 seek：`[gen 10] #1 Range=bytes=64782336- → 206 auth=ok`，`seeked → canplay → playing`，未进 error 态、未用 `load()`。**反向验证**：`LARK_SPIKE_CACHE_TOKEN=1` 重启 app 后轮换 → 全部 `401 auth=fail` | ✅ |
+
+自动层同时锁死：`/healthz` 在 token 落盘前 503、落盘后 200；token 文件权限恰为 0600；竞争实例 listen 失败非零退出且不动 token/generation；SIGINT 后 token 文件清理；轮换后旧 token 立即 401。
+
+### 6.2 判据 4 的标准修订（先归因，后结论）
+
+现象：连点 seek 后 `activeAudioResponses` 停在 6 且不回落到 1。走归因阶梯：
+
+- ① **限速放大**（主因）：spike 恒定 256KB/s，被 Chromium 放弃的响应要几分钟才写完；生产 `/audio` 直读本地盘，放弃的响应毫秒级写完即关闭。
+- ③ **spike 实现 bug**（已修）：首版限速只按时间节流、不看 `res.write()` 的 flush 回调，被放弃的连接会把没人读的字节堆在内存里，也永远发现不了对端已走。改为「同时等速率定时器与 flush 回调」后内存有界。
+- ⑤ **Chromium multibuffer 语义**（真正的上界来源）：媒体元素会为同一 URL 保留多条 range 读取连接，且不急于关闭。修 ③ 之后计数仍停在 6，但**再点 36 次 seek 一个新请求都不产生、计数不再涨**——是有上界的保留，不是泄漏。
+
+结论：判据 4 的原始措辞「回落至 1」是对 Chromium 的错误预期；实测语义（无卡死/无白屏/可继续播 + 并发流有上界不随 seek 增长 + 元素销毁后归零）已满足，判定通过。**M2 的 `/audio` 因此必须**：(a) 尊重 backpressure，(b) 按「单曲可能并存约 6 条流」预算 fd，(c) 在响应 `close`/`error` 上做一次性清理（本 spike 的 guard 可直接移植）。
+
+### 6.3 定稿要点（M4 移植清单）
+
+1. **privileges 定稿**：`{ scheme: 'lark-media', privileges: { standard: true, stream: true, supportFetchAPI: true } }`，必须在 `app.whenReady()` 之前注册。
+2. **URL 校验实测**：`standard: true` 下 `lark-media://song/<uuid>` 解析为 `hostname === 'song'`、`pathname === '/<uuid>'`（host 会被规范化为小写，其余不变）。校验规则按 T4 落地即可：host 字面量 `song` + pathname 恰为一段小写 v4 UUID + `username`/`password`/`port`/`search`/`hash` 全空，任一不符 400。实测 `lark-media://song/not-a-uuid` → 400。
+3. **`net.fetch` 透传**：`net.fetch(url, { headers, bypassCustomProtocolHandlers: true })`，回程 `new Response(upstream.body, { status, headers })` 只复制 `content-type` / `content-length` / `content-range` / `accept-ranges` / `cache-control`——`Content-Length` 与 `Accept-Ranges` 漏一个，总时长与可 seek 判定就错。
+4. **CSP 定稿**（生产，已在 gui 骨架落地）：
+   `default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src lark-media:; object-src 'none'; base-uri 'none'; script-src 'self'; connect-src http://127.0.0.1:47100`
+   dev 额外放宽两处：`connect-src` 加 `ws://localhost:* ws://127.0.0.1:*`（HMR），`script-src` 加 `'unsafe-inline'`——`@vitejs/plugin-react` 的 Fast Refresh preamble 是内联 script，这是计划首版没预料到的必要偏差。注入插件必须 `order: 'post'` + `head-prepend`：plugin-react 用 `pre` 钩子 head-prepend 那段 preamble，跑在它之前反而会被压到 preamble 下面，meta CSP 只约束其后的内容。若将来 renderer 需要对 `lark-media:` 用 `fetch()`（如预取），得把它加进 `connect-src`，`media-src` 不管 fetch。
+5. **Electron ESM main 不能顶层 await `app.whenReady()`**：Electron 只在入口模块求值完成后才发 `ready`，顶层 await 会死锁（无窗口、无输出、无退出，实测 43.2.0）。包一层 `async function bootstrap()` 即可。**已因此修掉 gui 骨架里同样的写法**。
+6. **`openDevTools({ mode: 'detach' })` 会让页面的 CDP target 报告空文档**，任何脚本化验收都要用 `mode: 'bottom'`（spike 已改）。
+7. **媒体路径上的 401 会引发 Chromium 重试风暴**：反向验证里一次 seek 打出 200+ 个 401（每次偏移 +12 字节）。正常路径不会 401（每请求重读 token），但 M2 的 `/audio` 401 分支必须廉价（不读文件、不打全量日志），M4 应在媒体 error 上停住播放器而不是任其重试。
+8. **已知限制（不阻断 M0）**：在「多条被遗弃的限速流仍挂着、且期间点过 `load()`」的病态状态下重启 daemon，renderer 的媒体管线会卡死——此后新建 `<audio>`、换 uuid、重设 src 都不再触达 protocol handler（main 侧 handler 根本没被调用），重启 app 才恢复。正常状态（1–2 条在途流）重启后免刷新 seek 正常（判据 6）。归因为 ①+⑤ 的组合而非 `protocol.handle` 缺陷——签名 URL 方案跑在同一个 HTMLMediaElement + multibuffer 上，与鉴权方案无关，故不构成 fallback 理由。**M4 兜底**：daemon 重启（GUI 侧本就监控 spawn 的 daemon）后主动重建播放器组件；必要时 `location.reload()`。
+
+### 6.4 fallback 判定
+
+**不启用**签名 URL fallback。主计划 §2.4 与 CLAUDE.md「注意事项」无需回改，仅在 §2.4 标注已验证日期与版本。
