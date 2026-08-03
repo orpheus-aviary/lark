@@ -5,3 +5,7 @@
 export * as paths from './paths.js';
 export * from './config/index.js';
 export * from './logger/index.js';
+export * from './errors.js';
+export * from './db/index.js';
+export { LATEST_KNOWN_VERSION } from './db/migrate.js';
+export * from './db/lww.js';
