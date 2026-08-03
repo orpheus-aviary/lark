@@ -9,3 +9,7 @@ export * from './errors.js';
 export * from './db/index.js';
 export { LATEST_KNOWN_VERSION } from './db/migrate.js';
 export * from './db/lww.js';
+export * from './library/source.js';
+export * from './library/rank.js';
+export * from './library/songs.js';
+export * from './library/playlists.js';
