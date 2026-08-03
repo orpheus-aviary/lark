@@ -187,7 +187,7 @@
 
 ## 7. 实施记录（落地时回填）
 
-- [ ] 版本定案：better-sqlite3 = ？、drizzle-orm = ？、pino / pino-roll / smol-toml / @types/better-sqlite3 / **@electron/rebuild** = ？（含核实依据：官方支持矩阵 / prebuilt 覆盖）
-- [x] `process.versions.modules`：host Node 24.13.0 = **137**、Electron 43.2.0 = **148**（2026-08-03 评审提供；T1 落地时以两侧探测输出复核并写进 justfile 注释）
-- [ ] 副本迁移演示结果（对账数字、备份文件名、幂等重跑输出）
-- [ ] 实施中推翻/修订的决策（若有）
+- [x] 版本定案（2026-08-03 T1）：better-sqlite3 = **12.11.1**（engines 显式列 `20.x||22.x||…||24.x||25.x||26.x`；13.0.x 于 2026-07-21 才发布、两周内连出两个 patch，不追新首发）、drizzle-orm = **0.38.4**（peer `better-sqlite3 >=7` 满足，无需随动升级）、pino = **9.14.0**、pino-roll = **2.2.0**、smol-toml = **1.6.1**（owl 实际解析值起步，纯 JS 与 Node 24 无兼容问题）、@types/better-sqlite3 = **9.6.0**（DT 最新）、@electron/rebuild = **4.2.0**（npm latest）
+- [x] `process.versions.modules`：host Node 24.13.0 = **137**、Electron 43.2.0 = **148**（2026-08-03 T1 以双侧真值探测复核通过：`ensure-electron-abi` rebuild 后 Electron 探测输出 148，`ensure-node-abi` 切回后 Node 探测输出 137；已写进 justfile 注释）
+- [x] 副本迁移演示结果（2026-08-03，真实 nest 副本于 /tmp 临时目录，真库未动）：对账 **20 songs / 2 playlists / 4 memberships**（源 20/3/24，all 行与其成员丢弃）；备份 `songs.db.bak-go-2026-08-03T06-19-16-001Z`（可开、行数与源一致、user_version=0）；幂等重跑输出 `already migrated — songs=20 playlists=2 memberships=4`；sqlite3 抽查：`user_version=1`、每歌单 rank 严格递增（violations=0）、`file_origin` 全 `imported`、`device_id` 全 NULL、`sync_changes` 空、实库样本 `2026-02-23T13:17:52+08:00` → `1771823872000`（= UTC 05:17:52，偏移换算正确）；副本里的陈旧 `daemon.pid` 走活性判定被清理后继续。config 演示（同副本）：0644 → 0600 收紧、Go 存量三字段齐全 + `api_format` 缺失 → 解析出 `'openai'` 兜底且三字段保持本地值、Public 投影五节无 api_key / 无未知节。daemon logger 演示：临时 nest 起 daemon → `logs/lark.log` 出现结构化 pino 行、终端保留一行 listen 提示
+- [x] 实施中推翻/修订的决策：无推翻。三处计划未尽述的落地补充——① 错误类在清单之外新增 `InvalidSourceError`（source 不变量违例专用）与 `MigrationResidueError`（M1-10 fail-closed 残留状态专用），属清单「等」的范围；② migrate-go 取源库排他在 owl 的「真实读触发」之上追加一次**同值写升级**（`BEGIN IMMEDIATE` + `PRAGMA user_version=0` + `COMMIT`）——纯读在外部 `BEGIN IMMEDIATE` 写事务（RESERVED）在场时照样通过、也不会真正取得 EXCLUSIVE 锁，同值头页写既拿到内核级排他又不改变库语义（配套测试 T5.6）；③ `migrateFromGoDb` 增加 `httpProbe` 选项（默认开启）——47020 探测是机器全局的，测试跑在临时目录时若真 Go daemon 在线会被误拒，测试一律关闭该探测、pid 文件探测保持（从 dbPath 派生，天然隔离）

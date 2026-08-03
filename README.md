@@ -8,7 +8,7 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike 已完成，当前可跑通 daemon / CLI / GUI 的 `GET /status` 垂直链路。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）已完成；下一步 M2 daemon 基础路由。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
@@ -28,7 +28,13 @@ just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一
 
 just check           # lint + tsc -b + 依赖方向守卫 + spike fast 层
 just test            # 全部 vitest
+
+just migrate-go      # 一次性 Go songs.db 迁移（交互 y/N；先备份，迁移后 Go 版无法再打开库）
 ```
+
+Go 版曲库迁移：`just migrate-go` 会尊重 `LARK_NEST_DIR`——M1 验收全部在**副本**上做
+（复制真实 nest 到临时目录再跑）。真实库的正式迁移时机由用户在 GUI 可用后自行决定；
+迁移前请先退出 Go 版 lark。
 
 媒体协议 spike（M4 移植参照）：`just spike-media-server` / `just spike-media-app` 双终端手动跑，
 `just spike-media-check` 跑完整校验层。结论见 `docs/plans/2026-07-31-m0-scaffold-media-spike.md` §6。
