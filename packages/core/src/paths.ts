@@ -62,3 +62,13 @@ export function larkLogPath(): string {
 export function songsDir(): string {
   return join(larkDir(), 'songs');
 }
+
+/** Trash staging dir for deleteSong's two-phase delete (R22): `lark/trash/` */
+export function trashDir(): string {
+  return join(larkDir(), 'trash');
+}
+
+/** Aviary shared config, the LLM fallback source: `aviary/aviary_config.toml` */
+export function aviaryConfigPath(): string {
+  return join(nestDir(), 'aviary', 'aviary_config.toml');
+}

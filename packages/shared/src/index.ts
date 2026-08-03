@@ -4,5 +4,6 @@
 // compile against the same definitions.
 
 export * from './types.js';
+export * from './config-types.js';
 export * from './transport.js';
 export * from './api-paths.js';

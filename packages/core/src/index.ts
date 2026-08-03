@@ -3,3 +3,4 @@
 // core directly (enforced by the core-no-daemon-electron guard).
 
 export * as paths from './paths.js';
+export * from './config/index.js';
