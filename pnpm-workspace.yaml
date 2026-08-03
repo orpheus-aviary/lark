@@ -2,8 +2,8 @@ packages:
   - "packages/*"
   - "apps/*"
   - "spikes/*"
-# better-sqlite3 joins this list in M1, together with the ABI recipes.
 onlyBuiltDependencies:
   - "@biomejs/biome"
+  - better-sqlite3
   - electron
   - esbuild

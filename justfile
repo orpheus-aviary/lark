@@ -37,7 +37,7 @@ check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node
 # ─── Test ───────────────────────────────────────────────
 
 [group('test')]
-test:
+test: ensure-node-abi
     pnpm run test
 
 [group('test')]
@@ -45,11 +45,11 @@ test-shared:
     pnpm --filter @lark/shared run test
 
 [group('test')]
-test-core:
+test-core: ensure-node-abi
     pnpm --filter @lark/core run test
 
 [group('test')]
-test-daemon:
+test-daemon: ensure-node-abi
     pnpm --filter @lark/daemon run test
 
 [group('test')]
@@ -82,20 +82,83 @@ build-gui: build-shared
 build-cli: build-shared
     pnpm --filter @lark/cli run build
 
-# ─── ABI toggling (M1) ──────────────────────────────────
+# ─── ABI toggling (M1-13) ───────────────────────────────
 #
-# better-sqlite3 ships one compiled .node whose ABI must match the runtime that
-# loads it, so switching between `just dev` (Electron) and `just test` (Node)
-# needs a rebuild. `ensure-node-abi` / `ensure-electron-abi` land here in M1
-# together with better-sqlite3. Two lessons from owl to carry over:
-#   - rebuild with `pnpm run build-release` (force node-gyp from source), NOT
-#     `pnpm run install` — the latter grabs a prebuilt for npm's bundled Node
-#     and silently re-breaks the local Node ABI on every `pnpm install`;
-#   - under node-linker=hoisted there is no `.pnpm/better-sqlite3@*` directory,
-#     so the source lookup needs the top-level `node_modules/better-sqlite3`
-#     fallback.
-# Record BOTH `process.versions.modules` values when it lands (host Node and
-# Electron) — copying owl's 137/132 pair would be wrong for lark's versions.
+# better-sqlite3 ships one compiled .node whose NODE_MODULE_VERSION must match
+# the runtime that loads it — host Node 24.13.0 = modules 137, Electron 43.2.0
+# = modules 148 — so switching between `just dev` (Electron) and `just test`
+# (Node) needs a rebuild.
+#
+# Both probes instantiate a real Database: merely require()'ing the JS wrapper
+# does NOT load the .node binding, so a looser probe would always pass. Each
+# side probes truth on disk in its TARGET runtime (owl's "Node load failed →
+# assume Electron works" shortcut mistakes a corrupt/missing binding for an
+# Electron-ABI one), and every rebuild re-verifies with the same probe — a
+# silent rebuild failure is an error, not a skip.
+
+# Guarantee the current better-sqlite3 binding is Node-loadable. Prepended to
+# every test / daemon / migrate recipe. No-op (~200ms) when already on Node ABI.
+[private]
+ensure-node-abi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    probe() { node -e "const D = require('better-sqlite3'); new D(':memory:').close(); console.log(process.versions.modules);" 2>/dev/null; }
+    if v=$(probe); then
+        echo "[abi] better-sqlite3 on Node ABI (modules=$v) — skip"
+        exit 0
+    fi
+    echo "[abi] rebuilding better-sqlite3 for Node ABI..."
+    # build-release forces node-gyp from source. Plain `pnpm run install` runs
+    # `prebuild-install || node-gyp rebuild`, and the prebuilt it grabs targets
+    # npm's bundled Node — silently re-breaking the host Node ABI on every
+    # `pnpm install` (owl hit this 4x in one session).
+    SRC_DIR=$(ls -d node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3 2>/dev/null | head -1 || true)
+    [ -z "$SRC_DIR" ] && SRC_DIR=node_modules/better-sqlite3   # node-linker=hoisted: no .pnpm dir
+    (cd "$SRC_DIR" && pnpm run build-release)
+    # Mirror to the hoisted top-level copy when the build happened elsewhere.
+    if [ "$SRC_DIR" != node_modules/better-sqlite3 ] && [ -f "$SRC_DIR/build/Release/better_sqlite3.node" ]; then
+        cp -p "$SRC_DIR/build/Release/better_sqlite3.node" node_modules/better-sqlite3/build/Release/better_sqlite3.node
+    fi
+    v=$(probe) || { echo "[abi] ERROR: rebuild finished but Node still cannot load better-sqlite3" >&2; exit 1; }
+    echo "[abi] rebuilt for Node ABI (modules=$v)"
+
+# Guarantee the current better-sqlite3 binding is Electron-loadable. Lands in
+# M1 but is only wired into recipes in M4 — no Electron entry point loads
+# better-sqlite3 before then.
+[private]
+ensure-electron-abi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    probe() { ELECTRON_RUN_AS_NODE=1 pnpm exec electron -e "const D = require('better-sqlite3'); new D(':memory:').close(); console.log(process.versions.modules);" 2>/dev/null; }
+    if v=$(probe); then
+        echo "[abi] better-sqlite3 on Electron ABI (modules=$v) — skip"
+        exit 0
+    fi
+    echo "[abi] rebuilding better-sqlite3 for Electron ABI..."
+    # Fixed command contract (M1-13): run from repo root. GUI does not depend on
+    # core, so without --module-dir/--which-module electron-rebuild never finds
+    # the hoisted top-level better-sqlite3; --version pins Electron explicitly
+    # instead of probing; --build-from-source keeps the no-prebuilt principle.
+    pnpm exec electron-rebuild --module-dir . --which-module better-sqlite3 --version 43.2.0 --build-from-source
+    # macOS >=15 refuses to load freshly built unsigned .node files inside
+    # Electron ("Code Signature Invalid" SIGKILL) — ad-hoc sign them + the app.
+    if [[ "$(uname)" == "Darwin" ]]; then
+        find node_modules -name "*.node" -type f -print0 | xargs -0 -n1 codesign --force --sign - 2>/dev/null || true
+        if [[ -d node_modules/electron/dist/Electron.app ]]; then
+            codesign --force --deep --sign - node_modules/electron/dist/Electron.app 2>/dev/null || true
+        fi
+    fi
+    v=$(probe) || { echo "[abi] ERROR: rebuild finished but Electron still cannot load better-sqlite3" >&2; exit 1; }
+    echo "[abi] rebuilt for Electron ABI (modules=$v)"
+
+# ─── Migration (M1) ─────────────────────────────────────
+
+# One-shot Go songs.db migration. Interactive y/N. M1 never migrates the real
+# library — point LARK_NEST_DIR at a copied nest for the acceptance run; the
+# real migration date is the user's call once the GUI is usable.
+[group('migration')]
+migrate-go: ensure-node-abi build-core
+    node packages/core/scripts/migrate-go.mjs
 
 # ─── Dev ────────────────────────────────────────────────
 
@@ -106,7 +169,7 @@ dev: build-shared build-core build-daemon
 
 # Run the daemon in the foreground on 127.0.0.1:47100.
 [group('dev')]
-dev-daemon: build-shared build-core build-daemon
+dev-daemon: ensure-node-abi build-shared build-core build-daemon
     node packages/daemon/dist/cli.js daemon
 
 # Launch the BUILT renderer through Electron — the only way to observe the
