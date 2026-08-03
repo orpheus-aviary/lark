@@ -4,3 +4,4 @@
 
 export * as paths from './paths.js';
 export * from './config/index.js';
+export * from './logger/index.js';
