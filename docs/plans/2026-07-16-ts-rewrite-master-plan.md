@@ -62,7 +62,7 @@
 |---|---|
 | R18 | **身份域拆分**（owl `0006_device_id_split` 同款教训）：`local_metadata.device_uuid` = 安装实例本地身份；实体 `device_id` 改为 **nullable，仅存 skybridge 注册 ID**（注册前一律 NULL；v0.2 注册后先回填本机既有实体、再生成 create-op）。**本地字段（pinned / last_accessed_at / file_origin）更新走独立路径，不得触碰 updated_at / device_id / lww_counter** |
 | R19 | `playlist_songs` 补 `lww_counter`（它是未来 LWW 同步实体）；`created_at` 明确为**同步的不可变字段**（虚拟 all 跨设备顺序一致的前提） |
-| R20 | 迁移升级为 **DB 级排他**：独立 `.migrate.lock`（O_EXCL）+ 源库 `locking_mode=EXCLUSIVE` + WAL checkpoint 与 `-wal`/`-shm` 处理 + **SQLite backup API** 备份 + swap 失败原位恢复 + `integrity_check` 与预期 schema 比对（对齐 owl `migrate.ts`） |
+| R20 | 迁移升级为 **DB 级排他**：独立 `.migrate.lock`（O_EXCL；**锁机制后经 M1-10 修订为 SQLite `BEGIN EXCLUSIVE` advisory lock**，见 m1 子计划）+ 源库 `locking_mode=EXCLUSIVE` + WAL checkpoint 与 `-wal`/`-shm` 处理 + **SQLite backup API** 备份 + swap 失败原位恢复 + `integrity_check` 与预期 schema 比对（对齐 owl `migrate.ts`） |
 | R21 | **token 模型对齐 owl**：preload `getDaemonToken()` → renderer 持 token 走 HTTP/SSE（接受可信 renderer 持本地 token）；约束改为 token **不进 URL、DOM、日志、媒体 src**。**M0 加 Electron spike**：验证 `lark-media://` 的 Range 透传/206/连续 seek/CSP/token 轮换，不通过则启用签名 URL fallback 并回改计划 |
 | R22 | 原子文件操作扩展到**全部写路径**：本地导入（临时文件→校验→rename→DB 提交）、删除歌曲（目录 rename 进 trash → DB 提交 → 异步删除，DB 失败恢复）、歌词写入（临时文件 + rename） |
 | R23 | schema 级不变量：`CHECK(file_origin IN …)`、`CHECK(pinned IN (0,1))`、provider/key **同空同有** CHECK、`(source_provider, source_key)` **partial unique index**（key 即身份，并发防重）；列表读取一律 `ORDER BY rank, song_id` |
@@ -214,7 +214,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 
 已实测旧库：`user_version=0`，20 首歌 / 3 歌单 / 24 成员关系，无孤儿/重复/非法时间戳，DELETE journal 模式，数据可迁移。协议对齐 owl `migrate.ts` 的锁 + checkpoint + backup + swap-rollback 流程：
 
-1. **迁移锁**：独立 `.migrate.lock`（`O_EXCL` 创建、写入 pid、陈旧锁按进程活性回收），与 daemon PID 锁分离；两个迁移命令并发时后者直接失败。
+1. **迁移锁**：独立 `.migrate.lock`（`O_EXCL` 创建、写入 pid、陈旧锁按进程活性回收），与 daemon PID 锁分离；两个迁移命令并发时后者直接失败。**（M1 三轮评审修订：机制改为常驻 SQLite 锁库上 `BEGIN EXCLUSIVE` 的内核 advisory lock——O_EXCL + pid 的陈旧锁回收存在 compare-and-delete 竞态；互斥语义不变、崩溃由内核自动释放，锁文件永不删除。见 m1 子计划 M1-10）**
 2. **预检与 DB 级排他**：旧 Go daemon 探活（旧 `daemon.pid` + 47020 `/status`）作为友好提示先行拒绝；随后以 **`locking_mode=EXCLUSIVE` 打开旧库**取得数据库级独占——覆盖「旧 daemon 已开库但尚未写 pid/监听端口」的窗口，也挡外部 SQLite 工具；若旧库为 WAL 先 `wal_checkpoint(TRUNCATE)` 并确认 `-wal`/`-shm` 清空（实测为 DELETE journal，此步幂等）；`PRAGMA integrity_check` + 预期表/列结构比对（songs/playlists/playlist_songs），不符即中止。
 3. **备份**：用 **SQLite backup API**（一致性快照，非普通文件复制）→ `songs.db.bak-go-<ISO时间戳>`（不覆盖既有备份）。
 4. **临时库**：新建 `songs.db.migrating` 按 v1 schema 建表（建表时 stamp user_version），从旧库只读搬数据：
