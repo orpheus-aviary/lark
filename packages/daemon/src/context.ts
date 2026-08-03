@@ -7,8 +7,9 @@ export const DAEMON_VERSION = '0.1.0';
 export const DAEMON_HOST = '127.0.0.1';
 
 /**
- * Structured logger, shaped like pino's `(fields, msg)` call signature so M1 can
- * drop in the real `@lark/core` pino/pino-roll logger without touching callers.
+ * Structured logger, shaped like pino's `(fields, msg)` call signature — the
+ * daemon subcommand injects the real `@lark/core` pino/pino-roll file logger
+ * (cli.ts, M1-15); pino's Logger satisfies this structurally.
  */
 export interface Logger {
   info(fields: Record<string, unknown>, msg: string): void;
@@ -25,7 +26,7 @@ export interface AppContext {
   logger: Logger;
 }
 
-/** Console-backed logger. Replaced by the core logger in M1. */
+/** Console-backed logger — dev default and test-injection stand-in (no file IO). */
 export function createConsoleLogger(): Logger {
   const emit = (level: string, fields: Record<string, unknown>, msg: string): void => {
     const line = JSON.stringify({ level, time: new Date().toISOString(), msg, ...fields });

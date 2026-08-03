@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createLogger, loadConfig, paths } from '@lark/core';
 import { Command } from 'commander';
 import { DAEMON_VERSION, createContext } from './context.js';
 import { buildServer } from './server.js';
@@ -8,15 +9,27 @@ import { buildServer } from './server.js';
  * Start the daemon in the foreground. M2 adds the PID lock, the local-token
  * publish and graceful shutdown; M0 is a bare listen so the GUI/CLI link can be
  * exercised end to end.
+ *
+ * Logging (M1-15): the daemon subcommand writes structured pino lines to
+ * `lark/logs/lark.log` via the core file logger (rotation + secret redaction).
+ * The terminal still gets one plain listen line — pino going to a file must
+ * not leave the foreground process mute.
  */
 async function startDaemon(): Promise<void> {
-  const ctx = createContext();
+  const config = loadConfig();
+  const logFilePath = paths.larkLogPath();
+  const logger = createLogger({ filePath: logFilePath, config: config.log, name: 'daemon' });
+  const ctx = createContext({ logger });
   const app = buildServer(ctx);
   try {
     await app.listen({ host: ctx.config.host, port: ctx.config.port });
     ctx.logger.info({ host: ctx.config.host, port: ctx.config.port }, 'daemon listening');
+    console.log(
+      `lark daemon listening on http://${ctx.config.host}:${ctx.config.port} (logs: ${logFilePath})`,
+    );
   } catch (err) {
     ctx.logger.error({ err }, 'daemon failed to start');
+    console.error(`lark daemon failed to start: ${err instanceof Error ? err.message : err}`);
     process.exit(1);
   }
 
