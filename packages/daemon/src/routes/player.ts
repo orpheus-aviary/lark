@@ -22,6 +22,9 @@ import { randomUUID } from 'node:crypto';
 import { getSong } from '@lark/core';
 import {
   API_PATHS,
+  type AckRequest,
+  type GuiRegisterData,
+  type GuiRegisterRequest,
   PLAYER_COMMANDS,
   PLAY_MODES,
   type PlayMode,
@@ -176,10 +179,15 @@ export function registerPlayerRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   app.post(API_PATHS.guiRegister, async (req, reply) => {
     const body = objectBody(req.body, ['pid', 'version']);
-    const pid = requiredSafeInteger(body, 'pid', { min: 2 });
-    const version = requiredString(body, 'version', { maxLength: VERSION_MAX });
+    const request: GuiRegisterRequest = {
+      pid: requiredSafeInteger(body, 'pid', { min: 2 }),
+      version: requiredString(body, 'version', { maxLength: VERSION_MAX }),
+    };
     try {
-      return ok(reply, { gui_instance_id: ctx.guiChannel.register(pid, version) });
+      const data: GuiRegisterData = {
+        gui_instance_id: ctx.guiChannel.register(request.pid, request.version),
+      };
+      return ok(reply, data);
     } catch (err) {
       if (!(err instanceof GuiCapacityError)) throw err;
       return fail(reply, 409, err.message, 'GUI_CAPACITY');
@@ -207,11 +215,13 @@ export function registerPlayerRoutes(app: FastifyInstance, ctx: AppContext): voi
   // look like the GUI misbehaved.
   app.post(API_PATHS.playerAck, async (req, reply) => {
     const body = objectBody(req.body, ['request_id', 'ok', 'message']);
-    const requestId = requiredUuid(body, 'request_id');
-    const succeeded = requiredBoolean(body, 'ok');
-    const message = optionalString(body, 'message', { maxLength: MESSAGE_MAX, allowEmpty: true });
-    const matched = ctx.player.ack(requestId, succeeded, message ?? undefined);
-    ok(reply, { matched });
+    const ack: AckRequest = {
+      request_id: requiredUuid(body, 'request_id'),
+      ok: requiredBoolean(body, 'ok'),
+      message:
+        optionalString(body, 'message', { maxLength: MESSAGE_MAX, allowEmpty: true }) ?? undefined,
+    };
+    ok(reply, { matched: ctx.player.ack(ack.request_id, ack.ok, ack.message) });
   });
 
   for (const name of PLAYER_COMMANDS) {

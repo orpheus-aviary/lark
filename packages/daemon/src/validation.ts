@@ -97,7 +97,7 @@ export function requiredString(
   return value;
 }
 
-export function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
+function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
   const value = body[key];
   if (value === undefined) return undefined;
   if (typeof value !== 'boolean') throw invalidBody(`${key} must be a boolean`);
