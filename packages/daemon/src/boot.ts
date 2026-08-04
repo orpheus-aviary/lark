@@ -260,9 +260,8 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   // The one terminal line a foreground daemon owes its operator — pino writes
   // to a file, and a mute foreground process looks hung. Tests parse the port
   // out of this line.
-  console.log(
-    `lark daemon listening on http://${ctx.host}:${ctx.port} (logs: ${logFilePath})`, // log-hygiene: console-ok
-  );
+  const listenLine = `lark daemon listening on http://${ctx.host}:${ctx.port} (logs: ${logFilePath})`;
+  console.log(listenLine); // log-hygiene: console-ok
 
   if (options.fatalAfterMs !== undefined && options.fatalAfterMs >= 0) {
     setTimeout(() => ctx?.requestFatal(new Error('injected test fatal')), options.fatalAfterMs);

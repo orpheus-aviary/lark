@@ -241,7 +241,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 | 下载 | `POST /download/song` · `POST /download/parse`（批量文本解析）· `POST /download/batch` · `POST /download/fetch-list`（收藏夹/合集展开）· `POST /download/cancel`（按任务 id） |
 | 缓存 | `GET /cache/status`（已用字节/曲数/上限/可清理字节/`unreclaimable_bytes`/`limit_satisfied`，R26）· `POST /cache/evict`（立即清理，响应含同上字段） |
 | 配置 | `GET /config`（api_key 脱敏）· `PATCH /config`（白名单字段 + 校验，R14） |
-| 事件 | `GET /events`（SSE，`?role=gui` 标识 GUI 连接）：`download:status|complete|error`、`player:command`（含 request_id）、`cache:evicted`、`songs:changed`、`playlists:changed` |
+| 事件 | `GET /events`（SSE，`?role=gui&gui_id=<id>` 标识 GUI 连接）：`hello`、`download:status|complete|error`、`player:command`（含 request_id，仅单播给 active GUI）、`cache:evicted`、`songs:changed`、`playlists:changed`、**`lyrics:changed {song_id}`（M2 增补）** |
 
 ## 5. 核心流程设计
 

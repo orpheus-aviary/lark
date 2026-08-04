@@ -76,16 +76,14 @@ async function stopDaemon(): Promise<void> {
 
   const status = await probeStatus();
   if (status === null) {
-    console.error(
-      `pid 文件记录 PID ${filePid}，但 ${defaultDaemonBaseUrl()}${API_PATHS.status} 无响应——无法确认它是 lark TS daemon（可能是 Go 版或已失效的其他进程），拒绝发送信号。`, // log-hygiene: console-ok
-    );
+    const unverified = `pid 文件记录 PID ${filePid}，但 ${defaultDaemonBaseUrl()}${API_PATHS.status} 无响应——无法确认它是 lark TS daemon（可能是 Go 版或已失效的其他进程），拒绝发送信号。`;
+    console.error(unverified); // log-hygiene: console-ok
     console.error(`确认无用后可手动删除：${paths.pidPath()}`); // log-hygiene: console-ok
     process.exit(1);
   }
   if (status.pid !== filePid) {
-    console.error(
-      `不一致：pid 文件记录 ${filePid}，/status 回报 ${status.pid}——拒绝发送信号。`, // log-hygiene: console-ok
-    );
+    const mismatch = `不一致：pid 文件记录 ${filePid}，/status 回报 ${status.pid}——拒绝发送信号。`;
+    console.error(mismatch); // log-hygiene: console-ok
     process.exit(1);
   }
 
@@ -100,9 +98,8 @@ async function stopDaemon(): Promise<void> {
       return;
     }
   }
-  console.error(
-    `信号已发送，但 daemon (PID ${filePid}) 在 ${STOP_TIMEOUT_MS / 1000} 秒内尚未退出`, // log-hygiene: console-ok
-  );
+  const stillAlive = `信号已发送，但 daemon (PID ${filePid}) 在 ${STOP_TIMEOUT_MS / 1000} 秒内尚未退出`;
+  console.error(stillAlive); // log-hygiene: console-ok
   process.exit(1);
 }
 
@@ -110,9 +107,8 @@ async function stopDaemon(): Promise<void> {
 async function daemonStatus(): Promise<void> {
   const status = await probeStatus();
   if (status !== null) {
-    console.log(
-      `lark daemon 运行中：PID ${status.pid}，已运行 ${status.uptime.toFixed(1)}s，版本 ${status.version}`, // log-hygiene: console-ok
-    );
+    const running = `lark daemon 运行中：PID ${status.pid}，已运行 ${status.uptime.toFixed(1)}s，版本 ${status.version}`;
+    console.log(running); // log-hygiene: console-ok
     return;
   }
   const filePid = readPidOrExit();

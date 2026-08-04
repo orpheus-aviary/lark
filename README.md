@@ -8,7 +8,7 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）已完成；下一步 M2 daemon 基础路由。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）、M2 daemon 基础路由（生命周期 + Bearer 鉴权 + SSE/gui 通道 + songs/playlists/audio/lyrics/player/config 路由）已完成；下一步 M3 下载管线。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
@@ -20,16 +20,31 @@
 pnpm install
 
 just dev-daemon      # 前台起 daemon（127.0.0.1:47100）
+just stop-daemon     # 停 daemon（先经 /status 确权，再等它真的退出）
 curl http://127.0.0.1:47100/status
 
 just cli status      # 经 HTTP 查 daemon（--json 输出原始信封）
 just dev             # 起 GUI（M0 不自动拉 daemon，需先开上面那个）
 just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一方式
 
-just check           # lint + tsc -b + 依赖方向守卫 + spike fast 层
+just check           # lint + tsc -b + 依赖方向守卫 + 日志卫生守卫 + spike fast 层
 just test            # 全部 vitest
 
 just migrate-go      # 一次性 Go songs.db 迁移（交互 y/N；先备份，迁移后 Go 版无法再打开库）
+```
+
+daemon 除 `GET /status` 外全部要 Bearer token；token 由 daemon 每次启动轮换并原子写到
+`~/orpheus-aviary-nest/lark/daemon-token`（0600），客户端每次现读（不缓存）：
+
+```bash
+TOKEN=$(cat ~/orpheus-aviary-nest/lark/daemon-token)
+curl -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/api/capabilities   # 自描述端点清单
+curl -N -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/events          # SSE 事件流
+
+# GUI 通道模拟器（M4 renderer 的参照实现）：注册 → 订阅 → 收命令即 ack；
+# daemon 重启后旧 gui_id 会收到 409，脚本自动重新注册。
+node scripts/demo-gui-sim.mjs
+curl -X POST -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/player/pause
 ```
 
 Go 版曲库迁移：`just migrate-go` 会尊重 `LARK_NEST_DIR`——M1 验收全部在**副本**上做

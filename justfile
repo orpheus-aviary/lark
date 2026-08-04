@@ -30,8 +30,16 @@ daemon-no-gui-electron:
 shared-node-free:
     bash scripts/check-shared-node-free.sh
 
+# Structured logging hygiene (M2-15): no direct console writes outside the
+# terminal-facing lines of cli.ts / boot.ts, and no secret field or whole
+# config object handed to a logger call.
+
 [group('lint')]
-check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node-free spike-media-test
+log-hygiene:
+    bash scripts/check-log-hygiene.sh
+
+[group('lint')]
+check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node-free log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

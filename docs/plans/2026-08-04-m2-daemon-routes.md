@@ -261,9 +261,35 @@
 | PID fail-closed 在真垃圾残留时挡启动 | 文案带路径与手查指引；极罕见且一次 rm 解决 |
 | config 落盘失败后的 fatal 路径误触发 | 仅「保存失败 且 重载失败」双重失败触发；先回 500 再 setImmediate teardown（不与在飞请求互锁）；T8 顺序断言 + T2 ⑥ 真实退出用例 |
 
-## 7. 实施记录（落地时回填）
+## 7. 实施记录（2026-08-04 落地）
 
-- [ ] 实施中推翻/修订的决策
-- [ ] 用户验收结果
-- [ ] 主计划 §4 事件清单已回写 `lyrics:changed`（T9）
-- [ ] M4/M6 待接线清单确认（preload getDaemonToken、GUI 注册 + 409/`'stop'` 重注册重连循环、CLI stop/status 代理、demo-gui-sim 作 M4 参照）
+### 7.1 实施中修订的决策
+
+| # | 修订 | 原因 |
+|---|---|---|
+| 1 | **提交批次改为 批1=T1+T3+T4+T2 / 批2=T5 / 批3=T6+T7 / 批4=T8+T9**（原 批1=T1+T2+T3） | `boot.ts` 要组装 `guiChannel`、`server.ts` 要注册 `/events`——T4 不先落地，批 1 里任何一个 commit 都不可编译。任务内容未变，只改顺序 |
+| 2 | **boot 的测试注入走 `BootOptions` 形参**（`stallBeforeListenMs` / `fatalAfterMs`），三个 env 只由 `testing/boot-child.ts` 读 | 原文只说「测试专用注入」。把 env 读取集中在 testing entry，`boot.ts` 保持零测试 env 面——生产路径不可能被游离变量重配 |
+| 3 | **信号在 boot 驱动期只「记录」不「执行」**：`requestStop` 置原因后返回，由 boot 的三个 checkpoint（listen 前 / listen 后 / running 后）收口执行 teardown | M2-1 ② 只要求「listen 后状态检查」。但若 handler 自己 teardown，它会与仍在 `await listen()` 的 boot 续体并发关 server；改成单一执行者后，双出口竞态在结构上不存在 |
+| 4 | **`just test-core` / `test-cli` 也加 build 前置**（原文只写 test / test-daemon） | core 与 cli 通过 **dist** 消费 `@lark/shared`。T1 当场踩到：`LOG_LEVELS` 上移后不重建 shared，core 测试直接红（`new Set(undefined)` 静默成空集） |
+| 5 | **新增 `@lark/core/testing` 子路径导出**（当前仅 `seedGoLegacyDb`） | T2 的「Go 旧库拒启」子进程用例要造 Go 库，而测试夹具不该进主 barrel |
+| 6 | **输入契约落为 `daemon/src/validation.ts`**：统一 `InvalidRequestError`（`statusCode=400` → 走 errorHandler 第②类，天然不进 error 日志）；`PATCH /config` 的白名单实现为「逐字段 schema 校验并直接写入 clone」 | 与 M2-16/M2-12 等价，但少一层 filter + deepAssign，且校验与赋值同源，不可能漏过滤 |
+| 7 | **多行终端文案先赋值给常量再单行 `console.x(msg)`** | 豁免注释必须与 `console.` 调用同一行，而 Biome 会把超长调用的参数换行——注释被推到参数行后守卫照样报红（落地时真红过一次） |
+| 8 | **player `play-playlist` / `switch-playlist` 只校验 id 形态**（uuid 或 `all`），不查存在性 | 与 M2-11「成员归属不校验」同源：GUI 负责解析并用 ack 反馈失败（502）。只有 `play` 按 M2-11 明文查存在性 |
+
+### 7.2 M2 实测锁定（改动前先读）
+
+- **Fastify 5 自带 `text/plain` 解析器**：415 用例必须用 `application/xml` 之类没有注册解析器的类型，`text/plain` 会 200。
+- **`reply.hijack()` 之后 onSend 不跑**：SSE 的 CORS 头必须手写回显，且先过 `isOriginAllowed`（owl 无条件 echo）。
+- **`/audio` 用 `reply.send(stream)`**：背压由 pipe 天然满足；release guard 挂 `reply.raw` 的 `close`/`error` + stream 的 `close`/`error`，幂等，abort 后计数归零（`audioStreamCount()` 断言）。
+- **守卫脚本判定看「捕获输出非空」**：`rg` 无命中退出 1 才是通过态，裸 `rg` 进 recipe 语义正好反过来。
+- **豁免注释与调用同一行**（见 7.1 ⑦）。
+- **`vi.stubEnv` 而非 `delete process.env.X`**：Biome 的 `noDelete` 拦 delete，而 `process.env.X = undefined` 在 Node 里会写成字符串 `'undefined'`。
+- **同毫秒创建的行由 `id` 升序兜底**：`listSongs` 的 `created_at` 并列时按 id 排，测试里两首歌几乎必然同毫秒——断言要按 id 排序而不是插入顺序。
+
+### 7.3 收尾核对
+
+- [x] 主计划 §4 事件清单已回写 `lyrics:changed`（并补 `hello` 与 `player:command` 单播说明）
+- [x] 日志卫生守卫接入 `just check`，红/绿演示各跑过一次（`console.log` / `logger.info({token})` / `logger.info({...ctx.config})` 三条规则各命中，撤销后干净树退出 0）
+- [x] `just check` + `just test` + `just build` 全绿（shared 23 / core 131 / daemon 222 / cli 3）
+- [ ] 用户验收结果（关键路径 ①–⑥）
+- [x] **M4/M6 待接线清单**：preload 每次现读 token 文件（不缓存、不进 URL/DOM）；GUI 注册 → `?role=gui&gui_id=` 订阅 → 收 409 `GUI_REGISTRATION_REQUIRED` 时 `onDisconnect` 返回 `'stop'` → 重新 `/gui/register` → 新 AbortController 重订阅（`scripts/demo-gui-sim.mjs` 即参照实现）；GUI spawn daemon 后用 `/status.pid === child.pid` 确权（pid 文件不作身份证明）；CLI（M6）代理 `stop-daemon` / `daemon-status`；`ensure-electron-abi` 在 M4 接线
