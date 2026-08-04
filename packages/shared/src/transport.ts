@@ -46,6 +46,16 @@ export function baseUrl(): string {
   return config.baseUrl();
 }
 
+/**
+ * A fresh copy of the configured auth headers. Re-read (never cached) so a
+ * daemon restart's token rotation is picked up on the next call (R29); the
+ * copy is what lets an SSE attempt hold ONE snapshot for both the request
+ * headers and the `usedToken` it reports on disconnect (M2-14).
+ */
+export function authHeaders(): Record<string, string> {
+  return { ...config.getAuthHeaders() };
+}
+
 const RETRY_BACKOFF_MS = 500;
 
 /**

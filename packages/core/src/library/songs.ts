@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type SongData, isUuidV4 } from '@lark/shared';
+import { type SongData, type SongSortField, type SortOrder, isUuidV4 } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
@@ -38,8 +38,9 @@ export interface UpdateSongInput extends SourceInput {
 export interface ListSongsOptions {
   /** Substring match against name OR artist (LIKE, escaped). */
   search?: string;
-  sort?: 'name' | 'artist' | 'created_at';
-  order?: 'asc' | 'desc';
+  /** Domain shared with the daemon's query validator (M2-16). */
+  sort?: SongSortField;
+  order?: SortOrder;
   limit?: number;
   offset?: number;
 }

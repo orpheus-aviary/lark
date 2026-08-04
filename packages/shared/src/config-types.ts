@@ -28,7 +28,16 @@ export interface FontConfig {
   lyrics_font_size: number;
 }
 
-export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
+/**
+ * Log levels as a runtime constant (M2-12): core's `sanitize` (converge an
+ * out-of-domain disk value back to the default) and the daemon's `PATCH
+ * /config` validator (reject it with a 400) enforce OPPOSITE policies over
+ * the SAME domain, so the domain itself lives here — one definition, two
+ * consumers. `LogLevel` is derived from it.
+ */
+export const LOG_LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const;
+
+export type LogLevel = (typeof LOG_LEVELS)[number];
 
 export interface LogConfig {
   level: LogLevel;

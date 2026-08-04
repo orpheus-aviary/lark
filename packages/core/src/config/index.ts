@@ -18,7 +18,13 @@ import {
   writeSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { LarkConfig, LlmConfig, LogLevel, PublicLarkConfig } from '@lark/shared';
+import {
+  LOG_LEVELS,
+  type LarkConfig,
+  type LlmConfig,
+  type LogLevel,
+  type PublicLarkConfig,
+} from '@lark/shared';
 import { parse, stringify } from 'smol-toml';
 import { aviaryConfigPath, configPath } from '../paths.js';
 
@@ -203,14 +209,8 @@ function deepMerge(
   return base;
 }
 
-const LOG_LEVELS: ReadonlySet<string> = new Set([
-  'trace',
-  'debug',
-  'info',
-  'warn',
-  'error',
-  'fatal',
-]);
+/** The log-level domain is shared with the daemon's PATCH validator (M2-12). */
+const LOG_LEVEL_SET: ReadonlySet<string> = new Set(LOG_LEVELS);
 
 function str(v: unknown, dflt: string): string {
   return typeof v === 'string' ? v : dflt;
@@ -238,7 +238,7 @@ function sanitize(cfg: LarkConfig): LarkConfig {
   cfg.window.height = num(cfg.window.height, d.window.height, { min: 1 });
   cfg.font.global_font_size = num(cfg.font.global_font_size, d.font.global_font_size, { min: 1 });
   cfg.font.lyrics_font_size = num(cfg.font.lyrics_font_size, d.font.lyrics_font_size, { min: 1 });
-  cfg.log.level = (LOG_LEVELS.has(cfg.log.level) ? cfg.log.level : d.log.level) as LogLevel;
+  cfg.log.level = (LOG_LEVEL_SET.has(cfg.log.level) ? cfg.log.level : d.log.level) as LogLevel;
   cfg.log.max_size_mb = num(cfg.log.max_size_mb, d.log.max_size_mb, { min: 1 });
   cfg.log.max_backups = num(cfg.log.max_backups, d.log.max_backups, { min: 1, integer: true });
   cfg.storage.cache_limit_mb = num(cfg.storage.cache_limit_mb, d.storage.cache_limit_mb, {
