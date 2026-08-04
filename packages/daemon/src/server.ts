@@ -5,6 +5,7 @@ import { checkLocalToken } from './auth.js';
 import type { AppContext } from './context.js';
 import { mapCoreError } from './error-mapping.js';
 import { fail } from './response.js';
+import { registerConfigRoutes } from './routes/config.js';
 import { registerEventsRoutes } from './routes/events.js';
 import { registerMediaRoutes } from './routes/media.js';
 import { registerPlayerRoutes } from './routes/player.js';
@@ -25,6 +26,7 @@ export function registerAllRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerPlaylistRoutes(app, ctx);
   registerMediaRoutes(app, ctx);
   registerPlayerRoutes(app, ctx);
+  registerConfigRoutes(app, ctx);
 }
 
 /**
