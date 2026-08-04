@@ -290,6 +290,17 @@
 
 - [x] 主计划 §4 事件清单已回写 `lyrics:changed`（并补 `hello` 与 `player:command` 单播说明）
 - [x] 日志卫生守卫接入 `just check`，红/绿演示各跑过一次（`console.log` / `logger.info({token})` / `logger.info({...ctx.config})` 三条规则各命中，撤销后干净树退出 0）
-- [x] `just check` + `just test` + `just build` 全绿（shared 23 / core 131 / daemon 222 / cli 3）
-- [ ] 用户验收结果（关键路径 ①–⑥）
+- [x] `just check` + `just test` + `just build` 全绿（shared 23 / core 131 / daemon 223 / cli 3）
+- [x] **用户验收通过（2026-08-04）**，副本 nest `/tmp/lark-accept-nest`（`just migrate-go` 对账 20/2/4 后）：
+  - ① `just check` / `just test` 全绿
+  - ② 生命周期：token 每次启动轮换；`/status` 200 免鉴权、`/songs` 401；第二实例 `daemon is already running (PID …)` 拒启；停机后 `daemon.pid` 消失而 `daemon-token` 保留；GUI 模拟器在 daemon 重启后收 `409 GUI_REGISTRATION_REQUIRED` → 自动重注册恢复
+  - ③ CRUD + SSE：建歌单/加 3 首/reorder（顺序确实变）/删成员/删歌单 + 改歌名，SSE 实收 `hello` + `playlists:changed ×6` + `songs:changed`；虚拟 all 合成 `song_count=20`、写它一律 400 `VIRTUAL_PLAYLIST`
+  - ④ player：无 GUI → 409 `GUI_OFFLINE`；GUI-1 在线 → 200；GUI-2 接管后 `next` **只落到 GUI-2**、GUI-1 只有先前的 `pause`；非法 seek 400；`gui_online` 正确翻转
+  - ⑤ `/audio` 真实 mp3（6 738 544 字节）：200 头部齐备（`audio/mpeg` + `accept-ranges` + `content-length` + `no-store`）；206 精确（1024 / 开放式 / 后缀）；越界·反向·多段一律 416 带 `bytes */<size>`；前 100000 字节、尾段 4096 字节、整文件均与磁盘逐字节相同；401 / 400 / 404 分明；`/lyrics` 200 `text/plain; charset=utf-8`
+  - ⑥ config：GET 只给 `has_api_key` 不给 key；PATCH 落盘；非法值 / 未知字段 / 未知 section 一律 400 且磁盘与内存均未变。**「未知键保留」现场未验**（验收脚本注入时机不对，见下），由单测 `keeps unknown keys that were already on disk` 覆盖
+- 验收过程中的产出：
+  - **真实缺口 1 处（已补）**：`/audio` 多块流的完整性从未被断言——原用例最大 body 4096 字节，8MB 那个只读一块就 abort，若在第一个 highWaterMark 之后截断可以完全逃过测试（而 `curl -s` 会静默吞掉 "transfer closed with N bytes remaining"，只表现为文件损坏）。补 3MB+7 字节的整文件与 100KB 尾段字节精确回归
+  - **验收脚本假警报 3 处（非产品问题）**：macOS BSD `cmp -n N` 在首文件恰好在第 N 字节结束时报 `EOF` 并退出 1（GNU cmp 不会）；嵌套 `$( )` 里的 `\"` 被外层引号先解掉，curl 收到被拆散的参数、payload 成坏 JSON；未知键在 daemon 运行中注入，早于它加载
+  - **语义澄清**：config 未知键的保留契约是「**daemon 启动时磁盘上就有** → 之后 save 原样带回」。绕过运行中的 daemon 直接改文件，下一次 save 必然覆盖——config 由运行中的 daemon 持有（owl 同）
+  - **真实 nest 唯一副作用**：`stop-daemon` 在未 export `LARK_NEST_DIR` 的终端里跑过一次，按 PID 协议清掉了真实 nest 里那个 Go 时代遗留的陈旧 `daemon.pid`（进程早不在，只删文件不发信号）；库与 config 未动
 - [x] **M4/M6 待接线清单**：preload 每次现读 token 文件（不缓存、不进 URL/DOM）；GUI 注册 → `?role=gui&gui_id=` 订阅 → 收 409 `GUI_REGISTRATION_REQUIRED` 时 `onDisconnect` 返回 `'stop'` → 重新 `/gui/register` → 新 AbortController 重订阅（`scripts/demo-gui-sim.mjs` 即参照实现）；GUI spawn daemon 后用 `/status.pid === child.pid` 确权（pid 文件不作身份证明）；CLI（M6）代理 `stop-daemon` / `daemon-status`；`ensure-electron-abi` 在 M4 接线
