@@ -6,7 +6,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库未迁**，时机由用户后定；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**下一步 M2（daemon 基础路由）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库未迁**，时机由用户后定；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**下一步 M2（daemon 基础路由）——子计划已三轮评审定稿待实现：`docs/plans/2026-08-04-m2-daemon-routes.md`（M2-1–M2-17，T1–T9 四批提交）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 

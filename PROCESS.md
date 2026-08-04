@@ -11,8 +11,9 @@
   - 版本定案：better-sqlite3 12.11.1 / drizzle-orm 0.38.4 / pino 9.14.0 / pino-roll 2.2.0 / smol-toml 1.6.1 / @electron/rebuild 4.2.0；`process.versions.modules`：Node 24.13.0 = **137**、Electron 43.2.0 = **148**（双向真值探测复核；ABI recipes 已接线，`ensure-electron-abi` M4 才接线）
   - 副本演示（真实 nest 副本，2026-08-03）：对账 20 songs / 2 playlists / 4 memberships（源 20/3/24，all 丢弃）、幂等重跑 already-migrated、sqlite3 抽查全过（rank 严格递增 / imported / device_id NULL / `+08:00` 换算正确）；**真实库未迁**，时机由用户后定
   - 用户验收通过（2026-08-03）：① `just check` / `just test` 全绿 + ABI 双向自愈（Electron 148 ↔ Node 137）② 副本 `just migrate-go` 对账 20/2/4 → 幂等重跑 → sqlite3 抽查 ③ config 演示（0644→0600 收紧、api_format 兜底 `'openai'`、Public 投影无 api_key）④ daemon 起动 `logs/lark.log` 出结构化 pino 行、终端保留 listen 提示
-- [ ] **M2 daemon 基础路由** — 扩展 M0 daemon 骨架（buildServer/信封/status/CORS 已落地）：PID 锁、Bearer 鉴权 + local-token、SSE（role=gui 在线判定 + player 命令 ack）、songs/playlists/audio(Range)/lyrics/player/config(PATCH)/events 路由
-  - `/audio` 三条硬义务（M0 spike 实测，见子计划 §6.2）：尊重 backpressure、按「单曲并存约 6 条 range 流」预算 fd、响应 `close`/`error` 一次性清理；**不要用「按块封顶 206」**（实测把媒体元素打进 `MEDIA_ERR_NETWORK`）
+- [ ] **M2 daemon 基础路由** — 扩展 M0 daemon 骨架（buildServer/信封/status/CORS 已落地）：PID 锁、Bearer 鉴权 + local-token、SSE（gui 注册 + active 单消费者 + player 命令 ack）、songs/playlists/audio(Range)/lyrics/player/config(PATCH)/events 路由｜**子计划已三轮评审定稿待实现**：`docs/plans/2026-08-04-m2-daemon-routes.md`（决策 M2-1–M2-17；任务 T1–T9，四批提交，每批 commit 信息先给用户过目）
+  - `/audio` 三条硬义务（M0 spike 实测，见 M0 子计划 §6.2）：尊重 backpressure、按「单曲并存约 6 条 range 流」预算 fd、响应 `close`/`error` 一次性清理；**不要用「按块封顶 206」**（实测把媒体元素打进 `MEDIA_ERR_NETWORK`）
+  - 评审要点速记（详见子计划头部三轮修订记录）：PID 严格校验 + `/status` 确权、PID 锁 teardown 最后释放、boot 生命周期状态机 first-wins、gui 单消费者 + 409 恢复协议、PATCH /config clone→save→swap + 失败重载对齐、errorHandler 三分类、守卫脚本输出非空判定（rg 退出码语义相反）、测试走 boot-child + port 0
 - [ ] **M3 下载管线 + 链接路由** — LLM client、bilibili、URL 规范化（provider/key）、ffmpeg 封装、歌词三平台（含无 LLM 降级）、队列/进度/取消/原子落盘、resolveSongFile 链接优先 + source_* 回写、recognize-url（预览）/redownload/download 路由
 - [ ] **M4 GUI 基座** — 扩展 M0 GUI 骨架（electron-vite 三段/CSP 已落地）：daemon spawn/确权、单实例、lark-media:// 协议代理（移植 spike 定稿）、Tailwind/shadcn、播放器/列表/歌单/搜索/歌词/快捷键/下载栏（对齐 Go 版）
   - 移植清单在子计划 §6.3（privileges / URL 校验 / net.fetch 透传头 / CSP / ESM main 不得顶层 await / 401 重试风暴 / daemon 重启后重建播放器）；移植后按 T5 六项矩阵完整回归，**Electron 升级大版本同样必须重跑**
