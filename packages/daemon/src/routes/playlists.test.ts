@@ -20,6 +20,9 @@ let events: LarkEvent[];
 const UNKNOWN_UUID = '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001';
 
 const seedSong = (name: string): SongData => createSong(ctx.db, ctx.sqlite, { name });
+const stampCreatedAt = (id: string, at: number): void => {
+  ctx.sqlite.prepare('UPDATE songs SET created_at = ? WHERE id = ?').run(at, id);
+};
 const seedPlaylist = (name: string): PlaylistData => createPlaylist(ctx.db, ctx.sqlite, name);
 
 beforeEach(() => {
@@ -88,11 +91,15 @@ describe('GET /playlists/:id/songs', () => {
     const playlist = seedPlaylist('p');
     addSongsToPlaylist(ctx.db, ctx.sqlite, playlist.id, [second.id, first.id]);
 
+    // Pin the timestamps: two seeds land in the same millisecond often enough
+    // that the tie-break (id asc) and the primary key (created_at asc) swap
+    // places between runs — the assertion has to name ONE of them.
+    stampCreatedAt(first.id, 1_000);
+    stampCreatedAt(second.id, 2_000);
+
     const all = await app.inject({ method: 'GET', url: '/playlists/all/songs' });
     const allBody = all.json<ApiResponse<SongData[]>>();
-    // created_at asc, tie-broken by id asc — both rows are created inside the
-    // same millisecond here, so the tie-break IS the assertion.
-    expect(allBody.data?.map((s) => s.id)).toEqual([first.id, second.id].sort());
+    expect(allBody.data?.map((s) => s.id)).toEqual([first.id, second.id]); // created_at asc
     expect(allBody.total).toBe(2);
     expect(allBody.data?.[0].has_file).toBe(false); // enriched like GET /songs
 
