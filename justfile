@@ -36,8 +36,13 @@ check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node
 
 # ─── Test ───────────────────────────────────────────────
 
+# Every consumer resolves @lark/shared and @lark/core through their `dist`
+# (package exports), so a source change is invisible to a test run until the
+# dependency is rebuilt — and an M2 daemon test additionally spawns the BUILT
+# `dist/testing/boot-child.js` in a child process (M2-17).
+
 [group('test')]
-test: ensure-node-abi
+test: ensure-node-abi build-shared build-core build-daemon
     pnpm run test
 
 [group('test')]
@@ -45,15 +50,15 @@ test-shared:
     pnpm --filter @lark/shared run test
 
 [group('test')]
-test-core: ensure-node-abi
+test-core: ensure-node-abi build-shared
     pnpm --filter @lark/core run test
 
 [group('test')]
-test-daemon: ensure-node-abi
+test-daemon: ensure-node-abi build-shared build-core build-daemon
     pnpm --filter @lark/daemon run test
 
 [group('test')]
-test-cli:
+test-cli: build-shared
     pnpm --filter @lark/cli run test
 
 # ─── Build ──────────────────────────────────────────────
@@ -171,6 +176,13 @@ dev: build-shared build-core build-daemon
 [group('dev')]
 dev-daemon: ensure-node-abi build-shared build-core build-daemon
     node packages/daemon/dist/cli.js daemon
+
+# Stop the running daemon: proves identity over /status before signalling, then
+# waits for the process to actually exit. No rebuild — it talks to whatever is
+# running (M2-3).
+[group('dev')]
+stop-daemon:
+    node packages/daemon/dist/cli.js stop-daemon
 
 # Launch the BUILT renderer through Electron — the only way to observe the
 # production CSP (a bare `build` produces no console to watch). M0-5 two-state

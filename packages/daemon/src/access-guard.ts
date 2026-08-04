@@ -33,6 +33,34 @@ export function isOriginAllowed(origin: string | undefined): boolean {
   return isLoopbackHttpOrigin(origin);
 }
 
+/**
+ * Hostname out of a `Host` header, port stripped. IPv6 literals keep their
+ * brackets (`[::1]:47100` → `[::1]`), which is the form the allowlist holds.
+ */
+function hostnameFromHostHeader(host: string): string {
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
+    return end === -1 ? host : host.slice(0, end + 1);
+  }
+  const colon = host.lastIndexOf(':');
+  return colon === -1 ? host : host.slice(0, colon);
+}
+
+/**
+ * Host header check — anti DNS-rebinding (M2, owl parity).
+ *
+ * CORS cannot stop this attack: a page on `evil.test` whose DNS resolves to
+ * 127.0.0.1 sends SAME-ORIGIN requests as far as the browser is concerned, so
+ * no Origin header is checked and no preflight happens. What distinguishes it
+ * from a real local client is the `Host` header, which still says `evil.test`.
+ * lark is loopback-only, so the allowlist is exactly the loopback names.
+ * A missing Host is rejected: HTTP/1.1 requires it.
+ */
+export function isHostAllowed(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  return LOOPBACK_HOSTNAMES.has(hostnameFromHostHeader(hostHeader));
+}
+
 /** `@fastify/cors` `origin` delegate. */
 export function corsOriginDelegate(): (
   origin: string | undefined,
