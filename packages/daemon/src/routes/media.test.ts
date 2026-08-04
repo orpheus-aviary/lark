@@ -126,6 +126,27 @@ describe('GET /audio/:id', () => {
     },
   );
 
+  it('streams a multi-chunk file to the last byte, exactly', async () => {
+    // The other fixtures fit in one read; a truncation past the first
+    // highWaterMark chunk would slip through them entirely — and `curl -s`
+    // hides "transfer closed with N bytes remaining", so it would surface as
+    // a corrupt file rather than an error (found during M2 acceptance).
+    const body = audioFixture(3 * 1024 * 1024 + 7);
+    writeAudio(song.id, body);
+
+    const full = await fetch(`${base}/audio/${song.id}`, { headers: auth });
+    expect(full.headers.get('content-length')).toBe(String(body.length));
+    expect(Buffer.from(await full.arrayBuffer()).equals(body)).toBe(true);
+
+    const tail = await fetch(`${base}/audio/${song.id}`, {
+      headers: { ...auth, range: `bytes=${body.length - 100_000}-` },
+    });
+    expect(tail.status).toBe(206);
+    expect(Buffer.from(await tail.arrayBuffer()).equals(body.subarray(body.length - 100_000))).toBe(
+      true,
+    );
+  });
+
   it('separates "no such song" from "no file for this song"', async () => {
     const missingSong = await fetch(`${base}/audio/${UNKNOWN_UUID}`, { headers: auth });
     expect(missingSong.status).toBe(404);
