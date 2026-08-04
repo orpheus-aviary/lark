@@ -8,6 +8,7 @@ import {
   addSongsToPlaylistInTx,
   createPlaylist,
   deletePlaylist,
+  getPlaylist,
   getPlaylistSongs,
   listPlaylists,
   removeSongFromPlaylist,
@@ -65,6 +66,17 @@ describe('playlists CRUD', () => {
     const listed = listPlaylists(db(), sq());
     expect(listed.find((p) => p.id === a.id)?.song_count).toBe(3);
     expect(listed.find((p) => p.id === b.id)?.song_count).toBe(0);
+  });
+
+  it('getPlaylist carries the member count and throws when absent', () => {
+    const pl = createPlaylist(db(), sq(), 'a');
+    expect(getPlaylist(db(), sq(), pl.id)).toMatchObject({ id: pl.id, name: 'a', song_count: 0 });
+
+    addSongsToPlaylist(db(), sq(), pl.id, makeSongs(['s1', 's2']));
+    expect(getPlaylist(db(), sq(), pl.id).song_count).toBe(2);
+
+    deletePlaylist(db(), sq(), pl.id);
+    expect(() => getPlaylist(db(), sq(), pl.id)).toThrow(NotFoundError);
   });
 
   it('deleting a playlist cascades its memberships', () => {

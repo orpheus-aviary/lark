@@ -90,6 +90,21 @@ export function deletePlaylist(db: LarkDatabase, sqlite: BetterSqlite3.Database,
   sqlite.transaction(() => deletePlaylistInTx(db, id)).immediate();
 }
 
+/** One playlist with its member count. Throws NotFoundError when absent. */
+export function getPlaylist(
+  db: LarkDatabase,
+  _sqlite: BetterSqlite3.Database,
+  id: string,
+): PlaylistData {
+  const row = getPlaylistRow(db, id);
+  const counted = db
+    .select({ song_count: count(playlist_songs.song_id) })
+    .from(playlist_songs)
+    .where(eq(playlist_songs.playlist_id, id))
+    .get();
+  return toPlaylistData(row, counted?.song_count ?? 0);
+}
+
 /** All playlists with their member counts, ordered by (created_at, id). */
 export function listPlaylists(db: LarkDatabase, _sqlite: BetterSqlite3.Database): PlaylistData[] {
   const rows = db
