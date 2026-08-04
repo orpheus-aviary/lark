@@ -6,6 +6,7 @@ import type { AppContext } from './context.js';
 import { mapCoreError } from './error-mapping.js';
 import { fail } from './response.js';
 import { registerEventsRoutes } from './routes/events.js';
+import { registerMediaRoutes } from './routes/media.js';
 import { registerPlaylistRoutes } from './routes/playlists.js';
 import { registerSongRoutes } from './routes/songs.js';
 import { registerSystemRoutes } from './routes/system.js';
@@ -21,6 +22,7 @@ export function registerAllRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerEventsRoutes(app, ctx);
   registerSongRoutes(app, ctx);
   registerPlaylistRoutes(app, ctx);
+  registerMediaRoutes(app, ctx);
 }
 
 /**
