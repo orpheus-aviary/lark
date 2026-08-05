@@ -4,3 +4,4 @@
 // is refused with guidance instead of migrated behind the user's back.
 
 export * from '../db/fixture-go-db.js';
+export * from './fake-upstream.js';
