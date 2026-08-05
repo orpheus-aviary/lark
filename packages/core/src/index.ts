@@ -32,3 +32,4 @@ export * from './download/lyrics/kugou.js';
 export * from './download/lyrics/select.js';
 export * from './download/claims.js';
 export * from './download/resolve.js';
+export * from './download/pipeline.js';
