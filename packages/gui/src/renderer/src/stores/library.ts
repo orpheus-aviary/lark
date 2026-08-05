@@ -39,6 +39,13 @@ interface LibraryState {
   setSearch: (search: string) => void;
   setSelectedSongId: (id: string | null) => void;
   refresh: () => void;
+  /**
+   * Show a playlist whose members the caller already loaded (§4.3): a remote
+   * `play-playlist` / `switch-playlist` fetches them outside the refresh lanes
+   * so it can refuse to switch when the load fails, and then commits the
+   * result here rather than triggering a second fetch.
+   */
+  adoptPlaylistView: (playlistId: string, songs: readonly SongData[]) => void;
   // Song-scoped writes live with the list they change. The daemon emits
   // `songs:changed` for each of them, so the direct refresh below is the
   // belt to the data bus's braces (an SSE gap must not hide a committed edit).
@@ -99,6 +106,13 @@ export const useLibrary = create<LibraryState>((set, get) => ({
         if (viewKey(get().playlistId, get().search) !== key) return;
         set({ loading: false, error: errorMessage(err) });
       });
+  },
+
+  adoptPlaylistView: (playlistId, songs) => {
+    // Whatever either lane has in flight describes the view being left.
+    songsQueryLane.cancel();
+    playlistMembersLane.cancel();
+    set({ playlistId, songs, search: '', loading: false, error: null });
   },
 
   updateSong: async (id, patch) => {

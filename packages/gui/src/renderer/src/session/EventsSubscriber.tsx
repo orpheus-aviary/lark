@@ -8,8 +8,10 @@ import type { GuiRegisterData, LarkEvent, StatusData } from '@lark/shared';
 import { API_PATHS, request, subscribeSse } from '@lark/shared';
 import { useEffect } from 'react';
 import { getPlatform } from '../platform/index.js';
+import { handlePlayerCommand } from '../player/remote.js';
 import { useConfig } from '../stores/config.js';
 import { useDataBus } from '../stores/data-bus.js';
+import { usePlayer } from '../stores/player.js';
 import { useSession } from '../stores/session.js';
 import { GuiSession } from './gui-session.js';
 
@@ -25,8 +27,14 @@ function dispatchEvent(event: LarkEvent): void {
     case 'lyrics:changed':
       bus.bumpLyrics(event.song_id);
       return;
+    case 'player:command':
+      // Arrival time is taken HERE: the deadline that decides whether the
+      // command is still worth running starts when the frame lands, not when
+      // the queue gets round to it (M4-10).
+      handlePlayerCommand(event, Date.now());
+      return;
     default:
-      // player:command (T4) and download:* (T5) attach here in their batches.
+      // download:* attaches here in T5.
       return;
   }
 }
@@ -58,7 +66,10 @@ export function EventsSubscriber(): null {
         useSession.getState().bumpEpoch();
         useDataBus.getState().bumpAll();
         useConfig.getState().refresh();
-        // T4 adds: refetch download tasks + re-report player state.
+        // A restarted daemon's mirror is empty and a reconnected one may have
+        // missed reports while the channel was down (M4-8).
+        usePlayer.getState().reportNow();
+        // T5 adds: refetch download tasks.
       },
       onGenerationChange: () => useSession.getState().bumpGeneration(),
       onEvent: dispatchEvent,

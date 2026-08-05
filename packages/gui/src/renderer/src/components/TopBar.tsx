@@ -38,6 +38,7 @@ export function TopBar(): React.JSX.Element {
   const playlistId = useLibrary((s) => s.playlistId);
   const setPlaylistId = useLibrary((s) => s.setPlaylistId);
   const setSearch = useLibrary((s) => s.setSearch);
+  const storeSearch = useLibrary((s) => s.search);
   const columns = useViewPrefs((s) => s.columns);
   const toggleColumn = useViewPrefs((s) => s.toggleColumn);
 
@@ -47,12 +48,25 @@ export function TopBar(): React.JSX.Element {
   const [pendingDelete, setPendingDelete] = useState<PlaylistData | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const draftRef = useRef<HTMLInputElement>(null);
+  const committed = useRef('');
 
   // Debounce the committed search term; the store refetches on every commit.
   useEffect(() => {
-    const timer = setTimeout(() => setSearch(searchInput.trim()), SEARCH_DEBOUNCE_MS);
+    const timer = setTimeout(() => {
+      committed.current = searchInput.trim();
+      setSearch(committed.current);
+    }, SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [searchInput, setSearch]);
+
+  // A remote `switch-playlist` clears the search in the store (§4.3); without
+  // this the box would still show the old term and re-commit it on the next
+  // keystroke.
+  useEffect(() => {
+    if (storeSearch === committed.current) return;
+    committed.current = storeSearch;
+    setSearchInput(storeSearch);
+  }, [storeSearch]);
 
   useEffect(() => {
     if (draft) draftRef.current?.focus();
