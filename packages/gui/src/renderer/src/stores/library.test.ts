@@ -1,0 +1,163 @@
+// Library view fetching (M4-7): what gets requested, and which responses are
+// allowed to land on screen.
+
+import type { SongData } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLibrary } from './library.js';
+
+interface Pending {
+  url: string;
+  /** Complete this request with a successful envelope. */
+  succeed: (songs: readonly SongData[]) => void;
+  /** Complete it with an error envelope (a RESPONSE, so never retried). */
+  fail: (status: number, message: string) => void;
+}
+
+function song(id: string, name = id): SongData {
+  return {
+    id,
+    name,
+    artist: '',
+    source_url: null,
+    source_provider: null,
+    source_key: null,
+    file_origin: 'imported',
+    lyrics_offset: 0,
+    duration: 0,
+    pinned: false,
+    created_at: 0,
+    updated_at: 0,
+  };
+}
+
+function envelope(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+let pending: Pending[] = [];
+
+/** Requests stay in flight until the test completes them by hand. */
+function stubFetch(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      (url: string) =>
+        new Promise<Response>((resolve) => {
+          pending.push({
+            url,
+            succeed: (songs) => resolve(envelope({ success: true, data: songs }, 200)),
+            fail: (status, message) =>
+              resolve(envelope({ success: false, error_code: 'FAILED', message }, status)),
+          });
+        }),
+    ),
+  );
+}
+
+/** Let the store's `.then` chains run. */
+const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+beforeEach(() => {
+  pending = [];
+  stubFetch();
+  useLibrary.setState({
+    songs: [],
+    loading: false,
+    error: null,
+    playlistId: VIRTUAL_ALL_PLAYLIST_ID,
+    search: '',
+    selectedSongId: null,
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('what the view asks for', () => {
+  it('reads the virtual all list through the playlist route', () => {
+    useLibrary.getState().refresh();
+    expect(pending[0]?.url).toBe('http://127.0.0.1:47100/playlists/all/songs');
+  });
+
+  it('reads a real playlist through its member list', () => {
+    useLibrary.getState().setPlaylistId('a4f1e3c2-0000-4000-8000-000000000001');
+    expect(pending[0]?.url).toBe(
+      'http://127.0.0.1:47100/playlists/a4f1e3c2-0000-4000-8000-000000000001/songs',
+    );
+  });
+
+  it('searches the whole library with no limit (D6)', () => {
+    useLibrary.getState().setPlaylistId('a4f1e3c2-0000-4000-8000-000000000001');
+    pending.length = 0;
+    useLibrary.getState().setSearch('周杰伦 & co');
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.url).toBe(
+      `http://127.0.0.1:47100/songs?search=${encodeURIComponent('周杰伦 & co')}`,
+    );
+    expect(pending[0]?.url).not.toContain('limit');
+  });
+
+  it('ignores a set that changes nothing', () => {
+    useLibrary.getState().setSearch('');
+    useLibrary.getState().setPlaylistId(VIRTUAL_ALL_PLAYLIST_ID);
+    expect(pending).toHaveLength(0);
+  });
+});
+
+describe('stale responses', () => {
+  it('drops an earlier playlist response when the view has moved on', async () => {
+    useLibrary.getState().setPlaylistId('a4f1e3c2-0000-4000-8000-000000000001');
+    useLibrary.getState().setPlaylistId('a4f1e3c2-0000-4000-8000-000000000002');
+    expect(pending).toHaveLength(2);
+
+    // The first playlist answers last — the classic overwrite.
+    pending[1]?.succeed([song('second')]);
+    await flush();
+    pending[0]?.succeed([song('first')]);
+    await flush();
+
+    expect(useLibrary.getState().songs.map((s) => s.id)).toEqual(['second']);
+    expect(useLibrary.getState().loading).toBe(false);
+  });
+
+  it('drops a search response that arrives after the search was cleared', async () => {
+    useLibrary.getState().setSearch('lark');
+    useLibrary.getState().setSearch('');
+    expect(pending).toHaveLength(2);
+
+    pending[1]?.succeed([song('all-songs')]);
+    await flush();
+    pending[0]?.succeed([song('search-hit')]);
+    await flush();
+
+    expect(useLibrary.getState().songs.map((s) => s.id)).toEqual(['all-songs']);
+  });
+
+  it('does not surface an error from a request the view no longer wants', async () => {
+    useLibrary.getState().setPlaylistId('a4f1e3c2-0000-4000-8000-000000000001');
+    useLibrary.getState().setPlaylistId(VIRTUAL_ALL_PLAYLIST_ID);
+
+    pending[0]?.fail(404, 'playlist not found');
+    await flush();
+    expect(useLibrary.getState().error).toBeNull();
+
+    pending[1]?.succeed([song('a')]);
+    await flush();
+    expect(useLibrary.getState().songs.map((s) => s.id)).toEqual(['a']);
+  });
+
+  it('reports an error the current view did ask for', async () => {
+    useLibrary.getState().refresh();
+    pending[0]?.fail(500, 'daemon exploded');
+    await flush();
+
+    expect(useLibrary.getState().error).toBe('daemon exploded');
+    expect(useLibrary.getState().loading).toBe(false);
+  });
+});
