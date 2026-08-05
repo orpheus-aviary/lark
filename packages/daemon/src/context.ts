@@ -81,6 +81,27 @@ export interface AppContext {
   shutdownSignal: AbortSignal;
   ackTimeoutMs: number;
   version: string;
+  /**
+   * ACCEPTANCE-ONLY seams (M4 T6). Undefined in every normal boot: the shipped
+   * CLI has no switch for them and only `testing/boot-child.ts` reads the env
+   * that turns them on — the same containment M2 used for its test knobs.
+   */
+  acceptance?: AcceptanceOptions;
+}
+
+export interface AcceptanceOptions {
+  /**
+   * Pace `/audio` writes. The media criteria need a seek to land on bytes
+   * that are genuinely not buffered yet, and a local file over loopback is
+   * fully buffered long before a human (or a script) can drag the slider.
+   */
+  audioThrottleBytesPerSec?: number;
+  /**
+   * Register `GET /debug/audio-streams`. Deliberately NOT in the capabilities
+   * list: it is an observation point for the stream-leak criterion, not part
+   * of the API, and a guard test asserts it 404s in a normal boot.
+   */
+  debugRoutes?: boolean;
 }
 
 /** Defaults every context shares; boot and the test harness both start here. */

@@ -24,6 +24,7 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
+import { type Readable, Transform } from 'node:stream';
 import { deleteLyrics, getSong, readLyrics, songAudioPath, touchLastAccessed } from '@lark/core';
 import { apiPath } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
@@ -76,6 +77,26 @@ export function parseRange(header: string | undefined, size: number): ParsedRang
 
 const idOf = (req: { params: unknown }): string => pathUuid((req.params as { id: string }).id);
 
+/** Positive rate = acceptance mode asked for paced writes; otherwise none. */
+function throttleFor(ctx: AppContext): number | undefined {
+  const rate = ctx.acceptance?.audioThrottleBytesPerSec;
+  return rate !== undefined && rate > 0 ? rate : undefined;
+}
+
+/**
+ * Pace a stream at roughly `bytesPerSec`. The delay goes in a Transform rather
+ * than a write loop so the pipe still carries backpressure — the obligation
+ * the spike measured (§6.2 ①) holds in acceptance mode too.
+ */
+function throttle(source: Readable, bytesPerSec: number): Readable {
+  const paced = new Transform({
+    transform(chunk: Buffer, _encoding, done): void {
+      setTimeout(() => done(null, chunk), (chunk.length / bytesPerSec) * 1000);
+    },
+  });
+  return source.pipe(paced);
+}
+
 export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void {
   const lastTouched = new Map<string, number>();
 
@@ -127,6 +148,10 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
     }
 
     const stream = createReadStream(path, { start, end });
+    // Acceptance mode only: pacing the bytes is what makes a seek land on
+    // something that is genuinely not buffered yet (M4 T6).
+    const rate = throttleFor(ctx);
+    const body = rate === undefined ? stream : throttle(stream, rate);
     openAudioStreams += 1;
     let released = false;
     const release = (): void => {
@@ -134,6 +159,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
       released = true;
       openAudioStreams -= 1;
       stream.destroy();
+      if (body !== stream) body.destroy();
     };
     // 'close' also fires on a client that seeks away mid-stream; 'error' on a
     // reset socket. Both must release, exactly once, or the fd leaks.
@@ -141,6 +167,10 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
     reply.raw.on('error', release);
     stream.on('close', release);
     stream.on('error', release);
+    if (body !== stream) {
+      body.on('close', release);
+      body.on('error', release);
+    }
 
     ctx.logger.debug(
       {
@@ -152,7 +182,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
       },
       'audio range',
     );
-    return reply.send(stream);
+    return reply.send(body);
   });
 
   app.get(apiPath.lyrics(':id'), async (req, reply) => {

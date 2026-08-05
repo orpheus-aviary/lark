@@ -6,6 +6,7 @@ import type { AppContext } from './context.js';
 import { mapCoreError } from './error-mapping.js';
 import { fail } from './response.js';
 import { registerConfigRoutes } from './routes/config.js';
+import { registerDebugRoutes } from './routes/debug.js';
 import { registerDownloadRoutes } from './routes/download.js';
 import { registerEventsRoutes } from './routes/events.js';
 import { registerMediaRoutes } from './routes/media.js';
@@ -29,6 +30,8 @@ export function registerAllRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerPlayerRoutes(app, ctx);
   registerConfigRoutes(app, ctx);
   registerDownloadRoutes(app, ctx);
+  // Acceptance mode only, and never listed in capabilities (M4 T6).
+  if (ctx.acceptance?.debugRoutes === true) registerDebugRoutes(app, ctx);
 }
 
 /**

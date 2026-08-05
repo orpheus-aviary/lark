@@ -43,7 +43,7 @@ import {
 } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
-import { type AppContext, CONTEXT_DEFAULTS } from './context.js';
+import { type AcceptanceOptions, type AppContext, CONTEXT_DEFAULTS } from './context.js';
 import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
 import { generateLocalToken, publishLocalToken } from './local-token.js';
@@ -69,6 +69,11 @@ export interface BootOptions {
   stallBeforeListenMs?: number;
   /** TEST SEAM: fire `requestFatal` this long after a successful boot. */
   fatalAfterMs?: number;
+  /**
+   * ACCEPTANCE SEAMS (M4 T6): `/audio` write pacing and the debug stream
+   * counter. Only `testing/boot-child.ts` ever sets these.
+   */
+  acceptance?: AcceptanceOptions;
 }
 
 type LifecycleState = 'booting' | 'running' | 'stopping' | 'stopped';
@@ -314,6 +319,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       downloads,
       bilibili,
       shutdownSignal: shutdownController.signal,
+      ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
     };
     server = buildServer(ctx);
   } catch (err) {

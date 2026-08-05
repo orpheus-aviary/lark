@@ -17,7 +17,12 @@ import {
   resolveLlmConfig,
 } from '@lark/core';
 import type { LarkConfig } from '@lark/shared';
-import { type AppContext, CONTEXT_DEFAULTS, type Logger } from '../context.js';
+import {
+  type AcceptanceOptions,
+  type AppContext,
+  CONTEXT_DEFAULTS,
+  type Logger,
+} from '../context.js';
 import { EventsBus } from '../events/bus.js';
 import { GuiChannel, type GuiChannelOptions } from '../events/gui-channel.js';
 import { PlayerRuntime } from '../player-runtime.js';
@@ -60,6 +65,8 @@ export function createRecordingLogger(): RecordingLogger {
 
 export interface TestContextOptions {
   config?: LarkConfig;
+  /** Acceptance seams (M4 T6): the guard tests exercise both settings. */
+  acceptance?: AcceptanceOptions;
   configPath?: string;
   saveConfigImpl?: (config: LarkConfig, path?: string) => void;
   guiChannel?: GuiChannelOptions;
@@ -162,6 +169,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     downloads,
     bilibili,
     shutdownSignal: shutdownController.signal,
+    ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
     fatals,
     shutdownController,
   };
