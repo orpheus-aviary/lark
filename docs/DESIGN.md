@@ -48,6 +48,31 @@
 
 Monorepo 规划与"是否抽共享 daemon-kit"的议题见 `CLAUDE.md`。
 
+### 3.1 GUI 宿主（M4 落地，2026-08-05）
+
+Electron main 是 daemon 的宿主，不是它的监工：
+
+- **确权与复用**：main 先打 `GET /status`（1s）。没人应答才 spawn（`process.execPath` +
+  `ELECTRON_RUN_AS_NODE`、detached、**绝不注入 token env**），并要求 `status.pid === child.pid`
+  才算 owned；退出时只停自己拉起的那个，且发信号前重新确权 pid（防 pid 复用误杀）。
+  有人应答则必须证明是**同一个 nest** 的 daemon：`GET /api/instance` 返回
+  `{nest_dir, pid, version, local_api_version}`，`realpath` 相等且 `local_api_version` 相等
+  才复用——**复用永不认领所有权**。任何不能证明身份的情况（nest 失配 / 401 / 404 / 非 200）
+  都弹框中止，**绝不进 spawn**（端口已被占，spawn 必然竞态），也绝不去停陌生进程。
+- **不做 respawn**：daemon 死了就是离线指示 + toast，恢复靠用户重启 GUI 或自己起 daemon。
+- **`lark-media://`**：renderer 的 `<audio src="lark-media://song/<uuid>">` 由 main 代理到
+  `GET /audio/:id`，入站 `Range` 原样转发、`Authorization` 由 main 每次现读 token 附加，
+  回程保留上游状态码（200/206/404/416）与五个头。**token 因此不进 URL / DOM / 日志 / 媒体 src**
+  （R21/R29）。URL 校验不符 → 400；token 不可读 → 503；上游不可达 → 502。
+- **两个纪元，不许混用**：`connectionEpoch` 每收到一次 `hello` 递增，只触发全量刷新；
+  `daemonGeneration` 只在观测到 token 内容或 `/status.pid` 变化时递增，**只有它**允许媒体
+  元素 remount。remount 会毁掉播放位置与缓冲，所以换代后跑一次恢复状态机（保存的位置 +
+  换代前的播放意图，metadata / error / 超时三路竞争、恰好结算一次，有失败终态）。
+  一次普通的 SSE 断线重连不得打断播放。
+- **会话通道**：renderer 是 daemon 的单一 GUI 消费者（`POST /gui/register` → `?role=gui&gui_id=`），
+  收 409 `GUI_REGISTRATION_REQUIRED` 就重新注册；播放器命令按 SSE 到达顺序串行执行后 ack，
+  超过 2.5s 才轮到的命令直接丢弃（daemon 已在 3s 回过 504）。
+
 ## 4. skybridge 接入
 
 ### 同步范围（2026-07-16 更新）

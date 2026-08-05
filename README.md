@@ -8,7 +8,7 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）、M2 daemon 基础路由（生命周期 + Bearer 鉴权 + SSE/gui 通道 + songs/playlists/audio/lyrics/player/config 路由）、M3 下载管线（bilibili + WBI、链接规范化、ffmpeg、歌词三平台、下载队列与崩溃恢复、download/import/redownload 路由）已完成；下一步 M4 GUI 基座。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）、M2 daemon 基础路由（生命周期 + Bearer 鉴权 + SSE/gui 通道 + songs/playlists/audio/lyrics/player/config 路由）、M3 下载管线（bilibili + WBI、链接规范化、ffmpeg、歌词三平台、下载队列与崩溃恢复、download/import/redownload 路由）、M4 GUI 基座（Electron 宿主 + `lark-media://` 代理 + 曲库/播放器/歌词/下载全套界面）已完成；下一步 M5。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
@@ -26,8 +26,11 @@ just stop-daemon     # 停 daemon（先经 /status 确权，再等它真的退�
 curl http://127.0.0.1:47100/status
 
 just cli status      # 经 HTTP 查 daemon（--json 输出原始信封）
-just dev             # 起 GUI（M0 不自动拉 daemon，需先开上面那个）
+just dev             # 起 GUI（自己拉起并确权 daemon；已有本 nest daemon 则复用不认领）
 just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一方式
+
+just backup-nest [目标目录]   # 安全复制整个 nest（见下「nest 复制」）
+just accept-gui [--keep]     # 六项判据 + 会话矩阵：真 GUI × 真 daemon × nest 副本
 
 just check           # lint + tsc -b + 依赖方向守卫 + 日志卫生守卫 + spike fast 层
 just test            # 全部 vitest
@@ -84,8 +87,29 @@ Go 版重新打开。`just migrate-go` 尊重 `LARK_NEST_DIR`，所以演练一�
 真实 nest 到临时目录再跑）；它是幂等的，对已迁移的库只会报 `already-migrated`。迁移前请先
 退出 Go 版 lark 和 daemon。
 
-媒体协议 spike（M4 移植参照）：`just spike-media-server` / `just spike-media-app` 双终端手动跑，
-`just spike-media-check` 跑完整校验层。结论见 `docs/plans/2026-07-31-m0-scaffold-media-spike.md` §6。
+媒体协议 spike（M4 移植来源）：`just spike-media-server` / `just spike-media-app` 双终端手动跑，
+`just spike-media-check` 跑完整校验层。结论见 `docs/plans/2026-07-31-m0-scaffold-media-spike.md` §6；
+正式实现见 `packages/gui/src/main/media-protocol.ts`，六项判据的回归跑 `just accept-gui`。
+
+### nest 复制（通用契约）
+
+任何时候要复制或恢复 `~/orpheus-aviary-nest/`（演练迁移、做验收副本、备份），规矩是同一套：
+
+- **运行态文件一律不复制**：`daemon-token`、`daemon.pid`、`logs/`、`songs.db.migrate.lock`
+  ——它们属于产生它们的那个进程，复制过去只会让新实例读到别人的身份。
+- **DB 一致性**：`songs.db` 是 WAL 模式。复制前必须确认 daemon 与 GUI 都已退出、且没有
+  `songs.db-wal` / `songs.db-shm` 残留；确认不了就别直接拷，走快照。
+- **快照入口**：`just backup-nest [目标目录]`。它会拒绝在 daemon 存活时运行（在线备份只冻结
+  数据库，冻结不了 `songs/` 与配置），备份期间用 `locking_mode=EXCLUSIVE` 持有源库，目标目录
+  必须由它本次创建（拒绝已存在的目录、nest 自身及其祖先/后代、以及指回 nest 的 symlink），
+  失败时只清理自己建的那个目录。默认落在 0700 的临时目录里——副本含 `lark_config.toml`，
+  里面有 LLM api key。
+
+```fish
+just backup-nest                       # → /var/folders/.../lark-nest-XXXX（打印路径）
+set -x LARK_NEST_DIR /var/folders/.../lark-nest-XXXX
+just dev-daemon                        # 副本上起 daemon，真实曲库不受影响
+```
 
 ## 技术栈（预定）
 

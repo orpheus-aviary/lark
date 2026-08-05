@@ -121,7 +121,7 @@ CLI --direct ─────▶ core（同一写入路径；仅限曲库/歌单�
 
 - Fastify `buildServer(ctx: AppContext)` + `registerXRoutes(app, ctx)` + `ok/created/fail` 信封 helper
 - PID 锁（`openSync 'wx'` + 活性检测）、`GET /status` 探活、0600 本地 token（Bearer）鉴权
-- GUI 用 `ELECTRON_RUN_AS_NODE` spawn daemon（detached + unref），pid 匹配确权
+- GUI 用 `ELECTRON_RUN_AS_NODE` spawn daemon（detached + unref），pid 匹配确权。**M4 收紧（M4-2）**：复用一个已在跑的 daemon 之前必须先证明它属于同一个 nest——`GET /status` 只证明「有人在应答」，token 往返也只证明「双方各有一份同样的 token 文件副本」（整目录复制过 nest 就成立）。所以复用判定走鉴权的 `GET /api/instance`，比对 `realpath(nest_dir)` 与 `local_api_version`；**复用永不认领所有权**，任何证明不了身份的分支（nest 失配 / 401 / 404 / 非 200 / 无效 JSON）一律弹框中止，既不 spawn（端口已被占，spawn 必然竞态）也不去停陌生进程
 - better-sqlite3 + drizzle + 手写编号 SQL migration（`PRAGMA user_version` runner，事务内执行）
 - 时间字段一律 INTEGER Unix-ms
 - smol-toml 配置深合并默认值；LLM 字段缺省回退 `~/orpheus-aviary-nest/aviary/aviary_config.toml`
@@ -137,6 +137,7 @@ CLI --direct ─────▶ core（同一写入路径；仅限曲库/歌单�
 - renderer 的 `<audio>` 指向 `lark-media://song/<uuid>`（媒体 src 无法带 header，也不许带 token）；Electron main 用 `protocol.handle` 将其代理为对 daemon `GET /audio/:id` 的请求：main 自行读 token 文件附 `Authorization`、透传 `Range` 请求头与 `206/Content-Range` 响应，流式转发。
 - daemon 侧 `GET /audio/:id` 支持 Range（seek 必需），响应流式读文件，并更新 `last_accessed_at`。
 - **M0 spike（R21）：已验证 2026-07-31（Electron 43.2.0），六项判据全过，本节维持，fallback 未启用。** 实测记录、定稿参数与 M4 移植清单见 `2026-07-31-m0-scaffold-media-spike.md` §6。定稿要点：privileges = `{ standard, stream, supportFetchAPI }`；`net.fetch` 回程必须透传 `Content-Length` 与 `Accept-Ranges`（漏则总时长/可 seek 判定错）；判据 4 的标准修订为「并发流有上界且不随 seek 次数增长」（Chromium multibuffer 会保留约 6 条 range 连接），因此 `/audio` 必须尊重 backpressure、按多流预算 fd、在 `close`/`error` 上一次性清理。
+- **M4 正式化（2026-08-05）**：spike 的协议实现移植进 `packages/gui/src/main/media-protocol.ts`，六项判据在**正式 GUI（build 产物）× 真实 daemon × nest 副本**上复跑通过（`just accept-gui`，15/15）——含限速下 seek 到未缓冲远端产生新 Range 请求、畸形/越界 Range 416、seek 风暴后并发流有上界、生产 CSP 零 violation 且 token 不在 DOM、daemon 重启轮换 token 后免刷新续播。
 - fallback（未启用，留档）：带作用域、短时、可刷新的签名媒体 URL + pino 脱敏。
 - CLI/agent 不拉音频流（播放发生在 GUI）。
 
@@ -231,7 +232,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 
 | 组 | 端点 |
 |---|---|
-| 系统 | `GET /status` · `GET /api/capabilities`（自描述，供 agent 发现） |
+| 系统 | `GET /status`（永不鉴权，只带 pid/uptime/version）· `GET /api/instance`（鉴权：`{nest_dir, pid, version, local_api_version}`——GUI 复用判定的唯一身份来源，M4-2）· `GET /api/capabilities`（自描述，供 agent 发现） |
 | 歌曲 | `GET /songs`（搜索/分页/排序，enrich has_file/file_size）· `GET|PUT|DELETE /songs/:id` · `POST /songs/import`（本地 mp3，file_origin=imported）· `PUT /songs/:id/pin` |
 | 链接 | `PUT /songs/:id`（含 source_url 编辑，服务端规范化出 provider/key）· `POST /songs/:id/recognize-url`（**纯预览**：LLM 识别返回候选，不写库，R6）· `POST /songs/:id/redownload`（凭 source_key 确定性重下） |
 | 文件 | `GET /audio/:id`（Range 流式 + 更新 last_accessed_at）· `GET|DELETE /lyrics/:id` · `POST /download/lyrics/:id`（重下歌词） |
