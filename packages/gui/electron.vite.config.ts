@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_DAEMON_PORT } from '@lark/shared';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { Plugin } from 'vite';
@@ -91,7 +92,7 @@ export default defineConfig({
   },
   renderer: {
     root: here('src/renderer'),
-    plugins: [react(), cspPlugin()],
+    plugins: [react(), tailwindcss(), cspPlugin()],
     resolve: {
       alias: { '@': here('src/renderer/src') },
     },

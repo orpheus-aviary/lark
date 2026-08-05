@@ -15,15 +15,27 @@
     "@lark/core": "workspace:*",
     "@lark/daemon": "workspace:*",
     "@lark/shared": "workspace:*",
+    "@tailwindcss/vite": "4.2.2",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "0.468.0",
+    "radix-ui": "1.4.3",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "sonner": "2.0.7",
+    "tailwind-merge": "3.5.0",
+    "tailwindcss": "4.2.2",
+    "zustand": "5.0.12"
   },
   "devDependencies": {
+    "@testing-library/react": "16.3.2",
+    "@testing-library/user-event": "14.6.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "5.2.0",
     "electron": "43.2.0",
     "electron-vite": "5.0.0",
+    "jsdom": "25.0.1",
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vitest": "4.1.4"

@@ -1,56 +1,57 @@
-import { API_PATHS, ApiError, type StatusData, request } from '@lark/shared';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { Toaster } from './components/ui/sonner.js';
+import { EventsSubscriber } from './session/EventsSubscriber';
+import { useConfig } from './stores/config.js';
+import { useSession } from './stores/session.js';
+import { applyFontSizes } from './theme/theme.js';
 
-type Probe =
-  | { state: 'probing' }
-  | { state: 'online'; data: StatusData }
-  | { state: 'offline'; reason: string };
+const SSE_LABELS = { connecting: '连接中…', online: '在线', offline: '离线' } as const;
 
-async function probeDaemon(): Promise<Probe> {
-  try {
-    const envelope = await request<StatusData>('GET', API_PATHS.status);
-    if (!envelope.data) return { state: 'offline', reason: 'daemon responded without status data' };
-    return { state: 'online', data: envelope.data };
-  } catch (err) {
-    return {
-      state: 'offline',
-      reason: err instanceof ApiError ? err.message : 'no response from daemon',
-    };
-  }
-}
-
+/**
+ * T2 shell: session wiring, theme/font plumbing and a visible connection
+ * state. T3/T4/T5 replace the placeholder with the Go-parity seven-segment
+ * layout (TopBar / InteractionBar / SongList / ProgressBar / Controls /
+ * LyricsDisplay / StatusBar).
+ */
 export function App(): React.JSX.Element {
-  const [probe, setProbe] = useState<Probe>({ state: 'probing' });
+  const sseStatus = useSession((s) => s.sseStatus);
+  const font = useConfig((s) => s.config?.font);
+  const refreshConfig = useConfig((s) => s.refresh);
 
-  // Syncing with an external system (the daemon) — the one thing useEffect is for.
+  // Initial config fetch; later refreshes ride the hello epoch (M4-8).
   useEffect(() => {
-    let cancelled = false;
-    const run = async (): Promise<void> => {
-      const result = await probeDaemon();
-      if (!cancelled) setProbe(result);
-    };
-    void run();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    refreshConfig();
+  }, [refreshConfig]);
+
+  // Font sizes are DOM-level variables (body scope), not React state — the
+  // one legitimate "sync with an external system" job (M4-12).
+  useEffect(() => {
+    if (font) applyFontSizes(font.global_font_size, font.lyrics_font_size);
+  }, [font]);
 
   return (
-    <main className="shell">
-      <h1>lark</h1>
-      <p className="hint">M0 骨架 — daemon 垂直链路自检</p>
-      {probe.state === 'probing' && <p className="status probing">正在探测 daemon…</p>}
-      {probe.state === 'online' && (
-        <p className="status online">
-          daemon 在线 · pid {probe.data.pid} · v{probe.data.version} · uptime{' '}
-          {Math.round(probe.data.uptime)}s
-        </p>
-      )}
-      {probe.state === 'offline' && (
-        <p className="status offline">
-          daemon 离线（{probe.reason}）—— 先跑 <code>just dev-daemon</code>
-        </p>
-      )}
-    </main>
+    <div className="flex h-full flex-col">
+      <EventsSubscriber />
+      <main className="flex flex-1 items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <h1 className="font-semibold text-2xl">lark</h1>
+          <p className="text-muted-foreground text-sm">M4 基座 — 曲库与播放器视图在 T3/T4 落地</p>
+        </div>
+      </main>
+      <footer className="flex h-7 items-center gap-2 border-t px-3 text-muted-foreground text-xs">
+        <span
+          aria-label={`SSE ${sseStatus}`}
+          className={`inline-block size-2 rounded-full ${
+            sseStatus === 'online'
+              ? 'bg-emerald-500'
+              : sseStatus === 'offline'
+                ? 'bg-red-500'
+                : 'bg-amber-400'
+          }`}
+        />
+        <span>{SSE_LABELS[sseStatus]}</span>
+      </footer>
+      <Toaster />
+    </div>
   );
 }

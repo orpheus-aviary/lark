@@ -6,4 +6,17 @@ export interface LarkApi {
    * loopback port.
    */
   readonly daemonUrl: string | null;
+  /**
+   * The daemon's bearer token, read FRESH from the 0600 token file on every
+   * call (R29) — a function, never a cached string, so a daemon restart's
+   * rotated token is picked up without a reload. `null` when the token file
+   * is unreadable or main passed no path.
+   */
+  readonly getDaemonToken: () => string | null;
+  /** Renderer process pid — what `POST /gui/register` reports (M4-9). */
+  readonly rendererPid: number;
+  /** GUI package version, for the register call. */
+  readonly guiVersion: string;
+  /** Native multi-select mp3 picker (main-side dialog). `[]` on cancel. */
+  readonly pickMp3: () => Promise<string[]>;
 }
