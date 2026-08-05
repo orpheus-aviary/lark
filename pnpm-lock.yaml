@@ -104,6 +104,12 @@ importers:
 
   packages/gui:
     dependencies:
+      '@lark/core':
+        specifier: workspace:*
+        version: link:../core
+      '@lark/daemon':
+        specifier: workspace:*
+        version: link:../daemon
       '@lark/shared':
         specifier: workspace:*
         version: link:../shared

@@ -12,6 +12,8 @@
     "build:deps": "pnpm -F @lark/shared build && pnpm -F @lark/core build && pnpm -F @lark/daemon build"
   },
   "dependencies": {
+    "@lark/core": "workspace:*",
+    "@lark/daemon": "workspace:*",
     "@lark/shared": "workspace:*",
     "react": "19.2.4",
     "react-dom": "19.2.4"

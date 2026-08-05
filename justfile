@@ -69,6 +69,13 @@ test-daemon: ensure-node-abi build-shared build-core build-daemon
 test-cli: build-shared
     pnpm --filter @lark/cli run test
 
+# GUI unit tests run under plain Node (the tested main-process modules are
+# electron-free by design), so this stays on the Node ABI — no electron-abi
+# recipe here (M4-3).
+[group('test')]
+test-gui: build-shared build-core build-daemon
+    pnpm --filter @lark/gui run test
+
 # ─── Build ──────────────────────────────────────────────
 
 [group('build')]
@@ -87,8 +94,11 @@ build-core:
 build-daemon:
     pnpm --filter @lark/daemon run build
 
+# M4: the GUI resolves @lark/core and @lark/daemon dist at runtime (main
+# spawns the daemon cli and imports core paths/config), so all three deps
+# must be built. Pure build runs no Electron — no ABI recipe (M4-3).
 [group('build')]
-build-gui: build-shared
+build-gui: build-shared build-core build-daemon
     pnpm --filter @lark/gui run build
 
 [group('build')]
@@ -175,9 +185,11 @@ migrate-go: ensure-node-abi build-core
 
 # ─── Dev ────────────────────────────────────────────────
 
-# Launch the GUI (daemon must be started separately in M0 — GUI spawn is M4).
+# Launch the GUI. Since M4 it spawns/adopts the daemon itself; the spawned
+# daemon runs inside the Electron binary (ELECTRON_RUN_AS_NODE), so
+# better-sqlite3 must be on the Electron ABI (148) first.
 [group('dev')]
-dev: build-shared build-core build-daemon
+dev: ensure-electron-abi build-shared build-core build-daemon
     pnpm run dev
 
 # Run the daemon in the foreground on 127.0.0.1:47100.
@@ -196,7 +208,7 @@ stop-daemon:
 # production CSP (a bare `build` produces no console to watch). M0-5 two-state
 # verification: `just dev` for the dev policy, this for the build policy.
 [group('dev')]
-gui-preview: build-gui
+gui-preview: ensure-electron-abi build-gui
     pnpm --filter @lark/gui run preview
 
 # Run the user-facing CLI from dist, e.g. `just cli status --json`.
