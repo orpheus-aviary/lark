@@ -25,16 +25,21 @@
 import { mkdirSync } from 'node:fs';
 import {
   DestructiveForwardMigrationError,
+  DownloadEngine,
   ForwardMigrationError,
   GoMigrationRequiredError,
   IncompatibleDbError,
   MigrationBusyError,
   MigrationResidueError,
   SchemaMismatchError,
+  createBilibiliClient,
   createDatabase,
   createLogger,
   loadConfig,
   paths,
+  recoverSongsStore,
+  resolveFfmpegBinaries,
+  resolveLlmConfig,
 } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
@@ -130,6 +135,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   let ctx: AppContext | null = null;
   let server: FastifyInstance | null = null;
   let teardownPromise: Promise<void> | null = null;
+  const shutdownController = new AbortController();
 
   const beginStop = (reason: StopReason): boolean => {
     if (stopReason !== null) return false; // first-wins
@@ -139,13 +145,25 @@ export async function boot(options: BootOptions = {}): Promise<void> {
     return true;
   };
 
-  /** Release everything acquired so far, in reverse order. Idempotent. */
+  /**
+   * Release everything acquired so far, in reverse order. Idempotent.
+   *
+   * The order around `server.close()` is the part that matters (M3-13). It
+   * waits for in-flight REQUESTS, so anything a request might be blocked on
+   * has to be released first: a parked player command, and — since M3 — any
+   * handler-side network call, which is what aborting `shutdownController`
+   * unblocks. `downloads.close()` comes AFTER, because the worker is not a
+   * request: closing it first would make the server wait on a request whose
+   * engine had already gone away.
+   */
   const teardown = (): Promise<void> => {
     teardownPromise ??= (async () => {
       // In-flight player commands first: they are HTTP requests parked on a
       // GUI ack, and `server.close()` waits for in-flight requests to finish.
       ctx?.player.failAll({ kind: 'shutting-down' });
+      shutdownController.abort(new Error('daemon shutting down'));
       if (server) await server.close(); // preClose ends the SSE streams
+      await ctx?.downloads.close(); // worker exit + ffmpeg children reaped
       ctx?.guiChannel.close(); // registry timers + connection refs
       ctx?.eventsBus.close();
       ctx?.sqlite.close();
@@ -199,6 +217,78 @@ export async function boot(options: BootOptions = {}): Promise<void> {
 
   try {
     const { db, sqlite } = createDatabase({ dbPath: paths.dbPath(), logger });
+
+    // BEFORE the engine exists, so no task can be racing the reconciliation
+    // (M3-7). Anything it finds is residue from a previous process's death.
+    const recovery = recoverSongsStore(db, sqlite);
+    logger.info({ ...recovery, notes: undefined }, 'songs store recovered');
+    for (const note of recovery.notes) logger.warn({ note }, 'recovery note');
+
+    const binaries = resolveFfmpegBinaries();
+    logger.info(
+      {
+        ffmpeg: binaries.ffmpeg.path,
+        ffmpeg_source: binaries.ffmpeg.source,
+        ffprobe: binaries.ffprobe.path,
+        ffprobe_source: binaries.ffprobe.source,
+      },
+      'media tools resolved',
+    );
+
+    // Built before the context so the engine's callbacks can close over it:
+    // the async side of the download pipeline has no route to emit from, so
+    // engine lifecycle callbacks ARE the event source (M3-6).
+    const eventsBus = new EventsBus();
+    const bilibili = createBilibiliClient();
+    const downloads = new DownloadEngine({
+      db,
+      sqlite,
+      bilibili,
+      // Read fresh, so a PATCH /config is picked up by the next task — and
+      // snapshotted per task, so it cannot change mid-download.
+      getLlmConfig: () => resolveLlmConfig(ctx?.config ?? config),
+      logger,
+      shutdownSignal: shutdownController.signal,
+      callbacks: {
+        onStatus: (task) =>
+          eventsBus.emit({
+            type: 'download:status',
+            task_id: task.id,
+            state: task.state,
+            stage: task.stage,
+          }),
+        onSucceeded: (task) => {
+          if (task.result !== null) {
+            eventsBus.emit({
+              type: 'download:complete',
+              task_id: task.id,
+              song_id: task.result.song_id,
+            });
+          }
+          // What changed depends on the kind: a lyrics task never touches the
+          // library, and a download only touches playlists if it joined one.
+          if (task.kind === 'lyrics') {
+            if (task.result !== null) {
+              eventsBus.emit({ type: 'lyrics:changed', song_id: task.result.song_id });
+            }
+            return;
+          }
+          eventsBus.emit({ type: 'songs:changed' });
+          if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+        },
+        onFailed: (task) =>
+          eventsBus.emit({
+            type: 'download:error',
+            task_id: task.id,
+            error_code: task.error_code ?? 'INTERNAL_ERROR',
+            message: task.error_message ?? 'download failed',
+          }),
+        onCancelled: (task) => eventsBus.emit({ type: 'download:cancelled', task_id: task.id }),
+        onBatchesChanged: (batchId) =>
+          eventsBus.emit({ type: 'download:batches-changed', batch_id: batchId }),
+      },
+    });
+
     ctx = {
       ...CONTEXT_DEFAULTS,
       config,
@@ -217,9 +307,12 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       db,
       sqlite,
       localToken: generateLocalToken(), // memory only until listen() succeeds
-      eventsBus: new EventsBus(),
+      eventsBus,
       guiChannel: new GuiChannel(),
       player: new PlayerRuntime(),
+      downloads,
+      bilibili,
+      shutdownSignal: shutdownController.signal,
     };
     server = buildServer(ctx);
   } catch (err) {

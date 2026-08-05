@@ -1,4 +1,4 @@
-import type { LarkDatabase } from '@lark/core';
+import type { BilibiliClient, DownloadEngine, LarkDatabase } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { EventsBus } from './events/bus.js';
@@ -61,6 +61,26 @@ export interface AppContext {
   eventsBus: EventsBus;
   guiChannel: GuiChannel;
   player: PlayerRuntime;
+  /** The download queue (M3). Always present — an unconfigured LLM only
+   * narrows what it can do, it never makes the engine unavailable. */
+  downloads: DownloadEngine;
+  /**
+   * ONE bilibili client for the whole daemon, shared by the routes' preflight
+   * and the engine's worker. Sharing it is not just tidiness: the client caches
+   * the WBI keys and the anonymous buvid, and a second client would present a
+   * second identity to risk control from the same process.
+   */
+  bilibili: BilibiliClient;
+  /**
+   * Aborted when the daemon starts stopping (M3-13).
+   *
+   * Every long-running operation a HANDLER performs — a preflight fetch, a
+   * fetch-list walk, an import's ffprobe — must compose this into its signal.
+   * Those are not engine work, so `downloads.close()` cannot cancel them, and
+   * `server.close()` waits for in-flight requests: without this a Ctrl-C waits
+   * out the longest timeout in the matrix.
+   */
+  shutdownSignal: AbortSignal;
   ackTimeoutMs: number;
   version: string;
 }

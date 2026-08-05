@@ -85,7 +85,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const session of sessions.splice(0)) session.close();
   await app.close();
-  closeTestContext(ctx);
+  await closeTestContext(ctx);
 });
 
 describe('GET /events', () => {
@@ -205,7 +205,7 @@ describe('gui channel over SSE', () => {
       expect(rejected.status).toBe(409);
     } finally {
       await shortApp.close();
-      closeTestContext(shortLived);
+      await closeTestContext(shortLived);
     }
   });
 });

@@ -36,7 +36,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await app.close();
-  closeTestContext(ctx);
+  await closeTestContext(ctx);
   vi.unstubAllEnvs();
   rmSync(nest, { recursive: true, force: true });
 });

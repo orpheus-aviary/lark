@@ -47,7 +47,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await app.close();
-  closeTestContext(ctx);
+  await closeTestContext(ctx);
 });
 
 describe('GET /status', () => {
@@ -117,11 +117,11 @@ describe('bearer gate', () => {
     expect(res.json<ApiResponse>()).toMatchObject({ success: false, error_code: 'NOT_FOUND' });
   });
 
-  it('refuses to build a server with no token (fail-closed)', () => {
+  it('refuses to build a server with no token (fail-closed)', async () => {
     const naked = createTestContext();
     naked.localToken = '';
     expect(() => buildTestServer(naked)).toThrow(/localToken/);
-    closeTestContext(naked);
+    await closeTestContext(naked);
   });
 });
 

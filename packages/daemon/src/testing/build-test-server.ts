@@ -8,7 +8,14 @@
 // unpatched original; caller-supplied headers always win, so a single call can
 // override the bearer inline.
 
-import { DEFAULT_CONFIG, createDatabase } from '@lark/core';
+import type { BilibiliClient } from '@lark/core';
+import {
+  DEFAULT_CONFIG,
+  DownloadEngine,
+  createBilibiliClient,
+  createDatabase,
+  resolveLlmConfig,
+} from '@lark/core';
 import type { LarkConfig } from '@lark/shared';
 import { type AppContext, CONTEXT_DEFAULTS, type Logger } from '../context.js';
 import { EventsBus } from '../events/bus.js';
@@ -59,21 +66,85 @@ export interface TestContextOptions {
   ackTimeoutMs?: number;
   /** File-backed db when a test needs one; defaults to `:memory:`. */
   dbPath?: string;
+  /** Point the download engine at a fake upstream (M3). */
+  engine?: Partial<ConstructorParameters<typeof DownloadEngine>[0]>;
+  /**
+   * Base URL for the bilibili client the ROUTES use for preflight. Tests point
+   * it at the fake upstream; nothing here ever reaches the real api host.
+   */
+  bilibiliBase?: string;
 }
 
 export interface TestContext extends AppContext {
   logger: RecordingLogger;
   /** Everything `requestFatal` was called with — no process ever exits here. */
   readonly fatals: unknown[];
+  /** Fire the shutdown signal by hand, to test what it is supposed to cut off. */
+  readonly shutdownController: AbortController;
 }
 
 /** A complete context over a fresh in-memory database. */
 export function createTestContext(options: TestContextOptions = {}): TestContext {
   const { db, sqlite } = createDatabase({ dbPath: options.dbPath ?? ':memory:' });
   const fatals: unknown[] = [];
+  const config = options.config ?? structuredClone(DEFAULT_CONFIG);
+  const eventsBus = new EventsBus();
+  const shutdownController = new AbortController();
+  const bilibili: BilibiliClient = createBilibiliClient(
+    options.bilibiliBase === undefined ? {} : { apiBase: options.bilibiliBase },
+  );
+
+  // Wired like boot's: engine callbacks are the only event source for the
+  // asynchronous half of a download, so a test that asserts on SSE has to see
+  // the same translation production uses.
+  const downloads = new DownloadEngine({
+    db,
+    sqlite,
+    bilibili,
+    getLlmConfig: () => resolveLlmConfig(ctx.config),
+    shutdownSignal: shutdownController.signal,
+    callbacks: {
+      onStatus: (task) =>
+        eventsBus.emit({
+          type: 'download:status',
+          task_id: task.id,
+          state: task.state,
+          stage: task.stage,
+        }),
+      onSucceeded: (task) => {
+        if (task.result !== null) {
+          eventsBus.emit({
+            type: 'download:complete',
+            task_id: task.id,
+            song_id: task.result.song_id,
+          });
+        }
+        if (task.kind === 'lyrics') {
+          if (task.result !== null) {
+            eventsBus.emit({ type: 'lyrics:changed', song_id: task.result.song_id });
+          }
+          return;
+        }
+        eventsBus.emit({ type: 'songs:changed' });
+        if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+      },
+      onFailed: (task) =>
+        eventsBus.emit({
+          type: 'download:error',
+          task_id: task.id,
+          error_code: task.error_code ?? 'INTERNAL_ERROR',
+          message: task.error_message ?? 'download failed',
+        }),
+      onCancelled: (task) => eventsBus.emit({ type: 'download:cancelled', task_id: task.id }),
+      onBatchesChanged: (batchId) =>
+        eventsBus.emit({ type: 'download:batches-changed', batch_id: batchId }),
+    },
+    ...options.engine,
+  });
+
   const ctx: TestContext = {
     ...CONTEXT_DEFAULTS,
-    config: options.config ?? structuredClone(DEFAULT_CONFIG),
+    config,
     configPath: options.configPath,
     saveConfigImpl: options.saveConfigImpl,
     ackTimeoutMs: options.ackTimeoutMs ?? CONTEXT_DEFAULTS.ackTimeoutMs,
@@ -84,17 +155,28 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     db,
     sqlite,
     localToken: TEST_LOCAL_TOKEN,
-    eventsBus: new EventsBus(),
+    eventsBus,
     guiChannel: new GuiChannel(options.guiChannel),
     player: new PlayerRuntime(),
+    downloads,
+    bilibili,
+    shutdownSignal: shutdownController.signal,
     fatals,
+    shutdownController,
   };
   return ctx;
 }
 
-/** Release everything a test context owns (mirrors boot's teardown order). */
-export function closeTestContext(ctx: TestContext): void {
+/**
+ * Release everything a test context owns (mirrors boot's teardown order).
+ *
+ * Async since M3: `downloads.close()` waits for the worker to exit and for any
+ * ffmpeg child to be reaped. Every `afterEach` must await it — a missed await
+ * shows up as a handle leak under the fork pool, not as a failing assertion.
+ */
+export async function closeTestContext(ctx: TestContext): Promise<void> {
   ctx.player.failAll({ kind: 'shutting-down' });
+  await ctx.downloads.close();
   ctx.guiChannel.close();
   ctx.eventsBus.close();
   ctx.sqlite.close();

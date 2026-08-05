@@ -114,7 +114,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const gui of guis.splice(0)) gui.close();
   await app.close();
-  closeTestContext(ctx);
+  await closeTestContext(ctx);
   vi.unstubAllEnvs();
   rmSync(nest, { recursive: true, force: true });
 });
@@ -148,7 +148,7 @@ describe('POST /gui/register', () => {
       expect((await envelope(second)).error_code).toBe('GUI_CAPACITY');
     } finally {
       await fullApp.close();
-      closeTestContext(full);
+      await closeTestContext(full);
     }
   });
 

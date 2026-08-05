@@ -20,7 +20,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await app.close();
-  closeTestContext(ctx);
+  await closeTestContext(ctx);
 });
 
 async function capabilities(): Promise<CapabilitiesData> {
