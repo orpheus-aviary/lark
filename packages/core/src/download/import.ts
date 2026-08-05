@@ -81,9 +81,16 @@ async function importOne(
     const staged = join(paths.dir, `.import.${taskId}.tmp`);
     await copyFile(filePath, staged);
 
+    // ffprobe names the file it was given, which is the STAGED copy inside the
+    // library — a path the user has never seen and cannot act on. The reason
+    // has to talk about the file they picked; `failed[].path` already carries
+    // it, so the staged name is replaced rather than appended.
     const probe = await probeAudio(staged, {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.timeouts === undefined ? {} : { timeouts: options.timeouts }),
+    }).catch((err: unknown) => {
+      const detail = err instanceof Error ? err.message.split(staged).join(filePath) : String(err);
+      throw new Error(`无法读取音频：${detail}`);
     });
     if (!isMp3Format(probe.format)) {
       throw new Error(`文件扩展名是 .mp3，但实际格式是 ${probe.format || '未知'}`);

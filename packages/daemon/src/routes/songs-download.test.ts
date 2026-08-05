@@ -148,6 +148,19 @@ describe('POST /songs/import', () => {
     expect(failed).toEqual([{ path: missing, reason: expect.any(String) }]);
   }, 60_000);
 
+  // Found in acceptance: ffprobe names the file it was handed, which is the
+  // staged copy inside the library — a path the user has never seen.
+  it("names the user's file in the failure reason, not the staged copy", async () => {
+    const junk = join(fixtures, 'junk.mp3');
+    writeFileSync(junk, 'not audio at all');
+    const res = await post(API_PATHS.songImport, { file_paths: [junk] });
+    const [failure] = bodyOf(res).data.failed;
+
+    expect(failure.path).toBe(junk);
+    expect(failure.reason).not.toContain('.import.');
+    expect(failure.reason).not.toContain(paths.songsDir());
+  }, 60_000);
+
   it('refuses a non-mp3 extension without probing it', async () => {
     const flac = join(fixtures, 'song.flac');
     writeFileSync(flac, 'x');

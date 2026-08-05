@@ -191,26 +191,39 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     const videos: FetchListData['videos'][number][] = [];
     let title = '';
     let error: string | null = null;
+    /** True when a guardrail stopped the walk, not the list running out. */
+    let truncated = false;
 
     try {
       if (type === 'favorites') {
         const mediaId = requiredNumericString(body, 'media_id');
-        for (let page = 1; page <= FETCH_LIST_PAGES_MAX; page++) {
+        let page = 1;
+        for (; page <= FETCH_LIST_PAGES_MAX; page++) {
           const result = await bilibili.favoritesPage(mediaId, page, { signal });
           if (title === '') title = result.title;
           videos.push(...result.videos);
-          if (!result.hasMore || videos.length >= FETCH_LIST_ITEMS_MAX) break;
+          if (!result.hasMore) break;
+          if (videos.length >= FETCH_LIST_ITEMS_MAX) {
+            truncated = true;
+            break;
+          }
         }
+        if (page > FETCH_LIST_PAGES_MAX) truncated = true;
       } else if (type === 'collection') {
         const mid = requiredNumericString(body, 'mid');
         const seasonId = requiredNumericString(body, 'season_id');
-        for (let page = 1; page <= FETCH_LIST_PAGES_MAX; page++) {
+        let page = 1;
+        for (; page <= FETCH_LIST_PAGES_MAX; page++) {
           const result = await bilibili.collectionPage(mid, seasonId, page, { signal });
           if (title === '') title = result.title;
           videos.push(...result.videos);
           if (videos.length >= result.total || result.videos.length === 0) break;
-          if (videos.length >= FETCH_LIST_ITEMS_MAX) break;
+          if (videos.length >= FETCH_LIST_ITEMS_MAX) {
+            truncated = true;
+            break;
+          }
         }
+        if (page > FETCH_LIST_PAGES_MAX) truncated = true;
       } else {
         throw new InvalidRequestError('INVALID_BODY', "type must be 'favorites' or 'collection'");
       }
@@ -219,6 +232,12 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
       // Whatever came back before the failure is still worth having.
       if (videos.length === 0) throw err;
       error = err instanceof Error ? err.message : String(err);
+    }
+
+    // A guardrail stopping the walk IS partial success, and `error: null` would
+    // claim the opposite — the caller would show 903 of 953 as the whole list.
+    if (error === null && truncated) {
+      error = `列表过长，只取回了前 ${videos.length} 条（上限 ${FETCH_LIST_PAGES_MAX} 页 / ${FETCH_LIST_ITEMS_MAX} 条）`;
     }
 
     ok(reply, {

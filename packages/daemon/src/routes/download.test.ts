@@ -314,6 +314,34 @@ describe('POST /download/fetch-list', () => {
     expect((await post(API_PATHS.downloadFetchList, { type: 'uploader' })).statusCode).toBe(400);
   });
 
+  // Found in acceptance: a 953-item folder came back as 903 videos with
+  // `error: null`, which a caller cannot tell apart from a complete list.
+  it('reports truncation when a guardrail stops the walk', async () => {
+    // Every page says there is more, forever — the page cap has to stop it.
+    upstream.state.favorites = {
+      title: '很长的收藏夹',
+      pages: Array.from({ length: 60 }, (_, page) => [
+        { bvid: BVID, title: `第 ${page + 1} 页`, duration: 100 },
+      ]),
+    };
+    const res = await post(API_PATHS.downloadFetchList, {
+      type: 'favorites',
+      media_id: '96661672',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).data.videos).toHaveLength(50); // the 50-page cap
+    expect(bodyOf(res).data.error).toMatch(/只取回了前 50 条/);
+  });
+
+  it('leaves error null when the list simply ended', async () => {
+    const res = await post(API_PATHS.downloadFetchList, {
+      type: 'favorites',
+      media_id: '96661672',
+    });
+    expect(bodyOf(res).data.error).toBeNull();
+  });
+
   it('returns what it managed to fetch when a later page fails', async () => {
     upstream.state.favorites = {
       title: '半成功',

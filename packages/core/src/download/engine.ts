@@ -24,7 +24,7 @@
 // task-data.ts.
 
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import type {
   DownloadBatchData,
   DownloadBatchGroupInput,
@@ -40,7 +40,7 @@ import type {
 import type BetterSqlite3 from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { playlists } from '../db/schema.js';
+import { playlists, songs } from '../db/schema.js';
 import {
   DownloadQueueFullError,
   InvalidSourceError,
@@ -48,7 +48,7 @@ import {
   TaskNotCancellableError,
   TaskNotFoundError,
 } from '../errors.js';
-import { songAudioPath } from '../library/lyrics.js';
+import { songAudioPath, songDirPath } from '../library/lyrics.js';
 import { addSongsToPlaylistInTx, createPlaylist } from '../library/playlists.js';
 import {
   createFileBackedSongInTx,
@@ -463,6 +463,11 @@ export class DownloadEngine {
   }
 
   #setStage(task: TaskRecord, stage: DownloadStage): void {
+    // Re-reporting the stage a task is already in is not a change, and
+    // emitting for it would put duplicate events on the bus: the worker sets
+    // the opening stage and the pipeline reports it again on entry. The
+    // contract is one event per transition (M3-6).
+    if (task.stage === stage) return;
     task.stage = stage;
     // Entering `saving` freezes the target list: the commit transaction is
     // about to read it, and a merge landing mid-transaction would be invisible
@@ -523,7 +528,36 @@ export class DownloadEngine {
       task.claims = [];
       if (this.#dedupe.get(task.dedupeKey) === task.id) this.#dedupe.delete(task.dedupeKey);
       this.#batchRegistry.recordTerminal(task);
+      this.#discardUncommittedSongDir(task);
       this.#trim();
+    }
+  }
+
+  /**
+   * Remove the song directory a task created but never committed.
+   *
+   * A new song's directory has to exist before the download starts — that is
+   * where the staging happens — so a cancel mid-transfer leaves an empty one
+   * behind. `landSongFile` only compensates for failures it saw, and nothing
+   * else claims it: recovery ignores a directory with no audio in it. One per
+   * cancelled download adds up.
+   *
+   * "No database row" is the safety condition, and it is exact: a redownload
+   * or a reuse binds to a song that HAS a row, so their directories are never
+   * touched, and nothing after the commit point can reach this path.
+   */
+  #discardUncommittedSongDir(task: TaskRecord): void {
+    if (task.state === 'succeeded' || task.songId === null) return;
+    const row = this.#options.db
+      .select({ id: songs.id })
+      .from(songs)
+      .where(eq(songs.id, task.songId))
+      .get();
+    if (row !== undefined) return;
+    try {
+      rmSync(songDirPath(task.songId), { recursive: true, force: true });
+    } catch (err) {
+      this.#logger.warn({ task: task.id, err }, 'could not remove an uncommitted song directory');
     }
   }
 

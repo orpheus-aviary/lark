@@ -349,7 +349,7 @@ describe('cancel', () => {
     e.cancel(first.id);
   }, 60_000);
 
-  it('aborts a running download and leaves no partial file', async () => {
+  it('aborts a running download and leaves nothing behind', async () => {
     upstream.state.hangAudio = true;
     const e = build();
     const { id } = e.enqueueDownload({ target: videoTarget() });
@@ -364,6 +364,31 @@ describe('cancel', () => {
 
     expect(taskOf(e, id).state).toBe('cancelled');
     expect(listSongs(db, sqlite).total).toBe(0);
+    // Found in acceptance: staging happens inside the song's own directory, so
+    // the directory exists before the transfer does. Nothing else claims it —
+    // recovery ignores a directory with no audio — so one empty directory per
+    // cancelled download would accumulate forever.
+    expect(readdirSync(songsDir())).toEqual([]);
+  }, 60_000);
+
+  it("leaves an existing song's directory alone when a redownload is cancelled", async () => {
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    const songId = taskOf(e, first.id).result?.song_id as string;
+    await settleAll(e);
+
+    upstream.state.hangAudio = true;
+    const again = e.enqueueRedownload(songId);
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && taskOf(e, again.id).stage !== 'downloading') {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    e.cancel(again.id);
+    await settle(e, again.id);
+
+    // The song has a row, so its directory is not the cleanup's business.
+    expect(existsSync(join(songsDir(), songId, 'song.mp3'))).toBe(true);
   }, 60_000);
 
   it('is idempotent once terminal', async () => {
@@ -633,6 +658,41 @@ describe('callbacks', () => {
     // Revisions only ever move forward, so a client can dedupe on them.
     const revisions = mine.map((s) => s.revision);
     expect([...revisions].sort((a, b) => a - b)).toEqual(revisions);
+  }, 60_000);
+
+  /**
+   * Found in acceptance: `resolving` went out three times for one transition,
+   * because the worker sets the opening stage and the pipeline reported it
+   * again on entry.
+   *
+   * The rule is not "never repeat a stage" — binding the song id is a real
+   * change that happens while the stage stays `resolving`, and the client
+   * wants that signal. The rule is that an event must MEAN something: two
+   * consecutive events may share a stage only if something else moved.
+   */
+  it('emits an event only when something actually changed', async () => {
+    const seen: { state: string; stage: string | null; songId: string | null }[] = [];
+    const e = build({
+      callbacks: {
+        onStatus: (t) => seen.push({ state: t.state, stage: t.stage, songId: t.song_id }),
+      },
+    });
+    const { id } = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, id);
+    await settleAll(e);
+
+    const mine = seen.filter((_, i) => i < seen.length);
+    const inert = mine.filter((event, i) => {
+      const previous = mine[i - 1];
+      return (
+        i > 0 &&
+        previous !== undefined &&
+        previous.state === event.state &&
+        previous.stage === event.stage &&
+        previous.songId === event.songId
+      );
+    });
+    expect(inert).toEqual([]);
   }, 60_000);
 
   it('announces a new batch even when every item merged onto pending tasks', () => {
