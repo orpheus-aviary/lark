@@ -9,6 +9,7 @@ export * from './errors.js';
 export * from './db/index.js';
 export { LATEST_KNOWN_VERSION } from './db/migrate.js';
 export * from './db/backup.js';
+export * from './backup-nest.js';
 export * from './db/migrate-go.js';
 export * from './db/probe-go.js';
 export * from './db/lww.js';

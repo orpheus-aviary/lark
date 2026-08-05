@@ -211,6 +211,22 @@ stop-daemon:
 gui-preview: ensure-electron-abi build-gui
     pnpm --filter @lark/gui run preview
 
+# The M4 acceptance matrix: real GUI (build product) + real daemon, on a copy
+# of the nest. Phase order is the contract — build and copy on the Node ABI,
+# THEN switch to the Electron ABI (the script does that itself), start the
+# daemon before the GUI so the GUI takes its reuse path. `--keep` leaves the
+# copy behind.
+[group('dev')]
+accept-gui *args: ensure-node-abi build-shared build-core build-daemon build-gui spike-media-fixture
+    node scripts/accept-gui.mjs {{args}}
+
+# Copy the nest to a throwaway directory (M4-14⑧). Refuses while a daemon is
+# running: an online backup freezes the database only, so songs/ and the config
+# would otherwise come from a different moment. Runs on the Node ABI.
+[group('dev')]
+backup-nest *target: ensure-node-abi build-core
+    node packages/core/scripts/backup-nest.mjs {{target}}
+
 # Run the user-facing CLI from dist, e.g. `just cli status --json`.
 # No global `lark` bin exists until M6/M7.
 [group('dev')]
