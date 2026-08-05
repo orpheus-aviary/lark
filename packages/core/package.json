@@ -11,6 +11,14 @@
     "./testing": {
       "import": "./dist/testing/index.js",
       "types": "./dist/testing/index.d.ts"
+    },
+    "./paths": {
+      "import": "./dist/paths.js",
+      "types": "./dist/paths.d.ts"
+    },
+    "./config": {
+      "import": "./dist/config/index.js",
+      "types": "./dist/config/index.d.ts"
     }
   },
   "scripts": {
