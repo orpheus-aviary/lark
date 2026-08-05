@@ -29,7 +29,16 @@ export const INFER_SONG_INFO_PROMPT = `你是一个音频下载助手。根据bi
 - UP主名称可以帮助推断创作者（例如"等什么君Official"说明歌手是"等什么君"）
 - 如果无法确定创作者，artist留空`;
 
-/** Split multi-line paste into items. Regexes overrule its classification. */
+/**
+ * Split a multi-line paste into items.
+ *
+ * NO CALL SITE in v0.1, and that is the design rather than an oversight:
+ * `POST /download/parse` classifies line by line with the regexes, so nothing
+ * is left for the model to split. Kept because it is the sixth ported prompt
+ * and the one thing the deterministic parser cannot do is a line holding TWO
+ * links — today that line degrades to a keyword. Wire this up if that turns
+ * out to matter.
+ */
 export const BATCH_ANALYZE_PROMPT = `你是一个音频下载助手。用户输入了多行文本，可能包含多组下载目标。
 请将输入拆分为独立的项目，每项是以下之一：
 - 关键词（歌名+歌手等）
