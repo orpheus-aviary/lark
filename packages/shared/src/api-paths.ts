@@ -25,6 +25,16 @@ export const API_PATHS = {
   playerReport: '/player/report',
   playerAck: '/player/ack',
   guiRegister: '/gui/register',
+
+  // Download pipeline (M3). `/download/parse` never enqueues — it is the
+  // preview half of the paste box; everything else returns task ids.
+  downloadSong: '/download/song',
+  downloadParse: '/download/parse',
+  downloadBatch: '/download/batch',
+  downloadFetchList: '/download/fetch-list',
+  downloadCancel: '/download/cancel',
+  downloadTasks: '/download/tasks',
+  songImport: '/songs/import',
 } as const;
 
 /** Parameterised route paths. Ids are UUID v4 (or the literal `all`, R3). */
@@ -38,4 +48,9 @@ export const apiPath = {
   playlistSong: (id: string, songId: string) => `/playlists/${id}/songs/${songId}`,
   playlistReorder: (id: string) => `/playlists/${id}/reorder`,
   playerCommand: (command: string) => `/player/${command}`,
+
+  // Download pipeline (M3).
+  downloadLyrics: (id: string) => `/download/lyrics/${id}`,
+  songRecognizeUrl: (id: string) => `/songs/${id}/recognize-url`,
+  songRedownload: (id: string) => `/songs/${id}/redownload`,
 } as const;
