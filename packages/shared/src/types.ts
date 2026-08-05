@@ -79,7 +79,7 @@ export interface PinSongRequest {
 
 /** `POST /songs/import` body — absolute paths of local mp3 files. */
 export interface ImportSongsRequest {
-  paths: readonly string[];
+  file_paths: readonly string[];
 }
 
 /** `POST /playlists` and `PUT /playlists/:id` body. */
