@@ -95,6 +95,10 @@ export interface FfmpegRunOptions {
  * `-nostdin` stops ffmpeg from consuming the daemon's stdin if it ever decides
  * to prompt; `-y` overwrites, which is safe because the output is always a
  * task-scoped temp path.
+ *
+ * `-f mp3` is not optional here: the output path ends in `.tmp`, so ffmpeg
+ * cannot infer the container from the extension and fails with "unable to find
+ * a suitable output format" — a message that reads like a codec problem.
  */
 export async function ensureMp3(
   inputPath: string,
@@ -118,6 +122,8 @@ export async function ensureMp3(
       '192k',
       '-ar',
       '44100',
+      '-f',
+      'mp3',
       '-y',
       outputPath,
     ],
