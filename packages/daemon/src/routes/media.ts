@@ -21,6 +21,7 @@
 // And one anti-obligation: do NOT cap a 206 to a fixed chunk size to "help"
 // slow sources. Measured result — the media element goes to MEDIA_ERR_NETWORK.
 
+import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { deleteLyrics, getSong, readLyrics, songAudioPath, touchLastAccessed } from '@lark/core';
@@ -166,9 +167,17 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.delete(apiPath.lyrics(':id'), async (req, reply) => {
     const id = idOf(req);
-    if (!(await deleteLyrics(id))) {
-      return fail(reply, 404, 'lyrics not found', 'LYRICS_NOT_FOUND');
+    // "Is there a file?" and "delete it" are two syscalls, and a lyrics task
+    // can land one in between. The claim closes that window; it is `lyrics`
+    // rather than `exclusive`, so deleting lyrics never blocks a download.
+    const token = ctx.downloads.claims.acquire(id, 'lyrics', `route:${randomUUID()}`);
+    let deleted: boolean;
+    try {
+      deleted = await deleteLyrics(id);
+    } finally {
+      ctx.downloads.claims.release(token);
     }
+    if (!deleted) return fail(reply, 404, 'lyrics not found', 'LYRICS_NOT_FOUND');
     ctx.eventsBus.emit({ type: 'lyrics:changed', song_id: id });
     return ok(reply, { id }, 'lyrics deleted');
   });

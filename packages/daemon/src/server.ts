@@ -6,6 +6,7 @@ import type { AppContext } from './context.js';
 import { mapCoreError } from './error-mapping.js';
 import { fail } from './response.js';
 import { registerConfigRoutes } from './routes/config.js';
+import { registerDownloadRoutes } from './routes/download.js';
 import { registerEventsRoutes } from './routes/events.js';
 import { registerMediaRoutes } from './routes/media.js';
 import { registerPlayerRoutes } from './routes/player.js';
@@ -27,6 +28,7 @@ export function registerAllRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerMediaRoutes(app, ctx);
   registerPlayerRoutes(app, ctx);
   registerConfigRoutes(app, ctx);
+  registerDownloadRoutes(app, ctx);
 }
 
 /**
@@ -68,9 +70,19 @@ export function buildServer(ctx: AppContext): FastifyInstance {
   //   ② Fastify's own 4xx        → keep the status it chose, no error log
   //      (malformed JSON 400, body over limit 413, bad Content-Type 415 …)
   //   ③ anything else            → 500 + an error log with the stack
+  //
+  // M3 added coded errors that map to 5xx (a failed transcode, a failed
+  // commit). Those are still "mapped", but a 5xx is by definition not an
+  // expected outcome of a well-formed request, so it keeps its error log.
   app.setErrorHandler((err: FastifyError, req, reply) => {
     const mapped = mapCoreError(err);
     if (mapped) {
+      if (mapped.status >= 500) {
+        ctx.logger.error(
+          { err, method: req.method, url: req.url, status: mapped.status },
+          'route failed',
+        );
+      }
       if (reply.sent) return;
       fail(reply, mapped.status, err.message, mapped.code, mapped.details);
       return;

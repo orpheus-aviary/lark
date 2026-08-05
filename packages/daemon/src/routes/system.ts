@@ -94,6 +94,50 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
 
   { method: 'GET', path: API_PATHS.config, description: 'Get the config (api_key redacted)' },
   { method: 'PATCH', path: API_PATHS.config, description: 'Patch whitelisted config fields' },
+
+  {
+    method: 'POST',
+    path: API_PATHS.downloadSong,
+    description: 'Queue a download from a bilibili link or a keyword',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.downloadParse,
+    description: 'Classify pasted input without queuing anything',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.downloadBatch,
+    description: 'Queue several groups of downloads atomically',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.downloadFetchList,
+    description: 'Expand a favourites folder or a collection into videos',
+  },
+  { method: 'POST', path: API_PATHS.downloadCancel, description: 'Cancel a download task' },
+  {
+    method: 'GET',
+    path: API_PATHS.downloadTasks,
+    description: 'Snapshot of download tasks and batches',
+  },
+  {
+    method: 'POST',
+    path: apiPath.downloadLyrics(':id'),
+    description: 'Queue a lyrics fetch for a song',
+  },
+
+  { method: 'POST', path: API_PATHS.songImport, description: 'Import local mp3 files' },
+  {
+    method: 'POST',
+    path: apiPath.songRecognizeUrl(':id'),
+    description: 'Preview what a URL resolves to (writes nothing)',
+  },
+  {
+    method: 'POST',
+    path: apiPath.songRedownload(':id'),
+    description: "Re-download a song's audio, replacing the current file",
+  },
 ];
 
 export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): void {
