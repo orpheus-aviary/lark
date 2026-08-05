@@ -23,9 +23,13 @@
   - 实施修订：engine 拆四文件（超 800 行硬线）· lyrics 增 `lrc.ts`/`shared.ts` · 不导出独立 `resolveSongFile`（决策树在引擎下载路径里，避免第二份 claim+落盘编排）· bilibili client 收敛成 `ctx.bilibili` 一份（两份 = 对风控两个身份）· import 复用 `landSongFile`
   - 测试规模：shared 35 / core 355 / daemon 279 / cli 3；`closeTestContext` 转 async，全部既有 `afterEach` 已跟改
   - M2 欠账已全部结清：`POST /songs/import` · `PUT /songs/:id` 的联网规范化 · `POST /download/lyrics/:id` · `download:status` 的合并（去重键 `(state, stage, revision)`，engine 侧合并而非 SSE 限频）
+  - 用户验收通过（2026-08-05，副本 nest + 真实网络）：八项全过。②`source_key` 回写 + 206 字节精确 + 歌词自动派生 · ③关键词经 DeepSeek 清洗成「温柔/五月天」· ④**无 LLM 单 P 下载成功且 LLM 端点零调用**，多 P 无 `?p=` 同步 400 并报出真实分P数，`?p=3` 成功 · ⑦伪装成 .mp3 的 AAC 被容器检查挡下 · ⑧batch 建真歌单 + 终态快照 + 1001 条整请求拒。子计划 §7.5
+  - 验收产出：修了三处缺陷（取消/失败的新歌下载留空目录 · import 失败文案暴露内部暂存路径 · 同一 stage 重复上报）；一处「903/953」经查是 bilibili 过滤失效条目，原行为正确
+  - 验收后裁决（子计划 §7.6）：`resolveSongFile` 不抽，M5 加 task kind `ensure-file` · 无 scheme 链接按固定前缀白名单补 `https://` · `download:status` 加 `revision` · fetch-list 上限提到 200 页/5000 条 · ID3 与 av 号都不做（保持 Go 版行为）· 无 LLM 歌词启发式暂不调
 - [ ] **M4 GUI 基座** — 扩展 M0 GUI 骨架（electron-vite 三段/CSP 已落地）：daemon spawn/确权、单实例、lark-media:// 协议代理（移植 spike 定稿）、Tailwind/shadcn、播放器/列表/歌单/搜索/歌词/快捷键/下载栏（对齐 Go 版）
   - 移植清单在子计划 §6.3（privileges / URL 校验 / net.fetch 透传头 / CSP / ESM main 不得顶层 await / 401 重试风暴 / daemon 重启后重建播放器）；移植后按 T5 六项矩阵完整回归，**Electron 升级大版本同样必须重跑**
 - [ ] **M5 新特性 + 对应路由** — 链接右键菜单 + 编辑对话框、缓存上限 + LRU + 固定 + /cache 路由、导入导出 + 疑似重复 UI、拖拽 reorder（稀疏 rank）、按需下载、设置页
+  - M3 定的接法：「播放无文件歌曲 → 自动下载」加 task kind **`ensure-file`**，复用 engine 的 `#runDownload`，只改 `needsFile` 判定；**不要**另抽 `resolveSongFile`（会产生第二份 claim + 落盘编排）。互斥读 `downloads.claims` 与 `pendingSongIds()`
 - [ ] **M6 CLI** — 扩展 M0 CLI 骨架（@lark/cli status 命令已落地）：双后端（--direct）、全命令、GUI 拉起、skill export
 - [ ] **M7 打包发布 v0.1.0** — electron-builder mac arm64（asar:false）、ffmpeg-static/ffprobe-static 锁版本 + 打包后冒烟测试、FFmpeg 许可交付、ABI recipes、验收清单
 

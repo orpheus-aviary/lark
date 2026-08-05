@@ -241,7 +241,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 | 下载 | `POST /download/song` · `POST /download/parse`（批量文本解析）· `POST /download/batch` · `POST /download/fetch-list`（收藏夹/合集展开）· `POST /download/cancel`（按任务 id）· **`GET /download/tasks`（M3 增补：`{tasks, batches}` 快照，事件只给刷新信号，详情一律 refetch 这里）** |
 | 缓存 | `GET /cache/status`（已用字节/曲数/上限/可清理字节/`unreclaimable_bytes`/`limit_satisfied`，R26）· `POST /cache/evict`（立即清理，响应含同上字段） |
 | 配置 | `GET /config`（api_key 脱敏）· `PATCH /config`（白名单字段 + 校验，R14） |
-| 事件 | `GET /events`（SSE，`?role=gui&gui_id=<id>` 标识 GUI 连接）：`hello`、`player:command`（含 request_id，仅单播给 active GUI）、`cache:evicted`、`songs:changed`、`playlists:changed`、**`lyrics:changed {song_id}`（M2 增补）**、**download 族（M3 修订）**：`download:status {task_id, state, stage}`、`download:complete {task_id, song_id}`、`download:error {task_id, error_code, message}`、`download:cancelled {task_id}`、`download:batches-changed {batch_id}` |
+| 事件 | `GET /events`（SSE，`?role=gui&gui_id=<id>` 标识 GUI 连接）：`hello`、`player:command`（含 request_id，仅单播给 active GUI）、`cache:evicted`、`songs:changed`、`playlists:changed`、**`lyrics:changed {song_id}`（M2 增补）**、**download 族（M3 修订）**：`download:status {task_id, state, stage, revision}`（去重键 `(state, stage, revision)`——`(state, stage)` 本身不唯一）、`download:complete {task_id, song_id}`、`download:error {task_id, error_code, message}`、`download:cancelled {task_id}`、`download:batches-changed {batch_id}` |
 
 ## 5. 核心流程设计
 
