@@ -17,7 +17,7 @@
   - 测试规模：shared 23 / core 131 / daemon 223 / cli 3，含 7 个子进程生命周期用例（真实 exit code / 信号与 listen 并发 / requestFatal 真实退出）与 capabilities 双向覆盖守卫
   - 用户验收通过（2026-08-04，副本 nest）：生命周期往返（token 轮换 / 第二实例拒启 / 停机后 pid 消失 token 保留 / GUI 收 409 后自动重注册）· CRUD + SSE 事件流 + 虚拟 all 只读 · player 单消费者接管（命令只落到最新 GUI）· `/audio` 真实 mp3 的 200/206/416 头部契约与字节一致 · config 脱敏与非法值 400。**「未知键保留」现场未验**（脚本注入时机早于 daemon 加载），由单测覆盖；语义澄清见子计划 §7.3
   - 验收产出：补了 `/audio` 多块流字节精确回归（原用例最大 body 4096 字节，截断可完全逃过测试）；三处「红」经查均为验收脚本自身问题（BSD `cmp -n` 的 EOF 语义 / 嵌套 `$()` 转义引号 / 未知键注入时机）
-- [ ] **M3 下载管线 + 链接路由** — LLM client、bilibili、URL 规范化（provider/key）、ffmpeg 封装、歌词三平台（含无 LLM 降级）、队列/进度/取消/原子落盘、resolveSongFile 链接优先 + source_* 回写、recognize-url（预览）/redownload/download 路由
+- [ ] **M3 下载管线 + 链接路由** — LLM client、bilibili（WBI 签名 search，2026-08-04 实测免签 search 已被风控拦截）、URL 规范化（provider/key）、ffmpeg 封装、歌词三平台（含无 LLM 降级）、队列/进度/取消/原子落盘、resolveSongFile 链接优先 + source_* 回写、recognize-url（预览）/redownload/download 路由｜**子计划已定稿待实施**：`docs/plans/2026-08-04-m3-download-pipeline.md`（2026-08-04，五轮评审修订 17+15+13+12+10 项；实施从批 1 = T1+T2+T3 开始，首日先跑 `just probe-bilibili` 的 fav/collection go/no-go gate）
   - M2 明确推给 M3 的欠账：`POST /songs/import`（本地 mp3，依赖 ffprobe + 落盘管线）· `PUT /songs/:id` 的**联网**规范化（URL → p→cid；M2 只接受显式 source 字段 + core 语法校验）· `POST /download/lyrics/:id` · SSE `download:status` 的合并/限频（M2 只落了写侧背压断开兜底）
   - 已就位可直接用：`LarkEvent` 里 `download:status|complete|error` 类型已冻结待发射；`library/lyrics.ts` 是歌词写入的既定落点；事件发射点统一在路由层写成功后
 - [ ] **M4 GUI 基座** — 扩展 M0 GUI 骨架（electron-vite 三段/CSP 已落地）：daemon spawn/确权、单实例、lark-media:// 协议代理（移植 spike 定稿）、Tailwind/shadcn、播放器/列表/歌单/搜索/歌词/快捷键/下载栏（对齐 Go 版）
