@@ -11,7 +11,8 @@
 // action, which is why `deleteLyrics` exists and no "delete the song's files"
 // helper does. M3's lyrics download writes through this same module.
 
-import { readFile, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isUuidV4 } from '@lark/shared';
 import { InvalidIdError } from '../errors.js';
@@ -39,6 +40,36 @@ export async function readLyrics(id: string): Promise<string | null> {
     return await readFile(songLyricsPath(id), 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/**
+ * Write (or replace) the lyrics file atomically — temp sibling then rename, so
+ * a crash mid-write can never leave a half-file where working lyrics were
+ * (R22). The temp name is random rather than derived from the song id: two
+ * writers for the same song would otherwise share one temp path and the loser
+ * would rename the winner's half-written bytes into place.
+ *
+ * Empty content is refused. "No lyrics" is the absence of the file, which is
+ * what `readLyrics` reports as `null`; a zero-byte file would read as lyrics
+ * that exist and say nothing.
+ */
+export async function writeLyrics(id: string, lrc: string): Promise<void> {
+  const dir = songDirPath(id); // validates the id before any path is built
+  if (lrc.trim() === '') {
+    throw new Error(`refusing to write empty lyrics for song ${id}`);
+  }
+
+  await mkdir(dir, { recursive: true });
+  const tmpPath = join(dir, `.lyrics.${randomUUID()}.tmp`);
+  try {
+    await writeFile(tmpPath, lrc, 'utf-8');
+    await rename(tmpPath, songLyricsPath(id));
+  } catch (err) {
+    await unlink(tmpPath).catch(() => {
+      /* best-effort: the write/rename error is the one that matters */
+    });
     throw err;
   }
 }
