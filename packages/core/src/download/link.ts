@@ -29,6 +29,26 @@ const SPACE_HOST = 'space.bilibili.com';
 const SHORT_LINK_HOST = 'b23.tv';
 
 /**
+ * Hosts a scheme-less paste may be repaired against.
+ *
+ * Copying out of a browser's address bar drops `https://`, and without this
+ * `www.bilibili.com/video/BV1…` parses as free text — which then goes to the
+ * LLM as a search query and comes back with something else entirely.
+ *
+ * The trailing slash is what makes this safe as a prefix test:
+ * `bilibili.com.evil.test/` does not start with `bilibili.com/`. Repairing
+ * only prepends the scheme; every check below (scheme, credentials, port,
+ * host) still runs on the result.
+ */
+const SCHEMELESS_PREFIXES = [
+  'bilibili.com/',
+  'www.bilibili.com/',
+  'm.bilibili.com/',
+  'space.bilibili.com/',
+  `${SHORT_LINK_HOST}/`,
+];
+
+/**
  * A short link cannot be classified without a network hop, so it is its own
  * kind here and never escapes to the wire — `resolveInput` expands it and
  * re-parses, and only `ParsedItem` reaches a caller.
@@ -56,7 +76,7 @@ export function parseSongInput(raw: string): ParsedInput {
     return { kind: 'video', bvid: text, page: null, url: buildVideoUrl(text, 1) };
   }
 
-  const url = safeUrl(text);
+  const url = safeUrl(text) ?? repairSchemeless(text);
   // Not a URL at all → free text. This is the ONLY branch that needs an LLM.
   if (url === null) return { kind: 'keyword', query: text };
 
@@ -160,6 +180,17 @@ function safeUrl(text: string): URL | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Put `https://` back on a bilibili URL that lost it, or `null` to leave the
+ * text alone. Whitespace disqualifies it: a sentence that happens to start
+ * with a host is a search, not a link.
+ */
+function repairSchemeless(text: string): URL | null {
+  if (/\s/.test(text)) return null;
+  if (!SCHEMELESS_PREFIXES.some((prefix) => text.startsWith(prefix))) return null;
+  return safeUrl(`https://${text}`);
 }
 
 /**

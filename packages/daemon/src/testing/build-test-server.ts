@@ -110,6 +110,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
           task_id: task.id,
           state: task.state,
           stage: task.stage,
+          revision: task.revision,
         }),
       onSucceeded: (task) => {
         if (task.result !== null) {

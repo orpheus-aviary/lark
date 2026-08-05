@@ -33,6 +33,50 @@ describe('parseSongInput — videos', () => {
     expect(parseSongInput(`https://m.bilibili.com/video/${BVID}`)).toMatchObject({ bvid: BVID });
   });
 
+  // Copying out of an address bar drops the scheme, and without the repair the
+  // whole URL becomes a search query.
+  it('repairs a scheme-less paste of a known bilibili host', () => {
+    for (const host of ['bilibili.com', 'www.bilibili.com', 'm.bilibili.com']) {
+      expect(parseSongInput(`${host}/video/${BVID}?p=2`)).toMatchObject({
+        kind: 'video',
+        bvid: BVID,
+        page: 2,
+      });
+    }
+    expect(parseSongInput('space.bilibili.com/9666167/favlist?fid=96661672')).toMatchObject({
+      kind: 'favorites',
+    });
+    expect(parseSongInput('b23.tv/abc123')).toMatchObject({ kind: 'short_link' });
+  });
+
+  // The trailing slash in the prefix is what makes the repair safe.
+  it('does not repair a host that merely starts with bilibili.com', () => {
+    expect(parseSongInput(`bilibili.com.evil.test/video/${BVID}`)).toMatchObject({
+      kind: 'keyword',
+    });
+    expect(parseSongInput(`notbilibili.com/video/${BVID}`)).toMatchObject({ kind: 'keyword' });
+  });
+
+  it('leaves a sentence that happens to start with a host alone', () => {
+    expect(parseSongInput('bilibili.com/video 上那首歌')).toMatchObject({ kind: 'keyword' });
+  });
+
+  it('still applies the path and host checks after repairing', () => {
+    expect(() => parseSongInput('www.bilibili.com/bangumi/play/ep1')).toThrow(/无法识别/);
+    expect(() => parseSongInput('www.bilibili.com/video/BV1Ki4y0y7HC')).toThrow(/BV 号/);
+  });
+
+  // A port or credentials cannot reach the repair at all: `new URL` reads
+  // everything before the first `:` as a scheme, so these parse "successfully"
+  // as a bogus scheme and die at the https check. Asserted so a future change
+  // to the repair order has to keep them rejected.
+  it('rejects a scheme-less string carrying a port or credentials', () => {
+    expect(() => parseSongInput(`www.bilibili.com:8443/video/${BVID}`)).toThrow(InvalidSourceError);
+    expect(() => parseSongInput(`user:pw@www.bilibili.com/video/${BVID}`)).toThrow(
+      InvalidSourceError,
+    );
+  });
+
   it('rejects a non-positive or non-numeric ?p=', () => {
     for (const p of ['0', '-1', 'abc', '1.5', '']) {
       expect(() => parseSongInput(`https://www.bilibili.com/video/${BVID}?p=${p}`)).toThrow(

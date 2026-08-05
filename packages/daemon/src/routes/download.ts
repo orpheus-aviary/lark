@@ -50,8 +50,11 @@ const INPUT_MAX = 8 * 1024;
 const PARSE_LINES_MAX = 200;
 const BATCH_GROUPS_MAX = 20;
 const BATCH_ITEMS_MAX = 1000;
-const FETCH_LIST_PAGES_MAX = 50;
-const FETCH_LIST_ITEMS_MAX = 1000;
+// A 953-item favourites folder needs 48 pages, so the original 50 sat right on
+// top of a real library. 200 pages is ~12s of sequential requests, which is
+// still inside one request's budget.
+const FETCH_LIST_PAGES_MAX = 200;
+const FETCH_LIST_ITEMS_MAX = 5000;
 const PLAYLIST_NAME_MAX = 200;
 
 export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): void {

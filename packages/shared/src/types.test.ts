@@ -151,8 +151,14 @@ describe('wire shapes (compile-time)', () => {
 
   it('carries state/stage on download:status and a code on download:error', () => {
     const events = [
-      { type: 'download:status', task_id: 't1', state: 'running', stage: 'downloading' },
-      { type: 'download:status', task_id: 't1', state: 'queued', stage: null },
+      {
+        type: 'download:status',
+        task_id: 't1',
+        state: 'running',
+        stage: 'downloading',
+        revision: 4,
+      },
+      { type: 'download:status', task_id: 't1', state: 'queued', stage: null, revision: 1 },
       { type: 'download:complete', task_id: 't1', song_id: 's1' },
       { type: 'download:error', task_id: 't1', error_code: 'FFMPEG_FAILED', message: 'boom' },
       { type: 'download:cancelled', task_id: 't1' },

@@ -378,6 +378,11 @@ export interface ImportResultData {
  * `download:batches-changed` exists because a new batch whose items all
  * dedupe onto already-pending tasks produces no task transition at all, so
  * without it the batch would never appear.
+ *
+ * `download:status` carries `revision` because `(state, stage)` alone is not
+ * unique: binding the song id is a real change that happens while the stage
+ * stays `resolving`, so two events legitimately agree on both. The tuple
+ * `(state, stage, revision)` is what a client dedupes on (M3-5).
  */
 export type PlayerCommandEvent = { type: 'player:command'; request_id: string } & PlayerCommand;
 
@@ -387,7 +392,13 @@ export type LarkEvent =
   | { type: 'playlists:changed' }
   | { type: 'lyrics:changed'; song_id: string }
   | PlayerCommandEvent
-  | { type: 'download:status'; task_id: string; state: TaskState; stage: DownloadStage | null }
+  | {
+      type: 'download:status';
+      task_id: string;
+      state: TaskState;
+      stage: DownloadStage | null;
+      revision: number;
+    }
   | { type: 'download:complete'; task_id: string; song_id: string }
   | { type: 'download:error'; task_id: string; error_code: string; message: string }
   | { type: 'download:cancelled'; task_id: string }

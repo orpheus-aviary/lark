@@ -144,6 +144,15 @@ describe('POST /download/song', () => {
     await post(API_PATHS.downloadSong, { input: VIDEO_URL });
     expect(events.some((e) => e.type === 'download:status' && e.state === 'queued')).toBe(true);
   });
+
+  // `(state, stage)` is not unique — binding the song id keeps the stage at
+  // `resolving` — so the revision is what makes the dedupe key work.
+  it('carries the revision on every status event', async () => {
+    await post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    const statuses = events.filter((e) => e.type === 'download:status');
+    expect(statuses.length).toBeGreaterThan(0);
+    for (const event of statuses) expect(event.revision).toBeGreaterThan(0);
+  });
 });
 
 // ─── POST /download/parse ──────────────────────────────
@@ -320,7 +329,7 @@ describe('POST /download/fetch-list', () => {
     // Every page says there is more, forever — the page cap has to stop it.
     upstream.state.favorites = {
       title: '很长的收藏夹',
-      pages: Array.from({ length: 60 }, (_, page) => [
+      pages: Array.from({ length: 210 }, (_, page) => [
         { bvid: BVID, title: `第 ${page + 1} 页`, duration: 100 },
       ]),
     };
@@ -330,8 +339,8 @@ describe('POST /download/fetch-list', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(bodyOf(res).data.videos).toHaveLength(50); // the 50-page cap
-    expect(bodyOf(res).data.error).toMatch(/只取回了前 50 条/);
+    expect(bodyOf(res).data.videos).toHaveLength(200); // the page cap
+    expect(bodyOf(res).data.error).toMatch(/只取回了前 200 条/);
   });
 
   it('leaves error null when the list simply ended', async () => {

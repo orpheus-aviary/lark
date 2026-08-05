@@ -256,6 +256,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
             task_id: task.id,
             state: task.state,
             stage: task.stage,
+            revision: task.revision,
           }),
         onSucceeded: (task) => {
           if (task.result !== null) {
