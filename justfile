@@ -253,6 +253,21 @@ spike-media-test:
 spike-media-check: spike-media-fixture
     node spikes/media-protocol/harness.mjs --full
 
+# ─── Live probes (M3) ───────────────────────────────────
+
+# Hit the real api.bilibili.com and assert the SHAPE every download path
+# depends on. Deliberately outside `just check` / CI — the network is not a
+# unit test. Run it on the first day of a bilibili-facing change and at
+# acceptance; the fake upstream in `@lark/core/testing` is built from its
+# output, so a drift shows up here first.
+#
+# Ids are discovered from one keyword search; pin any of them when a specific
+# case matters:
+#   PROBE_KEYWORD PROBE_BVID PROBE_MID PROBE_SEASON_ID PROBE_MEDIA_ID
+[group('probe')]
+probe-bilibili:
+    node scripts/probe-bilibili.mjs
+
 # ─── Clean ──────────────────────────────────────────────
 
 [group('clean')]
