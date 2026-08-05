@@ -20,3 +20,6 @@ export * from './library/lyrics.js';
 export * from './download/timeouts.js';
 export * from './download/llm.js';
 export * from './download/prompts.js';
+export * from './download/wbi.js';
+export * from './download/bilibili.js';
+export * from './download/link.js';
