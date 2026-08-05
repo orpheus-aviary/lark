@@ -7,6 +7,11 @@
 // Validity is a timestamp REGEX, not the Go version's `contains("[0")`. That
 // test rejected any song whose lyrics start after the ten-minute mark and
 // accepted a plain-text file containing the literal characters `[0`.
+//
+// Time-axis parsing itself lives in @lark/shared (M4-13④ single source);
+// this module keeps only the candidate-selection concerns.
+
+import { hasLrcTimestamps, parseLrc } from '@lark/shared';
 
 /** One platform's answer, before selection. */
 export interface LyricsCandidate {
@@ -28,17 +33,6 @@ export interface LyricsCandidate {
 export const LYRICS_PLATFORMS = ['netease', 'qq', 'kugou'] as const;
 export type LyricsPlatform = (typeof LYRICS_PLATFORMS)[number];
 
-// `[mm:ss.xx]` or `[mm:ss:xx]`; both are in the wild.
-//
-// Two regexes from one pattern, on purpose. A single /g regex shared between
-// `.test()` and `matchAll` is a trap: `.test()` leaves `lastIndex` mid-string,
-// so the NEXT call on a shorter input starts past its only timestamp and
-// reports "no timestamps" for perfectly good lyrics. `matchAll` copies the
-// regex and never mutates it, so only the `.test()` side needs to be local.
-const TIMESTAMP_PATTERN = String.raw`\[(\d{1,2}):(\d{2})[.:](\d{2,3})\]`;
-const HAS_TIMESTAMP = new RegExp(TIMESTAMP_PATTERN);
-const ALL_TIMESTAMPS = new RegExp(TIMESTAMP_PATTERN, 'g');
-
 /** Metadata tags carry no lyrics and must not enter a preview. */
 const META_PREFIXES = ['[ti:', '[ar:', '[al:', '[by:', '[offset:', '[kana:', '[length:'];
 
@@ -50,7 +44,7 @@ const META_PREFIXES = ['[ti:', '[ar:', '[al:', '[by:', '[offset:', '[kana:', '[l
 export function normalizeLrc(raw: string): string | null {
   let lrc = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim();
   if (lrc === '') return null;
-  if (!HAS_TIMESTAMP.test(lrc)) return null;
+  if (!hasLrcTimestamps(lrc)) return null;
   // Collapse the runs of blank lines some platforms pad with.
   lrc = lrc.replace(/\n{3,}/g, '\n\n');
   return lrc;
@@ -58,11 +52,10 @@ export function normalizeLrc(raw: string): string | null {
 
 /** The last timestamp in the file — the cross-check against audio duration. */
 export function lrcEndTime(lrc: string): { text: string; seconds: number } | null {
-  const matches = [...lrc.matchAll(ALL_TIMESTAMPS)];
-  const last = matches.at(-1);
+  const last = parseLrc(lrc).at(-1);
   if (last === undefined) return null;
-  const minutes = Number(last[1]);
-  const seconds = Number(last[2]);
+  const minutes = Math.floor(last.time / 60);
+  const seconds = Math.floor(last.time % 60);
   return {
     text: `${minutes}:${String(seconds).padStart(2, '0')}`,
     seconds: minutes * 60 + seconds,

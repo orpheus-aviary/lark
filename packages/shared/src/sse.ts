@@ -15,7 +15,7 @@
 // Wire grammar (https://html.spec.whatwg.org/multipage/server-sent-events.html):
 //   event-block := (line "\n")+ ; two newlines terminate a block; `:` comment.
 
-import { authHeaders, baseUrl } from './transport.js';
+import { authHeaders, baseUrl, isAbortError, sleep } from './transport.js';
 
 export class SseHttpError extends Error {
   constructor(
@@ -208,31 +208,6 @@ function bearerOf(headers: Record<string, string>): string | null {
 }
 
 // ─── Internals ─────────────────────────────────────────
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-function isAbortError(err: unknown): boolean {
-  return (
-    err instanceof Error &&
-    (err.name === 'AbortError' || (err as { code?: string }).code === 'ABORT_ERR')
-  );
-}
 
 async function safeReadText(response: Response): Promise<string> {
   try {

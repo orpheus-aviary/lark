@@ -64,6 +64,20 @@ export interface LarkConfig {
   storage: StorageConfig;
 }
 
+/**
+ * `PATCH /config` body — the whitelisted patchable surface (M2-12). Sections
+ * and fields are each optional; unknown keys are a 400, never silently
+ * dropped. `llm.api_key` IS writable here (`''` clears it) even though reads
+ * only ever see `has_api_key`.
+ */
+export interface ConfigPatchRequest {
+  llm?: Partial<LlmConfig>;
+  window?: Partial<WindowConfig>;
+  font?: Partial<FontConfig>;
+  log?: Partial<LogConfig>;
+  storage?: Partial<StorageConfig>;
+}
+
 /** `api_key` never crosses the wire — `has_api_key` flags presence (R14/M2). */
 export interface PublicLlmConfig {
   url: string;

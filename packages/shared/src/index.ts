@@ -9,3 +9,5 @@ export * from './transport.js';
 export * from './sse.js';
 export * from './api-paths.js';
 export * from './uuid.js';
+export * from './events.js';
+export * from './lrc.js';

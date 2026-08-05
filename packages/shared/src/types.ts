@@ -57,6 +57,57 @@ export type SongSortField = (typeof SONG_SORT_FIELDS)[number];
 export const SORT_ORDERS = ['asc', 'desc'] as const;
 export type SortOrder = (typeof SORT_ORDERS)[number];
 
+/**
+ * `PUT /songs/:id` body. All fields optional — only what is present is
+ * validated and written. The source triple rules on the combination (M1 four
+ * quadrants); a pasted URL with no key triggers online normalisation (M3).
+ */
+export interface UpdateSongRequest {
+  name?: string;
+  artist?: string;
+  lyrics_offset?: number;
+  duration?: number;
+  source_url?: string | null;
+  source_provider?: string | null;
+  source_key?: string | null;
+}
+
+/** `PUT /songs/:id/pin` body. */
+export interface PinSongRequest {
+  pinned: boolean;
+}
+
+/** `POST /songs/import` body — absolute paths of local mp3 files. */
+export interface ImportSongsRequest {
+  paths: readonly string[];
+}
+
+/** `POST /playlists` and `PUT /playlists/:id` body. */
+export interface PlaylistNameRequest {
+  name: string;
+}
+
+/** `POST /playlists/:id/songs` body. */
+export interface PlaylistAddSongsRequest {
+  song_ids: readonly string[];
+}
+
+/** `POST /playlists/:id/songs` payload. */
+export interface PlaylistSongsAddedData {
+  added: number;
+}
+
+/**
+ * `POST /playlists/:id/reorder` body. Neighbour ids, never a rank or an
+ * index (R7): ranks are sparse floats the wire never sees, and an index is
+ * stale the moment another window reorders the same list.
+ */
+export interface PlaylistReorderRequest {
+  song_id: string;
+  before_song_id?: string;
+  after_song_id?: string;
+}
+
 /** Playlist wire shape. `song_count` is filled by list queries. */
 export interface PlaylistData {
   id: string;
@@ -176,11 +227,32 @@ export type PlayerCommand =
   | { command: 'seek'; position: number }
   | { command: 'mode'; mode: PlayMode };
 
+/**
+ * Body of `POST /player/<command>` — the command name lives in the URL, so
+ * the body is the command shape minus its discriminant.
+ * `PlayerCommandBody<'play'>` is `{song_id: string}`; commands like `pause`
+ * take an empty object.
+ */
+export type PlayerCommandBody<C extends PlayerCommandName> = Omit<
+  Extract<PlayerCommand, { command: C }>,
+  'command'
+>;
+
+/** `POST /player/<command>` payload — the id the GUI's ack will echo. */
+export interface PlayerCommandAcceptedData {
+  request_id: string;
+}
+
 /** `POST /player/ack` body — late / unknown request_ids are ignored (200). */
 export interface AckRequest {
   request_id: string;
   ok: boolean;
   message?: string;
+}
+
+/** `POST /player/ack` payload — `matched:false` means the ack arrived late. */
+export interface AckResultData {
+  matched: boolean;
 }
 
 /** `POST /gui/register` body. */
@@ -325,6 +397,23 @@ export interface DownloadBatchData {
 export interface DownloadTasksData {
   tasks: readonly DownloadTaskData[];
   batches: readonly DownloadBatchData[];
+}
+
+/** `POST /download/song` body — a link or a keyword, plus an optional target. */
+export interface DownloadSongRequest {
+  input: string;
+  /** Omitted for the virtual all view (§4.1) — a UUID only, never `'all'`. */
+  playlist_id?: string;
+}
+
+/** `POST /download/parse` body — one pasted blob, possibly multi-line. */
+export interface DownloadParseRequest {
+  input: string;
+}
+
+/** `POST /download/cancel` body. */
+export interface DownloadCancelRequest {
+  task_id: string;
 }
 
 /** `POST /download/song` / `redownload` / `download/lyrics/:id` payload. */
