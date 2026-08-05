@@ -11,6 +11,7 @@ import { getPlatform } from '../platform/index.js';
 import { handlePlayerCommand } from '../player/remote.js';
 import { useConfig } from '../stores/config.js';
 import { useDataBus } from '../stores/data-bus.js';
+import { useDownloads } from '../stores/download.js';
 import { usePlayer } from '../stores/player.js';
 import { useSession } from '../stores/session.js';
 import { GuiSession } from './gui-session.js';
@@ -33,8 +34,14 @@ function dispatchEvent(event: LarkEvent): void {
       // the queue gets round to it (M4-10).
       handlePlayerCommand(event, Date.now());
       return;
+    case 'download:status':
+    case 'download:complete':
+    case 'download:error':
+    case 'download:cancelled':
+    case 'download:batches-changed':
+      useDownloads.getState().applyEvent(event);
+      return;
     default:
-      // download:* attaches here in T5.
       return;
   }
 }
@@ -69,7 +76,8 @@ export function EventsSubscriber(): null {
         // A restarted daemon's mirror is empty and a reconnected one may have
         // missed reports while the channel was down (M4-8).
         usePlayer.getState().reportNow();
-        // T5 adds: refetch download tasks.
+        useDownloads.getState().resetEventStream();
+        useDownloads.getState().refresh();
       },
       onGenerationChange: () => useSession.getState().bumpGeneration(),
       onEvent: dispatchEvent,
