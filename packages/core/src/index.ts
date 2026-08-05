@@ -23,3 +23,4 @@ export * from './download/prompts.js';
 export * from './download/wbi.js';
 export * from './download/bilibili.js';
 export * from './download/link.js';
+export * from './download/ffmpeg.js';

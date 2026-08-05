@@ -18,9 +18,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@derhuerst/ffprobe-static": "5.3.0",
     "@lark/shared": "workspace:*",
     "better-sqlite3": "12.11.1",
     "drizzle-orm": "0.38.4",
+    "ffmpeg-static": "5.3.0",
     "pino": "9.14.0",
     "pino-roll": "2.2.0",
     "smol-toml": "1.6.1"
