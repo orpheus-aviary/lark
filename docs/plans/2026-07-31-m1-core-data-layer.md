@@ -10,7 +10,7 @@
 
 1. **基础设施三件套**：config（smol-toml 深合并默认值 + aviary LLM 回退 + 原子保存）、logger（pino + pino-roll + redact 双工厂）、paths 补全（trash / aviary config；迁移旁路文件从 dbPath 派生、不进 paths）。daemon 的 console logger 换成 core logger（M0 遗留，接口已按 pino 形状预留，drop-in）。
 2. **DB 基座**：schema v1（主计划 §3.1 全量 DDL：CHECK / partial unique index / sync 三表 / local_metadata）+ migration runner（`PRAGMA user_version`）+ device_uuid 初始化 + songs/playlists CRUD——core 单一写入路径、本地字段独立更新路径（R18）、稀疏 rank（R7）。
-3. **Go 版 songs.db 一次性迁移**：§3.3 协议全实现（DB 级排他 + backup API + 原子交换 + 幂等重试）+ 真实形态 fixture 测试 + `just migrate-go` 用户入口。**M1 只交付能力并在副本上验收，不迁真实库**——Go 版仍在日常使用，迁移后 Go 版无法再打开库；正式迁移时机由用户在 GUI 可用后另定。
+3. **Go 版 songs.db 一次性迁移**：§3.3 协议全实现（DB 级排他 + backup API + 原子交换 + 幂等重试）+ 真实形态 fixture 测试 + `just migrate-go` 用户入口。**M1 只交付能力并在副本上验收，不迁真实库**——迁移后 Go 版无法再打开库；正式迁移时机由用户另定。（**后记：真实库已于 2026-08-05 迁移**，20/2/4，备份留在 nest；见 `PROCESS.md` M1 条目。）
 
 ## 1. 范围
 
@@ -26,7 +26,7 @@
 | 缓存清理 / LRU / 探活 | M5 | M1 只落 `last_accessed_at` / `pinned` / `file_origin` 的存取路径 |
 | CLI `--direct` backend | M6 | core CRUD 返回 shared 线类型，接口形状 M1 就绪 |
 | sync 事件写入 / emitSyncChange | v0.2 | 建表即止；写路径收敛单一函数，v0.2 补 emit 是机械改动（R2） |
-| **真实旧库的正式迁移** | 用户后定 | 见 §0.3；M1 验收全部在副本上做 |
+| **真实旧库的正式迁移** | ~~用户后定~~ **已于 2026-08-05 完成** | 见 §0.3；M1 验收全部在副本上做 |
 
 **工具前置**：Xcode Command Line Tools + python3（node-gyp 从源码编译 better-sqlite3，M1-13 的 `build-release` 路线不吃 prebuilt）；`sqlite3` CLI（验收抽查，macOS 自带）。
 

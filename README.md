@@ -78,9 +78,11 @@ api -X POST 127.0.0.1:47100/songs/import -d '{"file_paths":["/abs/path/song.mp3"
 下载成功后会自动派生一个歌词任务（三平台并行 + 选优，没配 LLM 走确定性相似度降级）；
 也可以手动重来：`POST /download/lyrics/:id`。
 
-Go 版曲库迁移：`just migrate-go` 会尊重 `LARK_NEST_DIR`——M1 验收全部在**副本**上做
-（复制真实 nest 到临时目录再跑）。真实库的正式迁移时机由用户在 GUI 可用后自行决定；
-迁移前请先退出 Go 版 lark。
+Go 版曲库迁移：**本机的真实曲库已于 2026-08-05 迁移**（20 首 / 2 个歌单 / 4 条成员关系），
+备份留在 `~/orpheus-aviary-nest/lark/songs.db.bak-go-<时间戳>`——把它拷回 `songs.db` 就能让
+Go 版重新打开。`just migrate-go` 尊重 `LARK_NEST_DIR`，所以演练一律在**副本**上做（复制
+真实 nest 到临时目录再跑）；它是幂等的，对已迁移的库只会报 `already-migrated`。迁移前请先
+退出 Go 版 lark 和 daemon。
 
 媒体协议 spike（M4 移植参照）：`just spike-media-server` / `just spike-media-app` 双终端手动跑，
 `just spike-media-check` 跑完整校验层。结论见 `docs/plans/2026-07-31-m0-scaffold-media-spike.md` §6。
