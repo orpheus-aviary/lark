@@ -11,7 +11,13 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type SongData, type SongSortField, type SortOrder, isUuidV4 } from '@lark/shared';
+import {
+  type FileOrigin,
+  type SongData,
+  type SongSortField,
+  type SortOrder,
+  isUuidV4,
+} from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
@@ -125,6 +131,46 @@ export function createSong(
   input: CreateSongInput,
 ): SongData {
   return sqlite.transaction(() => createSongInTx(db, input)).immediate();
+}
+
+/**
+ * INTERNAL CAPABILITY — M3's download and import paths only, and only from
+ * inside the landing transaction (M3-7).
+ *
+ * `createSongInTx` mints the id itself and commits immediately, which the R22
+ * ordering cannot use: the file has to land at `songs/<id>/` BEFORE the row
+ * exists, so the id must be known first. This variant takes the pre-allocated
+ * id and the origin of the file that is already on disk — the ONLY two things
+ * that differ. Everything else, including the source-key uniqueness check,
+ * goes through the same code.
+ */
+export function createFileBackedSongInTx(
+  db: LarkDatabase,
+  input: CreateSongInput & { id: string; file_origin: FileOrigin },
+): SongData {
+  if (!isUuidV4(input.id)) throw new InvalidIdError(input.id);
+  const src = normalizeSource(input);
+  if (src.source_provider !== null && src.source_key !== null) {
+    assertKeyFree(db, src.source_provider, src.source_key);
+  }
+  const now = Date.now();
+  const row: SongRow = {
+    id: input.id,
+    name: input.name,
+    artist: input.artist ?? '',
+    ...src,
+    file_origin: input.file_origin,
+    lyrics_offset: input.lyrics_offset ?? 0,
+    duration: input.duration ?? 0,
+    pinned: false,
+    last_accessed_at: null,
+    created_at: now,
+    updated_at: now,
+    device_id: null,
+    lww_counter: 0,
+  };
+  db.insert(songs).values(row).run();
+  return toSongData(row);
 }
 
 export function getSong(db: LarkDatabase, _sqlite: BetterSqlite3.Database, id: string): SongData {

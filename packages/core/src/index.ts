@@ -30,3 +30,4 @@ export * from './download/lyrics/netease.js';
 export * from './download/lyrics/qq.js';
 export * from './download/lyrics/kugou.js';
 export * from './download/lyrics/select.js';
+export * from './download/resolve.js';
