@@ -1,27 +1,36 @@
-import type { SongData } from '@lark/shared';
-import { useCallback, useEffect } from 'react';
+import { useEffect } from 'react';
+import { Controls } from './components/Controls.js';
 import { InteractionBar } from './components/InteractionBar.js';
+import { LyricsPanel } from './components/LyricsPanel.js';
+import { PlayerHost } from './components/PlayerHost.js';
+import { ProgressBar } from './components/ProgressBar.js';
 import { SongList } from './components/SongList.js';
 import { StatusBar } from './components/StatusBar.js';
 import { TopBar } from './components/TopBar.js';
 import { Toaster } from './components/ui/sonner.js';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { EventsSubscriber } from './session/EventsSubscriber';
 import { useConfig } from './stores/config.js';
 import { useDataBus } from './stores/data-bus.js';
 import { useLibrary } from './stores/library.js';
+import { usePlayer } from './stores/player.js';
 import { usePlaylists } from './stores/playlists.js';
 import { applyFontSizes } from './theme/theme.js';
 
 /**
- * The Go layout's seven segments, filled in milestone by milestone: T3 lands
- * TopBar / InteractionBar / SongList / StatusBar, T4 adds the player and
- * lyrics, T5 the download bar.
+ * The Go layout's seven segments: TopBar / InteractionBar / SongList /
+ * ProgressBar / Controls / LyricsPanel / StatusBar. T5 fills the download
+ * half of the interaction bar.
  */
 export function App(): React.JSX.Element {
   const font = useConfig((s) => s.config?.font);
   const refreshConfig = useConfig((s) => s.refresh);
   const refreshSongs = useLibrary((s) => s.refresh);
   const refreshPlaylists = usePlaylists((s) => s.refresh);
+  const play = usePlayer((s) => s.play);
+  const currentSongId = usePlayer((s) => s.currentSong?.id ?? null);
+
+  useKeyboardShortcuts();
 
   // Initial config fetch; later refreshes ride the hello epoch (M4-8).
   useEffect(() => {
@@ -48,18 +57,16 @@ export function App(): React.JSX.Element {
     });
   }, [refreshSongs, refreshPlaylists]);
 
-  // T4 replaces this seam with the player store; until then a row's play
-  // gesture only moves the selection.
-  const handlePlay = useCallback((song: SongData) => {
-    useLibrary.getState().setSelectedSongId(song.id);
-  }, []);
-
   return (
     <div className="flex h-full flex-col">
       <EventsSubscriber />
+      <PlayerHost />
       <TopBar />
       <InteractionBar />
-      <SongList onPlay={handlePlay} currentSongId={null} />
+      <SongList onPlay={(song) => void play(song)} currentSongId={currentSongId} />
+      <ProgressBar />
+      <Controls />
+      <LyricsPanel />
       <StatusBar />
       <Toaster />
     </div>
