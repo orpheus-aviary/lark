@@ -1,0 +1,407 @@
+// Batch selection (D19) and the §4.2 mapping onto the wire protocol.
+//
+// Two submit semantics share one dialog and must not be blurred together:
+// every list group goes out as ONE `POST /download/batch`, which the daemon
+// commits all-or-nothing; the "single items" group is then submitted one
+// request at a time, best-effort, and stops at the first refusal.
+
+import type { DownloadBatchGroupInput, FetchListRequest, ParsedItem } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
+import { errorMessage } from '../lib/errors.js';
+import { useDownloads } from '../stores/download.js';
+import { useLibrary } from '../stores/library.js';
+import { Button } from './ui/button.js';
+import { Checkbox } from './ui/checkbox.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog.js';
+
+/** `POST /download/batch` limits, enforced before the request (§4.2). */
+const BATCH_ITEMS_MAX = 1000;
+const BATCH_GROUPS_MAX = 20;
+
+interface SingleItem {
+  key: string;
+  label: string;
+  /** What `POST /download/song` receives verbatim. */
+  input: string;
+  checked: boolean;
+}
+
+interface ListVideo {
+  bvid: string;
+  title: string;
+  checked: boolean;
+}
+
+interface ListGroup {
+  id: string;
+  query: FetchListRequest;
+  title: string;
+  useOriginalTitle: boolean;
+  videos: readonly ListVideo[];
+  loading: boolean;
+  /** Partial-success warning, or the reason nothing could be fetched. */
+  error: string | null;
+}
+
+function groupId(item: Extract<ParsedItem, { kind: 'favorites' | 'collection' }>): string {
+  return item.kind === 'favorites'
+    ? `favorites:${item.media_id}`
+    : `collection:${item.mid}:${item.season_id}`;
+}
+
+function listQuery(
+  item: Extract<ParsedItem, { kind: 'favorites' | 'collection' }>,
+): FetchListRequest {
+  return item.kind === 'favorites'
+    ? { type: 'favorites', media_id: item.media_id }
+    : { type: 'collection', mid: item.mid, season_id: item.season_id };
+}
+
+interface BatchSelectModalProps {
+  items: readonly ParsedItem[];
+  onClose: () => void;
+}
+
+export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): React.JSX.Element {
+  const fetchList = useDownloads((s) => s.fetchList);
+  const submitBatch = useDownloads((s) => s.submitBatch);
+  const downloadSong = useDownloads((s) => s.downloadSong);
+  const playlistId = useLibrary((s) => s.playlistId);
+
+  const [singles, setSingles] = useState<readonly SingleItem[]>(() =>
+    items
+      .filter((item) => item.kind === 'video' || item.kind === 'keyword')
+      .map((item, index) => ({
+        key: `single-${index}`,
+        // §4.2: a video keeps the normalised url (with `?p=`), a keyword the query.
+        label: item.kind === 'video' ? item.url : item.query,
+        input: item.kind === 'video' ? item.url : item.query,
+        checked: true,
+      })),
+  );
+  const [groups, setGroups] = useState<readonly ListGroup[]>(() =>
+    items
+      .filter((item) => item.kind === 'favorites' || item.kind === 'collection')
+      .map((item) => ({
+        id: groupId(item),
+        query: listQuery(item),
+        title: item.kind === 'favorites' ? '收藏夹' : '合集',
+        useOriginalTitle: false,
+        videos: [],
+        loading: true,
+        error: null,
+      })),
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+
+  // Expanding the lists is the one thing this dialog does on its own. `items`
+  // is fixed for as long as the dialog is open, so this runs once per list.
+  useEffect(() => {
+    for (const item of items) {
+      if (item.kind !== 'favorites' && item.kind !== 'collection') continue;
+      const id = groupId(item);
+      void fetchList(listQuery(item))
+        .then((result) => {
+          setGroups((prev) =>
+            prev.map((candidate) =>
+              candidate.id === id
+                ? {
+                    ...candidate,
+                    title: result.title === '' ? candidate.title : result.title,
+                    videos: result.videos.map((video) => ({
+                      bvid: video.bvid,
+                      title: video.title,
+                      checked: true,
+                    })),
+                    loading: false,
+                    // Partial success keeps the list AND says what went wrong;
+                    // only an empty result is an error state (§4.2).
+                    error: result.error,
+                  }
+                : candidate,
+            ),
+          );
+        })
+        .catch((err: unknown) => {
+          setGroups((prev) =>
+            prev.map((candidate) =>
+              candidate.id === id
+                ? { ...candidate, loading: false, error: errorMessage(err) }
+                : candidate,
+            ),
+          );
+        });
+    }
+  }, [items, fetchList]);
+
+  const patchGroup = (id: string, patch: Partial<ListGroup>): void =>
+    setGroups((prev) => prev.map((group) => (group.id === id ? { ...group, ...patch } : group)));
+
+  const toggleVideo = (id: string, bvid: string): void =>
+    setGroups((prev) =>
+      prev.map((group) =>
+        group.id === id
+          ? {
+              ...group,
+              videos: group.videos.map((video) =>
+                video.bvid === bvid ? { ...video, checked: !video.checked } : video,
+              ),
+            }
+          : group,
+      ),
+    );
+
+  const toggleAll = (id: string, checked: boolean): void =>
+    setGroups((prev) =>
+      prev.map((group) =>
+        group.id === id
+          ? { ...group, videos: group.videos.map((video) => ({ ...video, checked })) }
+          : group,
+      ),
+    );
+
+  // Zero-selection groups are filtered out entirely: the daemon requires every
+  // group AND every item list to be non-empty (§4.2).
+  const activeGroups = groups.filter((group) => group.videos.some((video) => video.checked));
+  const checkedSingles = singles.filter((item) => item.checked);
+  const groupItemCount = activeGroups.reduce(
+    (sum, group) => sum + group.videos.filter((video) => video.checked).length,
+    0,
+  );
+  const total = groupItemCount + checkedSingles.length;
+  const loading = groups.some((group) => group.loading);
+
+  // Only the list groups count against the batch endpoint's limits — the
+  // single items go through `/download/song`, one request each.
+  const overLimit =
+    groupItemCount > BATCH_ITEMS_MAX
+      ? `一次最多 ${BATCH_ITEMS_MAX} 个视频（当前 ${groupItemCount}），请分批提交`
+      : activeGroups.length > BATCH_GROUPS_MAX
+        ? `一次最多 ${BATCH_GROUPS_MAX} 个列表（当前 ${activeGroups.length}），请分批提交`
+        : null;
+
+  /** One request, all-or-nothing: every list group rides in the same batch. */
+  async function submitListGroups(): Promise<void> {
+    if (activeGroups.length === 0) return;
+    const payload: DownloadBatchGroupInput[] = activeGroups.map((group) => ({
+      // Every list group creates its own playlist; the editable title is
+      // exactly that name (§4.2).
+      target: { kind: 'new', name: group.title },
+      items: group.videos
+        .filter((video) => video.checked)
+        .map((video) => ({
+          kind: 'video',
+          bvid: video.bvid,
+          page: null,
+          // Trusting the list title is opt-in; otherwise the pipeline falls
+          // back to the LLM / the video's own title.
+          title: group.useOriginalTitle ? video.title : null,
+        })),
+    }));
+    await submitBatch(payload);
+    toast.success(`已提交 ${activeGroups.length} 个列表，共 ${groupItemCount} 项`);
+  }
+
+  /** One request per item, in order, stopping at the first refusal (§4.2). */
+  async function submitSingles(): Promise<'done' | 'stopped'> {
+    if (checkedSingles.length === 0) return 'done';
+    const target = playlistId === VIRTUAL_ALL_PLAYLIST_ID ? undefined : playlistId;
+    let done = 0;
+    for (const item of checkedSingles) {
+      try {
+        await downloadSong(item.input, target);
+        done++;
+      } catch (err) {
+        // A full queue stops the rest, and the count says how far it got.
+        toast.error(`单项下载已提交 ${done}/${checkedSingles.length}：${errorMessage(err)}`);
+        return 'stopped';
+      }
+    }
+    toast.success(`已提交 ${done} 个单项下载`);
+    return 'done';
+  }
+
+  async function confirm(): Promise<void> {
+    setSubmitting(true);
+    try {
+      await submitListGroups();
+      await submitSingles();
+      onClose();
+    } catch (err) {
+      // The batch is all-or-nothing, so nothing was queued by it.
+      toast.error(`批量提交失败：${errorMessage(err)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-160">
+        <DialogHeader>
+          <DialogTitle>批量下载（{total} 项）</DialogTitle>
+          <DialogDescription>
+            列表会各自新建歌单并一次性提交；单项下载逐条提交到当前歌单。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 space-y-3 overflow-y-auto">
+          {singles.length > 0 && (
+            <section className="rounded-md border">
+              <header className="flex items-center gap-2 rounded-t-md bg-muted px-3 py-2 text-sm">
+                <span className="font-medium">单项下载</span>
+                <span className="text-muted-foreground text-xs">({singles.length})</span>
+              </header>
+              <ul className="max-h-40 overflow-y-auto p-2">
+                {singles.map((item) => (
+                  <li key={item.key} className="flex items-center gap-2 px-1 py-0.5 text-sm">
+                    <Checkbox
+                      id={item.key}
+                      checked={item.checked}
+                      onCheckedChange={() =>
+                        setSingles((prev) =>
+                          prev.map((candidate) =>
+                            candidate.key === item.key
+                              ? { ...candidate, checked: !candidate.checked }
+                              : candidate,
+                          ),
+                        )
+                      }
+                    />
+                    <label htmlFor={item.key} className="truncate">
+                      {item.label}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {groups.map((group) => {
+            const checkedCount = group.videos.filter((video) => video.checked).length;
+            return (
+              <section key={group.id} className="rounded-md border">
+                <header className="flex items-center gap-2 rounded-t-md bg-muted px-3 py-2 text-sm">
+                  {editing === group.id ? (
+                    <input
+                      // biome-ignore lint/a11y/noAutofocus: replaces the title the user just double-clicked
+                      autoFocus
+                      aria-label="歌单名称"
+                      className="flex-1 rounded bg-background px-1 py-0.5 text-sm outline-none"
+                      defaultValue={group.title}
+                      onBlur={(e) => {
+                        const name = e.target.value.trim();
+                        if (name !== '') patchGroup(group.id, { title: name });
+                        setEditing(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') e.currentTarget.blur();
+                        else if (e.key === 'Escape') setEditing(null);
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex-1 truncate text-left font-medium"
+                      title="双击编辑歌单名称"
+                      onDoubleClick={() => setEditing(group.id)}
+                    >
+                      {group.title}
+                      <span className="ml-1 text-muted-foreground text-xs">
+                        ({checkedCount}/{group.videos.length})
+                      </span>
+                    </button>
+                  )}
+                  <label
+                    htmlFor={`orig-${group.id}`}
+                    className="flex items-center gap-1.5 text-muted-foreground text-xs"
+                  >
+                    <Checkbox
+                      id={`orig-${group.id}`}
+                      checked={group.useOriginalTitle}
+                      onCheckedChange={() =>
+                        patchGroup(group.id, { useOriginalTitle: !group.useOriginalTitle })
+                      }
+                    />
+                    原标题
+                  </label>
+                  {group.videos.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => toggleAll(group.id, checkedCount !== group.videos.length)}
+                    >
+                      {checkedCount === group.videos.length ? '全不选' : '全选'}
+                    </Button>
+                  )}
+                </header>
+
+                {group.error !== null && (
+                  <p
+                    className={`px-3 py-1.5 text-xs ${
+                      group.videos.length > 0
+                        ? 'text-amber-600 dark:text-amber-500'
+                        : 'text-destructive'
+                    }`}
+                  >
+                    {group.videos.length > 0
+                      ? `${group.error}（已取回 ${group.videos.length} 条，可继续选择）`
+                      : group.error}
+                  </p>
+                )}
+
+                {group.loading ? (
+                  <p className="px-3 py-3 text-muted-foreground text-xs">加载中…</p>
+                ) : (
+                  <ul className="max-h-56 overflow-y-auto p-2">
+                    {group.videos.map((video) => (
+                      <li key={video.bvid} className="flex items-center gap-2 px-1 py-0.5 text-sm">
+                        <Checkbox
+                          id={`${group.id}-${video.bvid}`}
+                          checked={video.checked}
+                          onCheckedChange={() => toggleVideo(group.id, video.bvid)}
+                        />
+                        <label htmlFor={`${group.id}-${video.bvid}`} className="truncate">
+                          {video.title}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            );
+          })}
+        </div>
+
+        <DialogFooter className="items-center">
+          {overLimit && <span className="mr-auto text-destructive text-xs">{overLimit}</span>}
+          <Button variant="outline" size="sm" onClick={onClose}>
+            取消
+          </Button>
+          <Button
+            size="sm"
+            disabled={total === 0 || loading || submitting || overLimit !== null}
+            onClick={() => void confirm()}
+          >
+            {submitting ? '提交中…' : `确认下载（${total}）`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
