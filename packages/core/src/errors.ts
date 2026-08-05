@@ -173,3 +173,149 @@ export class SourceKeyConflictError extends Error {
     this.key = key;
   }
 }
+
+// ─── Download pipeline errors (M3-11) ──────────────────
+//
+// These carry their own wire `code`, so a failing task and a failing HTTP
+// request report the SAME string without the two sides agreeing on a table:
+// the daemon maps `code → status`, and the engine copies `code` straight onto
+// `task.error_code`. The five classes above predate this and keep their
+// hard-coded mapping in the daemon — only M3's new classes are coded.
+//
+// `code` stays in core, `status` stays in the daemon: core has no business
+// knowing about HTTP.
+
+export abstract class CodedError extends Error {
+  abstract readonly code: string;
+}
+
+/** No usable LLM in either lark's config or aviary's, for an operation that needs one. */
+export class LlmNotConfiguredError extends CodedError {
+  readonly code = 'LLM_NOT_CONFIGURED';
+  constructor(
+    message = 'no LLM is configured (set llm.url and llm.model in lark or aviary config)',
+  ) {
+    super(message);
+    this.name = 'LlmNotConfiguredError';
+  }
+}
+
+/** The LLM was reachable-ish but the call failed: non-2xx, non-JSON, empty completion. */
+export class LlmRequestError extends CodedError {
+  readonly code = 'LLM_FAILED';
+  constructor(message: string, options?: ErrorOptions) {
+    super(`LLM request failed: ${message}`, options);
+    this.name = 'LlmRequestError';
+  }
+}
+
+/** bilibili answered, but with a non-zero envelope code or an unusable shape. */
+export class BilibiliApiError extends CodedError {
+  readonly code = 'BILIBILI_FAILED';
+  readonly apiCode: number | null;
+  constructor(message: string, apiCode: number | null = null) {
+    super(message);
+    this.name = 'BilibiliApiError';
+    this.apiCode = apiCode;
+  }
+}
+
+/**
+ * Risk control: an HTML interception page under HTTP 200, or envelope -412.
+ * Split from BilibiliApiError because the user-facing answer is different —
+ * "try again later / this endpoint needs a signature", not "bad request".
+ */
+export class BilibiliRiskControlError extends CodedError {
+  readonly code = 'BILIBILI_RISK_CONTROL';
+  constructor(message: string) {
+    super(message);
+    this.name = 'BilibiliRiskControlError';
+  }
+}
+
+/** The stored source key no longer resolves and no LLM is available to re-identify it. */
+export class SourceGoneError extends CodedError {
+  readonly code = 'SOURCE_GONE';
+  constructor(message: string) {
+    super(message);
+    this.name = 'SourceGoneError';
+  }
+}
+
+/** A URL is shaped right but could not be normalised online (b23 expansion, p→cid). */
+export class NormalizeFailedError extends CodedError {
+  readonly code = 'NORMALIZE_FAILED';
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'NormalizeFailedError';
+  }
+}
+
+/** Pre-enqueue network checks blew the per-request budget (M3-5). */
+export class PreflightTimeoutError extends CodedError {
+  readonly code = 'PREFLIGHT_TIMEOUT';
+  constructor(message = 'pre-enqueue checks timed out') {
+    super(message);
+    this.name = 'PreflightTimeoutError';
+  }
+}
+
+/** ffmpeg / ffprobe failed, timed out, or produced nothing usable. */
+export class FfmpegError extends CodedError {
+  readonly code = 'FFMPEG_FAILED';
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'FfmpegError';
+  }
+}
+
+/**
+ * The file landed but the database transaction did not (M3-7). Everything is
+ * rolled back before this is thrown: the new file is gone and any previous
+ * file is back in place.
+ */
+export class DownloadCommitError extends CodedError {
+  readonly code = 'DOWNLOAD_COMMIT_FAILED';
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'DownloadCommitError';
+  }
+}
+
+/** No such task id — never queued, or aged out of the terminal ring. */
+export class TaskNotFoundError extends CodedError {
+  readonly code = 'TASK_NOT_FOUND';
+  constructor(taskId: string) {
+    super(`task not found: ${taskId}`);
+    this.name = 'TaskNotFoundError';
+  }
+}
+
+/** Cancel arrived after the irreversible commit point (`saving`, M3-5). */
+export class TaskNotCancellableError extends CodedError {
+  readonly code = 'TASK_NOT_CANCELLABLE';
+  constructor(taskId: string, stage: string) {
+    super(`task ${taskId} is past the point of no return (stage: ${stage})`);
+    this.name = 'TaskNotCancellableError';
+  }
+}
+
+/** Another writer holds a conflicting claim on this song's files (M3-7). */
+export class SongBusyError extends CodedError {
+  readonly code = 'SONG_BUSY';
+  readonly songId: string;
+  constructor(songId: string, held: string) {
+    super(`song ${songId} is busy (${held})`);
+    this.name = 'SongBusyError';
+    this.songId = songId;
+  }
+}
+
+/** Pending (queued + running) tasks are at capacity (M3-5). */
+export class DownloadQueueFullError extends CodedError {
+  readonly code = 'DOWNLOAD_QUEUE_FULL';
+  constructor(capacity: number) {
+    super(`download queue is full (${capacity} pending tasks); wait for some to finish`);
+    this.name = 'DownloadQueueFullError';
+  }
+}
