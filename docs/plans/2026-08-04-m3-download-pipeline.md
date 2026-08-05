@@ -282,5 +282,41 @@
 
 **唯一变化**：`x/v3/fav/folder/created/list-all`（按 up_mid 列收藏夹）匿名一律 `code:0 + data:null`，已登录才有内容。**不影响 M3**——`fetch-list` 的 media_id 来自 URL（`space.bilibili.com/<uid>/favlist?fid=<media_id>`），这个端点从不在链路上；probe 里只用「默认收藏夹 media_id = mid×10+2」约定找样本。
 
-- 酷狗 https 可用性：
-- 实施中修订的决策：
+**probe 的一个已知形态**：连续多次跑会触发限流，签名搜索开始返回拦截页，后续每项都以「no mid discovered」级联失败。这是打到限额、不是签名坏了——隔一会儿重跑即可（脚本头部已注明）。
+
+### 7.2 酷狗 https 可用性（2026-08-05）
+
+**三个端点全部支持 https**，Go 版对 `krcs.kugou.com/search` 与 `lyrics.kugou.com/download` 用明文 http 没有必要，已全部改成 https（`LYRICS_ORIGINS`）。另外实测确认：`krcs` 的 `search` **必须带 `hash` + `duration`（毫秒）**，只给 keyword 会返回 `candidates: []`——这是「没歌词」和「问错了」的区别。
+
+### 7.3 实施中修订的决策
+
+| # | 修订 | 原因 |
+|---|---|---|
+| 1 | **`engine.ts` 拆成 `engine.ts` + `task-data.ts` + `batches.ts`，`claims.ts` 独立** | 单文件 922 行，超本仓「800+ 行强制拆分」硬线（M3-1 原写「engine.ts（队列 + claim/pending 索引）」）。拆分按关注点：调度 / 任务形状与错误映射 / 批次快照 / 冲突表 |
+| 2 | **`lyrics/` 增 `lrc.ts` + `shared.ts`** | M3-1 只列了 `{netease,qq,kugou,select}`。`normalizeLRC` 单一实现要有落点，三个平台文件否则得互相 import 或复制辅助函数 |
+| 3 | **不导出独立的 `resolveSongFile(song, {force})`** | 决策树（force / 文件在就跳过 / key 探活→失效重识别）实现在引擎的下载路径里。单独再导出一个会复制一份 claim + 落盘编排，等于第二份高风险逻辑。M5 的「播放无文件自动下载」接 `enqueueRedownload` 或加 task kind |
+| 4 | **`bilibili` client 收敛到 `ctx.bilibili` 一份** | 原设计路由与 engine 各建一个。同进程两个 client = 两份 WBI/buvid 缓存 = 对风控是两个身份 |
+| 5 | **`import` 走 `landSongFile`** | M3-11 描述了一套独立的 import 落盘序。复用同一协议后，import 的崩溃一致性和恢复例程自动等同于下载，且只有一份代码 |
+| 6 | **恢复例程结束时删掉「全部」日志行**（不只悬空的） | 恢复已消费掉所有 manifest，任何日志行都不再有意义；只删悬空的会让每次下载永久留一行 |
+| 7 | **ffmpeg 补 `-f mp3`** | 输出是 `.tmp` 结尾的任务临时路径，ffmpeg 推不出容器 |
+| 8 | **新歌也拿 `file` claim** | 原本只有复用既有歌才 acquire。补上之后「running 的下载一定持有 file claim」无例外，M5 的清理和删歌路由可以直接依赖 |
+
+### 7.4 实施中被测试逼出来的缺陷（全部已修）
+
+1. **恢复例程扫掉已提交的 manifest 后不删日志行** —— `local_metadata` 每次下载永久涨一行。
+2. **`songs/` 目录不存在时提前 return** —— 全新安装 + 崩溃残留时悬空日志行永远清不掉。
+3. **`fetchAudio` 往还不存在的歌曲目录写临时文件** —— 新歌首次下载必 ENOENT；被 catch-all 兜成 `INTERNAL_ERROR`，脱敏文案正确生效（真实路径只进日志）。
+4. **`normalizeLrc` 与 `lrcEndTime` 共用带 `g` 的模块级正则** —— `.test()` 留下的 `lastIndex` 让下一次 `matchAll` 从半路起步，短歌词被误判成「没有时间戳」。
+5. **`ffmpeg-static` / `@derhuerst/ffprobe-static` 的 `.d.ts` 与 CJS 实际导出不符** —— NodeNext 下默认导入被当成模块命名空间（运行时是 string）。
+
+### 7.5 M3 实测锁定
+
+- **`nav` 匿名返回 `code: -101` 但照给 `wbi_img`** —— WBI 取 key 必须看字段而不是 envelope code，看 code 会在健康环境上 fail-closed。
+- **`fav/resource/list` 的 `ps=20` 实返 15 条 + `has_more=true`** —— 分页结束只能信 `has_more`。
+- **`folder/created/list-all` 匿名 `data:null`（需登录）** —— 不在 M3 链路上（media_id 来自 URL）。
+- **ffmpeg 输出到 `.tmp` 路径必须 `-f mp3`**。
+- **两个 static 包实测都是 arm64 / ffmpeg 6.0**，旧 `ffprobe-static` 的 Intel-only 问题确认避开。
+- **酷狗 `krcs` 必须带 hash + duration(ms)**。
+- **daemon 测试的 `closeTestContext` 已转 async**，全部 `afterEach` 必须 `await`——漏 await 在 fork 池下表现为句柄泄漏而不是断言失败。
+- **`app.inject` 的返回类型是含 `void` 的交叉类型**，包一层 helper 时 `await` 不收窄，helper 必须显式标注返回类型。
+- **路径遍历 id（`../etc`）由路由器归一化后落到未注册路由 → 404**，不进 handler；单段非 uuid 才是 400。

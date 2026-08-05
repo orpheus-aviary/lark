@@ -16,6 +16,11 @@
 // pinned through the environment:
 //
 //   PROBE_KEYWORD  PROBE_BVID  PROBE_MID  PROBE_SEASON_ID  PROBE_MEDIA_ID
+//
+// Running it several times back to back trips rate limiting: the signed search
+// starts answering the interception page, and every later check then fails
+// with "no mid discovered". That cascade is the probe hitting a limit, NOT a
+// broken signature — wait a minute and re-run before believing it.
 
 import { createHash } from 'node:crypto';
 

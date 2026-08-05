@@ -8,13 +8,15 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）、M2 daemon 基础路由（生命周期 + Bearer 鉴权 + SSE/gui 通道 + songs/playlists/audio/lyrics/player/config 路由）已完成；下一步 M3 下载管线。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）、M2 daemon 基础路由（生命周期 + Bearer 鉴权 + SSE/gui 通道 + songs/playlists/audio/lyrics/player/config 路由）、M3 下载管线（bilibili + WBI、链接规范化、ffmpeg、歌词三平台、下载队列与崩溃恢复、download/import/redownload 路由）已完成；下一步 M4 GUI 基座。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
 ## 开发
 
-前置：Node ≥ 22.12（本仓锁 `.node-version` = 24.13.0）、pnpm ≥ 10、`just`、`rg`；`ffmpeg` 仅完整 spike 校验层需要。
+前置：Node ≥ 22.12（本仓锁 `.node-version` = 24.13.0）、pnpm ≥ 10、`just`、`rg`。下载用的 ffmpeg/ffprobe
+由 `ffmpeg-static` / `@derhuerst/ffprobe-static` 随 `pnpm install` 带下来，不需要系统装；
+系统 `ffmpeg` 只有完整 spike 校验层用得到。
 
 ```bash
 pnpm install
@@ -30,6 +32,7 @@ just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一
 just check           # lint + tsc -b + 依赖方向守卫 + 日志卫生守卫 + spike fast 层
 just test            # 全部 vitest
 
+just probe-bilibili  # 打真实 bilibili，断言下载链路依赖的响应形状（不在 CI 里）
 just migrate-go      # 一次性 Go songs.db 迁移（交互 y/N；先备份，迁移后 Go 版无法再打开库）
 ```
 
@@ -46,6 +49,34 @@ curl -N -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/events          # SSE 
 node scripts/demo-gui-sim.mjs
 curl -X POST -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/player/pause
 ```
+
+下载（M3）。一条链接就够，**不配 LLM 也能用**——单 P 或带 `?p=` 的链接、凭已存
+`source_key` 重下，全程不碰模型；只有关键词搜索、多 P 且没写 `?p=`、以及来源失效后
+重新识别才需要 LLM（在 `lark_config.toml` 的 `[llm]` 或 `aviary_config.toml` 里配）：
+
+```bash
+TOKEN=$(cat ~/orpheus-aviary-nest/lark/daemon-token)
+api() { curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
+
+# 单条下载：返回 task_id，进度看 SSE 的 download:status，详情 refetch /download/tasks
+api -X POST 127.0.0.1:47100/download/song \
+    -d '{"input":"https://www.bilibili.com/video/BV1Ki4y1y7HC"}'
+
+api 127.0.0.1:47100/download/tasks              # {tasks, batches} 快照
+api -X POST 127.0.0.1:47100/download/cancel -d '{"task_id":"…"}'
+
+# 收藏夹/合集：先展开成视频列表，再整批入队（可同时新建歌单）
+api -X POST 127.0.0.1:47100/download/fetch-list -d '{"type":"favorites","media_id":"96661672"}'
+api -X POST 127.0.0.1:47100/download/batch \
+    -d '{"groups":[{"target":{"kind":"new","name":"收藏夹导入"},
+                    "items":[{"kind":"video","bvid":"BV1Ki4y1y7HC","page":null,"title":"稻香"}]}]}'
+
+# 本地 mp3 导入（file_origin=imported，永不参与缓存清理）
+api -X POST 127.0.0.1:47100/songs/import -d '{"file_paths":["/abs/path/song.mp3"]}'
+```
+
+下载成功后会自动派生一个歌词任务（三平台并行 + 选优，没配 LLM 走确定性相似度降级）；
+也可以手动重来：`POST /download/lyrics/:id`。
 
 Go 版曲库迁移：`just migrate-go` 会尊重 `LARK_NEST_DIR`——M1 验收全部在**副本**上做
 （复制真实 nest 到临时目录再跑）。真实库的正式迁移时机由用户在 GUI 可用后自行决定；

@@ -238,10 +238,10 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 | 歌单 | `GET|POST /playlists`（列表含虚拟 all + 曲数）· `GET|PUT|DELETE /playlists/:id` · `GET /playlists/:id/songs` · `POST /playlists/:id/songs` · `DELETE /playlists/:id/songs/:songId` · `POST /playlists/:id/reorder`（稀疏 rank，单行更新）。**虚拟 all 只读**：改名/删除/增删成员/reorder 一律 `400 VIRTUAL_PLAYLIST`（R24） |
 | 导入导出 | `GET /playlists/:id/export`（`all` 可用）· `POST /playlists/import`（target: all＝仅入库 / 指定歌单 / 新建歌单；schema 校验 + 大小/曲数上限，**单事务全量成败**，R27） |
 | 播放器 | `GET /player/status` · `POST /player/{play, play-playlist, switch-playlist, pause, resume, next, prev, seek, mode, report}`（命令类返回前等待 GUI ack，3s 超时 `GUI_TIMEOUT`）· `POST /player/ack` · `POST /gui/register`（辅助信息；在线判定以 SSE 连接为准，R11） |
-| 下载 | `POST /download/song` · `POST /download/parse`（批量文本解析）· `POST /download/batch` · `POST /download/fetch-list`（收藏夹/合集展开）· `POST /download/cancel`（按任务 id） |
+| 下载 | `POST /download/song` · `POST /download/parse`（批量文本解析）· `POST /download/batch` · `POST /download/fetch-list`（收藏夹/合集展开）· `POST /download/cancel`（按任务 id）· **`GET /download/tasks`（M3 增补：`{tasks, batches}` 快照，事件只给刷新信号，详情一律 refetch 这里）** |
 | 缓存 | `GET /cache/status`（已用字节/曲数/上限/可清理字节/`unreclaimable_bytes`/`limit_satisfied`，R26）· `POST /cache/evict`（立即清理，响应含同上字段） |
 | 配置 | `GET /config`（api_key 脱敏）· `PATCH /config`（白名单字段 + 校验，R14） |
-| 事件 | `GET /events`（SSE，`?role=gui&gui_id=<id>` 标识 GUI 连接）：`hello`、`download:status|complete|error`、`player:command`（含 request_id，仅单播给 active GUI）、`cache:evicted`、`songs:changed`、`playlists:changed`、**`lyrics:changed {song_id}`（M2 增补）** |
+| 事件 | `GET /events`（SSE，`?role=gui&gui_id=<id>` 标识 GUI 连接）：`hello`、`player:command`（含 request_id，仅单播给 active GUI）、`cache:evicted`、`songs:changed`、`playlists:changed`、**`lyrics:changed {song_id}`（M2 增补）**、**download 族（M3 修订）**：`download:status {task_id, state, stage}`、`download:complete {task_id, song_id}`、`download:error {task_id, error_code, message}`、`download:cancelled {task_id}`、`download:batches-changed {batch_id}` |
 
 ## 5. 核心流程设计
 
