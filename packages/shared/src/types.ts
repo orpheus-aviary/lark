@@ -80,6 +80,24 @@ export interface StatusData {
   version: string;
 }
 
+/**
+ * `GET /api/instance` payload — authenticated instance identity (M4-2).
+ *
+ * `GET /status` proves liveness but not WHOSE daemon answered; a token round-
+ * trip only proves both sides hold a copy of the same token file. This is the
+ * one response that ties the port to a data directory, so the GUI can decide
+ * between reusing the daemon and refusing the port.
+ */
+export interface InstanceData {
+  /** `realpath()` of the daemon's lark data directory. */
+  nest_dir: string;
+  pid: number;
+  /** Daemon package version. Display only — never a compatibility gate. */
+  version: string;
+  /** Local HTTP protocol gate; reuse requires an exact match. */
+  local_api_version: number;
+}
+
 /** `GET /api/capabilities` — self-description for agent discovery. */
 export interface CapabilityEndpoint {
   method: string;

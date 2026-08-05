@@ -9,8 +9,8 @@ import { paths } from '@lark/core';
 import { API_PATHS, type ApiResponse, type StatusData, defaultDaemonBaseUrl } from '@lark/shared';
 import { Command } from 'commander';
 import { boot } from './boot.js';
-import { DAEMON_VERSION } from './context.js';
 import { PidFileCorruptError, readPid } from './pid.js';
+import { DAEMON_VERSION } from './version.js';
 
 const STATUS_TIMEOUT_MS = 1000;
 const STOP_POLL_MS = 200;

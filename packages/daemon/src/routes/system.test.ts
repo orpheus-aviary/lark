@@ -1,6 +1,9 @@
-import type { ApiResponse, CapabilitiesData } from '@lark/shared';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { ApiResponse, CapabilitiesData, InstanceData } from '@lark/shared';
 import Fastify from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerAllRoutes } from '../server.js';
 import {
   type TestApp,
@@ -9,6 +12,7 @@ import {
   closeTestContext,
   createTestContext,
 } from '../testing/build-test-server.js';
+import { LOCAL_API_VERSION } from '../version.js';
 
 let ctx: TestContext;
 let app: TestApp;
@@ -51,6 +55,37 @@ async function registeredRoutes(): Promise<Set<string>> {
   await bare.close();
   return routes;
 }
+
+describe('GET /api/instance', () => {
+  let nest: string;
+
+  beforeEach(() => {
+    nest = mkdtempSync(join(tmpdir(), 'lark-instance-'));
+    mkdirSync(join(nest, 'lark'), { recursive: true });
+    vi.stubEnv('LARK_NEST_DIR', nest);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(nest, { recursive: true, force: true });
+  });
+
+  it('requires the bearer token', async () => {
+    const res = await app.injectRaw({ method: 'GET', url: '/api/instance' });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('ties the port to the data directory', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/instance' });
+    expect(res.statusCode).toBe(200);
+    const data = res.json<ApiResponse<InstanceData>>().data as InstanceData;
+    // realpath'd on both sides — /tmp is a symlink on macOS.
+    expect(data.nest_dir).toBe(realpathSync(join(nest, 'lark')));
+    expect(data.pid).toBe(process.pid);
+    expect(data.version).toBe(ctx.version);
+    expect(data.local_api_version).toBe(LOCAL_API_VERSION);
+  });
+});
 
 describe('GET /api/capabilities', () => {
   it('describes the daemon', async () => {

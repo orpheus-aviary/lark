@@ -1,7 +1,10 @@
+import { realpathSync } from 'node:fs';
+import { paths } from '@lark/core';
 import {
   API_PATHS,
   type CapabilitiesData,
   type CapabilityEndpoint,
+  type InstanceData,
   PLAYER_COMMANDS,
   type StatusData,
   apiPath,
@@ -9,6 +12,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { ok } from '../response.js';
+import { LOCAL_API_VERSION } from '../version.js';
 
 const PLAYER_COMMAND_DESCRIPTIONS: Record<(typeof PLAYER_COMMANDS)[number], string> = {
   play: 'Play a specific song (waits for the GUI ack)',
@@ -32,6 +36,11 @@ const PLAYER_COMMAND_DESCRIPTIONS: Record<(typeof PLAYER_COMMANDS)[number], stri
 const ENDPOINTS: readonly CapabilityEndpoint[] = [
   { method: 'GET', path: API_PATHS.status, description: 'Daemon liveness probe (no auth)' },
   { method: 'GET', path: API_PATHS.capabilities, description: 'This endpoint list' },
+  {
+    method: 'GET',
+    path: API_PATHS.instance,
+    description: 'Instance identity: data-directory realpath, pid, versions',
+  },
   {
     method: 'GET',
     path: API_PATHS.events,
@@ -156,6 +165,20 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
       } satisfies StatusData,
       'daemon is running',
     );
+  });
+
+  // GET /api/instance — authenticated identity (M4-2). `/status` proves a
+  // daemon is alive; a token round-trip proves both sides HOLD the same token
+  // file (still true after a whole-nest copy). Only this response ties the
+  // port to a data directory, so the GUI compares `nest_dir` (both sides
+  // realpath'd) before reusing a running daemon.
+  app.get(API_PATHS.instance, async (_req, reply) => {
+    ok(reply, {
+      nest_dir: realpathSync(paths.larkDir()),
+      pid: process.pid,
+      version: ctx.version,
+      local_api_version: LOCAL_API_VERSION,
+    } satisfies InstanceData);
   });
 
   app.get(API_PATHS.capabilities, async (_req, reply) => {

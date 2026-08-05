@@ -17,6 +17,7 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
 export const API_PATHS = {
   status: '/status',
   capabilities: '/api/capabilities',
+  instance: '/api/instance',
   events: '/events',
   songs: '/songs',
   playlists: '/playlists',

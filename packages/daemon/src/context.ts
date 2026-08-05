@@ -4,9 +4,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import type { EventsBus } from './events/bus.js';
 import type { GuiChannel } from './events/gui-channel.js';
 import type { PlayerRuntime } from './player-runtime.js';
-
-/** Daemon package version — reported by `GET /status` and `--version`. */
-export const DAEMON_VERSION = '0.1.0';
+import { DAEMON_VERSION } from './version.js';
 
 /** Loopback only. The daemon is a local service; nothing binds a public NIC. */
 export const DAEMON_HOST = '127.0.0.1';
