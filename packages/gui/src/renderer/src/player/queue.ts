@@ -30,8 +30,6 @@ export interface OperationQueue {
     task: (ctx: OperationContext) => Promise<T> | T,
     options?: { deadlineAt?: number },
   ): Promise<T | typeof DISCARDED>;
-  /** Generation of the newest STARTED operation (0 before the first). */
-  generation(): number;
 }
 
 export function createOperationQueue(deps: { now?: () => number } = {}): OperationQueue {
@@ -40,8 +38,6 @@ export function createOperationQueue(deps: { now?: () => number } = {}): Operati
   let generation = 0;
 
   return {
-    generation: () => generation,
-
     run<T>(
       task: (ctx: OperationContext) => Promise<T> | T,
       options?: { deadlineAt?: number },
