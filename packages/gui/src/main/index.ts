@@ -10,10 +10,13 @@ import { loadConfig } from '@lark/core/config';
 import { localTokenPath } from '@lark/core/paths';
 import { defaultDaemonBaseUrl } from '@lark/shared';
 import { type BrowserWindow, app, dialog } from 'electron';
+import { saveWindowSize } from './daemon-config.js';
 import { DaemonManager, DaemonStartError } from './daemon-manager.js';
 import { registerDialogIpc } from './dialog-ipc.js';
 import { installMediaProtocol, registerMediaScheme } from './media-protocol.js';
 import { ensureNestIdentity, nestDirFromAdditionalData } from './nest.js';
+import { QuitCoordinator } from './quit.js';
+import { WindowMemory } from './window-memory.js';
 import { createMainWindow } from './window.js';
 
 const { realLarkDir } = ensureNestIdentity();
@@ -50,6 +53,7 @@ const manager = new DaemonManager({
 });
 
 let mainWindow: BrowserWindow | null = null;
+let windowMemory: WindowMemory | null = null;
 
 app.on('second-instance', (_event, _argv, _cwd, additionalData) => {
   const otherNest = nestDirFromAdditionalData(additionalData);
@@ -79,6 +83,19 @@ function windowSize(): { width: number; height: number } {
   }
 }
 
+/** Debounced size memory, written through the daemon's PATCH /config (M5-3). */
+function rememberSize(win: BrowserWindow): WindowMemory {
+  return new WindowMemory(win, {
+    save: (size, timeoutMs) =>
+      saveWindowSize(
+        { baseUrl: daemonUrl, readToken: () => readFileSync(tokenPath, 'utf8').trim() },
+        size,
+        timeoutMs,
+      ),
+    log: (msg) => console.warn(msg),
+  });
+}
+
 /**
  * NOT top-level await: Electron emits `ready` only after the ESM entry module
  * finishes evaluating, so awaiting `app.whenReady()` at the top level
@@ -102,28 +119,36 @@ async function bootstrap(): Promise<void> {
 
   const { width, height } = windowSize();
   mainWindow = createMainWindow({ width, height, daemonUrl, tokenPath });
+  windowMemory = rememberSize(mainWindow);
   registerDialogIpc(() => mainWindow);
 
   app.on('activate', () => {
     // macOS dock click: the window exists but is hidden (red X hides, M4-4).
     if (mainWindow !== null) mainWindow.show();
-    else mainWindow = createMainWindow({ width, height, daemonUrl, tokenPath });
+    else {
+      mainWindow = createMainWindow({ width, height, daemonUrl, tokenPath });
+      windowMemory = rememberSize(mainWindow);
+    }
   });
 }
 
 void bootstrap();
 
-// Stop the owned daemon (never a reused one — DaemonManager.stop() is a no-op
-// then) before actually quitting. preventDefault once, resume after stop.
-let daemonStopped = false;
+// One quit sequence for both attachment modes (M5-3). The window size has to
+// be written while the daemon is still up, which is why even a REUSED daemon
+// now prevents the first quit — M4 let that case exit immediately.
+const quitCoordinator = new QuitCoordinator({
+  flushWindowSize: async () => {
+    await windowMemory?.flush();
+  },
+  settleDaemonStart: () => manager.settle(),
+  stopOwnedDaemon: () => manager.stop(),
+  quit: () => app.quit(),
+  log: (msg) => console.warn(msg),
+});
+
 app.on('before-quit', (event) => {
-  if (manager.ownedPid !== null && !daemonStopped) {
-    event.preventDefault();
-    void manager.stop().finally(() => {
-      daemonStopped = true;
-      app.quit();
-    });
-  }
+  if (quitCoordinator.handleBeforeQuit()) event.preventDefault();
 });
 
 app.on('window-all-closed', () => {

@@ -14,6 +14,7 @@ import { useLibrary } from '../stores/library.js';
 import { usePlaylists } from '../stores/playlists.js';
 import { OPTIONAL_COLUMNS, type OptionalColumn, useViewPrefs } from '../stores/view-prefs.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
+import { SettingsDialog } from './SettingsDialog.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import { Input } from './ui/input.js';
@@ -128,6 +129,8 @@ export function TopBar(): React.JSX.Element {
 
   return (
     <div className="flex items-center gap-3 border-b px-3 py-2">
+      {/* Top left, before the playlist picker (M5-1). */}
+      <SettingsDialog />
       <Popover
         open={pickerOpen}
         onOpenChange={(open) => {

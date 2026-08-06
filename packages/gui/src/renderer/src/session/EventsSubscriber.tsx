@@ -9,6 +9,7 @@ import { API_PATHS, request, subscribeSse } from '@lark/shared';
 import { useEffect } from 'react';
 import { getPlatform } from '../platform/index.js';
 import { handlePlayerCommand } from '../player/remote.js';
+import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
 import { useDataBus } from '../stores/data-bus.js';
 import { useDownloads } from '../stores/download.js';
@@ -28,11 +29,14 @@ function dispatchEvent(event: LarkEvent): void {
     case 'lyrics:changed':
       bus.bumpLyrics(event.song_id);
       return;
-    case 'cache:evicted':
+    case 'cache:evicted': {
       // The row survives; only `has_file` flipped, which is a per-request disk
       // probe — so the list has to be refetched to grey the song out (M5-19).
       bus.bumpSongs();
+      const cache = useCache.getState();
+      if (cache.watching) cache.refresh();
       return;
+    }
     case 'player:command':
       // Arrival time is taken HERE: the deadline that decides whether the
       // command is still worth running starts when the frame lands, not when

@@ -115,6 +115,8 @@ export class DaemonManager {
     >;
 
   #ownership: Ownership | null = null;
+  /** An in-flight `start()`, so a quit can wait for it (M5-3). */
+  #starting: Promise<DaemonAttachment> | null = null;
 
   constructor(deps: DaemonManagerDeps) {
     this.#deps = {
@@ -141,6 +143,30 @@ export class DaemonManager {
    * branches spawns, and none touches the foreign process.
    */
   async start(): Promise<DaemonAttachment> {
+    const attempt = this.#attach();
+    this.#starting = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (this.#starting === attempt) this.#starting = null;
+    }
+  }
+
+  /**
+   * Resolve once any in-flight `start()` has settled (M5-3). Quitting while a
+   * spawn is in flight would otherwise see `ownedPid === null`, skip the stop,
+   * and leave the daemon that finished confirming a moment later running with
+   * nobody to shut it down.
+   */
+  async settle(): Promise<void> {
+    try {
+      await this.#starting;
+    } catch {
+      // A failed start has nothing to clean up; `start()`'s caller reported it.
+    }
+  }
+
+  async #attach(): Promise<DaemonAttachment> {
     const status = await this.#probeStatus();
     if (status !== null) return await this.#verifyReusable(status);
     return await this.#spawnAndConfirm();

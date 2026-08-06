@@ -8,7 +8,7 @@
 //
 // The frozen lane set lives with its consumers (`songs-query`,
 // `playlist-members`, `playlists-list`, `config`, `download-tasks`,
-// `lyrics:<songId>`); this module only provides the mechanism. Player-command
+// `lyrics:<songId>`, `cache-status`); this module only provides the mechanism. Player-command
 // preloads deliberately run OUTSIDE any lane — a list refresh must never
 // abort a command's load (M4-10) — by calling the transport directly.
 

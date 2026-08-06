@@ -16,11 +16,22 @@ function isTyping(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * A dialog owns the keyboard while it is open (M5-1). Space on a button inside
+ * the settings page would otherwise press the button AND toggle playback, and
+ * the arrow keys would change track behind it. Queried from the DOM rather
+ * than tracked in a store: radix renders into a portal, and every dialog in
+ * the app carries this slot.
+ */
+function dialogOpen(): boolean {
+  return document.querySelector('[data-slot="dialog-content"][data-state="open"]') !== null;
+}
+
 export function useKeyboardShortcuts(): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
-      if (isTyping(event.target)) return;
+      if (isTyping(event.target) || dialogOpen()) return;
       const player = usePlayer.getState();
 
       switch (event.key) {
