@@ -396,3 +396,114 @@ describe('row state markers', () => {
     expect(cellOf('song-1').className).toContain('border-l-2');
   });
 });
+
+describe('multi-selection (S2)', () => {
+  const THREE = [
+    song({ id: 'song-1', name: '第一首' }),
+    song({ id: 'song-2', name: '第二首' }),
+    song({ id: 'song-3', name: '第三首' }),
+  ];
+  const selected = (): readonly string[] => useLibrary.getState().selectedIds;
+  const rowOf = (id: string): HTMLElement => screen.getByTestId(`song-row-${id}`);
+
+  beforeEach(() => {
+    useLibrary.setState({ songs: THREE, selectedIds: [], selectionAnchor: null });
+  });
+
+  it('a plain click still means "just this one"', async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(rowOf('song-1'));
+    await user.click(rowOf('song-3'));
+
+    expect(selected()).toEqual(['song-3']);
+  });
+
+  it('Cmd-click adds and removes without disturbing the rest', async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(rowOf('song-1'));
+    await user.keyboard('{Meta>}');
+    await user.click(rowOf('song-3'));
+    await user.keyboard('{/Meta}');
+    expect(selected()).toEqual(['song-1', 'song-3']);
+
+    await user.keyboard('{Meta>}');
+    await user.click(rowOf('song-1'));
+    await user.keyboard('{/Meta}');
+    expect(selected()).toEqual(['song-3']);
+  });
+
+  it('Shift-click takes the range in DISPLAYED order, not library order', async () => {
+    // Sorted by name descending, the view reads 第三首 · 第二首 · 第一首.
+    useViewPrefs.setState({ sort: { field: 'name', order: 'desc' } });
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(rowOf('song-3'));
+    await user.keyboard('{Shift>}');
+    await user.click(rowOf('song-2'));
+    await user.keyboard('{/Shift}');
+
+    expect(selected()).toEqual(['song-3', 'song-2']);
+  });
+
+  it('the row checkbox toggles only its own row', async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(screen.getByLabelText('选择 第一首'));
+    await user.click(screen.getByLabelText('选择 第三首'));
+
+    // Ticking must not collapse the selection the way a row click would.
+    expect(selected()).toEqual(['song-1', 'song-3']);
+  });
+
+  it('the header checkbox reports all / some / none of what is on screen', async () => {
+    const user = userEvent.setup();
+    renderList();
+    const header = (): HTMLElement => screen.getByLabelText(/全选/);
+
+    expect(header().getAttribute('data-state')).toBe('unchecked');
+
+    await user.click(rowOf('song-2'));
+    expect(header().getAttribute('data-state')).toBe('indeterminate');
+
+    await user.click(header());
+    expect(selected()).toEqual(['song-1', 'song-2', 'song-3']);
+    expect(header().getAttribute('data-state')).toBe('checked');
+
+    await user.click(header());
+    expect(selected()).toEqual([]);
+  });
+
+  it('a right-click inside the selection keeps it, outside resets to that row (B-4)', async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(rowOf('song-1'));
+    await user.keyboard('{Meta>}');
+    await user.click(rowOf('song-3'));
+    await user.keyboard('{/Meta}');
+
+    // Inside: the menu is about to act on all of them, so the selection stands.
+    fireEvent.contextMenu(rowOf('song-3'));
+    expect(selected()).toEqual(['song-1', 'song-3']);
+
+    // Outside: Finder's rule — the click moves the selection first.
+    fireEvent.contextMenu(rowOf('song-2'));
+    expect(selected()).toEqual(['song-2']);
+  });
+
+  it('selects only the filtered rows, never the whole library', async () => {
+    useLibrary.setState({ songs: [THREE[0], THREE[1]], search: '第' });
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(screen.getByLabelText('全选'));
+
+    expect(selected()).toEqual(['song-1', 'song-2']);
+  });
+});

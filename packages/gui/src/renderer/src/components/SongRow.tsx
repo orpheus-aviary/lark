@@ -12,6 +12,7 @@ import { useLibrary } from '../stores/library.js';
 import { usePlaylists, userPlaylists } from '../stores/playlists.js';
 import type { ColumnVisibility } from '../stores/view-prefs.js';
 import { Button } from './ui/button.js';
+import { Checkbox } from './ui/checkbox.js';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -334,6 +335,13 @@ export interface SongRowProps {
   onPlay: (song: SongData) => void;
   onRequestDelete: (song: SongData) => void;
   onEditLink: (song: SongData) => void;
+  /**
+   * What a click on this row means. Handed down because only the list knows
+   * the DISPLAYED order a Shift range runs over (B-3).
+   */
+  onSelect: (event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => void;
+  /** Toggle just this row — the checkbox, and a right-click from outside. */
+  onToggleSelected: () => void;
   /** Present only while the list is in its manual, draggable order (R24). */
   drag?: RowDragHandle;
 }
@@ -348,9 +356,10 @@ export function SongRow({
   onPlay,
   onRequestDelete,
   onEditLink,
+  onSelect,
+  onToggleSelected,
   drag,
 }: SongRowProps): React.JSX.Element {
-  const selectOnly = useLibrary((s) => s.selectOnly);
   const updateSong = useLibrary((s) => s.updateSong);
   const actions = useSongActions(song);
   const menuProps = { song, actions, removableFrom, onPlay, onRequestDelete, onEditLink };
@@ -383,12 +392,16 @@ export function SongRow({
           className={`group cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent' : ''} ${
             isCurrent ? 'text-state-active' : song.has_file ? '' : 'text-muted-foreground'
           } ${drag?.isDragging === true ? 'relative z-10 bg-accent opacity-90 shadow-sm' : ''}`}
-          onClick={() => selectOnly(song.id)}
-          onContextMenu={() => selectOnly(song.id)}
+          onClick={onSelect}
+          // A right-click INSIDE the selection keeps it (the menu then acts on
+          // all of it); outside, it resets to this row — Finder's rule (B-4).
+          onContextMenu={() => {
+            if (!isSelected) onSelect({ metaKey: false, ctrlKey: false, shiftKey: false });
+          }}
           onDoubleClick={() => onPlay(song)}
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || e.target !== e.currentTarget) return;
-            selectOnly(song.id);
+            onSelect({ metaKey: false, ctrlKey: false, shiftKey: false });
             onPlay(song);
           }}
         >
@@ -396,12 +409,20 @@ export function SongRow({
               border is at the mercy of border-collapse. Always 2px, so
               selecting a row never shifts its contents sideways. */}
           <td
-            className={`border-l-2 px-3 py-1.5 text-center tabular-nums ${
+            className={`border-l-2 px-2 py-1.5 text-center ${
               isSelected ? 'border-l-primary' : 'border-l-transparent'
             }`}
           >
-            {index}
+            <Checkbox
+              checked={isSelected}
+              aria-label={`选择 ${song.name}`}
+              // Without this the row's own onClick fires too and collapses the
+              // selection to this one row — the exact opposite of ticking it.
+              onClick={(event) => event.stopPropagation()}
+              onCheckedChange={onToggleSelected}
+            />
           </td>
+          <td className="px-3 py-1.5 text-center tabular-nums">{index}</td>
           <td className="overflow-hidden px-3 py-1.5">
             <EditableCell
               value={song.name}

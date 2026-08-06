@@ -7,6 +7,7 @@
 // branch — typing a space in the search box must not pause the music.
 
 import { useEffect } from 'react';
+import { useLibrary } from '../stores/library.js';
 import { SEEK_STEP_SECONDS, usePlayer } from '../stores/player.js';
 
 function isTyping(target: EventTarget | null): boolean {
@@ -54,6 +55,13 @@ export function useKeyboardShortcuts(): void {
         case 'ArrowDown':
           event.preventDefault();
           void player.next();
+          return;
+        // Not preventDefault'd: Escape belongs to whatever else may want it
+        // (a context menu closing, an inline edit abandoning). Clearing a
+        // selection that is already empty is a no-op, so this is safe to run
+        // alongside them.
+        case 'Escape':
+          useLibrary.getState().clearSelection();
           return;
         default:
           return;

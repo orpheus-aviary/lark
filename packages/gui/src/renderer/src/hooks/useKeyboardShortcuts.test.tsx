@@ -3,6 +3,7 @@
 
 import { fireEvent, render, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLibrary } from '../stores/library.js';
 import { usePlayer } from '../stores/player.js';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts.js';
 
@@ -58,5 +59,29 @@ describe('typing', () => {
     const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true, bubbles: true });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
+  });
+});
+
+describe('escape', () => {
+  it('clears a multi-selection', () => {
+    useLibrary.setState({ selectedIds: ['a', 'b'], selectionAnchor: 'a' });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(useLibrary.getState().selectedIds).toEqual([]);
+    expect(useLibrary.getState().selectionAnchor).toBeNull();
+  });
+
+  it('is left for a dialog to handle while one is open', () => {
+    const dialog = document.createElement('div');
+    dialog.setAttribute('data-slot', 'dialog-content');
+    dialog.setAttribute('data-state', 'open');
+    document.body.appendChild(dialog);
+    useLibrary.setState({ selectedIds: ['a'] });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(useLibrary.getState().selectedIds).toEqual(['a']);
+    dialog.remove();
   });
 });

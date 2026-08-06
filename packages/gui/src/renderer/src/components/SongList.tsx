@@ -6,6 +6,7 @@ import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { isAllSelected, isPartiallySelected } from '../lib/selection.js';
 import { sortSongs } from '../lib/song-sort.js';
 import { useLibrary } from '../stores/library.js';
 import { useViewPrefs } from '../stores/view-prefs.js';
@@ -13,10 +14,23 @@ import { ConfirmDialog } from './ConfirmDialog.js';
 import { EditLinkDialog } from './EditLinkDialog.js';
 import { ReorderArea, SortableRows, SortableSongRow } from './SongReorder.js';
 import { SongRow } from './SongRow.js';
+import { Checkbox } from './ui/checkbox.js';
 
-type ColumnKey = 'index' | 'name' | 'artist' | 'duration' | 'fileSize' | 'createdAt' | 'actions';
+type ColumnKey =
+  | 'select'
+  | 'index'
+  | 'name'
+  | 'artist'
+  | 'duration'
+  | 'fileSize'
+  | 'createdAt'
+  | 'actions';
+
+/** Columns whose width is theirs alone: neither shared nor user-resizable. */
+const FIXED_COLUMNS: ReadonlySet<ColumnKey> = new Set(['select', 'index']);
 
 const COLUMN_HEADERS: Record<ColumnKey, string> = {
+  select: '',
   index: '#',
   name: '歌曲名称',
   artist: '歌手',
@@ -28,6 +42,7 @@ const COLUMN_HEADERS: Record<ColumnKey, string> = {
 
 /** Fallback widths for when the container is too narrow to share evenly. */
 const CONTENT_WIDTHS: Record<ColumnKey, number> = {
+  select: 36,
   index: 48,
   name: 120,
   artist: 100,
@@ -56,6 +71,11 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
   const selectedIds = useLibrary((s) => s.selectedIds);
   const deleteSong = useLibrary((s) => s.deleteSong);
   const reorderSong = useLibrary((s) => s.reorderSong);
+  const selectOnly = useLibrary((s) => s.selectOnly);
+  const toggleSelected = useLibrary((s) => s.toggleSelected);
+  const selectRange = useLibrary((s) => s.selectRange);
+  const selectVisible = useLibrary((s) => s.selectVisible);
+  const clearSelection = useLibrary((s) => s.clearSelection);
   const columns = useViewPrefs((s) => s.columns);
   const storedWidths = useViewPrefs((s) => s.widths);
   const setWidth = useViewPrefs((s) => s.setWidth);
@@ -73,6 +93,7 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
 
   const visible = useMemo<ColumnKey[]>(
     () => [
+      'select',
       'index',
       'name',
       'artist',
@@ -113,20 +134,22 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
   const widths = useMemo(() => {
     const available = containerWidth > 0 ? containerWidth : ASSUMED_CONTAINER_WIDTH;
     const sized = visible.filter((column) => column !== 'actions');
-    const shareable = sized.filter((column) => column !== 'index');
+    const shareable = sized.filter((column) => !FIXED_COLUMNS.has(column));
+    const fixed = sized
+      .filter((column) => FIXED_COLUMNS.has(column))
+      .reduce((sum, column) => sum + CONTENT_WIDTHS[column], 0);
     const share = Math.floor(
-      (available - CONTENT_WIDTHS.index - CONTENT_WIDTHS.actions) / Math.max(shareable.length, 1),
+      (available - fixed - CONTENT_WIDTHS.actions) / Math.max(shareable.length, 1),
     );
 
     const result = {} as Record<ColumnKey, number>;
     let used = 0;
     for (const column of sized) {
-      const width =
-        column === 'index'
-          ? CONTENT_WIDTHS.index
-          : // A column the user dragged keeps that width, including across a
-            // visibility toggle (D4).
-            (storedWidths[column] ?? (share >= MIN_COLUMN_WIDTH ? share : CONTENT_WIDTHS[column]));
+      const width = FIXED_COLUMNS.has(column)
+        ? CONTENT_WIDTHS[column]
+        : // A column the user dragged keeps that width, including across a
+          // visibility toggle (D4).
+          (storedWidths[column] ?? (share >= MIN_COLUMN_WIDTH ? share : CONTENT_WIDTHS[column]));
       result[column] = width;
       used += width;
     }
@@ -180,7 +203,28 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
   // (R24) — the same condition that makes a row removable, plus the sort.
   const canReorder = removableFrom !== null && sort.field === 'default' && ordered.length > 1;
 
+  const orderedIds = useMemo(() => ordered.map((song) => song.id), [ordered]);
+  const allSelected = isAllSelected(orderedIds, selectedIds);
+  const someSelected = isPartiallySelected(orderedIds, selectedIds);
+
+  /**
+   * What a click on a row means (B-3). The list owns this rather than the row
+   * because a Shift range runs over the DISPLAYED order, which only exists
+   * here — the store is handed the ids, never the sort state.
+   */
+  function selectFromClick(
+    songId: string,
+    modifiers: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean },
+  ): void {
+    if (modifiers.shiftKey) selectRange(songId, orderedIds);
+    else if (modifiers.metaKey || modifiers.ctrlKey) toggleSelected(songId);
+    else selectOnly(songId);
+  }
+
   async function handleDrop(movedId: string, targetId: string): Promise<void> {
+    // One drag moves one row (B-10); leaving a stale multi-selection behind
+    // would suggest it moved all of them.
+    clearSelection();
     setReordering(true);
     try {
       await reorderSong(movedId, targetId);
@@ -221,12 +265,25 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
                 <th
                   key={column}
                   scope="col"
-                  className={`relative px-3 py-2 font-medium ${
-                    column === 'index' ? 'text-center' : ''
+                  className={`relative py-2 font-medium ${column === 'select' ? 'px-2' : 'px-3'} ${
+                    column === 'index' || column === 'select' ? 'text-center' : ''
                   } ${column === 'duration' || column === 'fileSize' ? 'text-right' : ''}`}
                 >
-                  {COLUMN_HEADERS[column]}
-                  {column !== 'actions' && (
+                  {column === 'select' ? (
+                    // Tri-state: all / some / none of what is ON SCREEN — not
+                    // of the library, which search and playlists have filtered.
+                    <Checkbox
+                      aria-label={allSelected ? '取消全选' : '全选'}
+                      checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                      disabled={ordered.length === 0}
+                      onCheckedChange={() =>
+                        allSelected ? clearSelection() : selectVisible(orderedIds)
+                      }
+                    />
+                  ) : (
+                    COLUMN_HEADERS[column]
+                  )}
+                  {!FIXED_COLUMNS.has(column) && column !== 'actions' && (
                     // Pointer-only affordance, so it stays out of the
                     // accessibility tree rather than pretending to be operable
                     // from the keyboard.
@@ -263,7 +320,7 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
                 </td>
               </tr>
             ) : (
-              <SortableRows enabled={canReorder} ids={ordered.map((song) => song.id)}>
+              <SortableRows enabled={canReorder} ids={orderedIds}>
                 {ordered.map((song, position) => {
                   const rowProps = {
                     song,
@@ -275,6 +332,12 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
                     onPlay,
                     onRequestDelete: setPendingDelete,
                     onEditLink: setEditingLink,
+                    onSelect: (modifiers: {
+                      metaKey: boolean;
+                      ctrlKey: boolean;
+                      shiftKey: boolean;
+                    }) => selectFromClick(song.id, modifiers),
+                    onToggleSelected: () => toggleSelected(song.id),
                   };
                   return canReorder ? (
                     <SortableSongRow key={song.id} {...rowProps} disabled={reordering} />
