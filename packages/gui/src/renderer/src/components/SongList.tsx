@@ -91,31 +91,49 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
     return () => observer.disconnect();
   }, []);
 
+  /**
+   * Finder-style widths: dragging a divider changes ONLY the column to its
+   * left, and everything to the right keeps its width and simply shifts.
+   *
+   * That rules out the obvious "share the leftover space" layout, where every
+   * untouched column is `(container - dragged) / n` and therefore shrinks
+   * whenever a neighbour grows. So a column's default depends on the
+   * CONTAINER alone, never on what other columns are set to, and the trailing
+   * actions column is the one that absorbs the difference — until it hits its
+   * minimum, at which point the table simply gets wider than the viewport and
+   * scrolls.
+   */
   const widths = useMemo(() => {
     const available = containerWidth > 0 ? containerWidth : ASSUMED_CONTAINER_WIDTH;
+    const sized = visible.filter((column) => column !== 'actions');
+    const shareable = sized.filter((column) => column !== 'index');
+    const share = Math.floor(
+      (available - CONTENT_WIDTHS.index - CONTENT_WIDTHS.actions) / Math.max(shareable.length, 1),
+    );
+
     const result = {} as Record<ColumnKey, number>;
-    const flexible: ColumnKey[] = [];
-    let fixed = 0;
-    for (const column of visible) {
-      // `index` is never shared out, and a column the user dragged keeps the
-      // width they gave it — including across a visibility toggle (D4).
-      const stored = column === 'index' ? CONTENT_WIDTHS.index : storedWidths[column];
-      if (stored !== undefined) {
-        result[column] = stored;
-        fixed += stored;
-      } else {
-        flexible.push(column);
-      }
+    let used = 0;
+    for (const column of sized) {
+      const width =
+        column === 'index'
+          ? CONTENT_WIDTHS.index
+          : // A column the user dragged keeps that width, including across a
+            // visibility toggle (D4).
+            (storedWidths[column] ?? (share >= MIN_COLUMN_WIDTH ? share : CONTENT_WIDTHS[column]));
+      result[column] = width;
+      used += width;
     }
-    const each = flexible.length > 0 ? Math.floor((available - fixed) / flexible.length) : 0;
-    for (const column of flexible) {
-      result[column] = each >= MIN_COLUMN_WIDTH ? each : CONTENT_WIDTHS[column];
-    }
+    result.actions = Math.max(CONTENT_WIDTHS.actions, available - used);
     return result;
   }, [visible, storedWidths, containerWidth]);
 
-  const widthOf = (column: ColumnKey): number =>
-    dragWidth?.column === column ? dragWidth.width : widths[column];
+  /** While a drag is live the filler takes the delta, so nothing else moves. */
+  const liveDelta = dragWidth === null ? 0 : dragWidth.width - widths[dragWidth.column];
+  const widthOf = (column: ColumnKey): number => {
+    if (dragWidth?.column === column) return dragWidth.width;
+    if (column === 'actions') return Math.max(CONTENT_WIDTHS.actions, widths.actions - liveDelta);
+    return widths[column];
+  };
 
   const dragging = dragWidth !== null;
   useEffect(() => {

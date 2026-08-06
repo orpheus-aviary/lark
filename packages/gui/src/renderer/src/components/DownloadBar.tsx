@@ -128,39 +128,40 @@ export function DownloadBar(): React.JSX.Element {
         </DownloadTasksPopover>
       </div>
 
-      {(busy || current || notice) && (
-        <div className="flex items-center gap-1.5 text-xs">
-          {(busy || current) && (
-            <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
-          )}
-          <span
-            className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
-          >
-            {busy
-              ? '正在解析输入…'
-              : current
-                ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
-                : notice?.text}
+      {/* Always rendered, even when idle: the song list is the flex child that
+          absorbs the leftover height, so a status line that appears and
+          disappears would make the whole list jump on every download. */}
+      <div className="flex h-5 items-center gap-1.5 text-xs">
+        {(busy || current) && (
+          <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+        )}
+        <span
+          className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
+        >
+          {busy
+            ? '正在解析输入…'
+            : current
+              ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
+              : (notice?.text ?? '')}
+        </span>
+        {progress && (
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {progress.done}/{progress.batch.total}
           </span>
-          {progress && (
-            <span className="shrink-0 text-muted-foreground tabular-nums">
-              {progress.done}/{progress.batch.total}
-            </span>
-          )}
-          {current && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="取消下载"
-              title={cancellable ? '取消下载' : '当前阶段不可取消'}
-              disabled={!cancellable}
-              onClick={() => void cancelCurrent()}
-            >
-              <X />
-            </Button>
-          )}
-        </div>
-      )}
+        )}
+        {current && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="取消下载"
+            title={cancellable ? '取消下载' : '当前阶段不可取消'}
+            disabled={!cancellable}
+            onClick={() => void cancelCurrent()}
+          >
+            <X />
+          </Button>
+        )}
+      </div>
 
       {pasteOpen && (
         <PasteInputModal

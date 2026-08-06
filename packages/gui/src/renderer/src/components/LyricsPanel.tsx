@@ -13,6 +13,18 @@ import { Button } from './ui/button.js';
 const OFFSET_STEP_SECONDS = 0.5;
 const OFFSET_BADGE_MS = 1500;
 
+/**
+ * FIXED height, not a minimum. The panel sits below the song list, which is
+ * the flex child that absorbs everything left over — so any height change
+ * here moves the controls and resizes the list. Two things used to change it:
+ * the "not playing" branch is one line where playing is three, and the
+ * current line's size follows `--lark-lyrics-font-size`. The height is
+ * therefore pinned, and the current line is capped so a large configured
+ * font cannot push past it.
+ */
+const PANEL_HEIGHT = 'h-20 shrink-0';
+const CURRENT_LINE_MAX = '1.75rem';
+
 function formatOffset(offset: number): string {
   return `${offset > 0 ? '+' : ''}${offset.toFixed(1)}s`;
 }
@@ -37,7 +49,7 @@ export function LyricsPanel(): React.JSX.Element {
 
   if (!currentSong) {
     return (
-      <div className="flex min-h-14 items-center justify-center px-3 py-2">
+      <div className={`${PANEL_HEIGHT} flex items-center justify-center px-3`}>
         <p className="text-muted-foreground text-xs">未播放</p>
       </div>
     );
@@ -48,7 +60,7 @@ export function LyricsPanel(): React.JSX.Element {
   const current = index >= 0 ? line(index) : '';
 
   return (
-    <div className="flex items-center px-3 py-2">
+    <div className={`${PANEL_HEIGHT} flex items-center px-3`}>
       <Button
         variant="ghost"
         size="icon-sm"
@@ -58,22 +70,22 @@ export function LyricsPanel(): React.JSX.Element {
       >
         <ChevronLeft />
       </Button>
-      <div className="relative min-h-14 flex-1 space-y-1 text-center">
+      <div className="relative flex-1 space-y-1 overflow-hidden text-center">
         {showOffset && (
           <span className="absolute top-0 right-2 text-[10px] text-muted-foreground">
             {formatOffset(offset)}
           </span>
         )}
-        <p className="truncate text-muted-foreground text-xs">
+        <p className="truncate text-muted-foreground text-xs leading-tight">
           {index > 0 ? line(index - 1) : ' '}
         </p>
         <p
-          className="truncate font-bold"
-          style={{ fontSize: 'var(--lark-lyrics-font-size, 14px)' }}
+          className="truncate font-bold leading-tight"
+          style={{ fontSize: `min(var(--lark-lyrics-font-size, 14px), ${CURRENT_LINE_MAX})` }}
         >
           {current || (lyrics.length === 0 ? '暂无歌词' : ' ')}
         </p>
-        <p className="truncate text-muted-foreground text-xs">
+        <p className="truncate text-muted-foreground text-xs leading-tight">
           {index >= 0 && index < lyrics.length - 1 ? line(index + 1) : ' '}
         </p>
       </div>
