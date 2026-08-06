@@ -42,7 +42,7 @@ interface Conflict {
 /**
  * Show the conflicting song: switch to the whole library, drop the search,
  * wait for that view to land, then select and scroll to it. Setting
- * `selectedSongId` alone would point at a row that is not rendered.
+ * Selecting it alone would point at a row that is not rendered.
  */
 async function locateSong(songId: string): Promise<void> {
   const library = useLibrary.getState();
@@ -52,7 +52,7 @@ async function locateSong(songId: string): Promise<void> {
   while (Date.now() < deadline) {
     const state = useLibrary.getState();
     if (!state.loading && state.songs.some((song) => song.id === songId)) {
-      state.setSelectedSongId(songId);
+      state.selectOnly(songId);
       document.querySelector(`[data-testid="song-row-${songId}"]`)?.scrollIntoView({
         block: 'center',
       });

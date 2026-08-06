@@ -98,7 +98,8 @@ beforeEach(() => {
     error: null,
     playlistId: VIRTUAL_ALL_PLAYLIST_ID,
     search: '',
-    selectedSongId: null,
+    selectedIds: [],
+    selectionAnchor: null,
   });
 });
 
@@ -202,7 +203,7 @@ describe('EditLinkDialog', () => {
       const state = useLibrary.getState();
       expect(state.playlistId).toBe(VIRTUAL_ALL_PLAYLIST_ID);
       expect(state.search).toBe('');
-      expect(state.selectedSongId).toBe('other');
+      expect(state.selectedIds).toEqual(['other']);
     });
   });
 });

@@ -24,6 +24,7 @@ import { create } from 'zustand';
 import { errorMessage } from '../lib/errors.js';
 import { createLane } from '../lib/lanes.js';
 import { planReorder } from '../lib/reorder.js';
+import { pruneMissing, rangeBetween, toggleIn } from '../lib/selection.js';
 
 const songsQueryLane = createLane();
 const playlistMembersLane = createLane();
@@ -41,10 +42,24 @@ interface LibraryState {
   playlistId: string;
   /** Committed search text (the input debounces before it gets here, D6). */
   search: string;
-  selectedSongId: string | null;
+  /**
+   * Selected rows, in the order they were picked (S1/B-1). Ordered rather
+   * than a Set because "add these to a playlist" appends in that order.
+   */
+  selectedIds: readonly string[];
+  /** Where a Shift range measures from: the last non-Shift pick (B-3). */
+  selectionAnchor: string | null;
   setPlaylistId: (id: string) => void;
   setSearch: (search: string) => void;
-  setSelectedSongId: (id: string | null) => void;
+  /** Replace the selection with this one row (a plain click, or "locate"). */
+  selectOnly: (id: string) => void;
+  /** Add or remove one row, keeping the rest (Cmd-click / the row checkbox). */
+  toggleSelected: (id: string) => void;
+  /** Extend from the anchor to this row, in the DISPLAYED order (Shift-click). */
+  selectRange: (id: string, orderedIds: readonly string[]) => void;
+  /** Select exactly the rows currently on screen (the header checkbox). */
+  selectVisible: (orderedIds: readonly string[]) => void;
+  clearSelection: () => void;
   refresh: () => void;
   /**
    * Show a playlist whose members the caller already loaded (§4.3): a remote
@@ -80,21 +95,37 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   error: null,
   playlistId: VIRTUAL_ALL_PLAYLIST_ID,
   search: '',
-  selectedSongId: null,
+  selectedIds: [],
+  selectionAnchor: null,
 
+  // A view change makes the selection meaningless — those rows are not on
+  // screen any more, and a Shift range would measure from a vanished anchor.
   setPlaylistId: (playlistId) => {
     if (get().playlistId === playlistId) return;
-    set({ playlistId });
+    set({ playlistId, selectedIds: [], selectionAnchor: null });
     get().refresh();
   },
 
   setSearch: (search) => {
     if (get().search === search) return;
-    set({ search });
+    set({ search, selectedIds: [], selectionAnchor: null });
     get().refresh();
   },
 
-  setSelectedSongId: (selectedSongId) => set({ selectedSongId }),
+  selectOnly: (id) => set({ selectedIds: [id], selectionAnchor: id }),
+
+  toggleSelected: (id) =>
+    set((state) => ({ selectedIds: toggleIn(state.selectedIds, id), selectionAnchor: id })),
+
+  // The anchor deliberately does NOT move: shift-clicking again re-measures
+  // from where the range started, which is what lets a user widen or narrow
+  // the same range instead of ratcheting it open.
+  selectRange: (id, orderedIds) =>
+    set((state) => ({ selectedIds: rangeBetween(orderedIds, state.selectionAnchor, id) })),
+
+  selectVisible: (orderedIds) => set({ selectedIds: [...orderedIds] }),
+
+  clearSelection: () => set({ selectedIds: [], selectionAnchor: null }),
 
   refresh: () => {
     const { playlistId, search } = get();
@@ -119,7 +150,16 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       .then((envelope) => {
         if (envelope === null) return; // superseded inside its lane
         if (viewKey(get().playlistId, get().search) !== key) return; // view moved on
-        set({ songs: envelope.data ?? [], loading: false, error: null });
+        const songs = envelope.data ?? [];
+        // A refresh may have deleted rows the user had selected (B-11); the
+        // rest of the selection survives — this is not a view change.
+        const present = new Set(songs.map((song) => song.id));
+        set((state) => ({
+          songs,
+          loading: false,
+          error: null,
+          selectedIds: pruneMissing(state.selectedIds, present),
+        }));
       })
       .catch((err: unknown) => {
         if (viewKey(get().playlistId, get().search) !== key) return;
@@ -131,7 +171,15 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     // Whatever either lane has in flight describes the view being left.
     songsQueryLane.cancel();
     playlistMembersLane.cancel();
-    set({ playlistId, songs, search: '', loading: false, error: null });
+    set({
+      playlistId,
+      songs,
+      search: '',
+      loading: false,
+      error: null,
+      selectedIds: [],
+      selectionAnchor: null,
+    });
   },
 
   updateSong: async (id, patch) => {
@@ -141,7 +189,10 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   deleteSong: async (id) => {
     await request('DELETE', apiPath.song(id));
-    if (get().selectedSongId === id) set({ selectedSongId: null });
+    set((state) => ({
+      selectedIds: state.selectedIds.filter((selected) => selected !== id),
+      selectionAnchor: state.selectionAnchor === id ? null : state.selectionAnchor,
+    }));
     get().refresh();
   },
 

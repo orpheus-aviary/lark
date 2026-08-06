@@ -5,6 +5,7 @@ import type { SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLibrary } from './library.js';
+import { useViewPrefs } from './view-prefs.js';
 
 interface Pending {
   url: string;
@@ -70,7 +71,8 @@ beforeEach(() => {
     error: null,
     playlistId: VIRTUAL_ALL_PLAYLIST_ID,
     search: '',
-    selectedSongId: null,
+    selectedIds: [],
+    selectionAnchor: null,
   });
 });
 
@@ -234,5 +236,76 @@ describe('reorder (T7)', () => {
 
     expect(sent).toEqual([]);
     expect(order()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('selection (S1)', () => {
+  const view = ['a', 'b', 'c', 'd'];
+  const select = () => useLibrary.getState();
+
+  beforeEach(() => {
+    useLibrary.setState({ songs: view.map((id) => song(id)), playlistId: 'p1', search: '' });
+  });
+
+  it('a plain pick replaces the selection and moves the anchor', () => {
+    select().selectOnly('b');
+    expect(useLibrary.getState().selectedIds).toEqual(['b']);
+    select().selectOnly('c');
+    expect(useLibrary.getState().selectedIds).toEqual(['c']);
+    expect(useLibrary.getState().selectionAnchor).toBe('c');
+  });
+
+  it('a range measures from the anchor, and re-ranging narrows instead of ratcheting', () => {
+    select().selectOnly('b');
+    select().selectRange('d', view);
+    expect(useLibrary.getState().selectedIds).toEqual(['b', 'c', 'd']);
+
+    // Same anchor, closer target: the range shrinks.
+    select().selectRange('c', view);
+    expect(useLibrary.getState().selectedIds).toEqual(['b', 'c']);
+  });
+
+  it('keeps click order across toggles — it is what "add to playlist" appends in', () => {
+    select().selectOnly('c');
+    select().toggleSelected('a');
+    select().toggleSelected('d');
+    expect(useLibrary.getState().selectedIds).toEqual(['c', 'a', 'd']);
+    select().toggleSelected('a');
+    expect(useLibrary.getState().selectedIds).toEqual(['c', 'd']);
+  });
+
+  it('drops only the rows a refresh deleted, keeping the rest', async () => {
+    select().selectOnly('a');
+    select().toggleSelected('c');
+
+    select().refresh();
+    pending.at(-1)?.succeed([song('a'), song('b')]); // 'c' is gone
+    await flush();
+
+    expect(useLibrary.getState().selectedIds).toEqual(['a']);
+  });
+
+  it('clears on a view change, where the anchor would be meaningless', () => {
+    select().selectOnly('a');
+    select().setPlaylistId('p2');
+    expect(useLibrary.getState().selectedIds).toEqual([]);
+    expect(useLibrary.getState().selectionAnchor).toBeNull();
+
+    useLibrary.setState({ selectedIds: ['a'], selectionAnchor: 'a' });
+    select().setSearch('周');
+    expect(useLibrary.getState().selectedIds).toEqual([]);
+  });
+
+  it('clears when the view is re-ordered, where a Shift anchor would misfire', () => {
+    select().selectOnly('a');
+    useViewPrefs.getState().setSort({ field: 'name', order: 'asc' });
+    expect(useLibrary.getState().selectedIds).toEqual([]);
+  });
+
+  it('selects exactly what is on screen, not the whole library', () => {
+    select().selectVisible(['b', 'c']);
+    expect(useLibrary.getState().selectedIds).toEqual(['b', 'c']);
+    select().clearSelection();
+    expect(useLibrary.getState().selectedIds).toEqual([]);
   });
 });

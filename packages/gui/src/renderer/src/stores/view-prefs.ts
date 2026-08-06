@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import { asWidthMap, readPref, writePref } from '../lib/prefs.js';
 import { DEFAULT_SORT, type SortState, isValidSort, toggleOrder } from '../lib/song-sort.js';
+import { useLibrary } from './library.js';
 
 export const OPTIONAL_COLUMNS = ['duration', 'fileSize', 'createdAt'] as const;
 export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
@@ -71,6 +72,10 @@ export const useViewPrefs = create<ViewPrefsState>((set, get) => ({
   setSort: (sort) => {
     writePref(SORT_KEY, PREF_VERSION, sort);
     set({ sort });
+    // Re-ordering the view invalidates the selection's Shift anchor: a range
+    // measured against the old order would grab rows the user never saw
+    // together (B-11). Clearing is the honest answer.
+    useLibrary.getState().clearSelection();
   },
 
   toggleSortOrder: () => {

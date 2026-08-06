@@ -53,7 +53,7 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
   const error = useLibrary((s) => s.error);
   const search = useLibrary((s) => s.search);
   const playlistId = useLibrary((s) => s.playlistId);
-  const selectedSongId = useLibrary((s) => s.selectedSongId);
+  const selectedIds = useLibrary((s) => s.selectedIds);
   const deleteSong = useLibrary((s) => s.deleteSong);
   const reorderSong = useLibrary((s) => s.reorderSong);
   const columns = useViewPrefs((s) => s.columns);
@@ -269,7 +269,7 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
                     song,
                     index: position + 1,
                     columns,
-                    isSelected: song.id === selectedSongId,
+                    isSelected: selectedIds.includes(song.id),
                     isCurrent: song.id === currentSongId,
                     removableFrom,
                     onPlay,

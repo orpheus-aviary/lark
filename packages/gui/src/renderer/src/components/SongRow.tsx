@@ -350,7 +350,7 @@ export function SongRow({
   onEditLink,
   drag,
 }: SongRowProps): React.JSX.Element {
-  const setSelectedSongId = useLibrary((s) => s.setSelectedSongId);
+  const selectOnly = useLibrary((s) => s.selectOnly);
   const updateSong = useLibrary((s) => s.updateSong);
   const actions = useSongActions(song);
   const menuProps = { song, actions, removableFrom, onPlay, onRequestDelete, onEditLink };
@@ -383,12 +383,12 @@ export function SongRow({
           className={`group cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent' : ''} ${
             isCurrent ? 'text-state-active' : song.has_file ? '' : 'text-muted-foreground'
           } ${drag?.isDragging === true ? 'relative z-10 bg-accent opacity-90 shadow-sm' : ''}`}
-          onClick={() => setSelectedSongId(song.id)}
-          onContextMenu={() => setSelectedSongId(song.id)}
+          onClick={() => selectOnly(song.id)}
+          onContextMenu={() => selectOnly(song.id)}
           onDoubleClick={() => onPlay(song)}
           onKeyDown={(e) => {
             if (e.key !== 'Enter' || e.target !== e.currentTarget) return;
-            setSelectedSongId(song.id);
+            selectOnly(song.id);
             onPlay(song);
           }}
         >

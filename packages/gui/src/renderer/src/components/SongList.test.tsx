@@ -79,7 +79,8 @@ beforeEach(() => {
     error: null,
     playlistId: VIRTUAL_ALL_PLAYLIST_ID,
     search: '',
-    selectedSongId: null,
+    selectedIds: [],
+    selectionAnchor: null,
   });
   usePlaylists.setState({ playlists: [playlist(VIRTUAL_ALL_PLAYLIST_ID, 'all')] });
 });
@@ -384,7 +385,7 @@ describe('row state markers', () => {
   });
 
   it('marks the selected row with a left bar, and reserves its width otherwise', () => {
-    useLibrary.setState({ selectedSongId: 'song-2' });
+    useLibrary.setState({ selectedIds: ['song-2'] });
     renderList();
 
     const cellOf = (id: string): Element =>
