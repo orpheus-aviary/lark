@@ -161,3 +161,78 @@ describe('stale responses', () => {
     expect(useLibrary.getState().loading).toBe(false);
   });
 });
+
+describe('reorder (T7)', () => {
+  const PLAYLIST = 'a4f1e3c2-0000-4000-8000-000000000001';
+  let sent: { method: string; url: string; body: unknown }[];
+  /** Answer for the reorder POST; the refresh GET always succeeds. */
+  let reorderStatus: number;
+
+  beforeEach(() => {
+    sent = [];
+    reorderStatus = 200;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        const method = init?.method ?? 'GET';
+        sent.push({
+          method,
+          url,
+          body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+        });
+        if (url.includes('/reorder')) {
+          return Promise.resolve(
+            envelope(
+              reorderStatus === 200
+                ? { success: true, data: { playlist_id: PLAYLIST } }
+                : { success: false, error_code: 'INVALID_REORDER', message: '锚点不相邻' },
+              reorderStatus,
+            ),
+          );
+        }
+        // The refresh answers with the daemon's truth: the order never moved.
+        return Promise.resolve(
+          envelope({ success: true, data: [song('a'), song('b'), song('c')] }, 200),
+        );
+      }),
+    );
+    useLibrary.setState({
+      playlistId: PLAYLIST,
+      search: '',
+      songs: [song('a'), song('b'), song('c')],
+    });
+  });
+
+  const order = (): string[] => useLibrary.getState().songs.map((s) => s.id);
+
+  it('moves the row before the daemon answers, and anchors on the new neighbours', async () => {
+    const done = useLibrary.getState().reorderSong('a', 'c');
+
+    // Optimistic: the list is already in its new order while the POST is out.
+    expect(order()).toEqual(['b', 'c', 'a']);
+    await done;
+
+    const posts = sent.filter((call) => call.method === 'POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]?.url).toBe(`http://127.0.0.1:47100/playlists/${PLAYLIST}/reorder`);
+    expect(posts[0]?.body).toEqual({ song_id: 'a', after_song_id: 'c' });
+    expect(order()).toEqual(['b', 'c', 'a']);
+  });
+
+  it('puts the old order back and refetches when the daemon refuses', async () => {
+    reorderStatus = 400;
+
+    await expect(useLibrary.getState().reorderSong('c', 'a')).rejects.toThrow();
+
+    expect(order()).toEqual(['a', 'b', 'c']);
+    expect(sent.some((call) => call.method === 'GET' && call.url.endsWith('/songs'))).toBe(true);
+  });
+
+  it('sends nothing for a drop that changes nothing', async () => {
+    await useLibrary.getState().reorderSong('a', 'a');
+    await useLibrary.getState().reorderSong('a', 'nope');
+
+    expect(sent).toEqual([]);
+    expect(order()).toEqual(['a', 'b', 'c']);
+  });
+});

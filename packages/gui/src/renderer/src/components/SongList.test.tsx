@@ -323,3 +323,41 @@ describe('delete confirmation (D9)', () => {
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 });
+
+describe('drag to reorder (T7 / R24)', () => {
+  /** Rows carry this only while dnd-kit's sortable is attached to them. */
+  const sortableRows = (): HTMLElement[] =>
+    screen
+      .getAllByRole('row')
+      .filter((row) => row.getAttribute('aria-roledescription') === 'sortable');
+
+  it('is offered on a playlist in its manual order', () => {
+    useLibrary.setState({ playlistId: PLAYLIST_ID });
+    renderList();
+
+    expect(sortableRows()).toHaveLength(2);
+    // The sortable must not cost the table its semantics (spike, plan §8.4).
+    expect(screen.getAllByRole('row')).toHaveLength(3); // header + 2 songs
+  });
+
+  it.each([
+    ['the virtual all list', () => useLibrary.setState({ playlistId: VIRTUAL_ALL_PLAYLIST_ID })],
+    ['search results', () => useLibrary.setState({ playlistId: PLAYLIST_ID, search: '第' })],
+    [
+      'a sorted view',
+      () => {
+        useLibrary.setState({ playlistId: PLAYLIST_ID });
+        useViewPrefs.setState({ sort: { field: 'name', order: 'asc' } });
+      },
+    ],
+    [
+      'a single-song list',
+      () => useLibrary.setState({ playlistId: PLAYLIST_ID, songs: [SONGS[0]] }),
+    ],
+  ])('is not offered for %s', (_label, setup) => {
+    setup();
+    renderList();
+
+    expect(sortableRows()).toEqual([]);
+  });
+});

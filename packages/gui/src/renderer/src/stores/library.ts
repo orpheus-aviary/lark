@@ -23,6 +23,7 @@ import { API_PATHS, VIRTUAL_ALL_PLAYLIST_ID, apiPath, request } from '@lark/shar
 import { create } from 'zustand';
 import { errorMessage } from '../lib/errors.js';
 import { createLane } from '../lib/lanes.js';
+import { planReorder } from '../lib/reorder.js';
 
 const songsQueryLane = createLane();
 const playlistMembersLane = createLane();
@@ -65,6 +66,12 @@ interface LibraryState {
   redownload: (id: string) => Promise<void>;
   /** Preview what a URL resolves to. Writes NOTHING (R6). */
   recognizeUrl: (id: string, url: string) => Promise<RecognizeUrlData>;
+  /**
+   * Move a member to where another one sits, optimistically (T7). Only ever
+   * valid for the manual order of a real playlist — the caller owns that gate
+   * (R24). Rejects with the daemon's error after putting the old order back.
+   */
+  reorderSong: (movedId: string, targetId: string) => Promise<void>;
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({
@@ -159,5 +166,27 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   recognizeUrl: async (id, url) => {
     const envelope = await request<RecognizeUrlData>('POST', apiPath.songRecognizeUrl(id), { url });
     return envelope.data as RecognizeUrlData;
+  },
+
+  reorderSong: async (movedId, targetId) => {
+    const { playlistId, search, songs } = get();
+    const plan = planReorder(songs, movedId, targetId);
+    if (plan === null) return;
+
+    // Optimistic: the row is already under the user's finger where they put
+    // it, and snapping back for the duration of a round trip reads as a bug.
+    set({ songs: plan.next });
+    try {
+      await request('POST', apiPath.playlistReorder(playlistId), plan.anchors);
+    } catch (err) {
+      // Restore only if the view has not moved on — otherwise `songs` now
+      // describes a different list and putting the old order back would show
+      // the wrong playlist's rows until the refresh lands.
+      if (get().playlistId === playlistId && get().search === search) {
+        set({ songs });
+        get().refresh();
+      }
+      throw err;
+    }
   },
 }));

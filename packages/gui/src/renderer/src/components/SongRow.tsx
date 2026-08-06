@@ -306,7 +306,20 @@ function SongActionsCell({
   );
 }
 
-interface SongRowProps {
+/**
+ * What a sortable wrapper hands the row (T7). The row itself knows nothing
+ * about dnd-kit: it renders the `<tr>`, so it is the only place the drag ref
+ * and the pointer listeners can land.
+ */
+export interface RowDragHandle {
+  ref: (node: HTMLElement | null) => void;
+  style: React.CSSProperties;
+  /** dnd-kit's `attributes` + pointer `listeners`, spread onto the row. */
+  handleProps: React.HTMLAttributes<HTMLTableRowElement>;
+  isDragging: boolean;
+}
+
+export interface SongRowProps {
   song: SongData;
   /** Display position, 1-based. */
   index: number;
@@ -321,6 +334,8 @@ interface SongRowProps {
   onPlay: (song: SongData) => void;
   onRequestDelete: (song: SongData) => void;
   onEditLink: (song: SongData) => void;
+  /** Present only while the list is in its manual, draggable order (R24). */
+  drag?: RowDragHandle;
 }
 
 export function SongRow({
@@ -333,6 +348,7 @@ export function SongRow({
   onPlay,
   onRequestDelete,
   onEditLink,
+  drag,
 }: SongRowProps): React.JSX.Element {
   const setSelectedSongId = useLibrary((s) => s.setSelectedSongId);
   const updateSong = useLibrary((s) => s.updateSong);
@@ -351,12 +367,18 @@ export function SongRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <tr
+          // Spread first: the row's own handlers and identity always win over
+          // whatever the drag handle brings.
+          {...drag?.handleProps}
+          ref={drag?.ref}
+          style={drag?.style}
           data-testid={`song-row-${song.id}`}
           data-current={isCurrent || undefined}
+          data-dragging={drag?.isDragging || undefined}
           tabIndex={0}
           className={`group cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent' : ''} ${
             isCurrent ? 'text-primary' : song.has_file ? '' : 'text-muted-foreground'
-          }`}
+          } ${drag?.isDragging === true ? 'relative z-10 bg-accent opacity-90 shadow-sm' : ''}`}
           onClick={() => setSelectedSongId(song.id)}
           onContextMenu={() => setSelectedSongId(song.id)}
           onDoubleClick={() => onPlay(song)}
