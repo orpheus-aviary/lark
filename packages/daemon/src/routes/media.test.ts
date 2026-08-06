@@ -15,7 +15,7 @@ import {
   closeTestContext,
   createTestContext,
 } from '../testing/build-test-server.js';
-import { audioStreamCount, parseRange } from './media.js';
+import { parseRange } from './media.js';
 
 const UNKNOWN_UUID = '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001';
 const AUDIO_BYTES = 4096;
@@ -163,7 +163,7 @@ describe('GET /audio/:id', () => {
 
   it('releases the file stream exactly once when the client aborts mid-stream', async () => {
     writeAudio(song.id, audioFixture(8 * 1024 * 1024));
-    expect(audioStreamCount()).toBe(0);
+    expect(ctx.audioStreams.total()).toBe(0);
 
     const controller = new AbortController();
     const res = await fetch(`${base}/audio/${song.id}`, {
@@ -173,10 +173,45 @@ describe('GET /audio/:id', () => {
     expect(res.status).toBe(200);
     const reader = res.body?.getReader();
     await reader?.read(); // consume one chunk, leaving the rest unread
-    expect(audioStreamCount()).toBe(1);
+    expect(ctx.audioStreams.total()).toBe(1);
 
     controller.abort();
-    await vi.waitFor(() => expect(audioStreamCount()).toBe(0));
+    await vi.waitFor(() => expect(ctx.audioStreams.total()).toBe(0));
+  });
+
+  // The stream slot is taken at the top of the handler, before the first
+  // await, so eviction can never delete a file out from under an accepted
+  // request (M5-5). That makes releasing it on EVERY exit the obligation.
+  it.each([
+    ['an unknown song', () => `${base}/audio/${UNKNOWN_UUID}`, {}],
+    ['a song with no file', () => `${base}/audio/${song.id}`, {}],
+    ['an unsatisfiable range', () => `${base}/audio/${song.id}`, { range: 'bytes=99999-' }],
+    ['a malformed id', () => `${base}/audio/not-a-uuid`, {}],
+  ])('leaves no stream registered after %s', async (_label, url, headers) => {
+    if (_label === 'an unsatisfiable range') writeAudio(song.id, audioFixture());
+    const res = await fetch(url(), { headers: { ...auth, ...headers } });
+    await res.arrayBuffer();
+    expect(ctx.audioStreams.total()).toBe(0);
+  });
+
+  it('counts streams per song and clears the ensure lease once one opens', async () => {
+    writeAudio(song.id, audioFixture(8 * 1024 * 1024));
+    ctx.cacheLeases.grant(song.id);
+
+    const controller = new AbortController();
+    const res = await fetch(`${base}/audio/${song.id}`, {
+      headers: auth,
+      signal: controller.signal,
+    });
+    await res.body?.getReader().read();
+
+    expect(ctx.audioStreams.count(song.id)).toBe(1);
+    expect(ctx.audioStreams.count(UNKNOWN_UUID)).toBe(0);
+    // The open stream protects the file from here on, so the lease is spent.
+    expect(ctx.cacheLeases.has(song.id)).toBe(false);
+
+    controller.abort();
+    await vi.waitFor(() => expect(ctx.audioStreams.count(song.id)).toBe(0));
   });
 
   it('debounces last_accessed_at instead of writing per range request', async () => {

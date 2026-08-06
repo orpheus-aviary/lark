@@ -18,6 +18,7 @@ export * from './library/rank.js';
 export * from './library/songs.js';
 export * from './library/playlists.js';
 export * from './library/lyrics.js';
+export * from './library/cache.js';
 export * from './download/timeouts.js';
 export * from './download/llm.js';
 export * from './download/prompts.js';

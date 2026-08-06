@@ -162,6 +162,46 @@ export interface CapabilitiesData {
   endpoints: CapabilityEndpoint[];
 }
 
+// ─── Cache (M5) ────────────────────────────────────────
+//
+// Sizes are bytes on the wire; every `*_mb` field is MiB (1 MB = 1,048,576
+// bytes), the same unit as `log.max_size_mb`.
+
+/** `GET /cache/status`. */
+export interface CacheStatusData {
+  /** Total size of every song's `song.mp3` on disk. */
+  used_bytes: number;
+  /** How many songs have an audio file. */
+  file_count: number;
+  /** Echo of `storage.cache_limit_mb`; 0 = unlimited. */
+  limit_mb: number;
+  /**
+   * Bytes held by files that pass the STATIC eligibility test: downloaded
+   * (never imported, R1), re-downloadable in principle (bilibili + a source
+   * key), not pinned, not excluded (playing / queued for download / freshly
+   * ensured). NOT network-verified — a key that no longer resolves still
+   * counts here and is skipped at eviction time, so the amount an actual
+   * eviction frees can be smaller (M5-4).
+   */
+  eligible_bytes: number;
+  /** `used_bytes - eligible_bytes`: what no eviction could ever reclaim. */
+  unreclaimable_bytes: number;
+  limit_satisfied: boolean;
+}
+
+/** `POST /cache/evict`. The inherited fields are RECOMPUTED after the run. */
+export interface CacheEvictResultData extends CacheStatusData {
+  evicted_count: number;
+  freed_bytes: number;
+  /**
+   * Candidates skipped because the source could not be confirmed
+   * re-downloadable (fail-closed, R26). Deduplicated by song id across the
+   * rounds of one drain, and a song later evicted leaves the set.
+   */
+  skipped_unverified_count: number;
+  skipped_unverified_bytes: number;
+}
+
 // ─── Player channel (R11) ──────────────────────────────
 //
 // The renderer owns playback; the daemon only mirrors what the GUI reports
@@ -477,7 +517,9 @@ export interface ImportResultData {
  * `player:command` is the one exception: it is unicast to the ACTIVE gui
  * connection (never broadcast) and carries the ack correlation id.
  *
- * `cache:evicted` is typed here but only emitted from M5.
+ * `cache:evicted` names the song whose audio file was reclaimed — the row and
+ * its lyrics survive, so a receiver refetches the library rather than dropping
+ * anything (M5-19).
  *
  * The `download:*` family (M3-6) carries just enough to update a row in place
  * — `{state, stage}` for the progress line, the terminal ones for the toast —
@@ -510,4 +552,4 @@ export type LarkEvent =
   | { type: 'download:error'; task_id: string; error_code: string; message: string }
   | { type: 'download:cancelled'; task_id: string }
   | { type: 'download:batches-changed'; batch_id: string }
-  | { type: 'cache:evicted' };
+  | { type: 'cache:evicted'; song_id: string };

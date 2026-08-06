@@ -38,14 +38,6 @@ import { pathUuid } from '../validation.js';
  */
 const TOUCH_DEBOUNCE_MS = 60_000;
 
-/** Live audio streams, for the fd budget above and the leak assertion in tests. */
-let openAudioStreams = 0;
-
-/** Test/observability hook: must return to 0 after every response settles. */
-export function audioStreamCount(): number {
-  return openAudioStreams;
-}
-
 export type ParsedRange =
   | { kind: 'full' }
   | { kind: 'partial'; start: number; end: number }
@@ -110,79 +102,99 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.get(apiPath.audio(':id'), async (req, reply) => {
     const id = idOf(req);
-    getSong(ctx.db, ctx.sqlite, id); // unknown song → 404 NOT_FOUND
-
-    const path = songAudioPath(id);
-    let size: number;
-    try {
-      size = (await stat(path)).size;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-      // The row exists but the payload does not: a distinct condition from
-      // "no such song" — the GUI offers a (re)download for this one.
-      return fail(reply, 404, 'audio file not found for this song', 'FILE_NOT_FOUND');
-    }
-
-    const parsed = parseRange(req.headers.range, size);
-    reply
-      .header('Content-Type', 'audio/mpeg')
-      .header('Accept-Ranges', 'bytes')
-      .header('Cache-Control', 'no-store');
-
-    if (parsed.kind === 'invalid') {
-      ctx.logger.debug({ song_id: id, range: req.headers.range, status: 416 }, 'audio range');
-      // 416 MUST carry the total size so the client can re-ask sensibly.
-      return reply.code(416).header('Content-Range', `bytes */${size}`).send();
-    }
-
-    touch(id);
-
-    const start = parsed.kind === 'full' ? 0 : parsed.start;
-    const end = parsed.kind === 'full' ? size - 1 : parsed.end;
-    const length = end - start + 1;
-    // A 200 still needs Content-Length + Accept-Ranges: the media element
-    // derives duration and seekability from them.
-    reply.code(parsed.kind === 'full' ? 200 : 206).header('Content-Length', String(length));
-    if (parsed.kind === 'partial') {
-      reply.header('Content-Range', `bytes ${start}-${end}/${size}`);
-    }
-
-    const stream = createReadStream(path, { start, end });
-    // Acceptance mode only: pacing the bytes is what makes a seek land on
-    // something that is genuinely not buffered yet (M4 T6).
-    const rate = throttleFor(ctx);
-    const body = rate === undefined ? stream : throttle(stream, rate);
-    openAudioStreams += 1;
+    // Registered BEFORE the first await (M5-5): between "this request exists"
+    // and "the file is open" an eviction must already see a reader, or it can
+    // delete the file this response is about to stream. Every exit below —
+    // including the two 404s, the 416 and any throw — goes through the same
+    // idempotent release.
+    const releaseCount = ctx.audioStreams.register(id);
     let released = false;
-    const release = (): void => {
+    const releaseSlot = (): void => {
       if (released) return;
       released = true;
-      openAudioStreams -= 1;
-      stream.destroy();
-      if (body !== stream) body.destroy();
+      releaseCount();
     };
-    // 'close' also fires on a client that seeks away mid-stream; 'error' on a
-    // reset socket. Both must release, exactly once, or the fd leaks.
-    reply.raw.on('close', release);
-    reply.raw.on('error', release);
-    stream.on('close', release);
-    stream.on('error', release);
-    if (body !== stream) {
-      body.on('close', release);
-      body.on('error', release);
-    }
 
-    ctx.logger.debug(
-      {
-        song_id: id,
-        range: req.headers.range ?? null,
-        status: parsed.kind === 'full' ? 200 : 206,
-        bytes: length,
-        open_streams: openAudioStreams,
-      },
-      'audio range',
-    );
-    return reply.send(body);
+    try {
+      getSong(ctx.db, ctx.sqlite, id); // unknown song → 404 NOT_FOUND
+
+      const path = songAudioPath(id);
+      let size: number;
+      try {
+        size = (await stat(path)).size;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        // The row exists but the payload does not: a distinct condition from
+        // "no such song" — the GUI offers a (re)download for this one.
+        releaseSlot();
+        return fail(reply, 404, 'audio file not found for this song', 'FILE_NOT_FOUND');
+      }
+
+      const parsed = parseRange(req.headers.range, size);
+      reply
+        .header('Content-Type', 'audio/mpeg')
+        .header('Accept-Ranges', 'bytes')
+        .header('Cache-Control', 'no-store');
+
+      if (parsed.kind === 'invalid') {
+        ctx.logger.debug({ song_id: id, range: req.headers.range, status: 416 }, 'audio range');
+        releaseSlot();
+        // 416 MUST carry the total size so the client can re-ask sensibly.
+        return reply.code(416).header('Content-Range', `bytes */${size}`).send();
+      }
+
+      touch(id);
+      // The stream itself is the protection from here on, so the ensure lease
+      // that was standing in for it has done its job (M5-6).
+      ctx.cacheLeases.clear(id);
+
+      const start = parsed.kind === 'full' ? 0 : parsed.start;
+      const end = parsed.kind === 'full' ? size - 1 : parsed.end;
+      const length = end - start + 1;
+      // A 200 still needs Content-Length + Accept-Ranges: the media element
+      // derives duration and seekability from them.
+      reply.code(parsed.kind === 'full' ? 200 : 206).header('Content-Length', String(length));
+      if (parsed.kind === 'partial') {
+        reply.header('Content-Range', `bytes ${start}-${end}/${size}`);
+      }
+
+      const stream = createReadStream(path, { start, end });
+      // Acceptance mode only: pacing the bytes is what makes a seek land on
+      // something that is genuinely not buffered yet (M4 T6).
+      const rate = throttleFor(ctx);
+      const body = rate === undefined ? stream : throttle(stream, rate);
+      const release = (): void => {
+        if (released) return;
+        releaseSlot();
+        stream.destroy();
+        if (body !== stream) body.destroy();
+      };
+      // 'close' also fires on a client that seeks away mid-stream; 'error' on a
+      // reset socket. Both must release, exactly once, or the fd leaks.
+      reply.raw.on('close', release);
+      reply.raw.on('error', release);
+      stream.on('close', release);
+      stream.on('error', release);
+      if (body !== stream) {
+        body.on('close', release);
+        body.on('error', release);
+      }
+
+      ctx.logger.debug(
+        {
+          song_id: id,
+          range: req.headers.range ?? null,
+          status: parsed.kind === 'full' ? 200 : 206,
+          bytes: length,
+          open_streams: ctx.audioStreams.total(),
+        },
+        'audio range',
+      );
+      return reply.send(body);
+    } catch (err) {
+      releaseSlot();
+      throw err;
+    }
   });
 
   app.get(apiPath.lyrics(':id'), async (req, reply) => {

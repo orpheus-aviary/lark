@@ -324,11 +324,28 @@ export class DownloadEngine {
     return toTaskData(task);
   }
 
-  /** Song ids with a pending task attached — M5's eviction reads this. */
-  pendingSongIds(): Set<string> {
+  /**
+   * Song ids a non-terminal task is going to write a FILE for — eviction's
+   * pre-filter (M5-5).
+   *
+   * Read off the task table rather than the claim registry on purpose: a
+   * queued task holds only a reservation and takes its claim when it starts
+   * running, so a registry query would miss everything still in the queue.
+   *
+   * Lyrics tasks are excluded because they write `lyrics.lrc`, not the audio,
+   * and one is spawned by every finished download — counting them would make
+   * a just-downloaded song permanently unevictable while its lyrics run.
+   *
+   * A plain download that has not bound a song id yet cannot be excluded here
+   * at all. That is accepted, not worked around: it takes the song's `file`
+   * claim before touching anything, and the delete critical section loses to
+   * whoever holds that claim.
+   */
+  pendingFileSongIds(): Set<string> {
     const out = new Set<string>();
     for (const task of this.#tasks.values()) {
-      if (!isTerminal(task.state) && task.songId !== null) out.add(task.songId);
+      if (isTerminal(task.state) || task.kind === 'lyrics' || task.songId === null) continue;
+      out.add(task.songId);
     }
     return out;
   }

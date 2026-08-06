@@ -147,6 +147,17 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     path: apiPath.songRedownload(':id'),
     description: "Re-download a song's audio, replacing the current file",
   },
+
+  {
+    method: 'GET',
+    path: API_PATHS.cacheStatus,
+    description: 'Audio cache usage, what is reclaimable, and the limit',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.cacheEvict,
+    description: 'Evict least-recently-used downloaded files down to the limit',
+  },
 ];
 
 export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): void {

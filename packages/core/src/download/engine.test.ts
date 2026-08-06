@@ -149,12 +149,16 @@ describe('single-part URL with no LLM', () => {
     expect(song.file_origin).toBe('downloaded');
     expect(song.duration).toBeGreaterThan(0.9);
 
-    // song.mp3 is there and nothing staged is left beside it. (The lyrics
-    // continuation may or may not have landed lyrics.lrc by now — that is a
-    // separate task with its own test.)
+    // song.mp3 is there and nothing the LANDING staged is left beside it. The
+    // lyrics continuation is a different task on its own clock: it may still
+    // be writing `.lyrics.<uuid>.tmp` right now, so the filter names the
+    // download's own prefixes instead of "anything hidden".
     const files = readdirSync(join(songsDir(), songId));
     expect(files).toContain('song.mp3');
-    expect(files.filter((f) => f.startsWith('.'))).toEqual([]);
+    const staged = files.filter((f) =>
+      ['.download.', '.song.', '.pending.', '.replace.'].some((p) => f.startsWith(p)),
+    );
+    expect(staged).toEqual([]);
     // The fake LLM endpoint was never called.
     expect(upstream.requests.filter((p) => p.includes('completions'))).toEqual([]);
   }, 60_000);
@@ -566,6 +570,10 @@ describe('redownload', () => {
     const before = readFileSync(join(songsDir(), songId, 'song.mp3'));
     const again = e.enqueueRedownload(songId);
     await settle(e, again.id);
+    // The redownload spawns its own lyrics continuation, which is still
+    // writing `.lyrics.<uuid>.tmp` when the task itself goes terminal — the
+    // "no residue" assertion below is about a settled directory.
+    await settleAll(e);
 
     expect(taskOf(e, again.id).state).toBe('succeeded');
     expect(readdirSync(join(songsDir(), songId)).sort()).toEqual(['lyrics.lrc', 'song.mp3']);
@@ -623,6 +631,39 @@ describe('claims', () => {
     await settleAll(e);
     const songId = taskOf(e, id).result?.song_id as string;
     expect(e.claims.describe(songId)).toEqual([]);
+  }, 60_000);
+});
+
+// ─── Eviction pre-filter (M5-5) ────────────────────────
+
+describe('pendingFileSongIds', () => {
+  it('lists songs a queued file task will write, and ignores lyrics tasks', async () => {
+    upstream.state.hangAudio = true;
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline && taskOf(e, first.id).song_id === null) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const songId = taskOf(e, first.id).song_id as string;
+    expect([...e.pendingFileSongIds()]).toEqual([songId]);
+
+    e.cancel(first.id);
+    await settle(e, first.id);
+    expect([...e.pendingFileSongIds()]).toEqual([]);
+
+    // A lyrics task writes lyrics.lrc, never the audio — and one is spawned by
+    // every finished download, so counting it would make a just-downloaded
+    // song permanently unevictable.
+    upstream.state.hangAudio = false;
+    const done = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, done.id);
+    await settleAll(e);
+    const downloaded = taskOf(e, done.id).result?.song_id as string;
+
+    e.enqueueLyrics(downloaded);
+    expect([...e.pendingFileSongIds()]).toEqual([]);
   }, 60_000);
 });
 

@@ -28,6 +28,11 @@ function dispatchEvent(event: LarkEvent): void {
     case 'lyrics:changed':
       bus.bumpLyrics(event.song_id);
       return;
+    case 'cache:evicted':
+      // The row survives; only `has_file` flipped, which is a per-request disk
+      // probe — so the list has to be refetched to grey the song out (M5-19).
+      bus.bumpSongs();
+      return;
     case 'player:command':
       // Arrival time is taken HERE: the deadline that decides whether the
       // command is still worth running starts when the frame lands, not when

@@ -36,6 +36,11 @@ export const API_PATHS = {
   downloadCancel: '/download/cancel',
   downloadTasks: '/download/tasks',
   songImport: '/songs/import',
+
+  // Cache (M5). `status` is a read; `evict` runs the LRU drain and answers
+  // with what it freed plus the recomputed status.
+  cacheStatus: '/cache/status',
+  cacheEvict: '/cache/evict',
 } as const;
 
 /** Parameterised route paths. Ids are UUID v4 (or the literal `all`, R3). */

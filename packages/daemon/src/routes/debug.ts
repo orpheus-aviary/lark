@@ -9,12 +9,13 @@
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { ok } from '../response.js';
-import { audioStreamCount } from './media.js';
 
 export const DEBUG_AUDIO_STREAMS_PATH = '/debug/audio-streams';
 
-export function registerDebugRoutes(app: FastifyInstance, _ctx: AppContext): void {
+export function registerDebugRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get(DEBUG_AUDIO_STREAMS_PATH, async (_req, reply) => {
-    ok(reply, { open_audio_streams: audioStreamCount() });
+    // The sum across songs — the counter is per-song since M5-5, but the
+    // criterion this serves is still "no fd is left behind".
+    ok(reply, { open_audio_streams: ctx.audioStreams.total() });
   });
 }

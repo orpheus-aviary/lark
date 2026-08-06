@@ -17,6 +17,13 @@ import {
   resolveLlmConfig,
 } from '@lark/core';
 import type { LarkConfig } from '@lark/shared';
+import { AudioStreamRegistry } from '../audio-streams.js';
+import {
+  type SongLeaseOptions,
+  SongLeaseRegistry,
+  scheduleEvictionInBackground,
+  withEvictionScheduler,
+} from '../cache.js';
 import {
   type AcceptanceOptions,
   type AppContext,
@@ -80,6 +87,8 @@ export interface TestContextOptions {
    * it at the fake upstream; nothing here ever reaches the real api host.
    */
   bilibiliBase?: string;
+  /** Shorten the ensure-lease TTL, or drive it off a fake clock (M5-6). */
+  cacheLeases?: SongLeaseOptions;
 }
 
 export interface TestContext extends AppContext {
@@ -135,6 +144,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
         }
         eventsBus.emit({ type: 'songs:changed' });
         if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+        scheduleEvictionInBackground(ctx, 'download-succeeded');
       },
       onFailed: (task) =>
         eventsBus.emit({
@@ -150,7 +160,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     ...options.engine,
   });
 
-  const ctx: TestContext = {
+  const ctx: TestContext = withEvictionScheduler({
     ...CONTEXT_DEFAULTS,
     config,
     configPath: options.configPath,
@@ -166,13 +176,15 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     eventsBus,
     guiChannel: new GuiChannel(options.guiChannel),
     player: new PlayerRuntime(),
+    audioStreams: new AudioStreamRegistry(),
+    cacheLeases: new SongLeaseRegistry(options.cacheLeases),
     downloads,
     bilibili,
     shutdownSignal: shutdownController.signal,
     ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
     fatals,
     shutdownController,
-  };
+  });
   return ctx;
 }
 
@@ -186,6 +198,9 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
 export async function closeTestContext(ctx: TestContext): Promise<void> {
   ctx.player.failAll({ kind: 'shutting-down' });
   await ctx.downloads.close();
+  // Same reason as boot's teardown: a drain in flight would otherwise wake up
+  // on a closed events bus and a closed database (M5-6).
+  await ctx.cacheScheduler.close();
   ctx.guiChannel.close();
   ctx.eventsBus.close();
   ctx.sqlite.close();

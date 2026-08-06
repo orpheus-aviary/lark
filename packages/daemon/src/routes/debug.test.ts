@@ -17,7 +17,6 @@ import {
   createTestContext,
 } from '../testing/build-test-server.js';
 import { DEBUG_AUDIO_STREAMS_PATH } from './debug.js';
-import { audioStreamCount } from './media.js';
 
 const AUDIO_BYTES = 64 * 1024;
 const auth = { authorization: `Bearer ${TEST_LOCAL_TOKEN}` };
@@ -79,7 +78,7 @@ describe('acceptance mode', () => {
     const res = await app.inject({ method: 'GET', url: DEBUG_AUDIO_STREAMS_PATH });
     expect(res.json()).toEqual({
       success: true,
-      data: { open_audio_streams: audioStreamCount() },
+      data: { open_audio_streams: ctx.audioStreams.total() },
     });
 
     const unauthenticated = await app.injectRaw({
@@ -109,6 +108,6 @@ describe('acceptance mode', () => {
     expect(elapsed).toBeGreaterThan(900);
     // The wrapper must not hide the source stream from the release guard.
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(audioStreamCount()).toBe(0);
+    expect(ctx.audioStreams.total()).toBe(0);
   });
 });

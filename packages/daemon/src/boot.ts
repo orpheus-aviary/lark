@@ -43,6 +43,8 @@ import {
 } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
+import { AudioStreamRegistry } from './audio-streams.js';
+import { SongLeaseRegistry, scheduleEvictionInBackground, withEvictionScheduler } from './cache.js';
 import { type AcceptanceOptions, type AppContext, CONTEXT_DEFAULTS } from './context.js';
 import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
@@ -169,6 +171,10 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       shutdownController.abort(new Error('daemon shutting down'));
       if (server) await server.close(); // preClose ends the SSE streams
       await ctx?.downloads.close(); // worker exit + ffmpeg children reaped
+      // An automatic eviction is nobody's HTTP request, so `server.close()`
+      // does not wait for it. It has to finish before the bus and the database
+      // go away, or its continuation wakes up holding both (M5-6).
+      await ctx?.cacheScheduler.close();
       ctx?.guiChannel.close(); // registry timers + connection refs
       ctx?.eventsBus.close();
       ctx?.sqlite.close();
@@ -281,6 +287,12 @@ export async function boot(options: BootOptions = {}): Promise<void> {
           }
           eventsBus.emit({ type: 'songs:changed' });
           if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+          // A new file just landed, so the cache may be over its limit. This
+          // callback runs INSIDE the engine's `#finish`, past the point of no
+          // return: scheduling must not throw and must not be awaited — the
+          // scheduler defers the drain to a macrotask so the task's own claim
+          // is gone by the time it looks (M5-6).
+          if (ctx !== null) scheduleEvictionInBackground(ctx, 'download-succeeded');
         },
         onFailed: (task) =>
           eventsBus.emit({
@@ -295,7 +307,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       },
     });
 
-    ctx = {
+    ctx = withEvictionScheduler({
       ...CONTEXT_DEFAULTS,
       config,
       port,
@@ -316,11 +328,13 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       eventsBus,
       guiChannel: new GuiChannel(),
       player: new PlayerRuntime(),
+      audioStreams: new AudioStreamRegistry(),
+      cacheLeases: new SongLeaseRegistry(),
       downloads,
       bilibili,
       shutdownSignal: shutdownController.signal,
       ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
-    };
+    });
     server = buildServer(ctx);
   } catch (err) {
     await abortBoot(err);
@@ -356,6 +370,10 @@ export async function boot(options: BootOptions = {}): Promise<void> {
 
   state = 'running';
   bootDriving = false;
+  // Boot trigger (M5-6): the library may have grown past the limit while the
+  // daemon was down, or a previous run may have been killed mid-drain. Not
+  // awaited — nothing about listening depends on it.
+  scheduleEvictionInBackground(ctx, 'boot');
   logger.info({ host: ctx.host, port: ctx.port, pid: process.pid }, 'daemon listening');
   // The one terminal line a foreground daemon owes its operator — pino writes
   // to a file, and a mute foreground process looks hung. Tests parse the port

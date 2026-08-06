@@ -49,6 +49,7 @@ import type { LarkDatabase } from '../db/index.js';
 import { local_metadata, songs } from '../db/schema.js';
 import { DownloadCommitError, InvalidIdError } from '../errors.js';
 import { songDirPath } from '../library/lyrics.js';
+import { touchLastAccessed } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
 
 const AUDIO_FILE = 'song.mp3';
@@ -151,6 +152,14 @@ export function landSongFile(
     sqlite
       .transaction(() => {
         input.commit();
+        // A fresh file is a fresh access (M5-7). It has to happen HERE, inside
+        // the commit, and not after `landSongFile` returns: past the commit
+        // point the task has irreversibly succeeded, so a throw would mark it
+        // failed — and on the import path `importOne`'s catch would delete the
+        // song directory out from under a row that is already committed.
+        // Without it, `last_accessed_at` stays null and the LRU sorts a just
+        // downloaded song to the front of the eviction queue.
+        touchLastAccessed(db, sqlite, input.songId);
         // Same transaction as the row change — that is what makes the marker
         // trustworthy. A separate write could land without it, or vice versa.
         db.insert(local_metadata)

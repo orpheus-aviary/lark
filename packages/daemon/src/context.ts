@@ -1,6 +1,8 @@
 import type { BilibiliClient, DownloadEngine, LarkDatabase } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
+import type { AudioStreamRegistry } from './audio-streams.js';
+import type { EvictionScheduler, SongLeaseRegistry } from './cache.js';
 import type { EventsBus } from './events/bus.js';
 import type { GuiChannel } from './events/gui-channel.js';
 import type { PlayerRuntime } from './player-runtime.js';
@@ -59,6 +61,21 @@ export interface AppContext {
   eventsBus: EventsBus;
   guiChannel: GuiChannel;
   player: PlayerRuntime;
+  /**
+   * Open `GET /audio` streams per song (M5-5). Context-level rather than a
+   * module global: eviction asks it whether a specific song is being read
+   * right now, and a global would let one test context (or a second daemon in
+   * the same process) answer for another's songs.
+   */
+  audioStreams: AudioStreamRegistry;
+  /** Short-lived eviction immunity for freshly ensured files (M5-6). */
+  cacheLeases: SongLeaseRegistry;
+  /**
+   * The single eviction driver. Boot, a finished download and
+   * `POST /cache/evict` all schedule through this one instance — two would
+   * defeat the single-flight and run concurrent drains over the same files.
+   */
+  cacheScheduler: EvictionScheduler;
   /** The download queue (M3). Always present — an unconfigured LLM only
    * narrows what it can do, it never makes the engine unavailable. */
   downloads: DownloadEngine;

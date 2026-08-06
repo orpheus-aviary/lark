@@ -84,6 +84,13 @@ function seedSong(id = SONG_ID, name = 'seeded'): void {
     .immediate();
 }
 
+const lastAccessed = (id = SONG_ID): number | null =>
+  (
+    sqlite.prepare('SELECT last_accessed_at AS at FROM songs WHERE id = ?').get(id) as
+      | { at: number | null }
+      | undefined
+  )?.at ?? null;
+
 /**
  * Only the recovery-log rows. `local_metadata` also holds device_uuid, so a
  * bare row count would never be zero and would hide exactly what this counts.
@@ -119,6 +126,48 @@ describe('landSongFile', () => {
     expect(getSong(db, sqlite, SONG_ID).name).toBe('稻香');
     // The recovery log row exists only between the commit and the cleanup.
     expect(logRowCount()).toBe(0);
+  });
+
+  // M5-7: a fresh file is a fresh access, or the LRU picks the song that was
+  // just downloaded as its first eviction candidate. It has to be part of the
+  // commit — after it, the task has irreversibly succeeded.
+  it('stamps last_accessed_at inside the commit transaction', () => {
+    songDir();
+    const paths = stagePaths(SONG_ID, TASK_ID);
+    write(paths.transcoded, 'AUDIO');
+
+    landSongFile(db, sqlite, {
+      taskId: TASK_ID,
+      songId: SONG_ID,
+      stagedPath: paths.transcoded,
+      mode: 'new',
+      commit: () => {
+        createFileBackedSongInTx(db, { id: SONG_ID, name: '稻香', file_origin: 'downloaded' });
+      },
+    });
+
+    expect(lastAccessed()).not.toBeNull();
+  });
+
+  it('rolls the stamp back with everything else when the commit throws', () => {
+    songDir();
+    seedSong();
+    const paths = stagePaths(SONG_ID, TASK_ID);
+    write(paths.transcoded, 'NEW');
+
+    expect(() =>
+      landSongFile(db, sqlite, {
+        taskId: TASK_ID,
+        songId: SONG_ID,
+        stagedPath: paths.transcoded,
+        mode: 'replace',
+        commit: () => {
+          throw new Error('constraint violated');
+        },
+      }),
+    ).toThrow(DownloadCommitError);
+
+    expect(lastAccessed()).toBeNull();
   });
 
   it('replaces an existing file and removes the backup', () => {
