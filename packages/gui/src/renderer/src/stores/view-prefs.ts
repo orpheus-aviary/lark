@@ -4,7 +4,7 @@
 
 import { create } from 'zustand';
 import { asWidthMap, readPref, writePref } from '../lib/prefs.js';
-import { DEFAULT_SORT, SORT_CYCLE, type SortState, nextSort } from '../lib/song-sort.js';
+import { DEFAULT_SORT, type SortState, isValidSort, toggleOrder } from '../lib/song-sort.js';
 
 export const OPTIONAL_COLUMNS = ['duration', 'fileSize', 'createdAt'] as const;
 export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
@@ -33,10 +33,8 @@ function parseColumns(value: unknown): ColumnVisibility | null {
 }
 
 function parseSort(value: unknown): SortState | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const { field, order } = value as { field?: unknown; order?: unknown };
-  const match = SORT_CYCLE.find((s) => s.field === field && s.order === order);
-  return match ? { ...match } : null;
+  // A stored sort from an older build may name a field this one dropped.
+  return isValidSort(value) ? { field: value.field, order: value.order } : null;
 }
 
 interface ViewPrefsState {
@@ -47,7 +45,8 @@ interface ViewPrefsState {
   toggleColumn: (column: OptionalColumn) => void;
   setWidth: (column: string, width: number) => void;
   setSort: (sort: SortState) => void;
-  cycleSort: () => void;
+  /** Flip asc/desc of the current field (the split button's left half). */
+  toggleSortOrder: () => void;
 }
 
 export const useViewPrefs = create<ViewPrefsState>((set, get) => ({
@@ -74,7 +73,7 @@ export const useViewPrefs = create<ViewPrefsState>((set, get) => ({
     set({ sort });
   },
 
-  cycleSort: () => {
-    get().setSort(nextSort(get().sort));
+  toggleSortOrder: () => {
+    get().setSort(toggleOrder(get().sort));
   },
 }));

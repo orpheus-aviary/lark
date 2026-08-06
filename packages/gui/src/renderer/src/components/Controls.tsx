@@ -75,7 +75,7 @@ export function Controls(): React.JSX.Element {
         size="icon-sm"
         aria-label={`播放模式：${PLAY_MODE_LABELS[playMode]}`}
         title={PLAY_MODE_LABELS[playMode]}
-        className={playMode === 'sequential' ? '' : 'text-primary'}
+        className={playMode === 'sequential' ? '' : 'text-state-active'}
         onClick={() => void cycleMode()}
       >
         <ModeIcon />

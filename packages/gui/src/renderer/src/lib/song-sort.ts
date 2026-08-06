@@ -2,11 +2,17 @@
 // the daemon accepts `?sort=`: SQLite has no Chinese collation, so `名` vs
 // `曲` would come back in code-point order. `localeCompare('zh-CN')` is the
 // only thing that puts a Chinese library in the order a user expects.
+//
+// The Go version's seven-state click cycle is gone (M5 follow-up). Five fields
+// would have made it nine states — nine clicks to get back to `default` — so
+// the two axes are split: the dropdown picks the FIELD, the button flips the
+// DIRECTION. `duration` is renderer-only; the daemon's sort domain
+// (`SONG_SORT_FIELDS`) does not include it and does not need to.
 
 import type { SongData, SongSortField, SortOrder } from '@lark/shared';
 
 /** `default` = whatever order the daemon returned (rank / creation order). */
-export type SortField = 'default' | SongSortField;
+export type SortField = 'default' | SongSortField | 'duration';
 
 export interface SortState {
   field: SortField;
@@ -15,26 +21,29 @@ export interface SortState {
 
 export const DEFAULT_SORT: SortState = { field: 'default', order: 'asc' };
 
-/**
- * The seven states the split button cycles through, Go order: default, then
- * each field ascending followed by descending.
- */
-export const SORT_CYCLE: readonly SortState[] = [
-  { field: 'default', order: 'asc' },
-  { field: 'name', order: 'asc' },
-  { field: 'name', order: 'desc' },
-  { field: 'artist', order: 'asc' },
-  { field: 'artist', order: 'desc' },
-  { field: 'created_at', order: 'asc' },
-  { field: 'created_at', order: 'desc' },
+/** Every field the picker offers, in the order it shows them. */
+export const SORT_FIELDS: readonly SortField[] = [
+  'default',
+  'name',
+  'artist',
+  'duration',
+  'created_at',
 ];
 
 export const SORT_FIELD_LABELS: Record<SortField, string> = {
   default: '默认',
   name: '歌名',
   artist: '歌手',
-  created_at: '时间',
+  duration: '时长',
+  created_at: '创建时间',
 };
+
+/** Fields compared as numbers rather than collated as text. */
+const NUMERIC_FIELDS: ReadonlySet<SortField> = new Set(['duration', 'created_at']);
+
+export function isNumericField(field: SortField): boolean {
+  return NUMERIC_FIELDS.has(field);
+}
 
 export function sortLabel(sort: SortState): string {
   const field = SORT_FIELD_LABELS[sort.field];
@@ -42,36 +51,50 @@ export function sortLabel(sort: SortState): string {
   return `${field} ${sort.order === 'asc' ? '↑' : '↓'}`;
 }
 
-/** Next state in the cycle; an unknown state restarts at `default`. */
-export function nextSort(current: SortState): SortState {
-  const index = SORT_CYCLE.findIndex(
-    (s) => s.field === current.field && (s.field === 'default' || s.order === current.order),
-  );
-  return SORT_CYCLE[(index + 1) % SORT_CYCLE.length] ?? DEFAULT_SORT;
+/** Flip the direction. `default` has no direction, so it is left alone. */
+export function toggleOrder(sort: SortState): SortState {
+  if (sort.field === 'default') return DEFAULT_SORT;
+  return { field: sort.field, order: sort.order === 'asc' ? 'desc' : 'asc' };
 }
 
-export function isSameSort(a: SortState, b: SortState): boolean {
-  if (a.field !== b.field) return false;
-  return a.field === 'default' || a.order === b.order;
+/** Switch fields, keeping the direction the user already chose. */
+export function withField(sort: SortState, field: SortField): SortState {
+  if (field === 'default') return DEFAULT_SORT;
+  return { field, order: sort.field === 'default' ? 'asc' : sort.order };
+}
+
+export function isValidSort(value: unknown): value is SortState {
+  if (typeof value !== 'object' || value === null) return false;
+  const { field, order } = value as { field?: unknown; order?: unknown };
+  return SORT_FIELDS.includes(field as SortField) && (order === 'asc' || order === 'desc');
 }
 
 const collator = new Intl.Collator('zh-CN');
 
 /**
- * Order a list for display. `created_at` compares NUMERICALLY (D5): the wire
- * type is unix milliseconds, and the Go version's string comparison of ISO
+ * Numeric fields compare NUMERICALLY (D5): the wire types are unix
+ * milliseconds and seconds, and the Go version's string comparison of ISO
  * timestamps only happened to work because they were fixed-width.
- *
- * Returns the input untouched for `default`; `Array.prototype.sort` is stable,
- * so equal keys keep the daemon's order.
+ */
+function comparator(field: Exclude<SortField, 'default'>): (a: SongData, b: SongData) => number {
+  switch (field) {
+    case 'duration':
+      return (a, b) => a.duration - b.duration;
+    case 'created_at':
+      return (a, b) => a.created_at - b.created_at;
+    default:
+      return (a, b) => collator.compare(a[field], b[field]);
+  }
+}
+
+/**
+ * Order a list for display. Returns the input untouched for `default`;
+ * `Array.prototype.sort` is stable, so equal keys keep the daemon's order.
  */
 export function sortSongs(songs: readonly SongData[], sort: SortState): readonly SongData[] {
   const { field, order } = sort;
   if (field === 'default') return songs;
   const direction = order === 'asc' ? 1 : -1;
-  const compare =
-    field === 'created_at'
-      ? (a: SongData, b: SongData) => a.created_at - b.created_at
-      : (a: SongData, b: SongData) => collator.compare(a[field], b[field]);
+  const compare = comparator(field);
   return [...songs].sort((a, b) => compare(a, b) * direction);
 }

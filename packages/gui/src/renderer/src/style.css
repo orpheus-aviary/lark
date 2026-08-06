@@ -69,13 +69,22 @@ body {
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-state-active: var(--state-active);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* ── Two-state shadcn palette (M4-12; owl is dark-only, lark follows the OS).
+/* `--state-active` is lark's own, and it is NOT part of the shadcn palette.
+ * The upstream neutral theme has no accent at all — `--primary` is near-black
+ * in light and near-white in dark — so a `text-primary` "highlight" renders
+ * exactly like body text. Three states depended on that and were therefore
+ * invisible: the playing row, the active sort, the active play mode. This
+ * amber is for STATE only; `--primary` (buttons, checkboxes, tooltips) is
+ * deliberately left alone.
+ *
+ * ── Two-state shadcn palette (M4-12; owl is dark-only, lark follows the OS).
  * Values are shadcn/ui upstream's default neutral theme (Tailwind v4 oklch
  * form) — source recorded in the M4 plan §8. ─────────── */
 :root {
@@ -99,6 +108,7 @@ body {
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --state-active: oklch(0.6 0.15 68);
 }
 
 .dark {
@@ -121,6 +131,7 @@ body {
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --state-active: oklch(0.8 0.14 78);
 }
 
 @layer base {

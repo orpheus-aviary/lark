@@ -128,10 +128,11 @@ export function DownloadBar(): React.JSX.Element {
         </DownloadTasksPopover>
       </div>
 
-      {/* Always rendered, even when idle: the song list is the flex child that
-          absorbs the leftover height, so a status line that appears and
-          disappears would make the whole list jump on every download. */}
-      <div className="flex h-5 items-center gap-1.5 text-xs">
+      {/* Always rendered at a FIXED height, even when idle: the song list is
+          the flex child that absorbs the leftover height, so a status line
+          that appears, disappears or grows would make the whole table jump.
+          24px rather than 20 because the batch-action bar shares this row. */}
+      <div className="flex h-6 items-center gap-1.5 text-xs">
         {(busy || current) && (
           <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
         )}

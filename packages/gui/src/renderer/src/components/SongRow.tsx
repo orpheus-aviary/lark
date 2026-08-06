@@ -376,8 +376,12 @@ export function SongRow({
           data-current={isCurrent || undefined}
           data-dragging={drag?.isDragging || undefined}
           tabIndex={0}
+          // Four states, four channels that never collide: the amber is
+          // playing, the bar is selected, bold is pinned, and the red suffix
+          // is "no file". `text-primary` used to mean playing and was
+          // invisible — the neutral palette makes it body-text black.
           className={`group cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent' : ''} ${
-            isCurrent ? 'text-primary' : song.has_file ? '' : 'text-muted-foreground'
+            isCurrent ? 'text-state-active' : song.has_file ? '' : 'text-muted-foreground'
           } ${drag?.isDragging === true ? 'relative z-10 bg-accent opacity-90 shadow-sm' : ''}`}
           onClick={() => setSelectedSongId(song.id)}
           onContextMenu={() => setSelectedSongId(song.id)}
@@ -388,13 +392,23 @@ export function SongRow({
             onPlay(song);
           }}
         >
-          <td className="px-3 py-1.5 text-center tabular-nums">{index}</td>
+          {/* The selection bar rides on the first CELL, not the row: a <tr>
+              border is at the mercy of border-collapse. Always 2px, so
+              selecting a row never shifts its contents sideways. */}
+          <td
+            className={`border-l-2 px-3 py-1.5 text-center tabular-nums ${
+              isSelected ? 'border-l-primary' : 'border-l-transparent'
+            }`}
+          >
+            {index}
+          </td>
           <td className="overflow-hidden px-3 py-1.5">
             <EditableCell
               value={song.name}
               display={
                 <>
-                  {song.name}
+                  {/* Bold = pinned, i.e. "the cache may never reclaim this". */}
+                  <span className={song.pinned ? 'font-semibold' : ''}>{song.name}</span>
                   {!song.has_file && (
                     <span className="ml-1 text-destructive text-xs">[需要下载]</span>
                   )}

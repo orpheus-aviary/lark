@@ -361,3 +361,37 @@ describe('drag to reorder (T7 / R24)', () => {
     expect(sortableRows()).toEqual([]);
   });
 });
+
+describe('row state markers', () => {
+  // These four have to stay on four separate channels: a row can be selected,
+  // playing, pinned and fileless at once. `text-primary` used to mean playing
+  // and was invisible against body text — hence the amber token.
+  it('paints the playing row amber', () => {
+    render(<SongList onPlay={vi.fn()} currentSongId="song-2" />);
+
+    expect(screen.getByTestId('song-row-song-2').className).toContain('text-state-active');
+    expect(screen.getByTestId('song-row-song-1').className).not.toContain('text-state-active');
+  });
+
+  it('bolds a pinned song name', () => {
+    useLibrary.setState({
+      songs: [song({ id: 'song-1', name: '固定的', pinned: true }), SONGS[1]],
+    });
+    renderList();
+
+    expect(screen.getByText('固定的').className).toContain('font-semibold');
+    expect(screen.getByText('第二首').className).not.toContain('font-semibold');
+  });
+
+  it('marks the selected row with a left bar, and reserves its width otherwise', () => {
+    useLibrary.setState({ selectedSongId: 'song-2' });
+    renderList();
+
+    const cellOf = (id: string): Element =>
+      screen.getByTestId(`song-row-${id}`).firstElementChild as Element;
+    expect(cellOf('song-2').className).toContain('border-l-primary');
+    // Always 2px, so selecting never nudges the row sideways.
+    expect(cellOf('song-1').className).toContain('border-l-transparent');
+    expect(cellOf('song-1').className).toContain('border-l-2');
+  });
+});

@@ -56,6 +56,8 @@ const API_FORMATS = ['openai', 'anthropic'] as const;
 /** The cache-limit choices, in MiB — 0 is "no limit" (M5-18). */
 const CACHE_LIMITS = [
   { value: 0, label: '不限' },
+  { value: 128, label: '128 MB' },
+  { value: 256, label: '256 MB' },
   { value: 512, label: '512 MB' },
   { value: 1024, label: '1 GB' },
   { value: 2048, label: '2 GB' },
@@ -324,7 +326,7 @@ export function SettingsDialog(): React.JSX.Element {
       </Button>
 
       <Dialog open={open} onOpenChange={openWith}>
-        <DialogContent className="max-w-xl">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>设置</DialogTitle>
             <DialogDescription>改动在点击「保存」后才会写入配置文件。</DialogDescription>

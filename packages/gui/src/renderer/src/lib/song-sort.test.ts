@@ -1,6 +1,13 @@
 import type { SongData } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SORT, SORT_CYCLE, type SortState, nextSort, sortSongs } from './song-sort.js';
+import {
+  DEFAULT_SORT,
+  SORT_FIELDS,
+  isValidSort,
+  sortSongs,
+  toggleOrder,
+  withField,
+} from './song-sort.js';
 
 function song(partial: Partial<SongData> & { id: string }): SongData {
   return {
@@ -19,34 +26,35 @@ function song(partial: Partial<SongData> & { id: string }): SongData {
   };
 }
 
-describe('sort cycle', () => {
-  it('walks the seven Go states and returns to default', () => {
-    let sort = DEFAULT_SORT;
-    const seen: string[] = [];
-    for (let i = 0; i < SORT_CYCLE.length; i++) {
-      seen.push(`${sort.field}-${sort.order}`);
-      sort = nextSort(sort);
-    }
-    expect(seen).toEqual([
-      'default-asc',
-      'name-asc',
-      'name-desc',
-      'artist-asc',
-      'artist-desc',
-      'created_at-asc',
-      'created_at-desc',
-    ]);
-    expect(sort).toEqual(DEFAULT_SORT);
+describe('the two sort axes', () => {
+  it('offers five fields, default first', () => {
+    expect(SORT_FIELDS).toEqual(['default', 'name', 'artist', 'duration', 'created_at']);
   });
 
-  it('treats default as directionless — a stored default/desc still steps to name', () => {
-    expect(nextSort({ field: 'default', order: 'desc' })).toEqual({ field: 'name', order: 'asc' });
+  it('flips the direction of the current field', () => {
+    expect(toggleOrder({ field: 'name', order: 'asc' })).toEqual({ field: 'name', order: 'desc' });
+    expect(toggleOrder({ field: 'name', order: 'desc' })).toEqual({ field: 'name', order: 'asc' });
   });
 
-  it('restarts at default for a state outside the cycle', () => {
-    expect(nextSort({ field: 'nonsense', order: 'asc' } as unknown as SortState)).toEqual(
-      DEFAULT_SORT,
-    );
+  it('leaves `default` alone — the daemon order has no direction', () => {
+    expect(toggleOrder(DEFAULT_SORT)).toEqual(DEFAULT_SORT);
+    expect(toggleOrder({ field: 'default', order: 'desc' })).toEqual(DEFAULT_SORT);
+  });
+
+  it('keeps the direction when the field changes, and starts ascending from default', () => {
+    expect(withField({ field: 'name', order: 'desc' }, 'duration')).toEqual({
+      field: 'duration',
+      order: 'desc',
+    });
+    expect(withField(DEFAULT_SORT, 'created_at')).toEqual({ field: 'created_at', order: 'asc' });
+    expect(withField({ field: 'name', order: 'desc' }, 'default')).toEqual(DEFAULT_SORT);
+  });
+
+  it('refuses a stored sort naming a field this build does not have', () => {
+    expect(isValidSort({ field: 'name', order: 'asc' })).toBe(true);
+    expect(isValidSort({ field: 'nonsense', order: 'asc' })).toBe(false);
+    expect(isValidSort({ field: 'name', order: 'sideways' })).toBe(false);
+    expect(isValidSort(null)).toBe(false);
   });
 });
 
@@ -81,6 +89,14 @@ describe('sortSongs', () => {
     expect(sortSongs(songs, { field: 'created_at', order: 'asc' }).map((s) => s.id)).toEqual([
       'old',
       'new',
+    ]);
+  });
+
+  it('orders by duration numerically', () => {
+    const songs = [song({ id: 'long', duration: 245.5 }), song({ id: 'short', duration: 61 })];
+    expect(sortSongs(songs, { field: 'duration', order: 'asc' }).map((s) => s.id)).toEqual([
+      'short',
+      'long',
     ]);
   });
 
