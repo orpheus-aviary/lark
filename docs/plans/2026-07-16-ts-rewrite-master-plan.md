@@ -234,13 +234,13 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 |---|---|
 | 系统 | `GET /status`（永不鉴权，只带 pid/uptime/version）· `GET /api/instance`（鉴权：`{nest_dir, pid, version, local_api_version}`——GUI 复用判定的唯一身份来源，M4-2）· `GET /api/capabilities`（自描述，供 agent 发现） |
 | 歌曲 | `GET /songs`（搜索/分页/排序，enrich has_file/file_size）· `GET|PUT|DELETE /songs/:id` · `POST /songs/import`（本地 mp3，file_origin=imported）· `PUT /songs/:id/pin` |
-| 链接 | `PUT /songs/:id`（含 source_url 编辑，服务端规范化出 provider/key）· `POST /songs/:id/recognize-url`（**纯预览**：LLM 识别返回候选，不写库，R6）· `POST /songs/:id/redownload`（凭 source_key 确定性重下） |
+| 链接 | `PUT /songs/:id`（含 source_url 编辑，服务端规范化出 provider/key）· `POST /songs/:id/recognize-url`（**纯预览**：LLM 识别返回候选，不写库，R6）· `POST /songs/:id/redownload`（凭 source_key 确定性重下）· **`POST /songs/:id/ensure-file`（M5 增补：只在文件缺失时取，文件已在则零网络秒成——播放被清理过的歌走这条，M5-8）** |
 | 文件 | `GET /audio/:id`（Range 流式 + 更新 last_accessed_at）· `GET|DELETE /lyrics/:id` · `POST /download/lyrics/:id`（重下歌词） |
 | 歌单 | `GET|POST /playlists`（列表含虚拟 all + 曲数）· `GET|PUT|DELETE /playlists/:id` · `GET /playlists/:id/songs` · `POST /playlists/:id/songs` · `DELETE /playlists/:id/songs/:songId` · `POST /playlists/:id/reorder`（稀疏 rank，单行更新）。**虚拟 all 只读**：改名/删除/增删成员/reorder 一律 `400 VIRTUAL_PLAYLIST`（R24） |
-| 导入导出 | `GET /playlists/:id/export`（`all` 可用）· `POST /playlists/import`（target: all＝仅入库 / 指定歌单 / 新建歌单；schema 校验 + 大小/曲数上限，**单事务全量成败**，R27） |
+| 导入导出 | `GET /playlists/:id/export`（`all` 可用，标准信封）· **`POST /playlists/import-preview`（M5 增补：`{file_path}` → `{digest, total, reuse_count, new_count, playlist_name, suspects[]}`，只读不写）** · `POST /playlists/import`（`{file_path, digest, target, reuse[]}`；target: all＝仅入库 / 指定歌单 / 新建歌单；schema 校验 + 大小/曲数上限，**单事务全量成败**，R27）。**两段式靠 SHA-256 咬合**：commit 重读文件，digest 不符即 `IMPORT_SOURCE_CHANGED` 400——`reuse[].index` 指的是用户看过的那份文件（M5-13） |
 | 播放器 | `GET /player/status` · `POST /player/{play, play-playlist, switch-playlist, pause, resume, next, prev, seek, mode, report}`（命令类返回前等待 GUI ack，3s 超时 `GUI_TIMEOUT`）· `POST /player/ack` · `POST /gui/register`（辅助信息；在线判定以 SSE 连接为准，R11） |
 | 下载 | `POST /download/song` · `POST /download/parse`（批量文本解析）· `POST /download/batch` · `POST /download/fetch-list`（收藏夹/合集展开）· `POST /download/cancel`（按任务 id）· **`GET /download/tasks`（M3 增补：`{tasks, batches}` 快照，事件只给刷新信号，详情一律 refetch 这里）** |
-| 缓存 | `GET /cache/status`（已用字节/曲数/上限/可清理字节/`unreclaimable_bytes`/`limit_satisfied`，R26）· `POST /cache/evict`（立即清理，响应含同上字段） |
+| 缓存 | `GET /cache/status` → `{used_bytes, file_count, limit_mb, eligible_bytes, unreclaimable_bytes, limit_satisfied}`（`eligible_bytes` 是**静态资格、未联网验证**——实际清得出的可能更少，M5-4；`*_mb` 一律 MiB）· `POST /cache/evict`（同上字段按清理后重算，另加 `evicted_count / freed_bytes / skipped_unverified_count / skipped_unverified_bytes`，R26） |
 | 配置 | `GET /config`（api_key 脱敏）· `PATCH /config`（白名单字段 + 校验，R14） |
 | 事件 | `GET /events`（SSE，`?role=gui&gui_id=<id>` 标识 GUI 连接）：`hello`、`player:command`（含 request_id，仅单播给 active GUI）、`cache:evicted`、`songs:changed`、`playlists:changed`、**`lyrics:changed {song_id}`（M2 增补）**、**download 族（M3 修订）**：`download:status {task_id, state, stage, revision}`（去重键 `(state, stage, revision)`——`(state, stage)` 本身不唯一）、`download:complete {task_id, song_id}`、`download:error {task_id, error_code, message}`、`download:cancelled {task_id}`、`download:batches-changed {batch_id}` |
 
@@ -278,7 +278,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 - 配置 `[storage] cache_limit_mb = 0`（0 = 不限，默认，等同旧版）。
 - 记账：实时扫描 `songs/*/song.mp3` 大小合计（曲库量级小，不做增量账本）。
 - 触发：每次下载完成后、daemon 启动时、手动 `POST /cache/evict`。
-- 顺序：符合资格者按 `last_accessed_at` 升序删 `song.mp3` 直至低于上限；**保留 lyrics.lrc 和 DB 记录**；逐条发 `cache:evicted`。
+- 顺序：符合资格者按 `coalesce(last_accessed_at, created_at)` 升序删 `song.mp3` 直至低于上限（**null 兜底 created_at**：三个更新点补齐前的旧行否则会排在最前面被先删）；**保留 lyrics.lrc 和 DB 记录**；逐条发 `cache:evicted {song_id}`。**删除临界区无 await**（取 file claim → 重读行 + 重新 stat + 复查排除集/流计数 → unlink，同一个同步段，M5-5）。
 - `last_accessed_at` 更新点：`GET /audio/:id` 被拉取、下载完成、本地导入。
 - GUI：设置页显示已用/可清理空间、上限下拉、立即清理；列表待下载状态标识；右键「固定/取消固定」。
 
@@ -303,7 +303,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 - **导出**：任意歌单含虚拟 all；GUI 走 Electron 保存对话框（IPC），CLI 写指定路径。**显式包含 `source_provider`/`source_key`**（round-trip 去重不受未来 URL 规范化逻辑变化影响，R27）。
 - **导入校验（R27）**：JSON schema 校验 + 上限（≤ 10 000 首或 ≤ 20 MB，超出报错）；未知 `version` → `UNSUPPORTED_FORMAT_VERSION`；**单事务全量成败**，不做部分成功；导入到现有歌单时按文件顺序追加到末尾。
 - **导入**：选文件 → 解析预览（曲数、去重结果、疑似重复列表）→ 目标选择：**导入到 all（＝仅入库）/ 指定歌单 / 新建歌单（默认名取文件内 playlist.name）**。
-- **去重（R12）**：仅 `(source_provider, source_key)` 相同视为同一首歌，复用原条目只加歌单；歌名+歌手相同但 key 不同（或无 key）→ 预览中标「疑似重复」，用户勾选决定，**默认导入为新条目**（避免误合并 live/remix/不同版本）。
+- **去重（R12）**：仅 `(source_provider, source_key)` 相同视为同一首歌，复用原条目只加歌单（**key 命中始终优先，reuse 指令改不了它**）；**同一文件内重复 key 由后者复用前者**（否则空库导两条同 key 会预览报 2 首、提交只建 1 首）；歌名+歌手相同但 key 不同（或无 key）→ 预览中标「疑似重复」并给出 `candidates[]`（同名同歌手可能有多首），用户勾选决定，**默认导入为新条目**（避免误合并 live/remix/不同版本）。
 - **按需下载**：导入不触发下载，文件在播放/手动重下时按 §5.1 获取。
 
 ### 5.4 GUI（功能对齐 Go 版 + 新增）

@@ -6,7 +6,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**下一步 M5（新特性 + 对应路由）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交，全仓测试 1128）；**下一步 M6（CLI）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -93,6 +93,21 @@ lark/
 - **播放器命令共用一条串行队列**（本地点击 + 远程命令），超过 **2.5s** 才轮到的远程命令直接丢弃不 ack（daemon 3s 已回 504）
 - **`has_file` 是每次请求现探的磁盘状态**：列表拿到后文件被删，GUI 仍会尝试播放并走 media error 停播；刷新后才灰显拒播
 
+### M5 实测锁定（详见 `docs/plans/2026-08-06-m5-features.md` §8）
+
+- **清理的删除临界区里不许有 await**：探活是 await，期间歌可能被 pin / 改 key / 重下 / 开始播放——取 file claim 后必须**重读行 + 重新 stat + 复查排除集与 per-song 流计数**，再 `unlink`，全程同一个同步段；claim 释放冻结成 `try/finally`（cache 没有 engine 的 `releaseOwner` 兜底）
+- **下载完成触发的清理要 `setImmediate` 延后**：`onSucceeded` 在 `#finish` 内同步发出，此刻任务**仍持有 file claim**，立即清理会把刚下载的歌当 busy 跳过且没有补跑；同理 `onSucceeded` 是 void 回调，从里面抛错会穿透 `#finish` 把已提交的成功任务错标 failed（scheduler 必须同步不抛）
+- **`config-types.ts` 的 doc 注释里不能出现 `songs/*/song.mp3`**：`*/` 提前闭合注释，Biome 报的是 parse error 而不是格式问题
+- **core 测试的 `source_key` 必须像真的**（`/^BV[0-9A-Za-z]+:\d+$/`），且同一 `(provider, key)` 全库唯一——多首歌各要各的 key
+- **同毫秒创建的行让「按 created_at 排序」的断言不确定**：导出的两处排序都带 `id` / `song_id` 兜底，测试要么回填 `created_at`，要么按 id 组期望值
+- **导入两段式靠 SHA-256 咬合**：commit 重读文件、digest 不符即拒——`reuse[].index` 只有在字节一致时才指向用户看过的那一条
+- **dnd-kit 走 legacy**（core 6.3.1 / sortable 10.0.0 / utilities 3.2.2 / modifiers 9.0.0）：新架构 `@dnd-kit/dom` 依赖 jsdom 没有的 `PointerEvent` / `IntersectionObserver` / `elementFromPoint`，每个都以**未捕获异常炸掉整个测试文件**
+- **`useSortable` 默认 `attributes` 带 `role="button"`**：落在 `<tr>` 上会让 `getAllByRole('row')` 全数落空，必须 `attributes: {role: 'row'}` 覆盖
+- **dnd-kit 的 `PointerSensor` activator 不看目标元素**（只判 `isPrimary` / `button===0`）：整行拖拽必须自建 activator 排除 `input/textarea/select/button/a/[contenteditable]`，否则在内联编辑框里拖选文字就会重排歌单
+- **jsdom 里 `getBoundingClientRect` 恒为 0**：dnd-kit 的碰撞检测在测试里没有意义——落点判定写成纯函数单测，拖拽手感交给 CDP 验收
+- **renderer 测试没有 jest-dom 匹配器**：`toHaveValue` / `toBeChecked` 报 "Invalid Chai property"，断言要读 `.value` 与 `aria-checked`；`vi.fn(() => …)` 的 `mock.calls[0][0]` 在 tsc 下是空元组，要断言入参就得给 mock 显式形参类型
+- **main 项目测 `dialog-ipc.ts` 要 `vi.mock('electron')`**，且必须连 `window.ts` 顶层的 `app.on('before-quit')` 一起假掉
+
 ### M3 实测锁定（详见 `docs/plans/2026-08-04-m3-download-pipeline.md` §7）
 
 - **`nav` 匿名返回 envelope `code: -101`（未登录）但照给 `wbi_img`**——WBI 取 key 判定**看字段不看 code**，看 code 会在健康环境上 fail-closed
@@ -124,7 +139,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
-- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>` / `just spike-media-*`）
+- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>` / `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just spike-media-*`）
 - Go 版（功能参照）：`../lark-go/`
 - 跨仓架构：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`
 - skybridge 架构：`../aviary/docs/SKYBRIDGE_ARCH.md`
