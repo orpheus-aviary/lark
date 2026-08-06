@@ -22,6 +22,12 @@ export class InvalidRequestError extends Error {
   constructor(
     readonly code: string,
     message: string,
+    /**
+     * Machine-readable payload for the envelope's `details` (M5-20) — e.g.
+     * `INVALID_CONFIG`'s offending `path`, so the settings page can mark the
+     * field instead of parsing an English message.
+     */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'InvalidRequestError';

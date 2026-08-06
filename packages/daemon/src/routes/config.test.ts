@@ -86,6 +86,12 @@ describe('PATCH /config', () => {
     expect(loadConfig(configPath).llm.api_key).toBe('');
   });
 
+  it('writes the theme mode (M5-2)', async () => {
+    expect((await patch({ theme: { mode: 'dark' } })).statusCode).toBe(200);
+    expect((await getConfig()).theme.mode).toBe('dark');
+    expect(loadConfig(configPath).theme.mode).toBe('dark');
+  });
+
   it.each([
     ['an unknown section', { daemon: { port: 1 } }],
     ['an unknown field', { window: { depth: 3 } }],
@@ -97,6 +103,25 @@ describe('PATCH /config', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json<ApiResponse>().error_code).toBe('INVALID_CONFIG');
     expect(ctx.logger.errors()).toHaveLength(0);
+  });
+
+  /**
+   * The settings page marks the offending field from `details.path` — it must
+   * never parse the English message (M5-20).
+   */
+  it.each([
+    ['a bad field value', { log: { level: 'chatty' } }, 'log.level'],
+    ['an unknown field', { window: { depth: 3 } }, 'window.depth'],
+    ['an unknown section', { daemon: { port: 1 } }, 'daemon'],
+    ['a non-object section', { window: 900 }, 'window'],
+  ])('reports %s at details.path', async (_label, payload, path) => {
+    const body = (await patch(payload)).json<ApiResponse>();
+    expect(body.error_code).toBe('INVALID_CONFIG');
+    expect(body.details).toEqual({ path });
+  });
+
+  it('omits details when the complaint is about the whole body', async () => {
+    expect((await patch({})).json<ApiResponse>().details).toBeUndefined();
   });
 
   /**
@@ -112,6 +137,7 @@ describe('PATCH /config', () => {
     ['window.width', { window: { width: 0 } }, 'window', 'width'],
     ['font.global_font_size', { font: { global_font_size: 0 } }, 'font', 'global_font_size'],
     ['storage.cache_limit_mb', { storage: { cache_limit_mb: -1 } }, 'storage', 'cache_limit_mb'],
+    ['theme.mode', { theme: { mode: 'sepia' } }, 'theme', 'mode'],
     ['llm.url', { llm: { url: 42 } }, 'llm', 'url'],
   ])('rejects a bad %s that the loader would silently converge', async (_l, payload, s, k) => {
     const res = await patch(payload);

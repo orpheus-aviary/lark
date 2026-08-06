@@ -51,6 +51,25 @@ export interface StorageConfig {
 }
 
 /**
+ * Theme modes as a runtime constant, same two-consumer reason as
+ * {@link LOG_LEVELS} (M5-2): core's `sanitize` converges an out-of-domain disk
+ * value to `'system'`, the daemon's `PATCH /config` validator rejects it.
+ * `'system'` follows the OS; `'light'`/`'dark'` override it.
+ */
+export const THEME_MODES = ['system', 'light', 'dark'] as const;
+
+export type ThemeMode = (typeof THEME_MODES)[number];
+
+/**
+ * Appearance lives in the config, view state (sort / column visibility / play
+ * mode) stays in localStorage — the frozen line from M4-12, restated in M5-2
+ * so a third home never grows.
+ */
+export interface ThemeConfig {
+  mode: ThemeMode;
+}
+
+/**
  * The full on-disk config (`lark/lark_config.toml`). The daemon port is NOT
  * config — 47100 is a constant baked into the renderer CSP. Unknown keys in
  * the file (Go-era `display`/`download`/`daemon` sections, `max_age_days`)
@@ -59,6 +78,7 @@ export interface StorageConfig {
 export interface LarkConfig {
   llm: LlmConfig;
   window: WindowConfig;
+  theme: ThemeConfig;
   font: FontConfig;
   log: LogConfig;
   storage: StorageConfig;
@@ -73,6 +93,7 @@ export interface LarkConfig {
 export interface ConfigPatchRequest {
   llm?: Partial<LlmConfig>;
   window?: Partial<WindowConfig>;
+  theme?: Partial<ThemeConfig>;
   font?: Partial<FontConfig>;
   log?: Partial<LogConfig>;
   storage?: Partial<StorageConfig>;
@@ -93,6 +114,7 @@ export interface PublicLlmConfig {
 export interface PublicLarkConfig {
   llm: PublicLlmConfig;
   window: WindowConfig;
+  theme: ThemeConfig;
   font: FontConfig;
   log: LogConfig;
   storage: StorageConfig;

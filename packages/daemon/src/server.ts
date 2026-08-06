@@ -14,6 +14,7 @@ import { registerPlayerRoutes } from './routes/player.js';
 import { registerPlaylistRoutes } from './routes/playlists.js';
 import { registerSongRoutes } from './routes/songs.js';
 import { registerSystemRoutes } from './routes/system.js';
+import { InvalidRequestError } from './validation.js';
 
 /**
  * Every route the daemon serves, in ONE place. `GET /api/capabilities` hand-
@@ -94,7 +95,8 @@ export function buildServer(ctx: AppContext): FastifyInstance {
     const status = err.statusCode ?? 500;
     if (status >= 400 && status < 500) {
       if (reply.sent) return;
-      fail(reply, status, err.message || 'Bad Request', err.code ?? 'BAD_REQUEST');
+      const details = err instanceof InvalidRequestError ? err.details : undefined;
+      fail(reply, status, err.message || 'Bad Request', err.code ?? 'BAD_REQUEST', details);
       return;
     }
 

@@ -24,6 +24,8 @@ import {
   type LlmConfig,
   type LogLevel,
   type PublicLarkConfig,
+  THEME_MODES,
+  type ThemeMode,
 } from '@lark/shared';
 import { parse, stringify } from 'smol-toml';
 import { aviaryConfigPath, configPath } from '../paths.js';
@@ -34,6 +36,7 @@ export const DEFAULT_CONFIG: LarkConfig = {
   // could never be adopted; resolveLlmConfig backstops 'openai' at output.
   llm: { url: '', model: '', api_key: '', api_format: '' },
   window: { width: 1024, height: 768 },
+  theme: { mode: 'system' },
   font: { global_font_size: 14, lyrics_font_size: 14 },
   log: { level: 'info', max_size_mb: 10, max_backups: 5 },
   storage: { cache_limit_mb: 0 },
@@ -152,6 +155,7 @@ export function redactConfig(config: LarkConfig): PublicLarkConfig {
       has_api_key: config.llm.api_key.length > 0,
     },
     window: { width: config.window.width, height: config.window.height },
+    theme: { mode: config.theme.mode },
     font: {
       global_font_size: config.font.global_font_size,
       lyrics_font_size: config.font.lyrics_font_size,
@@ -212,6 +216,9 @@ function deepMerge(
 /** The log-level domain is shared with the daemon's PATCH validator (M2-12). */
 const LOG_LEVEL_SET: ReadonlySet<string> = new Set(LOG_LEVELS);
 
+/** Same arrangement for the theme mode (M5-2). */
+const THEME_MODE_SET: ReadonlySet<string> = new Set(THEME_MODES);
+
 function str(v: unknown, dflt: string): string {
   return typeof v === 'string' ? v : dflt;
 }
@@ -236,6 +243,9 @@ function sanitize(cfg: LarkConfig): LarkConfig {
   cfg.llm.api_format = str(cfg.llm.api_format, d.llm.api_format);
   cfg.window.width = num(cfg.window.width, d.window.width, { min: 1 });
   cfg.window.height = num(cfg.window.height, d.window.height, { min: 1 });
+  cfg.theme.mode = (
+    THEME_MODE_SET.has(cfg.theme.mode) ? cfg.theme.mode : d.theme.mode
+  ) as ThemeMode;
   cfg.font.global_font_size = num(cfg.font.global_font_size, d.font.global_font_size, { min: 1 });
   cfg.font.lyrics_font_size = num(cfg.font.lyrics_font_size, d.font.lyrics_font_size, { min: 1 });
   cfg.log.level = (LOG_LEVEL_SET.has(cfg.log.level) ? cfg.log.level : d.log.level) as LogLevel;

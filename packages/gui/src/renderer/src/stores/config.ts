@@ -2,7 +2,7 @@
 // read by whoever needs it. Refreshed on every connectionEpoch (hello includes
 // config — a daemon restart may have reloaded the file) and after a PATCH.
 
-import type { PublicLarkConfig } from '@lark/shared';
+import type { ConfigPatchRequest, PublicLarkConfig } from '@lark/shared';
 import { API_PATHS, request } from '@lark/shared';
 import { create } from 'zustand';
 import { createLane } from '../lib/lanes.js';
@@ -12,6 +12,13 @@ interface ConfigState {
   refresh: () => void;
   /** Adopt a config the caller already holds (PATCH responses carry it). */
   adopt: (config: PublicLarkConfig) => void;
+  /**
+   * Write a patch and adopt the response (M5-1). NOT laned: a save is not a
+   * view fetch and must never be superseded. Rejections propagate — the
+   * settings page needs `ApiError.details.path` to mark the offending field
+   * (M5-20).
+   */
+  patch: (body: ConfigPatchRequest) => Promise<PublicLarkConfig>;
 }
 
 const configLane = createLane();
@@ -29,4 +36,10 @@ export const useConfig = create<ConfigState>((set) => ({
       });
   },
   adopt: (config) => set({ config }),
+  patch: async (body) => {
+    const envelope = await request<PublicLarkConfig>('PATCH', API_PATHS.config, body);
+    const config = envelope.data as PublicLarkConfig;
+    set({ config });
+    return config;
+  },
 }));

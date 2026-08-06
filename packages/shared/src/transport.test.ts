@@ -83,6 +83,38 @@ describe('request error handling', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('carries the envelope details through (M5-20)', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      envelope(
+        {
+          success: false,
+          message: 'the link already belongs to another song',
+          error_code: 'SOURCE_KEY_CONFLICT',
+          details: { conflicting_song_id: 'abc' },
+        },
+        409,
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(request('PUT', '/songs/x', { source_url: 'u' })).rejects.toMatchObject({
+      name: 'ApiError',
+      errorCode: 'SOURCE_KEY_CONFLICT',
+      details: { conflicting_song_id: 'abc' },
+    });
+  });
+
+  it('leaves details undefined when the envelope has none', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        envelope({ success: false, message: 'gone', error_code: 'NOT_FOUND' }, 404),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(request('GET', '/songs/x')).rejects.toMatchObject({ details: undefined });
+  });
+
   it('throws ApiError on a non-JSON body without retrying', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -176,6 +208,20 @@ describe('requestText (M4-13②)', () => {
       status: 404,
       errorCode: 'LYRICS_NOT_FOUND',
     });
+  });
+
+  it('carries the envelope details through too (M5-20)', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        envelope(
+          { success: false, message: 'bad id', error_code: 'INVALID_ID', details: { path: 'id' } },
+          400,
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(requestText('/lyrics/x')).rejects.toMatchObject({ details: { path: 'id' } });
   });
 
   it('still throws an ApiError carrying the status when the error body is not JSON', async () => {

@@ -3,7 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { getPlatform } from './platform/index.js';
-import { watchSystemTheme } from './theme/theme.js';
+import { applyThemeMode } from './theme/theme.js';
 import './style.css';
 
 // Wire the shared transport to this host before anything renders. The bearer
@@ -21,7 +21,9 @@ configureTransport({
   },
 });
 
-watchSystemTheme();
+// Pre-paint guess so a dark-mode desktop never flashes a light first frame;
+// App's effect takes over (and starts listening) once the config has loaded.
+applyThemeMode('system');
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('lark: #root element not found');

@@ -5,11 +5,18 @@
 
 import type { ApiResponse } from './types.js';
 
+/**
+ * A daemon error response. `details` carries the envelope's machine-readable
+ * payload (M5-20) — `SOURCE_KEY_CONFLICT`'s `conflicting_song_id`,
+ * `INVALID_CONFIG`'s `path`. Front-ends branch on `errorCode` + `details`;
+ * `message` is for humans and must never be parsed.
+ */
 export class ApiError extends Error {
   constructor(
     public status: number,
     public errorCode: string | undefined,
     message: string,
+    public details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -137,7 +144,7 @@ async function fetchWithRetries(
 
 function unwrap<T>(res: Response, json: ApiResponse<T>): ApiResponse<T> {
   if (json.success) return json;
-  throw new ApiError(res.status, json.error_code, json.message ?? 'Unknown error');
+  throw new ApiError(res.status, json.error_code, json.message ?? 'Unknown error', json.details);
 }
 
 /**
@@ -216,5 +223,10 @@ export async function requestText(path: string, options: RequestOptions = {}): P
       `daemon returned a non-JSON error response (HTTP ${res.status})`,
     );
   }
-  throw new ApiError(res.status, json.error_code, json.message ?? `HTTP ${res.status}`);
+  throw new ApiError(
+    res.status,
+    json.error_code,
+    json.message ?? `HTTP ${res.status}`,
+    json.details,
+  );
 }

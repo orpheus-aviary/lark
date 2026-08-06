@@ -126,7 +126,7 @@ describe('loadConfig', () => {
     expect((raw.log as Record<string, unknown>).max_age_days).toBe(30);
 
     const pub = redactConfig(cfg);
-    expect(Object.keys(pub).sort()).toEqual(['font', 'llm', 'log', 'storage', 'window']);
+    expect(Object.keys(pub).sort()).toEqual(['font', 'llm', 'log', 'storage', 'theme', 'window']);
     expect(Object.keys(pub.log).sort()).toEqual(['level', 'max_backups', 'max_size_mb']);
   });
 
@@ -141,6 +141,9 @@ api_key = 123
 [window]
 width = "wide"
 height = -5
+
+[theme]
+mode = "sepia"
 
 [font]
 global_font_size = 0
@@ -161,9 +164,18 @@ cache_limit_mb = -1
     expect(cfg.llm.url).toBe('https://kept.example'); // valid values survive
     expect(cfg.llm.api_key).toBe('');
     expect(cfg.window).toEqual(DEFAULT_CONFIG.window);
+    expect(cfg.theme).toEqual(DEFAULT_CONFIG.theme); // 'sepia' converges to 'system'
     expect(cfg.font).toEqual(DEFAULT_CONFIG.font);
     expect(cfg.log).toEqual(DEFAULT_CONFIG.log);
     expect(cfg.storage).toEqual(DEFAULT_CONFIG.storage);
+  });
+
+  it('keeps a valid theme mode and defaults to following the OS (M5-2)', () => {
+    expect(DEFAULT_CONFIG.theme.mode).toBe('system');
+
+    writeFileSync(cfgPath(), '[theme]\nmode = "dark"\n', 'utf-8');
+    chmodSync(cfgPath(), 0o600);
+    expect(loadConfig(cfgPath()).theme.mode).toBe('dark');
   });
 
   it('keeps defaults when a whole section is a scalar', () => {

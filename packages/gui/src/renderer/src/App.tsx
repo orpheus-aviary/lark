@@ -15,7 +15,7 @@ import { useDataBus } from './stores/data-bus.js';
 import { useLibrary } from './stores/library.js';
 import { usePlayer } from './stores/player.js';
 import { usePlaylists } from './stores/playlists.js';
-import { applyFontSizes } from './theme/theme.js';
+import { applyFontSizes, watchTheme } from './theme/theme.js';
 
 /**
  * The Go layout's seven segments: TopBar / InteractionBar / SongList /
@@ -24,6 +24,7 @@ import { applyFontSizes } from './theme/theme.js';
  */
 export function App(): React.JSX.Element {
   const font = useConfig((s) => s.config?.font);
+  const themeMode = useConfig((s) => s.config?.theme.mode ?? 'system');
   const refreshConfig = useConfig((s) => s.refresh);
   const refreshSongs = useLibrary((s) => s.refresh);
   const refreshPlaylists = usePlaylists((s) => s.refresh);
@@ -42,6 +43,10 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (font) applyFontSizes(font.global_font_size, font.lyrics_font_size);
   }, [font]);
+
+  // Same job for the theme: re-running on a mode change is what tears down the
+  // matchMedia listener when the user leaves 'system' (M5-2).
+  useEffect(() => watchTheme(themeMode), [themeMode]);
 
   // The data bus is an external signal source, so it is subscribed to rather
   // than rendered: a bumped counter means "refetch what you have open".

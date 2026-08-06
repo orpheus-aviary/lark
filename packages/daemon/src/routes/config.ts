@@ -20,7 +20,7 @@
 // the teardown, which would deadlock against this very request).
 
 import { loadConfig, redactConfig, saveConfig } from '@lark/core';
-import { API_PATHS, LOG_LEVELS, type LarkConfig } from '@lark/shared';
+import { API_PATHS, LOG_LEVELS, type LarkConfig, THEME_MODES } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { fail, ok } from '../response.js';
@@ -29,16 +29,22 @@ import { InvalidRequestError } from '../validation.js';
 const URL_MAX = 2048;
 const STRING_MAX = 500;
 
-const invalidConfig = (message: string): InvalidRequestError =>
-  new InvalidRequestError('INVALID_CONFIG', message);
+/**
+ * `path` rides along in the envelope's `details` (M5-20) so the settings page
+ * can mark the offending field without parsing the English message. It is the
+ * dotted config path wherever one exists — `'log.level'`, or just `'log'` for
+ * a malformed section; a whole-body complaint carries none.
+ */
+const invalidConfig = (message: string, path?: string): InvalidRequestError =>
+  new InvalidRequestError('INVALID_CONFIG', message, path === undefined ? undefined : { path });
 
 type FieldValidator = (value: unknown, path: string) => unknown;
 
 function text(maxLength: number): FieldValidator {
   return (value, path) => {
-    if (typeof value !== 'string') throw invalidConfig(`${path} must be a string`);
+    if (typeof value !== 'string') throw invalidConfig(`${path} must be a string`, path);
     if (value.length > maxLength) {
-      throw invalidConfig(`${path} must be at most ${maxLength} characters`);
+      throw invalidConfig(`${path} must be at most ${maxLength} characters`, path);
     }
     return value;
   };
@@ -47,12 +53,12 @@ function text(maxLength: number): FieldValidator {
 function number(options: { min: number; integer?: boolean }): FieldValidator {
   return (value, path) => {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
-      throw invalidConfig(`${path} must be a finite number`);
+      throw invalidConfig(`${path} must be a finite number`, path);
     }
     if (options.integer && !Number.isInteger(value)) {
-      throw invalidConfig(`${path} must be an integer`);
+      throw invalidConfig(`${path} must be an integer`, path);
     }
-    if (value < options.min) throw invalidConfig(`${path} must be >= ${options.min}`);
+    if (value < options.min) throw invalidConfig(`${path} must be >= ${options.min}`, path);
     return value;
   };
 }
@@ -60,7 +66,7 @@ function number(options: { min: number; integer?: boolean }): FieldValidator {
 function oneOf(domain: readonly string[]): FieldValidator {
   return (value, path) => {
     if (typeof value !== 'string' || !domain.includes(value)) {
-      throw invalidConfig(`${path} must be one of: ${domain.join(', ')}`);
+      throw invalidConfig(`${path} must be one of: ${domain.join(', ')}`, path);
     }
     return value;
   };
@@ -87,6 +93,7 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
     api_format: text(STRING_MAX),
   },
   window: { width: number({ min: 1 }), height: number({ min: 1 }) },
+  theme: { mode: oneOf(THEME_MODES) },
   font: { global_font_size: number({ min: 1 }), lyrics_font_size: number({ min: 1 }) },
   log: {
     level: oneOf(LOG_LEVELS),
@@ -96,9 +103,9 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
   storage: { cache_limit_mb: number({ min: 0 }) },
 };
 
-function asObject(value: unknown, path: string): Record<string, unknown> {
+function asObject(value: unknown, path: string, detailPath?: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw invalidConfig(`${path} must be an object`);
+    throw invalidConfig(`${path} must be an object`, detailPath);
   }
   return value as Record<string, unknown>;
 }
@@ -111,11 +118,12 @@ function applyPatch(target: LarkConfig, patch: unknown): void {
   const sections = target as unknown as Record<string, Record<string, unknown>>;
   for (const [section, rawValues] of Object.entries(body)) {
     const schema = SCHEMA[section];
-    if (!schema) throw invalidConfig(`unknown config section: ${section}`);
-    const values = asObject(rawValues, section);
+    if (!schema) throw invalidConfig(`unknown config section: ${section}`, section);
+    const values = asObject(rawValues, section, section);
     for (const [key, value] of Object.entries(values)) {
       const validate = schema[key];
-      if (!validate) throw invalidConfig(`unknown config field: ${section}.${key}`);
+      if (!validate)
+        throw invalidConfig(`unknown config field: ${section}.${key}`, `${section}.${key}`);
       sections[section][key] = validate(value, `${section}.${key}`);
     }
   }
