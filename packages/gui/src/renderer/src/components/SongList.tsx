@@ -10,6 +10,7 @@ import { sortSongs } from '../lib/song-sort.js';
 import { useLibrary } from '../stores/library.js';
 import { useViewPrefs } from '../stores/view-prefs.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
+import { EditLinkDialog } from './EditLinkDialog.js';
 import { SongRow } from './SongRow.js';
 
 type ColumnKey = 'index' | 'name' | 'artist' | 'duration' | 'fileSize' | 'createdAt' | 'actions';
@@ -63,6 +64,8 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
   const dragRef = useRef<{ column: ColumnKey; startX: number; startWidth: number } | null>(null);
   const [dragWidth, setDragWidth] = useState<{ column: ColumnKey; width: number } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<SongData | null>(null);
+  /** One dialog for every row — the rows only hand it a song (M5-11). */
+  const [editingLink, setEditingLink] = useState<SongData | null>(null);
 
   const visible = useMemo<ColumnKey[]>(
     () => [
@@ -249,12 +252,14 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
                 removableFrom={removableFrom}
                 onPlay={onPlay}
                 onRequestDelete={setPendingDelete}
+                onEditLink={setEditingLink}
               />
             ))
           )}
         </tbody>
       </table>
 
+      <EditLinkDialog song={editingLink} onClose={() => setEditingLink(null)} />
       <ConfirmDialog
         open={pendingDelete !== null}
         title="删除歌曲"

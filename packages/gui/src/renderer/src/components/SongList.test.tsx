@@ -106,6 +106,75 @@ describe('rows', () => {
     );
   });
 
+  // The link three plus pin and redownload (M5-10), in the D8 slot.
+  it('greys out copy/open for a song with no link, and offers them with one', async () => {
+    useLibrary.setState({
+      songs: [
+        song({ id: 'song-1', name: '无链接' }),
+        song({ id: 'song-2', name: '有链接', source_url: 'https://example.com/x' }),
+      ],
+    });
+    renderList();
+
+    await openContextMenu('song-1');
+    expect(screen.getByRole('menuitem', { name: '复制链接' }).getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('menuitem', { name: '打开链接' }).getAttribute('aria-disabled')).toBe(
+      'true',
+    );
+    // Editing is how a song WITHOUT a link gets one, so it is never disabled.
+    expect(
+      screen.getByRole('menuitem', { name: '编辑链接…' }).getAttribute('aria-disabled'),
+    ).toBeNull();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await openContextMenu('song-2');
+    expect(
+      screen.getByRole('menuitem', { name: '复制链接' }).getAttribute('aria-disabled'),
+    ).toBeNull();
+  });
+
+  it('opens a link through the main process, never the renderer', async () => {
+    const openExternal = vi.fn(() => Promise.resolve(true));
+    window.larkAPI = { ...window.larkAPI, openExternal };
+    useLibrary.setState({
+      songs: [song({ id: 'song-1', name: '有链接', source_url: 'https://example.com/x' })],
+    });
+    renderList();
+
+    await openContextMenu('song-1');
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开链接' }));
+
+    await waitFor(() => expect(openExternal).toHaveBeenCalledWith('https://example.com/x'));
+  });
+
+  it('labels the pin action by the current state and posts the flip', async () => {
+    useLibrary.setState({ songs: [song({ id: 'song-1', name: '已固定', pinned: true })] });
+    renderList();
+
+    await openContextMenu('song-1');
+    fireEvent.click(screen.getByRole('menuitem', { name: '取消固定' }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === 'PUT' && c.url.endsWith('/songs/song-1/pin'))).toBe(
+        true,
+      ),
+    );
+  });
+
+  it('queues a redownload without guessing whether the daemon will accept it', async () => {
+    renderList();
+    await openContextMenu('song-1');
+    fireEvent.click(screen.getByRole('menuitem', { name: '重新下载' }));
+
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.method === 'POST' && c.url.endsWith('/songs/song-1/redownload')),
+      ).toBe(true),
+    );
+  });
+
   it('plays on double click', async () => {
     const { onPlay } = renderList();
     fireEvent.doubleClick(screen.getByTestId('song-row-song-1'));

@@ -10,10 +10,12 @@ import { DAEMON_TOKEN_PATH_FLAG, DAEMON_URL_FLAG } from '../shared/argv.js';
 const preloadPath = fileURLToPath(new URL('../preload/index.mjs', import.meta.url));
 const rendererHtml = fileURLToPath(new URL('../renderer/index.html', import.meta.url));
 
-/** R10 — only http(s) links may leave the app. */
-export function openExternalIfSafe(url: string): void {
+/** R10 — only http(s) links may leave the app. Returns whether it opened one. */
+export function openExternalIfSafe(url: string): boolean {
   const scheme = URL.parse(url)?.protocol;
-  if (scheme === 'http:' || scheme === 'https:') void shell.openExternal(url);
+  if (scheme !== 'http:' && scheme !== 'https:') return false;
+  void shell.openExternal(url);
+  return true;
 }
 
 // Cmd+Q flips this; the close handler consults it to tell "red X" (hide)

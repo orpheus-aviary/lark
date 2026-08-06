@@ -29,4 +29,6 @@ contextBridge.exposeInMainWorld('larkAPI', {
   rendererPid: process.pid,
   guiVersion: GUI_VERSION,
   pickMp3: () => ipcRenderer.invoke(IPC_CHANNELS.pickMp3) as Promise<string[]>,
+  openExternal: (url: string) =>
+    ipcRenderer.invoke(IPC_CHANNELS.openExternal, url) as Promise<boolean>,
 } satisfies LarkApi);

@@ -5,6 +5,7 @@
 import type { BrowserWindow, OpenDialogOptions, OpenDialogReturnValue } from 'electron';
 import { dialog, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc.js';
+import { openExternalIfSafe } from './window.js';
 
 export interface OpenDialogLike {
   showOpenDialog(win: BrowserWindow, options: OpenDialogOptions): Promise<OpenDialogReturnValue>;
@@ -25,4 +26,10 @@ export function registerDialogIpc(getWindow: () => BrowserWindow | null): void {
     if (win === null) return [];
     return await pickMp3(dialog, win);
   });
+
+  // Links come from song metadata — which a sync or an import may have
+  // written — so the same R10 gate the window-open handler uses applies here.
+  ipcMain.handle(IPC_CHANNELS.openExternal, (_event, url: unknown) =>
+    typeof url === 'string' ? openExternalIfSafe(url) : false,
+  );
 }

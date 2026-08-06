@@ -19,4 +19,9 @@ export interface LarkApi {
   readonly guiVersion: string;
   /** Native multi-select mp3 picker (main-side dialog). `[]` on cancel. */
   readonly pickMp3: () => Promise<string[]>;
+  /**
+   * Open a link in the user's browser. Only http(s) leaves the app (R10);
+   * anything else answers `false` without opening anything.
+   */
+  readonly openExternal: (url: string) => Promise<boolean>;
 }

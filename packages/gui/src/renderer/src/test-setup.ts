@@ -22,6 +22,7 @@ function defaultLarkApi(): LarkApi {
     rendererPid: 4242,
     guiVersion: '0.0.0-test',
     pickMp3: vi.fn(() => Promise.resolve([])),
+    openExternal: vi.fn(() => Promise.resolve(true)),
   };
 }
 

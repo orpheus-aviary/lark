@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { formatDateTime, formatDuration, formatFileSize } from '../lib/format.js';
+import { getPlatform } from '../platform/index.js';
 import { useLibrary } from '../stores/library.js';
 import { usePlaylists, userPlaylists } from '../stores/playlists.js';
 import type { ColumnVisibility } from '../stores/view-prefs.js';
@@ -38,6 +39,10 @@ interface SongActions {
   redownloadLyrics: () => void;
   deleteLyrics: () => void;
   copyId: () => void;
+  copyLink: () => void;
+  openLink: () => void;
+  togglePin: () => void;
+  redownload: () => void;
 }
 
 /** Every daemon call a row can make, each reporting through one toast. */
@@ -47,6 +52,8 @@ function useSongActions(song: SongData): SongActions {
   const removeSong = usePlaylists((s) => s.removeSong);
   const redownloadLyrics = useLibrary((s) => s.redownloadLyrics);
   const deleteLyrics = useLibrary((s) => s.deleteLyrics);
+  const setPinned = useLibrary((s) => s.setPinned);
+  const redownload = useLibrary((s) => s.redownload);
 
   const run = (action: () => Promise<void>, success: string): void => {
     void action().then(
@@ -67,6 +74,31 @@ function useSongActions(song: SongData): SongActions {
         () => toast.success(`已复制歌曲 ID：${song.id}`),
         () => toast.error('复制失败'),
       ),
+    copyLink: () => {
+      if (song.source_url === null) return;
+      void navigator.clipboard?.writeText(song.source_url).then(
+        () => toast.success('已复制链接'),
+        () => toast.error('复制失败'),
+      );
+    },
+    // Through main, which applies the same http(s)-only gate the window-open
+    // handler does (R10) — a link may have come from an import or a sync.
+    openLink: () => {
+      if (song.source_url === null) return;
+      void getPlatform()
+        .openExternal(song.source_url)
+        .then((opened) => {
+          if (!opened) toast.error('这个链接无法在浏览器中打开');
+        });
+    },
+    togglePin: () =>
+      run(
+        () => setPinned(song.id, !song.pinned),
+        song.pinned ? '已取消固定' : '已固定，不会被缓存清理',
+      ),
+    // No client-side guard for "no key and no LLM": the daemon answers 400
+    // with the reason, and that is the same path every other action takes.
+    redownload: () => run(() => redownload(song.id), '已开始重新下载'),
   };
 }
 
@@ -134,6 +166,7 @@ interface RowMenuProps {
   removableFrom: string | null;
   onPlay: (song: SongData) => void;
   onRequestDelete: (song: SongData) => void;
+  onEditLink: (song: SongData) => void;
 }
 
 /** The Go six plus `播放` (master plan §5.4), rendered under §4.1's rules. */
@@ -143,6 +176,7 @@ function SongContextMenu({
   removableFrom,
   onPlay,
   onRequestDelete,
+  onEditLink,
 }: RowMenuProps): React.JSX.Element {
   return (
     <ContextMenuContent className="w-44">
@@ -169,6 +203,20 @@ function SongContextMenu({
       <ContextMenuItem onSelect={actions.redownloadLyrics}>重新下载歌词</ContextMenuItem>
       <ContextMenuItem onSelect={actions.deleteLyrics}>删除歌词</ContextMenuItem>
       <ContextMenuItem onSelect={actions.copyId}>复制歌曲 ID</ContextMenuItem>
+      <ContextMenuSeparator />
+      {/* The link three (M5-10). Copy/open need a link to work with; editing
+          one is how a song without a link gets one. */}
+      <ContextMenuItem disabled={song.source_url === null} onSelect={actions.copyLink}>
+        复制链接
+      </ContextMenuItem>
+      <ContextMenuItem disabled={song.source_url === null} onSelect={actions.openLink}>
+        打开链接
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => onEditLink(song)}>编辑链接…</ContextMenuItem>
+      <ContextMenuItem onSelect={actions.togglePin}>
+        {song.pinned ? '取消固定' : '固定'}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={actions.redownload}>重新下载</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onSelect={() => onRequestDelete(song)}>
         删除歌曲
@@ -272,6 +320,7 @@ interface SongRowProps {
   removableFrom: string | null;
   onPlay: (song: SongData) => void;
   onRequestDelete: (song: SongData) => void;
+  onEditLink: (song: SongData) => void;
 }
 
 export function SongRow({
@@ -283,11 +332,12 @@ export function SongRow({
   removableFrom,
   onPlay,
   onRequestDelete,
+  onEditLink,
 }: SongRowProps): React.JSX.Element {
   const setSelectedSongId = useLibrary((s) => s.setSelectedSongId);
   const updateSong = useLibrary((s) => s.updateSong);
   const actions = useSongActions(song);
-  const menuProps = { song, actions, removableFrom, onPlay, onRequestDelete };
+  const menuProps = { song, actions, removableFrom, onPlay, onRequestDelete, onEditLink };
 
   const commitEdit = (field: EditField, value: string): void => {
     // An emptied song name is discarded; an emptied artist is a real value.

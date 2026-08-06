@@ -15,6 +15,8 @@ export interface PlatformAdapter {
   readonly rendererPid: number;
   readonly guiVersion: string;
   pickMp3(): Promise<string[]>;
+  /** Open an http(s) link in the browser; false if it was refused (R10). */
+  openExternal(url: string): Promise<boolean>;
 }
 
 let cached: PlatformAdapter | undefined;
@@ -31,6 +33,7 @@ export function getPlatform(): PlatformAdapter {
       return window.larkAPI.guiVersion;
     },
     pickMp3: () => window.larkAPI.pickMp3(),
+    openExternal: (url) => window.larkAPI.openExternal(url),
   };
   return cached;
 }

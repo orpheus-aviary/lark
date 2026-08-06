@@ -12,7 +12,13 @@
 //    from the lane we just LEFT (search → playlist, or the reverse) is dropped
 //    even though its own lane never superseded it.
 
-import type { DownloadTaskAcceptedData, SongData, UpdateSongRequest } from '@lark/shared';
+import type {
+  DownloadTaskAcceptedData,
+  PinSongRequest,
+  RecognizeUrlData,
+  SongData,
+  UpdateSongRequest,
+} from '@lark/shared';
 import { API_PATHS, VIRTUAL_ALL_PLAYLIST_ID, apiPath, request } from '@lark/shared';
 import { create } from 'zustand';
 import { errorMessage } from '../lib/errors.js';
@@ -53,6 +59,12 @@ interface LibraryState {
   deleteSong: (id: string) => Promise<void>;
   redownloadLyrics: (id: string) => Promise<void>;
   deleteLyrics: (id: string) => Promise<void>;
+  /** Device-local pin (R18): an evicting cache never touches a pinned song. */
+  setPinned: (id: string, pinned: boolean) => Promise<void>;
+  /** Force a fresh download of the audio, replacing whatever is on disk. */
+  redownload: (id: string) => Promise<void>;
+  /** Preview what a URL resolves to. Writes NOTHING (R6). */
+  recognizeUrl: (id: string, url: string) => Promise<RecognizeUrlData>;
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({
@@ -133,5 +145,19 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   deleteLyrics: async (id) => {
     await request('DELETE', apiPath.lyrics(id));
+  },
+
+  setPinned: async (id, pinned) => {
+    await request<SongData>('PUT', apiPath.songPin(id), { pinned } satisfies PinSongRequest);
+    get().refresh();
+  },
+
+  redownload: async (id) => {
+    await request<DownloadTaskAcceptedData>('POST', apiPath.songRedownload(id));
+  },
+
+  recognizeUrl: async (id, url) => {
+    const envelope = await request<RecognizeUrlData>('POST', apiPath.songRecognizeUrl(id), { url });
+    return envelope.data as RecognizeUrlData;
   },
 }));
