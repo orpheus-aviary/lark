@@ -220,6 +220,14 @@ gui-preview: ensure-electron-abi build-gui
 accept-gui *args: ensure-node-abi build-shared build-core build-daemon build-gui spike-media-fixture
     node scripts/accept-gui.mjs {{args}}
 
+# The M5 acceptance matrix: a real daemon on a copy of the nest, with real
+# bilibili traffic. Headless — everything a person has to LOOK at (settings
+# page, drag feel, sound) stays in the plan's manual list. `--keep` leaves the
+# copy behind. Runs on the Node ABI, so no Electron rebuild.
+[group('dev')]
+accept-m5 *args: ensure-node-abi build-shared build-core build-daemon
+    node scripts/accept-m5.mjs {{args}}
+
 # Copy the nest to a throwaway directory (M4-14⑧). Refuses while a daemon is
 # running: an online backup freezes the database only, so songs/ and the config
 # would otherwise come from a different moment. Runs on the Node ABI.
