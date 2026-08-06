@@ -78,6 +78,21 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     path: apiPath.playlistReorder(':id'),
     description: 'Move a member between neighbours',
   },
+  {
+    method: 'GET',
+    path: apiPath.playlistExport(':id'),
+    description: 'Export a playlist ("all" = the whole library) as a lark-playlist file',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.playlistImportPreview,
+    description: 'Validate an export file and report what importing it would do',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.playlistImport,
+    description: 'Import an export file in one transaction (all songs or none)',
+  },
 
   {
     method: 'GET',

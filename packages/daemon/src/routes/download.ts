@@ -42,6 +42,7 @@ import {
   optionalUuid,
   pathUuid,
   requiredString,
+  requiredTarget,
   requiredUuid,
 } from '../validation.js';
 
@@ -306,26 +307,12 @@ function readBatchGroups(raw: unknown): DownloadBatchGroupInput[] {
     if (total > BATCH_ITEMS_MAX) {
       throw new InvalidRequestError('INVALID_BODY', `at most ${BATCH_ITEMS_MAX} items per request`);
     }
-    out.push({ target: readTarget(group.target), items: items.map(readItem) });
+    out.push({
+      target: requiredTarget(group.target, PLAYLIST_NAME_MAX),
+      items: items.map(readItem),
+    });
   }
   return out;
-}
-
-function readTarget(raw: unknown): DownloadBatchGroupInput['target'] {
-  const target = objectBody(raw, ['kind', 'playlist_id', 'name']);
-  switch (target.kind) {
-    case 'all':
-      return { kind: 'all' };
-    case 'playlist':
-      return { kind: 'playlist', playlist_id: requiredUuid(target, 'playlist_id') };
-    case 'new':
-      return {
-        kind: 'new',
-        name: requiredString(target, 'name', { maxLength: PLAYLIST_NAME_MAX }),
-      };
-    default:
-      throw new InvalidRequestError('INVALID_BODY', 'target.kind must be all / playlist / new');
-  }
 }
 
 function readItem(raw: unknown): DownloadBatchItemInput {

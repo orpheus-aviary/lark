@@ -17,6 +17,10 @@ export interface PlatformAdapter {
   pickMp3(): Promise<string[]>;
   /** Open an http(s) link in the browser; false if it was refused (R10). */
   openExternal(url: string): Promise<boolean>;
+  /** Pick a playlist file to import; null on cancel. */
+  pickJsonFile(): Promise<string | null>;
+  /** Save an export through a native dialog; false on cancel. */
+  saveExportFile(input: { default_name: string; content: string }): Promise<boolean>;
 }
 
 let cached: PlatformAdapter | undefined;
@@ -34,6 +38,8 @@ export function getPlatform(): PlatformAdapter {
     },
     pickMp3: () => window.larkAPI.pickMp3(),
     openExternal: (url) => window.larkAPI.openExternal(url),
+    pickJsonFile: () => window.larkAPI.pickJsonFile(),
+    saveExportFile: (input) => window.larkAPI.saveExportFile(input),
   };
   return cached;
 }

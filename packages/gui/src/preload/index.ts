@@ -31,4 +31,7 @@ contextBridge.exposeInMainWorld('larkAPI', {
   pickMp3: () => ipcRenderer.invoke(IPC_CHANNELS.pickMp3) as Promise<string[]>,
   openExternal: (url: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.openExternal, url) as Promise<boolean>,
+  pickJsonFile: () => ipcRenderer.invoke(IPC_CHANNELS.pickJsonFile) as Promise<string | null>,
+  saveExportFile: (input: { default_name: string; content: string }) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveExportFile, input) as Promise<boolean>,
 } satisfies LarkApi);

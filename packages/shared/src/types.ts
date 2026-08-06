@@ -202,6 +202,114 @@ export interface CacheEvictResultData extends CacheStatusData {
   skipped_unverified_bytes: number;
 }
 
+// ─── Playlist transfer (M5) ────────────────────────────
+//
+// The export file is the interchange format, so it is versioned and carries no
+// song ids: an import always mints fresh UUIDs (R10). `source_provider` /
+// `source_key` ARE in the file even though a url is there too — round-trip
+// dedup must not depend on how a future build normalises URLs (R27).
+
+export const PLAYLIST_EXPORT_FORMAT = 'lark-playlist';
+export const PLAYLIST_EXPORT_VERSION = 1;
+
+export interface PlaylistExportSong {
+  name: string;
+  artist: string;
+  source_url: string | null;
+  source_provider: string | null;
+  source_key: string | null;
+  lyrics_offset: number;
+  duration: number;
+}
+
+/** `GET /playlists/:id/export` payload — also the file's contents verbatim. */
+export interface PlaylistExportData {
+  format: typeof PLAYLIST_EXPORT_FORMAT;
+  version: number;
+  exported_at: number;
+  playlist: { name: string };
+  songs: readonly PlaylistExportSong[];
+}
+
+/**
+ * `POST /playlists/import-preview` body. A path, not the bytes: the file can be
+ * 20MB and Fastify's body limit is 1MB — the same reason `POST /songs/import`
+ * takes paths (M5-13).
+ */
+export interface PlaylistImportPreviewRequest {
+  file_path: string;
+}
+
+/** A library song that could be what an entry means. `has_file` is a disk probe. */
+export interface ImportCandidate {
+  id: string;
+  name: string;
+  artist: string;
+  has_file: boolean;
+}
+
+/**
+ * An entry whose name+artist already exist in the library under a different
+ * (or absent) source key — a live/remix/alternate cut just as easily as a
+ * duplicate, so the default is ALWAYS to import it as a new song (R12).
+ */
+export interface ImportSuspect {
+  /** Position in the file's `songs` array — what `reuse[].index` refers to. */
+  index: number;
+  name: string;
+  artist: string;
+  candidates: readonly ImportCandidate[];
+}
+
+export interface PlaylistImportPreviewData {
+  /** SHA-256 of the file, hex. The commit must send it back (M5-13). */
+  digest: string;
+  total: number;
+  /**
+   * Input entries that will reuse an existing song: a `(provider, key)` hit in
+   * the library, or a repeat of a key seen earlier in the same file.
+   */
+  reuse_count: number;
+  /** `total - reuse_count`. Suspects count as new — that is the default. */
+  new_count: number;
+  /** `playlist.name` from the file, the default name for a new playlist. */
+  playlist_name: string;
+  suspects: readonly ImportSuspect[];
+}
+
+/** Where an import lands. `all` means "into the library only", no membership. */
+export type PlaylistImportTarget =
+  | { kind: 'all' }
+  | { kind: 'playlist'; playlist_id: string }
+  | { kind: 'new'; name: string };
+
+/**
+ * `POST /playlists/import` body. `digest` must match the previewed file byte
+ * for byte, which is what makes `reuse[].index` mean the same thing on both
+ * sides; a mismatch answers `IMPORT_SOURCE_CHANGED` rather than importing
+ * against stale indices.
+ */
+export interface PlaylistImportRequest {
+  file_path: string;
+  digest: string;
+  target: PlaylistImportTarget;
+  /** Entries the user chose to merge into an existing song instead. */
+  reuse?: readonly { index: number; song_id: string }[];
+}
+
+/** `POST /playlists/import` payload — one all-or-nothing transaction (R27). */
+export interface PlaylistImportData {
+  /** The target playlist, or null for an import into the library only. */
+  playlist_id: string | null;
+  total: number;
+  /** Songs created. */
+  created: number;
+  /** Entries that resolved onto an existing song. */
+  reused: number;
+  /** Playlist memberships actually added (already-members are skipped). */
+  added: number;
+}
+
 // ─── Player channel (R11) ──────────────────────────────
 //
 // The renderer owns playback; the daemon only mirrors what the GUI reports

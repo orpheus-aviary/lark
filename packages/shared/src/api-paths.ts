@@ -41,6 +41,11 @@ export const API_PATHS = {
   // with what it freed plus the recomputed status.
   cacheStatus: '/cache/status',
   cacheEvict: '/cache/evict',
+
+  // Playlist transfer (M5). Two-step import: preview reads and validates the
+  // file, the commit re-reads it and refuses if it changed in between.
+  playlistImportPreview: '/playlists/import-preview',
+  playlistImport: '/playlists/import',
 } as const;
 
 /** Parameterised route paths. Ids are UUID v4 (or the literal `all`, R3). */
@@ -53,6 +58,8 @@ export const apiPath = {
   playlistSongs: (id: string) => `/playlists/${id}/songs`,
   playlistSong: (id: string, songId: string) => `/playlists/${id}/songs/${songId}`,
   playlistReorder: (id: string) => `/playlists/${id}/reorder`,
+  /** Export a playlist (or `all`) as an interchange file (M5-12). */
+  playlistExport: (id: string) => `/playlists/${id}/export`,
   playerCommand: (command: string) => `/player/${command}`,
 
   // Download pipeline (M3).

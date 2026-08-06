@@ -23,7 +23,7 @@ export interface MappedError {
 }
 
 /**
- * HTTP status per M3 error code (M3-11).
+ * HTTP status per coded error (M3-11, extended by M5-13).
  *
  * The CODE lives on the core error class and the STATUS lives here, because
  * core has no business knowing about HTTP — and because the same code has to
@@ -32,7 +32,7 @@ export interface MappedError {
  * direction: a new failure mode shows up as a server error rather than
  * silently claiming to be the client's fault.
  */
-const M3_STATUS_BY_CODE: Record<string, number> = {
+const STATUS_BY_CODE: Record<string, number> = {
   LLM_NOT_CONFIGURED: 400,
   LLM_FAILED: 502,
   BILIBILI_FAILED: 502,
@@ -46,6 +46,12 @@ const M3_STATUS_BY_CODE: Record<string, number> = {
   TASK_NOT_CANCELLABLE: 409,
   SONG_BUSY: 409,
   DOWNLOAD_QUEUE_FULL: 429,
+
+  // Playlist import (M5-13): every one of these is "the file or the request
+  // you sent cannot be imported", which is the caller's to fix.
+  UNSUPPORTED_FORMAT_VERSION: 400,
+  INVALID_IMPORT_FILE: 400,
+  INVALID_REUSE: 400,
 };
 
 /** Map a core business error, or `null` if `err` is not one. */
@@ -54,7 +60,7 @@ export function mapCoreError(err: unknown): MappedError | null {
   // — only the status table above.
   if (err instanceof CodedError) {
     const mapped: MappedError = {
-      status: M3_STATUS_BY_CODE[err.code] ?? 500,
+      status: STATUS_BY_CODE[err.code] ?? 500,
       code: err.code,
     };
     if (err instanceof SongBusyError) mapped.details = { song_id: err.songId };

@@ -23,6 +23,8 @@ function defaultLarkApi(): LarkApi {
     guiVersion: '0.0.0-test',
     pickMp3: vi.fn(() => Promise.resolve([])),
     openExternal: vi.fn(() => Promise.resolve(true)),
+    pickJsonFile: vi.fn(() => Promise.resolve(null)),
+    saveExportFile: vi.fn(() => Promise.resolve(true)),
   };
 }
 

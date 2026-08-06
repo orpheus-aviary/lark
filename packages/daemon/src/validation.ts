@@ -15,7 +15,7 @@
 // the error handler's "expected 4xx" class: the envelope carries the code, and
 // nothing lands in the error log.
 
-import { isUuidV4 } from '@lark/shared';
+import { type PlaylistImportTarget, isUuidV4 } from '@lark/shared';
 
 export class InvalidRequestError extends Error {
   readonly statusCode = 400;
@@ -190,6 +190,26 @@ export function requiredUuidList(
     }
   }
   return value as string[];
+}
+
+/**
+ * A playlist target: the whole library, an existing playlist, or one to be
+ * created. `POST /download/batch` and `POST /playlists/import` take the same
+ * three shapes (`BatchTargetInput` / `PlaylistImportTarget`), so they read it
+ * the same way — a divergence here would be a wire-level surprise.
+ */
+export function requiredTarget(raw: unknown, nameMaxLength: number): PlaylistImportTarget {
+  const target = objectBody(raw, ['kind', 'playlist_id', 'name']);
+  switch (target.kind) {
+    case 'all':
+      return { kind: 'all' };
+    case 'playlist':
+      return { kind: 'playlist', playlist_id: requiredUuid(target, 'playlist_id') };
+    case 'new':
+      return { kind: 'new', name: requiredString(target, 'name', { maxLength: nameMaxLength }) };
+    default:
+      throw invalidBody('target.kind must be all / playlist / new');
+  }
 }
 
 // ─── Path params ───────────────────────────────────────

@@ -24,4 +24,15 @@ export interface LarkApi {
    * anything else answers `false` without opening anything.
    */
   readonly openExternal: (url: string) => Promise<boolean>;
+  /** Pick a playlist file to import. `null` on cancel (M5-15). */
+  readonly pickJsonFile: () => Promise<string | null>;
+  /**
+   * Ask where to save an export and write it there. `default_name` is only a
+   * suggestion — main sanitises it and the user picks the real path. `false`
+   * means the dialog was cancelled; a failed write rejects (M5-12).
+   */
+  readonly saveExportFile: (input: {
+    default_name: string;
+    content: string;
+  }) => Promise<boolean>;
 }

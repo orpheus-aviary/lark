@@ -43,11 +43,7 @@ function getPlaylistRow(db: LarkDatabase, id: string): PlaylistRow {
   return row;
 }
 
-export function createPlaylist(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
-  name: string,
-): PlaylistData {
+export function createPlaylistInTx(db: LarkDatabase, name: string): PlaylistData {
   const now = Date.now();
   const row: PlaylistRow = {
     id: randomUUID(),
@@ -59,6 +55,14 @@ export function createPlaylist(
   };
   db.insert(playlists).values(row).run();
   return toPlaylistData(row, 0);
+}
+
+export function createPlaylist(
+  db: LarkDatabase,
+  _sqlite: BetterSqlite3.Database,
+  name: string,
+): PlaylistData {
+  return createPlaylistInTx(db, name);
 }
 
 export function renamePlaylistInTx(db: LarkDatabase, id: string, name: string): PlaylistData {

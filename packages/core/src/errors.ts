@@ -319,3 +319,42 @@ export class DownloadQueueFullError extends CodedError {
     this.name = 'DownloadQueueFullError';
   }
 }
+
+// ─── Playlist transfer errors (M5-13) ──────────────────
+//
+// Coded like M3's, and for the same reason the dependency guard demands it:
+// core cannot reach for the daemon's `InvalidRequestError`, so the file's
+// verdict travels as a code the daemon maps to 400.
+
+/** The file says `version: N` and this build only understands version 1. */
+export class UnsupportedFormatVersionError extends CodedError {
+  readonly code = 'UNSUPPORTED_FORMAT_VERSION';
+  readonly version: unknown;
+  constructor(version: unknown, supported: number) {
+    super(`导入文件的版本是 ${JSON.stringify(version)}，当前版本只支持 ${supported}——请升级 lark`);
+    this.name = 'UnsupportedFormatVersionError';
+    this.version = version;
+  }
+}
+
+/** Not JSON, not a lark playlist file, or a song entry that fails validation. */
+export class InvalidImportFileError extends CodedError {
+  readonly code = 'INVALID_IMPORT_FILE';
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidImportFileError';
+  }
+}
+
+/**
+ * A `reuse` instruction the commit re-validation refused: the song is gone, it
+ * is not one of that entry's candidates, or the entry already matched by key
+ * (a key hit always wins, R12).
+ */
+export class InvalidReuseError extends CodedError {
+  readonly code = 'INVALID_REUSE';
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidReuseError';
+  }
+}

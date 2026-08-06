@@ -4,16 +4,18 @@
 // creating happen INSIDE it through text inputs, and a menu's typeahead and
 // arrow-key handling fight an input for every keystroke.
 
-import type { PlaylistData } from '@lark/shared';
-import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
-import { ChevronDown, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import type { PlaylistData, PlaylistExportData } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID, apiPath, request } from '@lark/shared';
+import { ChevronDown, Download, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { getPlatform } from '../platform/index.js';
 import { useLibrary } from '../stores/library.js';
 import { usePlaylists } from '../stores/playlists.js';
 import { OPTIONAL_COLUMNS, type OptionalColumn, useViewPrefs } from '../stores/view-prefs.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
+import { ImportPlaylistDialog } from './ImportPlaylistDialog.js';
 import { SettingsDialog } from './SettingsDialog.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
@@ -47,6 +49,7 @@ export function TopBar(): React.JSX.Element {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [draftName, setDraftName] = useState('');
   const [pendingDelete, setPendingDelete] = useState<PlaylistData | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   const [searchInput, setSearchInput] = useState('');
   const draftRef = useRef<HTMLInputElement>(null);
   const committed = useRef('');
@@ -98,6 +101,29 @@ export function TopBar(): React.JSX.Element {
   function cancelDraft(): void {
     setDraft(null);
     setDraftName('');
+  }
+
+  /**
+   * Fetch the playlist as a file and hand it to the native save dialog. The
+   * daemon answers a normal envelope (M5-12) — the renderer is what turns it
+   * into the two-space-indented JSON that lands on disk.
+   */
+  async function exportPlaylist(playlist: PlaylistData): Promise<void> {
+    setPickerOpen(false);
+    try {
+      const envelope = await request<PlaylistExportData>(
+        'GET',
+        apiPath.playlistExport(playlist.id),
+      );
+      if (envelope.data === undefined) throw new Error('导出返回为空');
+      const saved = await getPlatform().saveExportFile({
+        default_name: `${playlist.name}.lark-playlist.json`,
+        content: JSON.stringify(envelope.data, null, 2),
+      });
+      if (saved) toast.success(`已导出「${playlist.name}」（${envelope.data.songs.length} 首）`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
   }
 
   async function confirmDelete(): Promise<void> {
@@ -170,32 +196,43 @@ export function TopBar(): React.JSX.Element {
                         ({playlist.song_count ?? 0})
                       </span>
                     </button>
-                    {playlist.id !== VIRTUAL_ALL_PLAYLIST_ID && (
-                      <span className="flex items-center gap-0.5 pr-1 opacity-0 group-hover:opacity-100">
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`重命名 ${playlist.name}`}
-                          onClick={() =>
-                            startDraft({ mode: 'rename', id: playlist.id }, playlist.name)
-                          }
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="text-destructive"
-                          aria-label={`删除 ${playlist.name}`}
-                          onClick={() => {
-                            setPickerOpen(false);
-                            setPendingDelete(playlist);
-                          }}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </span>
-                    )}
+                    <span className="flex items-center gap-0.5 pr-1 opacity-0 group-hover:opacity-100">
+                      {/* Export works on `all` too — it is the whole library. */}
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`导出 ${playlist.name}`}
+                        onClick={() => void exportPlaylist(playlist)}
+                      >
+                        <Download />
+                      </Button>
+                      {playlist.id !== VIRTUAL_ALL_PLAYLIST_ID && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`重命名 ${playlist.name}`}
+                            onClick={() =>
+                              startDraft({ mode: 'rename', id: playlist.id }, playlist.name)
+                            }
+                          >
+                            <Pencil />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-destructive"
+                            aria-label={`删除 ${playlist.name}`}
+                            onClick={() => {
+                              setPickerOpen(false);
+                              setPendingDelete(playlist);
+                            }}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </>
+                      )}
+                    </span>
                   </>
                 )}
               </li>
@@ -214,6 +251,17 @@ export function TopBar(): React.JSX.Element {
                 新建歌单
               </button>
             )}
+            <button
+              type="button"
+              className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                setPickerOpen(false);
+                setImportOpen(true);
+              }}
+            >
+              <Upload className="size-3.5" />
+              导入歌单…
+            </button>
           </div>
         </PopoverContent>
       </Popover>
@@ -259,6 +307,8 @@ export function TopBar(): React.JSX.Element {
           </button>
         )}
       </div>
+
+      <ImportPlaylistDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
       <ConfirmDialog
         open={pendingDelete !== null}

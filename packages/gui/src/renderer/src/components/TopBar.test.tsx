@@ -187,3 +187,64 @@ describe('search', () => {
     await waitFor(() => expect(useLibrary.getState().search).toBe(''));
   });
 });
+
+describe('export', () => {
+  const EXPORTED = {
+    format: 'lark-playlist',
+    version: 1,
+    exported_at: 1789000000000,
+    playlist: { name: 'all' },
+    songs: [{ name: '歌' }],
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, init?: RequestInit) => {
+        calls.push({
+          method: init?.method ?? 'GET',
+          url,
+          body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+        });
+        const data = url.includes('/export') ? EXPORTED : [];
+        return Promise.resolve(
+          new Response(JSON.stringify({ success: true, data }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }),
+    );
+  });
+
+  it('hands the whole library to the save dialog, indented', async () => {
+    const saveExportFile = vi.fn((_input: { default_name: string; content: string }) =>
+      Promise.resolve(true),
+    );
+    window.larkAPI = { ...window.larkAPI, saveExportFile };
+    const user = userEvent.setup();
+    render(<TopBar />);
+    await openPicker(user);
+
+    await user.click(screen.getByRole('button', { name: '导出 all' }));
+
+    await waitFor(() => expect(saveExportFile).toHaveBeenCalledTimes(1));
+    expect(calls.some((c) => c.url.endsWith('/playlists/all/export'))).toBe(true);
+    expect(saveExportFile.mock.calls[0][0]).toEqual({
+      default_name: 'all.lark-playlist.json',
+      content: JSON.stringify(EXPORTED, null, 2),
+    });
+  });
+
+  it('offers export for a user playlist too', async () => {
+    const user = userEvent.setup();
+    render(<TopBar />);
+    await openPicker(user);
+
+    await user.click(screen.getByRole('button', { name: '导出 我的歌单' }));
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.endsWith(`/playlists/${PLAYLIST_ID}/export`))).toBe(true),
+    );
+  });
+});
