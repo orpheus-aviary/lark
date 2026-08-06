@@ -77,6 +77,10 @@ function stubFetch(): void {
       // No lyrics in these fixtures: 404 is the normal "not fetched yet".
       if (url.includes('/lyrics/')) return Promise.resolve(new Response('', { status: 404 }));
 
+      if (url.includes('/ensure-file')) {
+        return Promise.resolve(jsonResponse({ success: true, data: { task_id: 'ensure-1' } }, 200));
+      }
+
       const match = /\/songs\/([\w-]+)$/.exec(url);
       if (match && method === 'GET') {
         const lookup = songLookup(match[1] as string);
@@ -148,10 +152,26 @@ describe('play', () => {
     expect(reports().at(-1)?.current_song?.id).toBe('a');
   });
 
-  it('refuses a song with no file and leaves the element alone (D16)', async () => {
+  // D16 flipped in M5-9: a missing file is fetched and played, not refused.
+  it('queues a download for a song with no file instead of refusing', async () => {
     const result = await usePlayer.getState().play(song('gone', { has_file: false }));
-    expect(result).toEqual({ ok: false, message: '需要下载' });
-    expect(audio.src).toBe('');
+
+    expect(result).toEqual({ ok: true, message: '正在下载，完成后自动播放' });
+    expect(audio.src).toBe(''); // nothing plays yet
+    expect(
+      calls.some((c) => c.method === 'POST' && c.url.endsWith('/songs/gone/ensure-file')),
+    ).toBe(true);
+  });
+
+  it('still refuses a fileless song reached by next/prev (no download cascade)', async () => {
+    useLibrary.setState({ songs: [song('a'), song('gone', { has_file: false })] });
+    await usePlayer.getState().play(song('a'));
+    calls.length = 0;
+
+    const result = await usePlayer.getState().next();
+
+    expect(result).toEqual({ ok: false, message: '这一首没有文件' });
+    expect(calls.some((c) => c.url.includes('/ensure-file'))).toBe(false);
   });
 
   it('reports a rejected play() rather than pretending to play', async () => {

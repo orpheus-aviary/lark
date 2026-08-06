@@ -15,6 +15,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
+import { songs } from '../db/schema.js';
 import { songLyricsPath } from '../library/lyrics.js';
 import { createPlaylist, deletePlaylist, getPlaylistSongs } from '../library/playlists.js';
 import { getSong, listSongs } from '../library/songs.js';
@@ -631,6 +632,66 @@ describe('claims', () => {
     await settleAll(e);
     const songId = taskOf(e, id).result?.song_id as string;
     expect(e.claims.describe(songId)).toEqual([]);
+  }, 60_000);
+});
+
+// ─── ensure-file (M5-8) ────────────────────────────────
+
+describe('ensure-file', () => {
+  it('succeeds without a single network call when the file is already there', async () => {
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    const songId = taskOf(e, first.id).result?.song_id as string;
+    await settleAll(e);
+
+    // The hardest case, and the common one for a Go-era import: a file on
+    // disk and no source key at all, so nothing COULD be resolved.
+    db.update(songs).set({ source_key: null, source_provider: null }).run();
+    const before = readFileSync(join(songsDir(), songId, 'song.mp3'));
+    upstream.requests.length = 0;
+
+    const ensure = e.enqueueEnsureFile(songId);
+    await settle(e, ensure.id);
+    await settleAll(e);
+
+    expect(taskOf(e, ensure.id).state).toBe('succeeded');
+    expect(taskOf(e, ensure.id).result).toEqual({ song_id: songId });
+    expect(upstream.requests).toEqual([]); // no probe, no lyrics, nothing
+    expect(readFileSync(join(songsDir(), songId, 'song.mp3')).equals(before)).toBe(true);
+  }, 60_000);
+
+  it('downloads the file when it is missing', async () => {
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    const songId = taskOf(e, first.id).result?.song_id as string;
+    await settleAll(e);
+    rmSync(join(songsDir(), songId, 'song.mp3'));
+
+    const ensure = e.enqueueEnsureFile(songId);
+    await settle(e, ensure.id);
+
+    expect(taskOf(e, ensure.id).state).toBe('succeeded');
+    expect(existsSync(join(songsDir(), songId, 'song.mp3'))).toBe(true);
+  }, 60_000);
+
+  it('keeps its own dedupe key — it must never absorb a forced redownload', async () => {
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    const songId = taskOf(e, first.id).result?.song_id as string;
+    await settleAll(e);
+
+    const ensure = e.enqueueEnsureFile(songId);
+    const redownload = e.enqueueRedownload(songId);
+    expect(redownload.id).not.toBe(ensure.id);
+    // …and each merges only with its own kind.
+    expect(e.enqueueEnsureFile(songId).id).toBe(ensure.id);
+    expect(e.enqueueRedownload(songId).id).toBe(redownload.id);
+
+    e.cancel(ensure.id);
+    e.cancel(redownload.id);
   }, 60_000);
 });
 

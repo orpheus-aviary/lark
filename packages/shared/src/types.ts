@@ -336,7 +336,13 @@ export const DOWNLOAD_STAGES = [
 ] as const;
 export type DownloadStage = (typeof DOWNLOAD_STAGES)[number];
 
-export const DOWNLOAD_TASK_KINDS = ['download', 'redownload', 'lyrics'] as const;
+/**
+ * `ensure-file` (M5-8) is "make sure this song's audio is on disk": it reuses
+ * the download engine but does nothing at all when the file is already there,
+ * which is what makes playing an evicted song a click rather than an error.
+ * It is deliberately NOT merged with `redownload`, which is a forced refetch.
+ */
+export const DOWNLOAD_TASK_KINDS = ['download', 'redownload', 'ensure-file', 'lyrics'] as const;
 export type DownloadTaskKind = (typeof DOWNLOAD_TASK_KINDS)[number];
 
 /** What the task was asked to fetch. `url` is the NORMALISED display form. */

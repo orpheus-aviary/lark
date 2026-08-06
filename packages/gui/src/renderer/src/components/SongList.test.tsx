@@ -100,7 +100,10 @@ describe('rows', () => {
 
     expect(screen.getByText('第一首')).toBeDefined();
     expect(screen.getByText('[需要下载]')).toBeDefined();
-    expect(screen.getByRole('button', { name: '播放 缺文件' }).hasAttribute('disabled')).toBe(true);
+    // Playable since M5-9: the click downloads the file first.
+    expect(screen.getByRole('button', { name: '播放 缺文件' }).hasAttribute('disabled')).toBe(
+      false,
+    );
   });
 
   it('plays on double click', async () => {

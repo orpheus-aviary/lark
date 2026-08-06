@@ -3,7 +3,7 @@
 // racing a download.
 
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -316,6 +316,50 @@ describe('POST /songs/:id/redownload', () => {
 
   it('404s an unknown song', async () => {
     const res = await post(apiPath.songRedownload('9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001'), {});
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+// ─── POST /songs/:id/ensure-file ───────────────────────
+
+describe('POST /songs/:id/ensure-file', () => {
+  it('queues a task for a song whose file is missing', async () => {
+    const song = seed('s', {
+      source_url: VIDEO_URL,
+      source_provider: 'bilibili',
+      source_key: `${BVID}:550103819`,
+    });
+    const res = await post(apiPath.songEnsureFile(song.id), {});
+
+    expect(res.statusCode).toBe(200);
+    expect(ctx.downloads.snapshot().tasks[0]).toMatchObject({ kind: 'ensure-file' });
+    ctx.downloads.cancel(bodyOf(res).data.task_id);
+  });
+
+  /**
+   * The guard is narrower than redownload's on purpose (M5-8): every Go-era
+   * import has a file and no key, and that is the case this route exists to
+   * answer cheaply.
+   */
+  it('accepts a song with a file but no key, with no LLM configured', async () => {
+    const song = seed('s');
+    mkdirSync(join(paths.songsDir(), song.id), { recursive: true });
+    writeFileSync(join(paths.songsDir(), song.id, 'song.mp3'), 'AUDIO');
+
+    expect((await post(apiPath.songEnsureFile(song.id), {})).statusCode).toBe(200);
+  });
+
+  it('refuses only when the file is missing AND nothing could find it again', async () => {
+    const song = seed('s');
+    const res = await post(apiPath.songEnsureFile(song.id), {});
+
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('LLM_NOT_CONFIGURED');
+    expect(ctx.downloads.snapshot().tasks).toEqual([]);
+  });
+
+  it('404s an unknown song', async () => {
+    const res = await post(apiPath.songEnsureFile('9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001'), {});
     expect(res.statusCode).toBe(404);
   });
 });

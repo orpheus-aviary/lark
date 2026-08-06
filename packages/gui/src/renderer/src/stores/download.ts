@@ -30,6 +30,7 @@ import type {
 import { API_PATHS, ApiError, createDownloadStatusDedupe, request } from '@lark/shared';
 import { create } from 'zustand';
 import { createLane } from '../lib/lanes.js';
+import { reconcilePending, setPendingTaskRefresher } from '../player/pending.js';
 
 const tasksLane = createLane();
 const dedupe = createDownloadStatusDedupe();
@@ -79,6 +80,10 @@ export const useDownloads = create<DownloadState>((set, get) => ({
             ),
           ),
         });
+        // Every snapshot is a settlement point for the pending play intent —
+        // the SSE terminal events funnel here too, so there is one reducer and
+        // no dependence on an event nobody replays (M5-9).
+        reconcilePending(tasks);
       })
       .catch(() => {
         // The connection indicator already says the daemon is unreachable.
@@ -213,3 +218,9 @@ export function batchProgress(
   if (!batch) return null;
   return { batch, done: batch.items.filter((item) => item.final !== null).length };
 }
+
+// `requestPendingPlay` needs a snapshot right after it queues its task; the
+// lane that owns snapshots lives here.
+setPendingTaskRefresher(() => {
+  useDownloads.getState().refresh();
+});

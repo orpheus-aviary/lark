@@ -144,6 +144,9 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
         }
         eventsBus.emit({ type: 'songs:changed' });
         if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+        if (task.kind === 'ensure-file' && task.result !== null) {
+          ctx.cacheLeases.grant(task.result.song_id);
+        }
         scheduleEvictionInBackground(ctx, 'download-succeeded');
       },
       onFailed: (task) =>

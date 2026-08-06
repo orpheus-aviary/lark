@@ -146,9 +146,9 @@ function SongContextMenu({
 }: RowMenuProps): React.JSX.Element {
   return (
     <ContextMenuContent className="w-44">
-      <ContextMenuItem disabled={!song.has_file} onSelect={() => onPlay(song)}>
-        播放
-      </ContextMenuItem>
+      {/* A missing file downloads and then plays (M5-9), so nothing here is
+          disabled — the `[需要下载]` marker is the only hint needed. */}
+      <ContextMenuItem onSelect={() => onPlay(song)}>播放</ContextMenuItem>
       {actions.targets.length > 0 && (
         <ContextMenuSub>
           <ContextMenuSubTrigger>添加到歌单</ContextMenuSubTrigger>
@@ -201,7 +201,6 @@ function SongActionsCell({
         variant="ghost"
         size="icon-xs"
         aria-label={`播放 ${song.name}`}
-        disabled={!song.has_file}
         onClick={(e) => {
           stop(e);
           onPlay(song);

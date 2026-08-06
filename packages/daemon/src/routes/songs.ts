@@ -311,6 +311,29 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     ok(reply, { task_id: task.id } satisfies DownloadTaskAcceptedData, 'redownload queued');
   });
 
+  /**
+   * Make sure this song has an audio file, fetching it only if it is missing
+   * (M5-8) — what the GUI sends when the user plays an evicted song.
+   *
+   * The guard is narrower than redownload's on purpose: it only fires when the
+   * file is ACTUALLY missing. A song with a file but no source key (every
+   * Go-era import) is the zero-network case, and rejecting it here would turn
+   * the cheapest path into a 400.
+   */
+  app.post(apiPath.songEnsureFile(':id'), async (req, reply) => {
+    const id = idOf(req);
+    const song = getSong(ctx.db, ctx.sqlite, id);
+    const missing = !songFileInfo(id).has_file;
+    if (missing && song.source_key === null && !isLlmConfigured(resolveLlmConfig(ctx.config))) {
+      throw new InvalidRequestError(
+        'LLM_NOT_CONFIGURED',
+        '这首歌没有本地文件也没有来源标识，需要配置 LLM 才能找回（或先编辑它的链接）',
+      );
+    }
+    const task = ctx.downloads.enqueueEnsureFile(id);
+    ok(reply, { task_id: task.id } satisfies DownloadTaskAcceptedData, 'ensure-file queued');
+  });
+
   // Pinning is device-local (R18): it never touches updated_at / the LWW triple.
   app.put(apiPath.songPin(':id'), async (req, reply) => {
     const id = idOf(req);

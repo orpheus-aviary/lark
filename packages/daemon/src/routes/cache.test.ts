@@ -409,6 +409,34 @@ describe('the eviction scheduler', () => {
     expect(hasAudio(song)).toBe(true);
   });
 
+  // The cross-feature regression (M5-6): the drain that the ensure itself
+  // triggered is long finished, the GUI has not opened /audio yet, and ANOTHER
+  // trigger comes along. Without the lease, the file that was fetched to be
+  // played is the first thing the next drain deletes.
+  it('protects an ensured file across later drains, until a stream opens', async () => {
+    boot(1, { leaseTtlMs: 60_000 });
+    const ensured = seed('ensured', { mib: 2 });
+
+    // A song that already has its file: ensure-file succeeds with no network
+    // at all, which is exactly the path that grants the lease.
+    const task = ctx.downloads.enqueueEnsureFile(ensured.id);
+    await vi.waitFor(() => expect(ctx.downloads.get(task.id).state).toBe('succeeded'));
+    await ctx.cacheScheduler.schedule(); // the drain that success triggered
+
+    expect(hasAudio(ensured)).toBe(true);
+    expect(ctx.cacheLeases.has(ensured.id)).toBe(true);
+
+    // A second, unrelated drain — a different download finishing, or the user
+    // pressing "clean up now". Still protected.
+    await evict();
+    expect(hasAudio(ensured)).toBe(true);
+
+    // The stream the lease was standing in for opens: protection hands over.
+    ctx.cacheLeases.clear(ensured.id);
+    await evict();
+    expect(hasAudio(ensured)).toBe(false);
+  });
+
   // The regression the deferral exists for, through the real path: the engine
   // callback that boot and the test harness both translate (M5-6).
   it('evicts the song a download just finished, in the same drain', async () => {

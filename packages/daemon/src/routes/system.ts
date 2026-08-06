@@ -149,6 +149,12 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
   },
 
   {
+    method: 'POST',
+    path: apiPath.songEnsureFile(':id'),
+    description: "Download a song's audio only if it is missing",
+  },
+
+  {
     method: 'GET',
     path: API_PATHS.cacheStatus,
     description: 'Audio cache usage, what is reclaimable, and the limit',

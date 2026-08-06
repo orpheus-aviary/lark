@@ -26,6 +26,12 @@ import { createLane } from '../lib/lanes.js';
 import { readPref, writePref } from '../lib/prefs.js';
 import { sortSongs } from '../lib/song-sort.js';
 import { type MediaElement, mediaUrl } from '../player/media.js';
+import {
+  invalidatePending,
+  pendingGeneration,
+  requestPendingPlay,
+  setPendingPlayHandler,
+} from '../player/pending.js';
 import { DISCARDED, type OperationContext, createOperationQueue } from '../player/queue.js';
 import { runRecovery } from '../player/recovery.js';
 import { createReporter } from '../player/reporter.js';
@@ -87,9 +93,19 @@ function orderedSongs(): readonly SongData[] {
   return sortSongs(useLibrary.getState().songs, useViewPrefs.getState().sort);
 }
 
+export interface PlayOptions {
+  /**
+   * An explicit "play this one" (a double click, the row's play button, a
+   * remote `play`). Only these download a missing file (M5-9): auto-advance
+   * and next/prev keep the M4 behaviour, or one fileless stretch of a playlist
+   * would trigger a cascade of downloads.
+   */
+  ensureFile?: boolean;
+}
+
 /** Operation bodies. Each one assumes it already holds the queue slot. */
 export interface PlayerOps {
-  play: (song: SongData, ctx: OperationContext) => Promise<CommandResult>;
+  play: (song: SongData, ctx: OperationContext, options?: PlayOptions) => Promise<CommandResult>;
   pause: () => Promise<CommandResult>;
   resume: (ctx: OperationContext) => Promise<CommandResult>;
   seek: (position: number) => Promise<CommandResult>;
@@ -122,6 +138,8 @@ interface PlayerState {
   detachAudio: (lastPosition: number) => void;
 
   play: (song: SongData) => Promise<CommandResult>;
+  /** Play a song a pending intent just finished downloading (M5-9). */
+  playPending: (song: SongData, expectedGeneration: number) => Promise<CommandResult>;
   pause: () => Promise<CommandResult>;
   resume: () => Promise<CommandResult>;
   togglePlay: () => Promise<CommandResult>;
@@ -182,8 +200,13 @@ export const usePlayer = create<PlayerState>((set, get) => {
   };
 
   const ops: PlayerOps = {
-    play: async (song, ctx) => {
-      if (song.has_file === false) return { ok: false, message: '需要下载' };
+    play: async (song, ctx, options = {}) => {
+      if (song.has_file === false) {
+        if (options.ensureFile !== true) return { ok: false, message: '这一首没有文件' };
+        // D16 flipped (M5-9): a missing file starts a download and plays when
+        // it lands, instead of refusing the click.
+        return await requestPendingPlay(song);
+      }
       const audio = element;
       if (!audio) return { ok: false, message: '播放器未就绪' };
 
@@ -212,6 +235,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
 
     pause: async () => {
+      // Also inside the slot, not only at dispatch: a pause queued behind the
+      // play that created the intent has to win over it.
+      invalidatePending();
       element?.pause();
       set({ intentPlaying: false });
       get().reportNow();
@@ -363,14 +389,35 @@ export const usePlayer = create<PlayerState>((set, get) => {
       element = null;
     },
 
-    play: (song) => runLocal((ctx) => ops.play(song, ctx)),
-    pause: () => runLocal(() => ops.pause()),
+    // Every UI entry point funnels here, so this is where an explicit play
+    // both supersedes the previous intent and asks for a missing file.
+    play: (song) => {
+      invalidatePending({ supersede: true });
+      return runLocal((ctx) => ops.play(song, ctx, { ensureFile: true }));
+    },
+    playPending: (song, expectedGeneration) =>
+      runLocal((ctx) => {
+        // Checked INSIDE the slot: the user may have chosen another song while
+        // the song fetch was in flight, and that click is already queued.
+        if (pendingGeneration() !== expectedGeneration) return Promise.resolve(SUPERSEDED);
+        return ops.play(song, ctx);
+      }),
+    pause: () => {
+      invalidatePending();
+      return runLocal(() => ops.pause());
+    },
     resume: () => runLocal((ctx) => ops.resume(ctx)),
     togglePlay: () => (get().isPlaying ? get().pause() : get().resume()),
     seek: (position) => runLocal(() => ops.seek(position)),
     seekBy: (delta) => get().seek(get().currentTime + delta),
-    next: () => runLocal((ctx) => ops.next(ctx)),
-    prev: () => runLocal((ctx) => ops.prev(ctx)),
+    next: () => {
+      invalidatePending();
+      return runLocal((ctx) => ops.next(ctx));
+    },
+    prev: () => {
+      invalidatePending();
+      return runLocal((ctx) => ops.prev(ctx));
+    },
     setMode: (mode) => runLocal(() => ops.setMode(mode)),
 
     cycleMode: () => {
@@ -501,4 +548,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
       reporter.push(snapshot);
     },
   };
+});
+
+// The pending-intent module stays store-free; this is the one wire back.
+setPendingPlayHandler((song, expectedGeneration) => {
+  void usePlayer.getState().playPending(song, expectedGeneration);
 });

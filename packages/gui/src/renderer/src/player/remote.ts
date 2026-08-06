@@ -14,6 +14,7 @@ import type { AckRequest, PlayerCommandEvent, SongData } from '@lark/shared';
 import { API_PATHS, apiPath, request } from '@lark/shared';
 import { useLibrary } from '../stores/library.js';
 import { type CommandResult, playerQueue, usePlayer } from '../stores/player.js';
+import { invalidatePending } from './pending.js';
 import { DISCARDED, type OperationContext } from './queue.js';
 
 /** Daemon waits 3s; the rest is ack transit (M4-10). */
@@ -82,13 +83,19 @@ async function executePlaylistCommand(
 
 async function execute(command: PlayerCommandEvent, ctx: OperationContext): Promise<CommandResult> {
   const player = usePlayer.getState();
+  // The same invalidation the local actions do at dispatch (M5-9): a remote
+  // command that changes what is playing retires the pending intent.
+  if (command.command === 'play') invalidatePending({ supersede: true });
+  else if (['pause', 'next', 'prev'].includes(command.command)) invalidatePending();
 
   switch (command.command) {
     case 'play': {
       const song = await findSong(command.song_id);
       if (!ctx.isCurrent()) return SUPERSEDED;
       if (!song) return { ok: false, message: '找不到这首歌' };
-      return await player.ops.play(song, ctx);
+      // An explicit remote play is the same intent as a double click: a
+      // missing file is downloaded and played, and the ack says so (M5-9).
+      return await player.ops.play(song, ctx, { ensureFile: true });
     }
 
     case 'play-playlist':

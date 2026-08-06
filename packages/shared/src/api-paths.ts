@@ -59,4 +59,6 @@ export const apiPath = {
   downloadLyrics: (id: string) => `/download/lyrics/${id}`,
   songRecognizeUrl: (id: string) => `/songs/${id}/recognize-url`,
   songRedownload: (id: string) => `/songs/${id}/redownload`,
+  /** Fetch the audio only if it is missing (M5-8). */
+  songEnsureFile: (id: string) => `/songs/${id}/ensure-file`,
 } as const;

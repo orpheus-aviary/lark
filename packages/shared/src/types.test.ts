@@ -45,7 +45,7 @@ describe('task lifecycle constants', () => {
   });
 
   it('freezes the task kinds', () => {
-    expect(DOWNLOAD_TASK_KINDS).toEqual(['download', 'redownload', 'lyrics']);
+    expect(DOWNLOAD_TASK_KINDS).toEqual(['download', 'redownload', 'ensure-file', 'lyrics']);
   });
 
   it('has no overlap between the two domains', () => {

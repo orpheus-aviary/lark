@@ -287,6 +287,12 @@ export async function boot(options: BootOptions = {}): Promise<void> {
           }
           eventsBus.emit({ type: 'songs:changed' });
           if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+          // The file was fetched so the GUI can play it. Nothing protects it
+          // yet — the completion event has not arrived and no /audio request
+          // has been made — so give it a short lease (M5-6).
+          if (task.kind === 'ensure-file' && task.result !== null) {
+            ctx?.cacheLeases.grant(task.result.song_id);
+          }
           // A new file just landed, so the cache may be over its limit. This
           // callback runs INSIDE the engine's `#finish`, past the point of no
           // return: scheduling must not throw and must not be awaited — the

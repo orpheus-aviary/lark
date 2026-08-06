@@ -40,7 +40,7 @@ const MIN_COLUMN_WIDTH = 60;
 const ASSUMED_CONTAINER_WIDTH = 800;
 
 interface SongListProps {
-  /** T4 hands in the player; a song without a file never gets here (D16). */
+  /** A song without a file downloads first and plays when it lands (M5-9). */
   onPlay: (song: SongData) => void;
   currentSongId: string | null;
 }

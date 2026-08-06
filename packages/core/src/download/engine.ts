@@ -134,6 +134,16 @@ export interface DownloadEngineOptions {
   capacity?: number;
 }
 
+/**
+ * What `#bindTarget` settled on. `needsSource: false` is the ensure-file
+ * short circuit: no key was looked up, no LLM was consulted, and there is no
+ * `ResolvedTarget` to construct — a song with a file but no source key (every
+ * Go-era import) could not produce one anyway.
+ */
+type TargetBinding =
+  | { needsSource: true; resolved: ResolvedTarget; existing: SongData | null }
+  | { needsSource: false; existing: SongData };
+
 export interface EnqueueDownloadInput {
   target: DownloadTarget;
   /** Playlists the finished song joins. Empty means the library only. */
@@ -206,6 +216,30 @@ export class DownloadEngine {
     this.#assertCapacity(1);
     return this.#register({
       kind: 'redownload',
+      dedupeKey: key,
+      songId,
+      input: { type: 'song', song_id: songId },
+      playlistIds: [],
+    });
+  }
+
+  /**
+   * Make sure a song's audio is on disk, fetching it only if it is missing
+   * (M5-8). Its own dedupe key: merging it into a pending `redownload` would
+   * silently downgrade a forced refetch, and merging a redownload into it
+   * would skip the refetch the user asked for.
+   */
+  enqueueEnsureFile(songId: string): DownloadTaskData {
+    getSong(this.#options.db, this.#options.sqlite, songId); // 404 before anything else
+    const key = `ensure-file:${songId}`;
+    const merged = this.#mergeInto(key, []);
+    if (merged !== null) return merged;
+
+    // Regular capacity, unlike the lyrics continuation: these come from user
+    // clicks, and an exemption would make the queue unbounded (M5-8).
+    this.#assertCapacity(1);
+    return this.#register({
+      kind: 'ensure-file',
       dedupeKey: key,
       songId,
       input: { type: 'song', song_id: songId },
@@ -614,14 +648,22 @@ export class DownloadEngine {
     task: TaskRecord,
     deps: PipelineDeps,
     ctx: StepContext,
-  ): Promise<{ resolved: ResolvedTarget; existing: SongData | null }> {
+  ): Promise<TargetBinding> {
     const { db, sqlite } = this.#options;
 
-    if (task.kind === 'redownload') {
+    if (task.kind === 'redownload' || task.kind === 'ensure-file') {
       const song = getSong(db, sqlite, task.songId as string);
+      // The short circuit happens BEFORE any source work (M5-8): a song whose
+      // file is already there needs no key, no probe and no LLM — and a song
+      // that has a file but no key (every Go-era import) could not produce a
+      // ResolvedTarget at all.
+      if (task.kind === 'ensure-file' && existsSync(songAudioPath(song.id))) {
+        return { needsSource: false, existing: song };
+      }
       const live =
         song.source_key === null ? null : await probeSourceKey(deps, song.source_key, ctx);
       return {
+        needsSource: true,
         existing: song,
         resolved:
           live === null
@@ -636,7 +678,7 @@ export class DownloadEngine {
       task.songId = hit.id;
       task.claims.push(this.claims.acquire(hit.id, 'file', task.id));
       this.#bump(task);
-      return { resolved, existing: getSong(db, sqlite, hit.id) };
+      return { needsSource: true, resolved, existing: getSong(db, sqlite, hit.id) };
     }
 
     // A brand-new song's id has to exist before the file does — the file lands
@@ -646,34 +688,39 @@ export class DownloadEngine {
     task.songId = randomUUID();
     task.claims.push(this.claims.acquire(task.songId, 'file', task.id));
     this.#bump(task);
-    return { resolved, existing: null };
+    return { needsSource: true, resolved, existing: null };
   }
 
   async #runDownload(task: TaskRecord): Promise<void> {
     const deps = this.#deps(task);
     const ctx = this.#context(task);
     const { db, sqlite } = this.#options;
-    const { resolved, existing } = await this.#bindTarget(task, deps, ctx);
+    const binding = await this.#bindTarget(task, deps, ctx);
+    const { existing } = binding;
+    // `null` = an ensure-file that found the file already in place: there is
+    // nothing to fetch and nothing to write, only a task to finish (M5-8).
+    const resolved = binding.needsSource ? binding.resolved : null;
 
     const songId = task.songId as string;
     // `force` for a redownload, "only if missing" otherwise — the
     // resolveSongFile decision tree (M3-7).
     const needsFile = task.kind === 'redownload' || !existsSync(songAudioPath(songId));
-    const staged = needsFile
-      ? await fetchAudio(
-          deps,
-          { songId, taskId: task.id, bvid: resolved.source.bvid, cid: resolved.source.cid },
-          ctx,
-        )
-      : null;
+    const staged =
+      resolved !== null && needsFile
+        ? await fetchAudio(
+            deps,
+            { songId, taskId: task.id, bvid: resolved.source.bvid, cid: resolved.source.cid },
+            ctx,
+          )
+        : null;
 
     this.#setStage(task, POINT_OF_NO_RETURN);
     const targets = [...task.playlistIds];
     const failed: string[] = [];
 
-    if (staged === null) {
+    if (resolved === null || staged === null) {
       // Nothing to land: the song and its file are already here, so this is a
-      // membership-only merge.
+      // membership-only merge (and for an ensure-file, not even that).
       sqlite.transaction(() => this.#addMemberships(targets, songId, failed)).immediate();
     } else {
       const result = landSongFile(db, sqlite, {
@@ -715,7 +762,9 @@ export class DownloadEngine {
     this.#applyLateTargets(task, songId);
     task.result = { song_id: songId };
     this.#finish(task, 'succeeded');
-    this.#deriveLyrics(task, songId);
+    // An ensure-file that did nothing fetches nothing — including lyrics. Its
+    // whole contract is "zero network when the file is there" (M5-8).
+    if (resolved !== null) this.#deriveLyrics(task, songId);
   }
 
   #addMemberships(playlistIds: readonly string[], songId: string, failed: string[]): void {

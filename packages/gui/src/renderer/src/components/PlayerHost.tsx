@@ -7,6 +7,7 @@
 // right after it.
 
 import { useCallback, useEffect, useRef } from 'react';
+import { invalidatePending } from '../player/pending.js';
 import { useDataBus } from '../stores/data-bus.js';
 import { usePlayer } from '../stores/player.js';
 import { useSession } from '../stores/session.js';
@@ -56,6 +57,9 @@ export function PlayerHost(): React.JSX.Element {
   useEffect(() => {
     if (generation === mountedGeneration.current) return;
     mountedGeneration.current = generation;
+    // The pending intent's task id belonged to the daemon that went away
+    // (M5-9): nothing will ever settle it.
+    invalidatePending();
     void usePlayer.getState().recoverForGeneration(generation);
   }, [generation]);
 

@@ -85,6 +85,10 @@ function stubFetch(): void {
         );
       }
 
+      if (url.includes('/ensure-file')) {
+        return Promise.resolve(jsonResponse({ success: true, data: { task_id: 'ensure-1' } }, 200));
+      }
+
       const match = /\/songs\/([\w-]+)$/.exec(url);
       if (match && method === 'GET') {
         const found = libraryLookup.find((s) => s.id === match[1]);
@@ -177,12 +181,17 @@ describe('play', () => {
     expect(usePlayer.getState().currentSong).toBeNull();
   });
 
-  it('acks false for a song with no file (§4.3)', async () => {
+  // The §4.3 matrix row changed in M5-9: a remote play of a fileless song is
+  // accepted and starts a download.
+  it('acks ok for a song with no file and starts the download', async () => {
     useLibrary.setState({ songs: [song('nofile', { has_file: false })] });
     handlePlayerCommand(event({ command: 'play', song_id: 'nofile' }), Date.now());
     await waitForAck();
 
-    expect(acks()[0]).toMatchObject({ ok: false, message: '需要下载' });
+    expect(acks()[0]).toMatchObject({ ok: true, message: '正在下载，完成后自动播放' });
+    expect(
+      calls.some((c) => c.method === 'POST' && c.url.endsWith('/songs/nofile/ensure-file')),
+    ).toBe(true);
   });
 });
 
