@@ -43,6 +43,12 @@
   - **主题进 config**：新增 `[theme] mode = "system" | "light" | "dark"`（daemon 侧 config 类型 + 默认值 + PATCH 白名单 + 测试）。冻结线：**外观（主题/字号）进 config，视图态（排序/列显隐/列宽/播放模式）留 localStorage**，别长出第三个家
   - **设置页与缓存上限同批**：`storage.cache_limit_mb` 现在写得进去但没人执行，LRU 清理落地前它是个假旋钮
   - M3 定的接法：「播放无文件歌曲 → 自动下载」加 task kind **`ensure-file`**，复用 engine 的 `#runDownload`，只改 `needsFile` 判定；**不要**另抽 `resolveSongFile`（会产生第二份 claim + 落盘编排）。互斥读 `downloads.claims` 与 `pendingSongIds()`
+- [x] **M5 后续：观感修正 + 多选批量操作**（2026-08-07）— 子计划 `docs/plans/2026-08-06-m5-followup-batch-actions.md`（决策 B-1–B-12 + §5 实施记录）；四批提交
+  - **发现：lark 一直没有强调色**——`--primary` 在浅色下近黑、深色下近白，等于正文色，于是三处「激活态」全是隐形的（正在播放的行、排序下拉的当前项、播放模式按钮）。加 `--state-active`（琥珀）只管状态，`--primary` 不动
+  - 行状态四通道互不打架：**琥珀 = 正在播放 · 左侧 2px 竖条 = 选中（owl 同款）· 加粗 = 已固定 · 红字 `[需要下载]` = 无文件**；竖条挂在第一个单元格（`<tr>` 边框会被 border-collapse 吃掉），常驻 2px 不抖
+  - 排序改两轴：下拉选字段（默认/歌名/歌手/**时长**/**创建时间**），左半按钮切升降序（默认态置灰）——五字段若沿用 Go 的点击循环会变成九态
+  - 多选：36px 复选框列 + 表头三态（语义是**当前视图内**）+ Cmd/Shift 点选 + Esc 清空（让位对话框）+ 右键 Finder 规则；批量操作条占用下载状态行（固定高度 24px），五个动作，添加到歌单一次请求、其余 N 次串行且部分失败如实汇报
+  - **验收复跑**：`just accept-gui` 15/15、`just accept-m5` 22/22。期间修正 accept-m5 一处**过度指定的断言**（写死「只有一首可清理」，而真实库里用户重下过的歌同样是 `downloaded`、同样可清理——改断不变量）
 - [ ] **M6 CLI** — 扩展 M0 CLI 骨架（@lark/cli status 命令已落地）：双后端（--direct）、全命令、GUI 拉起、skill export
 - [ ] **M7 打包发布 v0.1.0** — electron-builder mac arm64（asar:false）、ffmpeg-static/ffprobe-static 锁版本 + 打包后冒烟测试、FFmpeg 许可交付、ABI recipes、验收清单
 

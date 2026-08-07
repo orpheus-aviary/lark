@@ -194,10 +194,15 @@ try {
   const importedLyrics = existsSync(lyricsFile(downloaded.id));
   const evicted = await data('POST', '/cache/evict');
 
+  // NOT "exactly one": this runs against a copy of a REAL library, where any
+  // song the user has re-downloaded is `downloaded` too and therefore just as
+  // evictable (R1). What must hold is the invariant, not the fixture's shape.
   check(
-    'eviction reclaimed the downloaded file and nothing else',
-    evicted.evicted_count === 1 && !existsSync(songFile(downloaded.id)),
-    `freed ${(evicted.freed_bytes / 1048576).toFixed(1)}MiB`,
+    'eviction reclaimed the downloaded audio, and freed at least its bytes',
+    !existsSync(songFile(downloaded.id)) &&
+      evicted.evicted_count >= 1 &&
+      evicted.freed_bytes >= (downloaded.file_size ?? 0),
+    `evicted ${evicted.evicted_count}, freed ${(evicted.freed_bytes / 1048576).toFixed(1)}MiB`,
   );
   check(
     'every import survived, pinned or not',
