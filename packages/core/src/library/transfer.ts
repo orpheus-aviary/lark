@@ -268,7 +268,9 @@ export function computeMatches(db: LarkDatabase, entries: readonly ImportEntry[]
       matches.push({ kind: 'new', candidates: candidatesFor(db, entry) });
       continue;
     }
-    const keyId = `${provider} ${key}`;
+    // `\u0000` as an escape, not a literal NUL byte: a source file with one
+    // in it reads as BINARY to grep / rg, which silently skip it.
+    const keyId = `${provider}\u0000${key}`;
     const owner = claimed.get(keyId);
     if (owner !== undefined) {
       matches.push({ kind: 'file', index: owner });

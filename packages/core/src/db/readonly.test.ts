@@ -42,7 +42,7 @@ function seedCurrent(): void {
 describe('openDatabaseReadonly — dispatch', () => {
   it('opens a current library', () => {
     seedCurrent();
-    const sqlite = openDatabaseReadonly({ dbPath: dbPath() });
+    const { sqlite } = openDatabaseReadonly({ dbPath: dbPath() });
     try {
       const row = sqlite.prepare("SELECT value FROM local_metadata WHERE key='probe'").get() as {
         value: string;
@@ -55,7 +55,7 @@ describe('openDatabaseReadonly — dispatch', () => {
 
   it('refuses to write through the handle it hands back', () => {
     seedCurrent();
-    const sqlite = openDatabaseReadonly({ dbPath: dbPath() });
+    const { sqlite } = openDatabaseReadonly({ dbPath: dbPath() });
     try {
       // `readonly` alone would already refuse; `query_only` is the second belt.
       expect(() => sqlite.prepare('DELETE FROM songs').run()).toThrow();
@@ -146,7 +146,7 @@ describe('openDatabaseReadonly — zero writes', () => {
     const before = readFileSync(dbPath());
     const beforeMtime = statSync(dbPath()).mtimeMs;
 
-    const sqlite = openDatabaseReadonly({ dbPath: dbPath() });
+    const { sqlite } = openDatabaseReadonly({ dbPath: dbPath() });
     sqlite.prepare('SELECT count(*) FROM songs').get();
     sqlite.close();
 

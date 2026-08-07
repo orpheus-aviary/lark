@@ -6,6 +6,8 @@
 
 import type {
   ApiResponse,
+  CacheEvictResultData,
+  CacheStatusData,
   PlaylistData,
   PlaylistExportData,
   PlaylistImportData,
@@ -31,6 +33,8 @@ export interface FakeBackendData {
   preview?: PlaylistImportPreviewData;
   importResult?: PlaylistImportData;
   status?: StatusData;
+  cacheStatus?: CacheStatusData;
+  cacheEvict?: CacheEvictResultData;
 }
 
 export interface FakeBackend extends Backend {
@@ -116,6 +120,9 @@ export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
     removePlaylistSong: (id, songId) =>
       record('removePlaylistSong', [id, songId], { playlist_id: id, song_id: songId }),
     reorderPlaylist: (id, move) => record('reorderPlaylist', [id, move], { playlist_id: id }),
+
+    cacheStatus: () => record('cacheStatus', [], data.cacheStatus as CacheStatusData),
+    cacheEvict: () => record('cacheEvict', [], data.cacheEvict as CacheEvictResultData),
 
     exportPlaylist: (id) => record('exportPlaylist', [id], data.exportData as PlaylistExportData),
     importPreview: (filePath) =>

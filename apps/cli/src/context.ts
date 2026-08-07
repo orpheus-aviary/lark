@@ -53,27 +53,39 @@ export async function withContext<T>(
     ...(options.canLaunch === undefined ? {} : { canLaunch: options.canLaunch }),
   });
 
-  const backend = await backendFor(mode, streams);
-  return await body({ backend, streams, flags: options.flags, identity, mode });
+  const opened = await backendFor(mode, streams);
+  try {
+    return await body({ backend: opened.backend, streams, flags: options.flags, identity, mode });
+  } finally {
+    // A direct backend holds a database handle — and, for a write, the writer
+    // lock. Both are released here whether the command succeeded or threw:
+    // the lock is a cross-process resource, and leaking it would block the
+    // next daemon boot for its whole 5s budget.
+    opened.close();
+  }
 }
 
-async function backendFor(mode: ModeDecision, streams: Streams): Promise<Backend> {
+interface OpenedBackend {
+  backend: Backend;
+  close(): void;
+}
+
+async function backendFor(mode: ModeDecision, streams: Streams): Promise<OpenedBackend> {
   switch (mode.kind) {
     case 'error':
       throw new CliError(mode.code, mode.message);
     case 'http':
-      return createHttpBackend();
+      return { backend: createHttpBackend(), close: () => {} };
     case 'direct-read':
-    case 'direct-write':
+    case 'direct-write': {
       if (mode.kind === 'direct-read' && mode.note !== undefined) streams.err(mode.note);
-      // SEAM (removed in T3): the mode matrix already decided correctly — what
-      // is missing is the backend that would serve it. Reported as "no daemon"
-      // rather than as a usage error, because that is the situation the user
-      // is actually in.
-      throw new CliError(
-        'DAEMON_UNAVAILABLE',
-        '本地直连（--direct）后端尚未落地——先启动 daemon：`lark daemon`。',
-      );
+      // The ONE dynamic import of `@lark/core`'s barrel (M6-21): everything
+      // above this line runs without loading better-sqlite3.
+      const { createDirectBackend } = await import('./backend/direct.js');
+      return await createDirectBackend({
+        mode: mode.kind === 'direct-read' ? 'read' : 'write',
+      });
+    }
     case 'launch':
       // SEAM (removed in T5): `ensureDaemon` is what fills this in.
       throw new CliError('DAEMON_UNAVAILABLE', 'daemon 未在运行——先跑 `lark daemon`。');

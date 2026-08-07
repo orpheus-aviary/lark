@@ -20,17 +20,30 @@
 
 import { statSync } from 'node:fs';
 import BetterSqlite3 from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import {
   DatabaseNotInitializedError,
   GoMigrationRequiredError,
   IncompatibleDbError,
   MigrationPendingError,
 } from '../errors.js';
+import type { LarkDatabase } from './index.js';
 import { LATEST_KNOWN_VERSION, isGoLegacyDb, isSchemaEmpty } from './migrate.js';
 import { assertSchemaV1 } from './schema-signature.js';
+import * as schema from './schema.js';
 
 export interface ReadonlyDatabaseOptions {
   dbPath: string;
+}
+
+/**
+ * Same shape `createDatabase` returns, so a caller can hand either one to the
+ * same query function — the read path differs in what it REFUSES, not in how
+ * it is used.
+ */
+export interface ReadonlyDatabaseHandles {
+  db: LarkDatabase;
+  sqlite: BetterSqlite3.Database;
 }
 
 /**
@@ -46,7 +59,7 @@ export interface ReadonlyDatabaseOptions {
  *
  * The caller owns the handle and must close it.
  */
-export function openDatabaseReadonly(options: ReadonlyDatabaseOptions): BetterSqlite3.Database {
+export function openDatabaseReadonly(options: ReadonlyDatabaseOptions): ReadonlyDatabaseHandles {
   const { dbPath } = options;
 
   // `existsSync` cannot serve here: it answers false for EACCES too, which
@@ -77,7 +90,7 @@ export function openDatabaseReadonly(options: ReadonlyDatabaseOptions): BetterSq
 
     // v == LATEST: the number alone is not proof (T3 — single definition of v1).
     assertSchemaV1(sqlite, dbPath);
-    return sqlite;
+    return { db: drizzle(sqlite, { schema }), sqlite };
   } catch (err) {
     sqlite.close();
     throw err;

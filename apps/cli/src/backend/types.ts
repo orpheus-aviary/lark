@@ -1,5 +1,7 @@
 import type {
   ApiResponse,
+  CacheEvictResultData,
+  CacheStatusData,
   PlaylistData,
   PlaylistExportData,
   PlaylistImportData,
@@ -67,6 +69,11 @@ export interface Backend {
     id: string,
     move: PlaylistReorderRequest,
   ): Promise<ApiResponse<{ playlist_id: string }>>;
+
+  // ── Cache (M6-4) ───────────────────────────────────
+  cacheStatus(): Promise<ApiResponse<CacheStatusData>>;
+  /** Runs the LRU drain. Direct mode holds the writer lock for the whole run. */
+  cacheEvict(): Promise<ApiResponse<CacheEvictResultData>>;
 
   // ── Transfer (M6-13) ───────────────────────────────
   exportPlaylist(id: string): Promise<ApiResponse<PlaylistExportData>>;

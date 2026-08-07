@@ -15,6 +15,7 @@
 // `lark status` cannot fail on a native module it never uses.
 
 import { Command } from 'commander';
+import { runCacheEvict, runCacheStatus } from './commands/cache.js';
 import {
   runPlaylistAdd,
   runPlaylistCreate,
@@ -214,6 +215,20 @@ playlist
   .action((file: string, opts) =>
     withBackend('write', (ctx) => runPlaylistImport(ctx, file, opts)),
   );
+
+// ─── cache ─────────────────────────────────────────────
+
+const cache = program.command('cache').description('Audio cache usage and eviction');
+
+cache
+  .command('status')
+  .description('How much audio is on disk, and how much of it is reclaimable')
+  .action(() => withBackend('read', (ctx) => runCacheStatus(ctx)));
+
+cache
+  .command('evict')
+  .description('Delete least-recently-used downloaded audio down to the limit (asks first)')
+  .action(() => withBackend('write', (ctx) => runCacheEvict(ctx)));
 
 // See packages/daemon/src/cli.ts — `from: 'node'` keeps argv parsing correct
 // when the CLI is invoked through Electron-as-Node.

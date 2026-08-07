@@ -1,0 +1,398 @@
+// The `--direct` backend (M6-5, §4.1): the same commands, served by opening
+// the library in this process instead of asking a daemon.
+//
+// Two shapes, because they have different rights:
+//
+//   READ  opens the library READ-ONLY and takes no lock at all. Safe next to
+//         anything — a daemon, a backup, a migration — because it writes
+//         nothing (M6-20).
+//   WRITE takes the cross-process WRITER LOCK for the whole command and opens
+//         the library normally. R31 already guarantees no daemon is running;
+//         the lock is what excludes the OTHER three writers (M6-18).
+//
+// `@lark/core` is imported DYNAMICALLY, right here and nowhere else: the
+// barrel loads better-sqlite3, and `lark status --json` must not fail on a
+// native module built for the other runtime when it never intended to open a
+// database (M6-21).
+
+import { VIRTUAL_ALL_PLAYLIST_ID, isUuidV4 } from '@lark/shared';
+import type { ApiResponse, PlaylistData, SongData } from '@lark/shared';
+import { CliError, usageError } from '../lib/errors.js';
+import { toDirectCliError } from './direct-errors.js';
+import type { Backend, ImportCommitRequest, SongListQuery } from './types.js';
+
+type Core = typeof import('@lark/core');
+
+/** Input caps, copied from the daemon's route contract so both agree (§4.1). */
+const NAME_MAX = 500;
+const SEARCH_MAX = 200;
+const LIMIT_MAX = 1000;
+const SONG_IDS_MAX = 1000;
+
+export interface DirectBackend {
+  backend: Backend;
+  /** Close the database and release the writer lock. Idempotent. */
+  close(): void;
+}
+
+export interface DirectBackendOptions {
+  mode: 'read' | 'write';
+  /** Overrides for tests; production always uses the real nest. */
+  dbPath?: string;
+}
+
+/**
+ * Open the library and build a Backend over it.
+ *
+ * Throws the same `CliError`s a command would get from the HTTP backend: an
+ * uninitialised library is `DB_NOT_INITIALIZED`, a busy writer is
+ * `WRITER_BUSY`, a Go-era library is `MIGRATION_REQUIRED`.
+ */
+export async function createDirectBackend(options: DirectBackendOptions): Promise<DirectBackend> {
+  const core: Core = await import('@lark/core');
+  const dbPath = options.dbPath ?? core.paths.dbPath();
+
+  return options.mode === 'read' ? openForRead(core, dbPath) : openForWrite(core, dbPath);
+}
+
+function openForRead(core: Core, dbPath: string): DirectBackend {
+  const handles = attempt(() => core.openDatabaseReadonly({ dbPath }));
+  let closed = false;
+  return {
+    backend: buildBackend(core, handles, 'read'),
+    close() {
+      if (closed) return;
+      closed = true;
+      handles.sqlite.close();
+    },
+  };
+}
+
+function openForWrite(core: Core, dbPath: string): DirectBackend {
+  // The lock comes FIRST: `createDatabase` runs crash recovery and forward
+  // migrations, which are writes like any other.
+  const lock = attempt(() => core.acquireWriterLock({ dbPath }));
+  let handles: { db: unknown; sqlite: { close(): void } };
+  try {
+    handles = attempt(() => core.createDatabase({ dbPath }));
+  } catch (err) {
+    lock.release();
+    throw err;
+  }
+
+  let closed = false;
+  return {
+    backend: buildBackend(core, handles as never, 'write'),
+    close() {
+      if (closed) return;
+      closed = true;
+      // Database first, lock second — the lock says "this library has a
+      // writer", and that stays true until the last connection is gone.
+      handles.sqlite.close();
+      lock.release();
+    },
+  };
+}
+
+/** Run a core call, translating whatever it throws (§4.1). */
+function attempt<T>(fn: () => T): T {
+  try {
+    return fn();
+  } catch (err) {
+    throw toDirectCliError(err);
+  }
+}
+
+async function attemptAsync<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    throw toDirectCliError(err);
+  }
+}
+
+type Handles = ReturnType<Core['createDatabase']>;
+
+function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Backend {
+  const { db, sqlite } = handles;
+
+  /** `has_file` / `file_size` are a live disk probe, exactly as the daemon does. */
+  const enrich = (song: SongData): SongData => ({ ...song, ...core.songFileInfo(song.id) });
+
+  const ok = <T>(data: T, extra: { message?: string; total?: number } = {}): ApiResponse<T> => {
+    const envelope: ApiResponse<T> = { success: true, data };
+    if (extra.message !== undefined) envelope.message = extra.message;
+    if (extra.total !== undefined) envelope.total = extra.total;
+    return envelope;
+  };
+
+  /** A write reached a read-only backend: a bug, not a user error. */
+  const writable = (): void => {
+    if (mode !== 'write') {
+      throw new CliError('USAGE_ERROR', '这个操作需要写权限，但当前是只读直连模式。');
+    }
+  };
+
+  /**
+   * The id gate the daemon's route layer applies before core sees anything
+   * (§4.1). Core would eventually notice too, but it reports "not found" —
+   * and a malformed id is a USAGE problem, not a missing row.
+   */
+  const validId = (id: string): string => {
+    if (!isUuidV4(id)) throw new CliError('INVALID_ID', `不是合法的 id：${JSON.stringify(id)}`);
+    return id;
+  };
+
+  /** Readable ids also accept the virtual `all` (R3/R24). */
+  const readableId = (id: string): string => (id === VIRTUAL_ALL_PLAYLIST_ID ? id : validId(id));
+
+  /** `all` is a view: readable, never writable. */
+  const writablePlaylistId = (id: string): string => {
+    if (id === VIRTUAL_ALL_PLAYLIST_ID) {
+      throw new CliError('VIRTUAL_PLAYLIST', '「all」是虚拟歌单，不能写入。');
+    }
+    return validId(id);
+  };
+
+  const capped = (value: string, max: number, what: string): string => {
+    if (value.length > max) throw usageError(`${what}最长 ${max} 个字符。`);
+    return value;
+  };
+
+  return {
+    status: () =>
+      Promise.reject(new CliError('USAGE_ERROR', '`status` 只描述 daemon，不走直连后端。')),
+
+    // ── Songs ──────────────────────────────────────────
+    listSongs: (query: SongListQuery) => {
+      const options: SongListQuery = { ...query };
+      if (options.search !== undefined)
+        options.search = capped(options.search, SEARCH_MAX, '搜索词');
+      if (options.limit !== undefined && options.limit > LIMIT_MAX) {
+        throw usageError(`--limit 最大 ${LIMIT_MAX}。`);
+      }
+      const result = attempt(() => core.listSongs(db, sqlite, options));
+      // `total` is the filtered count BEFORE pagination — what a pager needs.
+      return Promise.resolve(ok(result.songs.map(enrich), { total: result.total }));
+    },
+    getSong: (id) =>
+      Promise.resolve(ok(enrich(attempt(() => core.getSong(db, sqlite, validId(id)))))),
+    updateSong: (id, patch) => {
+      writable();
+      if (patch.name !== undefined) capped(patch.name, NAME_MAX, '歌名');
+      if (patch.artist !== undefined) capped(patch.artist, NAME_MAX, '歌手名');
+      const updated = attempt(() => core.updateSong(db, sqlite, validId(id), patch));
+      return Promise.resolve(ok(enrich(updated)));
+    },
+    deleteSong: (id) => {
+      writable();
+      attempt(() => core.deleteSong(db, sqlite, validId(id)));
+      return Promise.resolve(ok({ id }, { message: 'song deleted' }));
+    },
+    pinSong: (id, pinned) => {
+      writable();
+      attempt(() => core.setPinned(db, sqlite, validId(id), pinned));
+      return Promise.resolve(ok(enrich(attempt(() => core.getSong(db, sqlite, validId(id))))));
+    },
+
+    // ── Playlists ──────────────────────────────────────
+    listPlaylists: () => {
+      // The virtual `all` comes FIRST, exactly as the daemon composes it
+      // (R3/R24). It is not a row, so core does not return it — and a list
+      // that differs between the two backends would make every name-based
+      // reference resolve differently depending on whether a daemon happened
+      // to be running.
+      const virtualAll: PlaylistData = {
+        id: VIRTUAL_ALL_PLAYLIST_ID,
+        name: VIRTUAL_ALL_PLAYLIST_ID,
+        created_at: 0,
+        updated_at: 0,
+        // `limit: 0` fetches no rows but still reports the count.
+        song_count: attempt(() => core.listSongs(db, sqlite, { limit: 0 })).total,
+      };
+      const rows = [virtualAll, ...attempt(() => core.listPlaylists(db, sqlite))];
+      return Promise.resolve(ok(rows, { total: rows.length }));
+    },
+    createPlaylist: (name) => {
+      writable();
+      const created = attempt(() =>
+        core.createPlaylist(db, sqlite, capped(name, NAME_MAX, '歌单名')),
+      );
+      return Promise.resolve(ok(created as PlaylistData));
+    },
+    renamePlaylist: (id, name) => {
+      writable();
+      const renamed = attempt(() =>
+        core.renamePlaylist(db, sqlite, writablePlaylistId(id), capped(name, NAME_MAX, '歌单名')),
+      );
+      return Promise.resolve(ok(renamed as PlaylistData));
+    },
+    deletePlaylist: (id) => {
+      writable();
+      attempt(() => core.deletePlaylist(db, sqlite, writablePlaylistId(id)));
+      return Promise.resolve(ok({ id }, { message: 'playlist deleted' }));
+    },
+    listPlaylistSongs: (id) => {
+      // The virtual playlist is every song in creation order — the same list
+      // the library view shows by default.
+      const songs =
+        id === VIRTUAL_ALL_PLAYLIST_ID
+          ? attempt(() => core.listSongs(db, sqlite, { sort: 'created_at', order: 'asc' })).songs
+          : attempt(() => core.getPlaylistSongs(db, sqlite, readableId(id)));
+      return Promise.resolve(ok(songs.map(enrich), { total: songs.length }));
+    },
+    addPlaylistSongs: (id, songIds) => {
+      writable();
+      if (songIds.length > SONG_IDS_MAX) throw usageError(`一次最多添加 ${SONG_IDS_MAX} 首。`);
+      const added = attempt(() =>
+        core.addSongsToPlaylist(db, sqlite, writablePlaylistId(id), songIds.map(validId)),
+      );
+      return Promise.resolve(ok({ added }));
+    },
+    removePlaylistSong: (id, songId) => {
+      writable();
+      attempt(() =>
+        core.removeSongFromPlaylist(db, sqlite, writablePlaylistId(id), validId(songId)),
+      );
+      return Promise.resolve(
+        ok({ playlist_id: id, song_id: songId }, { message: 'song removed from playlist' }),
+      );
+    },
+    reorderPlaylist: (id, move) => {
+      writable();
+      const anchors: { before_song_id?: string; after_song_id?: string } = {};
+      if (move.before_song_id !== undefined) anchors.before_song_id = move.before_song_id;
+      if (move.after_song_id !== undefined) anchors.after_song_id = move.after_song_id;
+      attempt(() =>
+        core.reorderSong(db, sqlite, writablePlaylistId(id), validId(move.song_id), anchors),
+      );
+      return Promise.resolve(ok({ playlist_id: id }, { message: 'playlist reordered' }));
+    },
+
+    // ── Cache (M6-4) ───────────────────────────────────
+    cacheStatus: () => {
+      // `loadConfigReadonly`, not `loadConfig`: reading the limit must not
+      // create a default config file or chmod an existing one (M6-23).
+      const config = attempt(() => core.loadConfigReadonly());
+      const status = attempt(() =>
+        core.cacheStatus(db, {
+          limitBytes: config.storage.cache_limit_mb * core.MIB,
+          // Nothing is playing, nothing is queued: this process is the only
+          // one holding the library, guaranteed by R31 + the writer lock.
+          isExcluded: () => false,
+          streamCount: () => 0,
+        }),
+      );
+      return Promise.resolve(ok({ ...status, limit_mb: config.storage.cache_limit_mb }));
+    },
+    cacheEvict: async () => {
+      writable();
+      const config = attempt(() => core.loadConfig());
+      const limitBytes = config.storage.cache_limit_mb * core.MIB;
+
+      // A fresh registry: claims are an IN-PROCESS mutex, and this process is
+      // the only writer (R31 + the writer lock held for the whole command).
+      const claims = new core.ClaimRegistry();
+      const bilibili = core.createBilibiliClient();
+      const deps = { db, sqlite, bilibili, llm: null, timeouts: core.DEFAULT_TIMEOUTS };
+
+      const run = await attemptAsync(() =>
+        core.runEviction(db, {
+          limitBytes,
+          isExcluded: () => false,
+          streamCount: () => 0,
+          acquireFileClaim: (songId: string) => {
+            try {
+              const token = claims.acquire(songId, 'file', 'cli-evict');
+              return { release: () => claims.release(token) };
+            } catch {
+              return null;
+            }
+          },
+          // Fail-closed (R26): anything but a clean yes keeps the file.
+          probe: async (sourceKey: string) =>
+            (await core.probeSourceKey(deps, sourceKey, {
+              signal: AbortSignal.timeout(core.DEFAULT_TIMEOUTS.bilibiliMeta),
+              reportStage: () => {},
+            })) !== null,
+        }),
+      );
+
+      const after = attempt(() =>
+        core.cacheStatus(db, { limitBytes, isExcluded: () => false, streamCount: () => 0 }),
+      );
+      return ok(
+        {
+          ...after,
+          limit_mb: config.storage.cache_limit_mb,
+          evicted_count: run.evicted.length,
+          freed_bytes: run.evicted.reduce((sum, e) => sum + e.freed_bytes, 0),
+          skipped_unverified_count: run.skipped_unverified.length,
+          skipped_unverified_bytes: run.skipped_unverified.reduce((sum, s) => sum + s.bytes, 0),
+        },
+        { message: 'cache eviction finished' },
+      );
+    },
+
+    // ── Transfer ───────────────────────────────────────
+    exportPlaylist: (id) => {
+      const source =
+        id === VIRTUAL_ALL_PLAYLIST_ID
+          ? { playlistId: null, name: VIRTUAL_ALL_PLAYLIST_ID }
+          : { playlistId: validId(id) };
+      return Promise.resolve(ok(attempt(() => core.buildExport(db, source))));
+    },
+    importPreview: async (filePath) => {
+      const file = await attemptAsync(async () =>
+        core.parseAndValidate(await readImportFile(core, filePath)),
+      );
+      return ok(attempt(() => core.previewImport(db, file)));
+    },
+    importPlaylist: async (request: ImportCommitRequest) => {
+      writable();
+      // The file is re-read here rather than carried over from the preview,
+      // and the digest is what makes that safe: identical bytes mean
+      // `reuse[].index` still points at the entry the user saw (M5-13).
+      const file = await attemptAsync(async () =>
+        core.parseAndValidate(await readImportFile(core, request.file_path)),
+      );
+      if (file.digest !== request.digest) {
+        throw new CliError('IMPORT_SOURCE_CHANGED', '文件在预览之后发生了变化，请重新预览再导入');
+      }
+      const target = toCoreTarget(request.target);
+      const result = attempt(() =>
+        core.importPlaylist(db, sqlite, {
+          entries: file.entries,
+          target,
+          ...(request.reuse === undefined ? {} : { reuse: [...request.reuse] }),
+        }),
+      );
+      return ok(result, {
+        message: `导入 ${result.total} 首：新建 ${result.created}，复用 ${result.reused}`,
+      });
+    },
+  };
+}
+
+/** Same 20MB ceiling the daemon enforces, checked before the read (§4.1). */
+async function readImportFile(core: Core, filePath: string): Promise<Buffer> {
+  const { readFile, stat } = await import('node:fs/promises');
+  const size = await attemptAsync(async () => (await stat(filePath)).size);
+  if (size > 20 * 1024 * 1024) throw usageError(`导入文件超过 20MB：${filePath}`);
+  void core; // the cap lives here, not in core
+  return await readFile(filePath);
+}
+
+/** The wire's `all` is core's `library`: songs land, no membership rows. */
+function toCoreTarget(
+  target: ImportCommitRequest['target'],
+): Parameters<Core['importPlaylist']>[2]['target'] {
+  switch (target.kind) {
+    case 'all':
+      return { kind: 'library' };
+    case 'playlist':
+      return { kind: 'playlist', playlistId: target.playlist_id };
+    case 'new':
+      return { kind: 'new', name: target.name.slice(0, NAME_MAX) };
+  }
+}

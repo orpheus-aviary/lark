@@ -1,6 +1,8 @@
 import {
   API_PATHS,
   type ApiResponse,
+  type CacheEvictResultData,
+  type CacheStatusData,
   type PlaylistData,
   type PlaylistExportData,
   type PlaylistImportData,
@@ -54,6 +56,9 @@ export function createHttpBackend(baseUrl: string = defaultDaemonBaseUrl()): Bac
       send<{ playlist_id: string; song_id: string }>('DELETE', apiPath.playlistSong(id, songId)),
     reorderPlaylist: (id, move: PlaylistReorderRequest) =>
       send<{ playlist_id: string }>('POST', apiPath.playlistReorder(id), move),
+
+    cacheStatus: () => get<CacheStatusData>(API_PATHS.cacheStatus),
+    cacheEvict: () => send<CacheEvictResultData>('POST', API_PATHS.cacheEvict),
 
     exportPlaylist: (id) => get<PlaylistExportData>(apiPath.playlistExport(id)),
     importPreview: (filePath) =>
