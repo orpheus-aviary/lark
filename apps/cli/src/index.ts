@@ -16,6 +16,8 @@
 
 import { Command } from 'commander';
 import { runCacheEvict, runCacheStatus } from './commands/cache.js';
+import { assertDownloadShape, runDownload, runSongsRedownload } from './commands/download.js';
+import { runLyricsDelete, runLyricsRedownload } from './commands/lyrics.js';
 import {
   runPlaylistAdd,
   runPlaylistCreate,
@@ -35,6 +37,7 @@ import {
 } from './commands/songs.js';
 import { runStatus } from './commands/status.js';
 import { runPlaylistExport, runPlaylistImport } from './commands/transfer.js';
+import { runUrlGet, runUrlRecognize, runUrlSet } from './commands/url.js';
 import { type CommandContext, type GlobalFlags, withContext } from './context.js';
 import { toCliError } from './lib/errors.js';
 import { exitCodeFor } from './lib/exit-codes.js';
@@ -66,12 +69,23 @@ async function run(body: () => Promise<void>): Promise<void> {
   }
 }
 
-/** Run `body` with a resolved backend. `need` decides which one it may be. */
+/**
+ * Run `body` with a resolved backend. `need` decides which one it may be.
+ *
+ * `precheck` is for argument-shape rules, and it runs BEFORE the daemon is
+ * probed: a command that cannot be obeyed no matter what is listening should
+ * say so (exit 2) rather than send the user off to start a daemon that would
+ * refuse it for the same reason (exit 4).
+ */
 function withBackend(
-  need: 'read' | 'write',
+  need: 'read' | 'write' | 'daemon',
   body: (ctx: CommandContext) => Promise<void>,
+  precheck?: () => void,
 ): Promise<void> {
-  return run(() => withContext(need, { flags: flags() }, body));
+  return run(async () => {
+    precheck?.();
+    await withContext(need, { flags: flags() }, body);
+  });
 }
 
 program
@@ -95,6 +109,26 @@ program
         { json: flags().json },
       );
     }),
+  );
+
+// ─── download ──────────────────────────────────────────
+
+program
+  .command('download [input]')
+  .description('Download a link or a keyword; a favourites / collection link expands into a batch')
+  .option('--batch <file>', 'read one input per line from a file, or `-` for stdin')
+  .option('--playlist <name|id>', 'put everything into this playlist')
+  // Tri-state on purpose: absent means "the default for this shape" — a single
+  // input waits, a batch does not.
+  .option('--wait', 'follow until it finishes (default for a single input)')
+  .option('--no-wait', 'return as soon as it is queued')
+  .option('--allow-partial', 'proceed even when the list only came back partially')
+  .action((input: string | undefined, opts) =>
+    withBackend(
+      'daemon',
+      (ctx) => runDownload(ctx, input, opts),
+      () => assertDownloadShape(input, opts),
+    ),
   );
 
 // ─── songs ─────────────────────────────────────────────
@@ -146,6 +180,57 @@ songs
   .command('unpin <name|id>')
   .description('Allow a song to be evicted again')
   .action((ref: string) => withBackend('write', (ctx) => runSongsPin(ctx, ref, false)));
+
+songs
+  .command('redownload <name|id>')
+  .description("Fetch this song's audio again, replacing what is on disk")
+  .option('--wait', 'follow until it finishes (the default)')
+  .option('--no-wait', 'return as soon as it is queued')
+  .action((ref: string, opts) =>
+    withBackend('daemon', (ctx) => runSongsRedownload(ctx, ref, opts)),
+  );
+
+// ─── songs url ─────────────────────────────────────────
+
+const url = songs.command('url').description('The source link a song can be re-downloaded from');
+
+url
+  .command('get <name|id>')
+  .description('Show the stored link and source key')
+  .action((ref: string) => withBackend('read', (ctx) => runUrlGet(ctx, ref)));
+
+url
+  .command('set <name|id> <url>')
+  .description('Store a link (the daemon normalises it online); pass "" to clear it')
+  .action((ref: string, value: string) =>
+    withBackend('daemon', (ctx) => runUrlSet(ctx, ref, value)),
+  );
+
+url
+  .command('recognize <name|id> [url]')
+  .description('Preview what a link resolves to; without [url], re-checks the stored one')
+  .option('--save', 'store the result instead of only showing it')
+  .action((ref: string, value: string | undefined, opts) =>
+    withBackend('daemon', (ctx) => runUrlRecognize(ctx, ref, value, opts)),
+  );
+
+// ─── lyrics ────────────────────────────────────────────
+
+const lyrics = program.command('lyrics').description('Per-song lyrics files');
+
+lyrics
+  .command('redownload <name|id>')
+  .description('Search the lyrics providers again for this song')
+  .option('--wait', 'follow until it finishes (the default)')
+  .option('--no-wait', 'return as soon as it is queued')
+  .action((ref: string, opts) =>
+    withBackend('daemon', (ctx) => runLyricsRedownload(ctx, ref, opts)),
+  );
+
+lyrics
+  .command('delete <name|id>')
+  .description("Delete this song's lyrics file (asks first)")
+  .action((ref: string) => withBackend('write', (ctx) => runLyricsDelete(ctx, ref)));
 
 // ─── playlist ──────────────────────────────────────────
 

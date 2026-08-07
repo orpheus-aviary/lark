@@ -312,6 +312,47 @@ describe('round trip', () => {
   });
 });
 
+describe('lyrics', () => {
+  it('deletes the file, and reports a second delete as LYRICS_NOT_FOUND', async () => {
+    const { songs } = await seed();
+    const songId = songs[0] as string;
+    mkdirSync(join(larkDir(), 'songs', songId), { recursive: true });
+    writeFileSync(join(larkDir(), 'songs', songId, 'lyrics.lrc'), '[00:01.00]词\n');
+
+    await withDirect('write', async (backend) => {
+      expect((await backend.deleteLyrics(songId)).data).toEqual({ id: songId });
+    });
+    expect(readdirSync(join(larkDir(), 'songs', songId))).toEqual([]);
+
+    expect(await codeOf(() => withDirect('write', (backend) => backend.deleteLyrics(songId)))).toBe(
+      'LYRICS_NOT_FOUND',
+    );
+  });
+});
+
+describe('what only a daemon can do', () => {
+  // The mode matrix refuses `--direct` on these commands before a backend is
+  // built (M6-3); this is the second wall, and it must never turn into a
+  // half-working in-process downloader.
+  // Annotated: the calls return different payload types, and inference from
+  // the first entry alone would reject the rest.
+  const cases: [string, (backend: Backend) => Promise<unknown>][] = [
+    ['parseInput', (backend) => backend.parseInput('BV1')],
+    ['downloadSong', (backend) => backend.downloadSong({ input: 'BV1' })],
+    ['fetchList', (backend) => backend.fetchList({ type: 'favorites', media_id: '1' })],
+    ['downloadBatch', (backend) => backend.downloadBatch([])],
+    ['downloadTasks', (backend) => backend.downloadTasks()],
+    ['redownloadSong', (backend) => backend.redownloadSong('x')],
+    ['recognizeUrl', (backend) => backend.recognizeUrl('x')],
+    ['downloadLyrics', (backend) => backend.downloadLyrics('x')],
+  ];
+
+  it.each(cases)('refuses %s with a usage error', async (_name, call) => {
+    await seed();
+    expect(await codeOf(() => withDirect('write', call))).toBe('USAGE_ERROR');
+  });
+});
+
 describe('cache', () => {
   it('reports a status without a config file, and creates none', async () => {
     await seed();

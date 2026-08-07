@@ -55,7 +55,7 @@
   - [x] **T1 CLI 基建**（`0a6b04f`）— 身份五态（线格式显式联合 + pid 咬合）、`decideMode` 五态矩阵、`EXIT_MAP` 穷尽（七档退出码）、输出契约（`--json` 下 exit 0 ⇔ stdout 一条信封）、token 每次现读、confirm 三规则、守卫 `cli-no-daemon-gui`
   - [x] **T2 songs + playlist**（`26a2097`）— 两组命令走 HTTP、`<name|id>` 解析（歧义列候选不代选）、破坏性命令确认、导出原子写 / 导入两段式 digest；`sanitizeFileName` 下沉 shared 与 GUI 共用
   - [x] **T3 `--direct` 后端 + cache 组**（`5bb2514`）— 读只读开库不取锁 / 写持写锁、§4.1 适配矩阵、错误按类名映射（动态 import 下 instanceof 不可靠）；冒烟抓到并修掉两处双后端差异（uuid 门禁、虚拟 all）
-  - [ ] T4 download / url / lyrics — 逐行预检 + 分块 + batch 契约 + `--wait` 两路 + 三个终态错误码
+  - [x] **T4 download / url / lyrics** — 三种形状由 `/download/parse` 判定（单条 / 收藏夹合集 / 多行）、逐行预检与分块、batch 确认协议、`--wait` 两路轮询（任务滚出 ring → `TASK_STATE_UNKNOWN` 而非「失败」）、失败终态三码带快照；`songs url get/set/recognize --save`、`lyrics redownload/delete`。参数形状判定前移到探测 daemon 之前（零参数是 exit 2 不是 exit 4）
   - [ ] T5 play / now-playing / gui / daemon / stop-daemon — `ensureDaemon` 统一 + spawn ownership + child 双段回收
   - [ ] T6 skill export（契约测试 + 不入备份）
   - [ ] T7 `just accept-cli`（23 条判据，含双后端领域错误对拍）+ 文档回写

@@ -2,12 +2,21 @@ import type {
   ApiResponse,
   CacheEvictResultData,
   CacheStatusData,
+  DownloadBatchGroupInput,
+  DownloadBatchesData,
+  DownloadSongRequest,
+  DownloadTaskAcceptedData,
+  DownloadTasksData,
+  FetchListData,
+  FetchListRequest,
+  ParseResultData,
   PlaylistData,
   PlaylistExportData,
   PlaylistImportData,
   PlaylistImportPreviewData,
   PlaylistReorderRequest,
   PlaylistSongsAddedData,
+  RecognizeUrlData,
   SongData,
   SongSortField,
   SortOrder,
@@ -74,6 +83,32 @@ export interface Backend {
   cacheStatus(): Promise<ApiResponse<CacheStatusData>>;
   /** Runs the LRU drain. Direct mode holds the writer lock for the whole run. */
   cacheEvict(): Promise<ApiResponse<CacheEvictResultData>>;
+
+  // ── Download (M6-11) ───────────────────────────────
+  //
+  // Daemon-only, all of them: the queue, the claims and the network client
+  // live there, and a second downloader in a CLI process would be a second
+  // writer to the same files. The direct backend answers `USAGE_ERROR`, and
+  // the mode matrix refuses `--direct` before it ever gets that far.
+  /** Preview: classifies what was pasted and enqueues nothing. */
+  parseInput(input: string): Promise<ApiResponse<ParseResultData>>;
+  downloadSong(request: DownloadSongRequest): Promise<ApiResponse<DownloadTaskAcceptedData>>;
+  /** Expand a favourites folder / collection into videos. Partial success is normal. */
+  fetchList(request: FetchListRequest): Promise<ApiResponse<FetchListData>>;
+  downloadBatch(
+    groups: readonly DownloadBatchGroupInput[],
+  ): Promise<ApiResponse<DownloadBatchesData>>;
+  /** The whole queue snapshot — what `--wait` polls. */
+  downloadTasks(): Promise<ApiResponse<DownloadTasksData>>;
+  redownloadSong(id: string): Promise<ApiResponse<DownloadTaskAcceptedData>>;
+
+  // ── Source url (M6-12) ─────────────────────────────
+  /** Preview what a URL resolves to. Writes nothing (R6). */
+  recognizeUrl(id: string, url?: string): Promise<ApiResponse<RecognizeUrlData>>;
+
+  // ── Lyrics ─────────────────────────────────────────
+  downloadLyrics(id: string): Promise<ApiResponse<DownloadTaskAcceptedData>>;
+  deleteLyrics(id: string): Promise<ApiResponse<{ id: string }>>;
 
   // ── Transfer (M6-13) ───────────────────────────────
   exportPlaylist(id: string): Promise<ApiResponse<PlaylistExportData>>;

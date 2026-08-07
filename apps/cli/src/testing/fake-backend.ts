@@ -8,10 +8,18 @@ import type {
   ApiResponse,
   CacheEvictResultData,
   CacheStatusData,
+  DownloadBatchData,
+  DownloadBatchesData,
+  DownloadTaskData,
+  DownloadTasksData,
+  FetchListData,
+  ParseResultData,
+  ParsedItem,
   PlaylistData,
   PlaylistExportData,
   PlaylistImportData,
   PlaylistImportPreviewData,
+  RecognizeUrlData,
   SongData,
   StatusData,
 } from '@lark/shared';
@@ -35,6 +43,19 @@ export interface FakeBackendData {
   status?: StatusData;
   cacheStatus?: CacheStatusData;
   cacheEvict?: CacheEvictResultData;
+
+  // Download (T4).
+  parse?: ParseResultData;
+  accepted?: { task_id: string };
+  fetchList?: FetchListData;
+  batches?: DownloadBatchesData;
+  recognize?: RecognizeUrlData;
+  /**
+   * One snapshot per `downloadTasks()` call; the last one repeats forever.
+   * That is how a `--wait` test scripts "queued → running → succeeded" without
+   * a clock.
+   */
+  taskSnapshots?: DownloadTasksData[];
 }
 
 export interface FakeBackend extends Backend {
@@ -71,6 +92,62 @@ export function playlist(overrides: Partial<PlaylistData> = {}): PlaylistData {
     updated_at: 1,
     ...overrides,
   };
+}
+
+export function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
+  return {
+    id: 'task-1',
+    kind: 'download',
+    state: 'queued',
+    stage: null,
+    revision: 1,
+    input: { type: 'url', url: 'https://www.bilibili.com/video/BV1xx411c7mD' },
+    song_id: null,
+    playlist_ids: [],
+    failed_playlist_ids: [],
+    created_at: 1,
+    started_at: null,
+    finished_at: null,
+    error_code: null,
+    error_message: null,
+    result: null,
+    ...overrides,
+  };
+}
+
+export function batch(overrides: Partial<DownloadBatchData> = {}): DownloadBatchData {
+  return {
+    id: 'batch-1',
+    target: { kind: 'all' },
+    total: 1,
+    items: [{ index: 0, task_id: 'task-1', final: null }],
+    created_at: 1,
+    ...overrides,
+  };
+}
+
+/**
+ * What the daemon's `/download/parse` would say about one line.
+ *
+ * One item per line, IN ORDER — the property the command layer relies on to
+ * turn "item 4 is a favourites link" back into "line 7 of your file". The
+ * recognition itself is deliberately crude (`BV…` is a video, `fav:<id>` a
+ * folder, `col:<mid>:<season>` a collection, everything else a keyword): tests
+ * that need real URL parsing belong to core's parser, and a fake that is
+ * STRICTER than the daemon invents failures that cannot happen (M6 T2).
+ */
+function parsedItem(line: string): ParsedItem {
+  if (line.startsWith('BV')) {
+    return { kind: 'video', bvid: line, page: null, url: `https://www.bilibili.com/video/${line}` };
+  }
+  if (line.startsWith('fav:')) {
+    return { kind: 'favorites', media_id: line.slice('fav:'.length), url: line };
+  }
+  if (line.startsWith('col:')) {
+    const [mid = '', seasonId = ''] = line.slice('col:'.length).split(':');
+    return { kind: 'collection', mid, season_id: seasonId, url: line };
+  }
+  return { kind: 'keyword', query: line };
 }
 
 export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
@@ -120,6 +197,27 @@ export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
     removePlaylistSong: (id, songId) =>
       record('removePlaylistSong', [id, songId], { playlist_id: id, song_id: songId }),
     reorderPlaylist: (id, move) => record('reorderPlaylist', [id, move], { playlist_id: id }),
+
+    parseInput: (input) =>
+      record('parseInput', [input], data.parse ?? { items: input.split('\n').map(parsedItem) }),
+    downloadSong: (request) =>
+      record('downloadSong', [request], data.accepted ?? { task_id: 'task-1' }),
+    fetchList: (request) => record('fetchList', [request], data.fetchList as FetchListData),
+    downloadBatch: (groups) =>
+      record('downloadBatch', [groups], data.batches ?? { batches: [batch()] }),
+    downloadTasks: () => {
+      calls.push({ method: 'downloadTasks', args: [] });
+      const scripted = data.taskSnapshots ?? [];
+      // The last snapshot repeats: a poll loop asks until it sees a terminal
+      // state, and a script that ran out would otherwise change the answer.
+      const snapshot = scripted.length > 1 ? (scripted.shift() as DownloadTasksData) : scripted[0];
+      return Promise.resolve({ success: true, data: snapshot ?? { tasks: [], batches: [] } });
+    },
+    redownloadSong: (id) => record('redownloadSong', [id], data.accepted ?? { task_id: 'task-1' }),
+    recognizeUrl: (id, url) =>
+      record('recognizeUrl', [id, url], data.recognize as RecognizeUrlData),
+    downloadLyrics: (id) => record('downloadLyrics', [id], data.accepted ?? { task_id: 'task-1' }),
+    deleteLyrics: (id) => record('deleteLyrics', [id], { id }),
 
     cacheStatus: () => record('cacheStatus', [], data.cacheStatus as CacheStatusData),
     cacheEvict: () => record('cacheEvict', [], data.cacheEvict as CacheEvictResultData),

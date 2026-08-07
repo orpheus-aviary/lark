@@ -334,6 +334,36 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       );
     },
 
+    // ── Download / source url (daemon only) ────────────
+    //
+    // These reject rather than approximate. Downloading needs the queue, the
+    // claim registry and one shared bilibili client (two clients are two
+    // identities to the risk-control system, M3); recognising a URL is a
+    // network call the daemon owns. `decideMode` refuses `--direct` on these
+    // commands before a backend is ever built — this is the second wall, for
+    // the day a command asks for the wrong `need`.
+    parseInput: () => Promise.reject(daemonOnly('解析下载输入')),
+    downloadSong: () => Promise.reject(daemonOnly('下载')),
+    fetchList: () => Promise.reject(daemonOnly('展开收藏夹 / 合集')),
+    downloadBatch: () => Promise.reject(daemonOnly('批量下载')),
+    downloadTasks: () => Promise.reject(daemonOnly('查看下载队列')),
+    redownloadSong: () => Promise.reject(daemonOnly('重新下载')),
+    recognizeUrl: () => Promise.reject(daemonOnly('联网识别链接')),
+    downloadLyrics: () => Promise.reject(daemonOnly('下载歌词')),
+
+    // ── Lyrics (local file) ────────────────────────────
+    deleteLyrics: async (id) => {
+      writable();
+      // The daemon takes a `lyrics` claim here to close the window between
+      // "is there a file?" and "delete it". There is no window to close in
+      // this process: R31 guarantees no daemon, and the writer lock excludes
+      // every other writer, so this process is the only one that could be
+      // writing that file.
+      const deleted = await attemptAsync(() => core.deleteLyrics(validId(id)));
+      if (!deleted) throw new CliError('LYRICS_NOT_FOUND', '这首歌没有歌词文件。');
+      return ok({ id }, { message: 'lyrics deleted' });
+    },
+
     // ── Transfer ───────────────────────────────────────
     exportPlaylist: (id) => {
       const source =
@@ -372,6 +402,11 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       });
     },
   };
+}
+
+/** What the direct backend says about the things only a daemon can do (M6-5). */
+function daemonOnly(what: string): CliError {
+  return new CliError('USAGE_ERROR', `${what}需要一个运行中的 daemon——去掉 --direct 重试。`);
 }
 
 /** Same 20MB ceiling the daemon enforces (§4.1). */

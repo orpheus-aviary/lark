@@ -3,12 +3,20 @@ import {
   type ApiResponse,
   type CacheEvictResultData,
   type CacheStatusData,
+  type DownloadBatchesData,
+  type DownloadSongRequest,
+  type DownloadTaskAcceptedData,
+  type DownloadTasksData,
+  type FetchListData,
+  type FetchListRequest,
+  type ParseResultData,
   type PlaylistData,
   type PlaylistExportData,
   type PlaylistImportData,
   type PlaylistImportPreviewData,
   type PlaylistReorderRequest,
   type PlaylistSongsAddedData,
+  type RecognizeUrlData,
   type SongData,
   type StatusData,
   type UpdateSongRequest,
@@ -56,6 +64,29 @@ export function createHttpBackend(baseUrl: string = defaultDaemonBaseUrl()): Bac
       send<{ playlist_id: string; song_id: string }>('DELETE', apiPath.playlistSong(id, songId)),
     reorderPlaylist: (id, move: PlaylistReorderRequest) =>
       send<{ playlist_id: string }>('POST', apiPath.playlistReorder(id), move),
+
+    parseInput: (input) => send<ParseResultData>('POST', API_PATHS.downloadParse, { input }),
+    downloadSong: (body: DownloadSongRequest) =>
+      send<DownloadTaskAcceptedData>('POST', API_PATHS.downloadSong, body),
+    fetchList: (body: FetchListRequest) =>
+      send<FetchListData>('POST', API_PATHS.downloadFetchList, body),
+    downloadBatch: (groups) =>
+      send<DownloadBatchesData>('POST', API_PATHS.downloadBatch, { groups }),
+    downloadTasks: () => get<DownloadTasksData>(API_PATHS.downloadTasks),
+    redownloadSong: (id) => send<DownloadTaskAcceptedData>('POST', apiPath.songRedownload(id)),
+
+    // An omitted `url` means "re-recognise the link already on the song" — and
+    // that is `{}`, not a bodyless POST: the route reads its body through
+    // `objectBody`, which answers `INVALID_BODY` when there is nothing to read.
+    recognizeUrl: (id, url) =>
+      send<RecognizeUrlData>(
+        'POST',
+        apiPath.songRecognizeUrl(id),
+        url === undefined ? {} : { url },
+      ),
+
+    downloadLyrics: (id) => send<DownloadTaskAcceptedData>('POST', apiPath.downloadLyrics(id)),
+    deleteLyrics: (id) => send<{ id: string }>('DELETE', apiPath.lyrics(id)),
 
     cacheStatus: () => get<CacheStatusData>(API_PATHS.cacheStatus),
     cacheEvict: () => send<CacheEvictResultData>('POST', API_PATHS.cacheEvict),
