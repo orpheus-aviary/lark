@@ -279,8 +279,6 @@ function SongContextMenu({
   );
 }
 
-type ActionsCellProps = RowActionProps;
-
 /**
  * The row's own buttons. Always visible rather than hover-only (the Go
  * behaviour): an action you have to discover by hovering is an action most
@@ -295,7 +293,7 @@ function SongActionsCell({
   removableFrom,
   onPlay,
   onRequestDelete,
-}: ActionsCellProps): React.JSX.Element {
+}: RowActionProps): React.JSX.Element {
   const stop = (e: React.MouseEvent): void => e.stopPropagation();
   return (
     <div className="flex items-center justify-center gap-0.5">
