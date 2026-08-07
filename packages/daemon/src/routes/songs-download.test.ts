@@ -10,7 +10,7 @@ import { promisify } from 'node:util';
 import { createSong, paths, resolveFfmpegBinaries } from '@lark/core';
 import { type FakeUpstream, startFakeUpstream } from '@lark/core/testing';
 import { API_PATHS, type SongData, apiPath } from '@lark/shared';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type TestApp,
   type TestContext,
@@ -74,6 +74,13 @@ beforeEach(async () => {
   upstream = await startFakeUpstream();
   ctx = createTestContext({ bilibiliBase: upstream.baseUrl });
   app = buildTestServer(ctx);
+});
+
+// The fixtures cost an ffmpeg run to build, so they are made once — and
+// therefore have to be removed once, or every test run leaves a directory
+// behind in /tmp forever.
+afterAll(() => {
+  rmSync(fixtures, { recursive: true, force: true });
 });
 
 afterEach(async () => {

@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,6 +37,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  rmSync(dir, { recursive: true, force: true });
 });
 
 const saver = (filePath: string | undefined) => ({

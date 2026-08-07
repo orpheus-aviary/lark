@@ -8,7 +8,7 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层（config/logger、schema v1 + 迁移基座、songs/playlists CRUD、Go 曲库迁移协议）、M2 daemon 基础路由（生命周期 + Bearer 鉴权 + SSE/gui 通道 + songs/playlists/audio/lyrics/player/config 路由）、M3 下载管线（bilibili + WBI、链接规范化、ffmpeg、歌词三平台、下载队列与崩溃恢复、download/import/redownload 路由）、M4 GUI 基座（Electron 宿主 + `lark-media://` 代理 + 曲库/播放器/歌词/下载全套界面）已完成；下一步 M5。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层、M2 daemon 基础路由、M3 下载管线、M4 GUI 基座、**M5 新特性**（设置页 + 主题 / 缓存 LRU 与固定 / 按需下载 / 链接编辑 / 歌单导入导出 / 拖拽排序）及其后续（状态色与行状态、两轴排序、多选与批量操作）均已完成，验收 `just accept-gui` 15/15 + `just accept-m5` 22/22；下一步 M6 CLI。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 

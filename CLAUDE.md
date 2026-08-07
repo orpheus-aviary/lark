@@ -6,7 +6,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交，全仓测试 1128）；**下一步 M6（CLI）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交）；**M5 后续已完成**（2026-08-07：状态色 token + 行状态四通道 + 两轴排序 + 多选与批量操作；子计划：`docs/plans/2026-08-06-m5-followup-batch-actions.md`，决策 B-1–B-12；四批提交，全仓测试 1173，`just accept-gui` 15/15 + `just accept-m5` 22/22 复跑通过）；**下一步 M6（CLI）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -108,6 +108,14 @@ lark/
 - **renderer 测试没有 jest-dom 匹配器**：`toHaveValue` / `toBeChecked` 报 "Invalid Chai property"，断言要读 `.value` 与 `aria-checked`；`vi.fn(() => …)` 的 `mock.calls[0][0]` 在 tsc 下是空元组，要断言入参就得给 mock 显式形参类型
 - **main 项目测 `dialog-ipc.ts` 要 `vi.mock('electron')`**，且必须连 `window.ts` 顶层的 `app.on('before-quit')` 一起假掉
 
+### M5 后续实测锁定（详见 `docs/plans/2026-08-06-m5-followup-batch-actions.md` §5）
+
+- **lark 没有强调色**：shadcn 中性色板的 `--primary` 浅色近黑、深色近白，与正文色同值——`text-primary` 当「激活态」用是**隐形的**（正在播放的行、当前排序项、播放模式激活态三处都中招过）。状态色走独立的 `--state-active`（琥珀），不动 `--primary`（按钮/勾选框/tooltip）
+- **`<tr>` 的 border 会被 `border-collapse` 吃掉**：选中的左竖条挂在**第一个 `<td>`**上，且未选中时也留同宽透明边框，否则选中会让整行横移 2px
+- **行内复选框必须 `stopPropagation`**：否则行自己的 onClick 也会触发，把多选塌成单选——正好是勾选的反面
+- **表头三态复选框的语义是「当前视图内」**：搜索/歌单已经筛过一轮，全选绝不能越过视图去够整个库
+- **`mkdtemp` 建的临时目录测试要自己收尾**：`dialog-ipc` 与 M3 的 fixture 各漏了一处，累计在 `/tmp` 留下 237 个目录才被发现——建目录的 `beforeEach`/`beforeAll` 必须配对 `rmSync`
+
 ### M3 实测锁定（详见 `docs/plans/2026-08-04-m3-download-pipeline.md` §7）
 
 - **`nav` 匿名返回 envelope `code: -101`（未登录）但照给 `wbi_img`**——WBI 取 key 判定**看字段不看 code**，看 code 会在健康环境上 fail-closed
@@ -136,6 +144,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 ## 关键参考
 
 - 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`
+- M5 子计划：`docs/plans/2026-08-06-m5-features.md`；M5 后续（多选批量）：`docs/plans/2026-08-06-m5-followup-batch-actions.md`
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
