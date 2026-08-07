@@ -70,6 +70,7 @@ body {
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-state-active: var(--state-active);
+  --color-state-pinned: var(--state-pinned);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -82,7 +83,9 @@ body {
  * exactly like body text. Three states depended on that and were therefore
  * invisible: the playing row, the active sort, the active play mode. This
  * amber is for STATE only; `--primary` (buttons, checkboxes, tooltips) is
- * deliberately left alone.
+ * deliberately left alone. `--state-pinned` (blue) is the same idea for the
+ * pin toggle: lit when the song is pinned, and neutral — not white — when it
+ * is not, so it reads in both themes.
  *
  * ── Two-state shadcn palette (M4-12; owl is dark-only, lark follows the OS).
  * Values are shadcn/ui upstream's default neutral theme (Tailwind v4 oklch
@@ -109,6 +112,7 @@ body {
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --state-active: oklch(0.6 0.15 68);
+  --state-pinned: oklch(0.55 0.19 255);
 }
 
 .dark {
@@ -132,6 +136,7 @@ body {
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
   --state-active: oklch(0.8 0.14 78);
+  --state-pinned: oklch(0.72 0.16 255);
 }
 
 @layer base {

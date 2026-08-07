@@ -49,7 +49,9 @@ const CONTENT_WIDTHS: Record<ColumnKey, number> = {
   duration: 64,
   fileSize: 80,
   createdAt: 160,
-  actions: 96,
+  // Five always-visible 32px buttons (pin / play / add / remove / delete)
+  // plus their gaps and the cell padding.
+  actions: 184,
 };
 
 const MIN_COLUMN_WIDTH = 60;

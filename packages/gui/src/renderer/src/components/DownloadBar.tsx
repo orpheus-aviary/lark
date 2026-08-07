@@ -29,7 +29,12 @@ interface Notice {
   error: boolean;
 }
 
-export function DownloadBar(): React.JSX.Element {
+interface DownloadBarProps {
+  /** Rendered at the end of the input row; the sort control in practice. */
+  trailing?: React.ReactNode;
+}
+
+export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Element {
   const tasks = useDownloads((s) => s.tasks);
   const batches = useDownloads((s) => s.batches);
   const cancelling = useDownloads((s) => s.cancelling);
@@ -37,7 +42,6 @@ export function DownloadBar(): React.JSX.Element {
   const downloadSong = useDownloads((s) => s.downloadSong);
   const cancel = useDownloads((s) => s.cancel);
   const playlistId = useLibrary((s) => s.playlistId);
-  const hasSelection = useLibrary((s) => s.selectedIds.length > 0);
 
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -100,7 +104,7 @@ export function DownloadBar(): React.JSX.Element {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-1">
+    <div className="flex flex-col gap-1">
       <div className="flex items-center gap-2">
         <Input
           ref={inputRef}
@@ -128,50 +132,48 @@ export function DownloadBar(): React.JSX.Element {
             <ListChecks />
           </Button>
         </DownloadTasksPopover>
+        {trailing}
       </div>
 
       {/* Always rendered at a FIXED height, even when idle: the song list is
           the flex child that absorbs the leftover height, so a status line
           that appears, disappears or grows would make the whole table jump.
-          24px rather than 20 because the batch-action bar shares this row. */}
-      <div className="flex h-6 items-center gap-1.5 text-xs">
-        {/* A selection owns this row while it exists (B-5). The download's own
-            progress is still in the tasks popover next door. */}
-        {hasSelection ? (
-          <BatchActionBar />
-        ) : (
-          <>
-            {(busy || current) && (
-              <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
-            )}
-            <span
-              className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
-            >
-              {busy
-                ? '正在解析输入…'
-                : current
-                  ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
-                  : (notice?.text ?? '')}
-            </span>
-            {progress && (
-              <span className="shrink-0 text-muted-foreground tabular-nums">
-                {progress.done}/{progress.batch.total}
-              </span>
-            )}
-            {current && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="取消下载"
-                title={cancellable ? '取消下载' : '当前阶段不可取消'}
-                disabled={!cancellable}
-                onClick={() => void cancelCurrent()}
-              >
-                <X />
-              </Button>
-            )}
-          </>
+          28px rather than 20 because the batch-action bar shares this row and
+          its buttons are 24px tall. */}
+      <div className="flex h-7 items-center gap-1.5 text-xs">
+        {/* Download status on the left, batch actions pinned to the right —
+            they share the row rather than taking turns, so neither can hide
+            the other (revised B-5). */}
+        {(busy || current) && (
+          <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
         )}
+        <span
+          className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
+        >
+          {busy
+            ? '正在解析输入…'
+            : current
+              ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
+              : (notice?.text ?? '')}
+        </span>
+        {progress && (
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            {progress.done}/{progress.batch.total}
+          </span>
+        )}
+        {current && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="取消下载"
+            title={cancellable ? '取消下载' : '当前阶段不可取消'}
+            disabled={!cancellable}
+            onClick={() => void cancelCurrent()}
+          >
+            <X />
+          </Button>
+        )}
+        <BatchActionBar />
       </div>
 
       {pasteOpen && (

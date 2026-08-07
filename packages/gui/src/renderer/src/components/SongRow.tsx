@@ -2,7 +2,7 @@
 // menu whose visibility rules are frozen in §4.1.
 
 import type { PlaylistData, SongData, UpdateSongRequest } from '@lark/shared';
-import { ListMinus, ListPlus, Play, Trash2 } from 'lucide-react';
+import { ListMinus, ListPlus, Pin, Play, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useBatchActions } from '../hooks/useBatchActions.js';
@@ -279,29 +279,45 @@ function SongContextMenu({
   );
 }
 
-interface ActionsCellProps extends RowActionProps {
-  /** Hover-only unless this row is the selected one (Go behaviour). */
-  alwaysVisible: boolean;
-}
+type ActionsCellProps = RowActionProps;
 
+/**
+ * The row's own buttons. Always visible rather than hover-only (the Go
+ * behaviour): an action you have to discover by hovering is an action most
+ * people never find.
+ *
+ * Pin leads, because it is the only one that also REPORTS something — lit blue
+ * means "the cache may never reclaim this". Everything else just acts.
+ */
 function SongActionsCell({
   song,
   actions,
   removableFrom,
   onPlay,
   onRequestDelete,
-  alwaysVisible,
 }: ActionsCellProps): React.JSX.Element {
   const stop = (e: React.MouseEvent): void => e.stopPropagation();
   return (
-    <div
-      className={`flex items-center justify-center gap-0.5 ${
-        alwaysVisible ? '' : 'opacity-0 group-hover:opacity-100'
-      }`}
-    >
+    <div className="flex items-center justify-center gap-0.5">
       <Button
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
+        // Neutral, not white: `text-muted-foreground` is dark on a light
+        // theme and light on a dark one, which is what "white" has to mean
+        // for it to be visible in both.
+        className={song.pinned ? 'text-state-pinned' : 'text-muted-foreground'}
+        aria-label={`${song.pinned ? '取消固定' : '固定'} ${song.name}`}
+        aria-pressed={song.pinned}
+        onClick={(e) => {
+          stop(e);
+          actions.togglePin();
+        }}
+      >
+        <Pin className={song.pinned ? 'fill-current' : ''} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         aria-label={`播放 ${song.name}`}
         onClick={(e) => {
           stop(e);
@@ -315,7 +331,7 @@ function SongActionsCell({
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               aria-label={`添加 ${song.name} 到歌单`}
               onClick={stop}
             >
@@ -334,7 +350,7 @@ function SongActionsCell({
       {removableFrom !== null && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           aria-label={`从当前歌单移除 ${song.name}`}
           onClick={(e) => {
             stop(e);
@@ -346,7 +362,7 @@ function SongActionsCell({
       )}
       <Button
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         className="text-destructive"
         aria-label={`删除 ${song.name}`}
         onClick={(e) => {
@@ -482,8 +498,7 @@ export function SongRow({
               value={song.name}
               display={
                 <>
-                  {/* Bold = pinned, i.e. "the cache may never reclaim this". */}
-                  <span className={song.pinned ? 'font-semibold' : ''}>{song.name}</span>
+                  {song.name}
                   {!song.has_file && (
                     <span className="ml-1 text-destructive text-xs">[需要下载]</span>
                   )}
@@ -519,7 +534,7 @@ export function SongRow({
             <td className="px-3 py-1.5 text-muted-foreground">{formatDateTime(song.created_at)}</td>
           )}
           <td className="px-3 py-1.5">
-            <SongActionsCell {...menuProps} alwaysVisible={isSelected} />
+            <SongActionsCell {...menuProps} />
           </td>
         </tr>
       </ContextMenuTrigger>

@@ -1,9 +1,13 @@
-// What the selection can be done to (S3/B-5).
+// What the selection can be done to (S3/B-5, revised after acceptance).
 //
-// Lives in the download bar's status line, which has been a reserved
-// fixed-height row since M4 — so switching between "downloading…" and this
-// costs no layout at all. A selection wins the row while it exists; the
-// download's own progress stays reachable in the tasks popover.
+// PERMANENT, not conditional: the buttons sit at the right end of the download
+// bar's status line whether or not anything is selected, greyed out until it
+// is. That costs one row of pixels the layout had already reserved, and buys
+// discoverability — an action that only exists once you have already selected
+// something is an action you have to be told about.
+//
+// The download's own status keeps the left of the same row; the two no longer
+// take turns.
 //
 // Pin and unpin are two buttons rather than one toggle (B-6): a mixed
 // selection has no single sensible flip, and both directions are idempotent.
@@ -13,6 +17,7 @@ import { useState } from 'react';
 import { useBatchActions } from '../hooks/useBatchActions.js';
 import { useLibrary } from '../stores/library.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
+import { Button } from './ui/button.js';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,78 +25,70 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu.js';
 
-interface ActionProps {
-  children: React.ReactNode;
-  disabled: boolean;
-  destructive?: boolean;
-  onClick: () => void;
-}
-
-/** A text button, not a real one: the row it lives in is 24px tall. */
-function Action({ children, disabled, destructive, onClick }: ActionProps): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`shrink-0 hover:underline disabled:opacity-50 disabled:hover:no-underline ${
-        destructive === true ? 'text-destructive' : ''
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 export function BatchActionBar(): React.JSX.Element {
   const clearSelection = useLibrary((s) => s.clearSelection);
   const batch = useBatchActions();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  const empty = batch.count === 0;
+  const idle = empty || batch.busy;
+
   return (
     <>
-      <span className="shrink-0 text-muted-foreground">已选 {batch.count} 首</span>
-      <Action disabled={batch.busy} onClick={() => batch.pin(true)}>
-        固定
-      </Action>
-      <Action disabled={batch.busy} onClick={() => batch.pin(false)}>
-        取消固定
-      </Action>
-      {batch.targets.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button type="button" disabled={batch.busy} className="shrink-0 hover:underline">
-              添加到歌单
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {batch.targets.map((playlist) => (
-              <DropdownMenuItem key={playlist.id} onSelect={() => batch.addTo(playlist)}>
-                {playlist.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-      {batch.removableFrom !== null && (
-        <Action disabled={batch.busy} onClick={batch.removeFromCurrent}>
-          从当前列表移除
-        </Action>
-      )}
-      <Action destructive disabled={batch.busy} onClick={() => setConfirmDelete(true)}>
-        删除
-      </Action>
+      {/* Pushes the whole group to the right edge, past the download status. */}
+      <div className="flex-1" />
+      {!empty && <span className="shrink-0 text-muted-foreground">已选 {batch.count} 首</span>}
       {batch.busy && <span className="shrink-0 text-muted-foreground">处理中…</span>}
 
-      <div className="flex-1" />
-      <button
-        type="button"
+      <Button variant="secondary" size="xs" disabled={idle} onClick={() => batch.pin(true)}>
+        固定
+      </Button>
+      <Button variant="secondary" size="xs" disabled={idle} onClick={() => batch.pin(false)}>
+        取消固定
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="secondary" size="xs" disabled={idle || batch.targets.length === 0}>
+            添加到歌单
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {batch.targets.map((playlist) => (
+            <DropdownMenuItem key={playlist.id} onSelect={() => batch.addTo(playlist)}>
+              {playlist.name}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {/* Rendered even where it cannot apply (the virtual `all`, a search):
+          a toolbar that changes shape with the view is one you have to re-read
+          every time. It just goes dead instead (B-9). */}
+      <Button
+        variant="secondary"
+        size="xs"
+        disabled={idle || batch.removableFrom === null}
+        onClick={batch.removeFromCurrent}
+      >
+        从当前列表移除
+      </Button>
+      {/* Red only once it would do something; grey with the rest until then. */}
+      <Button
+        variant={empty ? 'secondary' : 'destructive'}
+        size="xs"
+        disabled={idle}
+        onClick={() => setConfirmDelete(true)}
+      >
+        删除
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
         aria-label="清空选择"
-        className="shrink-0 text-muted-foreground hover:text-foreground"
+        disabled={empty}
         onClick={clearSelection}
       >
-        <X className="size-3.5" />
-      </button>
+        <X />
+      </Button>
 
       <ConfirmDialog
         open={confirmDelete}

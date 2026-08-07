@@ -374,14 +374,28 @@ describe('row state markers', () => {
     expect(screen.getByTestId('song-row-song-1').className).not.toContain('text-state-active');
   });
 
-  it('bolds a pinned song name', () => {
+  it('lights the pin button blue for a pinned song, neutral otherwise', () => {
     useLibrary.setState({
       songs: [song({ id: 'song-1', name: '固定的', pinned: true }), SONGS[1]],
     });
     renderList();
 
-    expect(screen.getByText('固定的').className).toContain('font-semibold');
-    expect(screen.getByText('第二首').className).not.toContain('font-semibold');
+    const pinned = screen.getByRole('button', { name: '取消固定 固定的' });
+    const loose = screen.getByRole('button', { name: '固定 第二首' });
+    expect(pinned.className).toContain('text-state-pinned');
+    expect(pinned.getAttribute('aria-pressed')).toBe('true');
+    // Neutral, not white: it has to stay visible on a light theme too.
+    expect(loose.className).toContain('text-muted-foreground');
+    expect(loose.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('keeps the row buttons on screen without hovering', () => {
+    renderList();
+
+    // Hover-only actions are actions most people never find.
+    const cell = screen.getByRole('button', { name: '播放 第一首' }).parentElement;
+    expect(cell?.className).not.toContain('group-hover');
+    expect(cell?.className).not.toContain('opacity-0');
   });
 
   it('marks the selected row with a left bar, and reserves its width otherwise', () => {

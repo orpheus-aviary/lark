@@ -199,33 +199,55 @@ describe('status line', () => {
 describe('the batch action bar shares this row (S3/B-5)', () => {
   const PLAYLIST = 'a4f1e3c2-0000-4000-8000-000000000001';
 
-  it('takes the row over from the download status while a selection exists', async () => {
+  it('shares the row with the download status instead of taking turns', async () => {
     useDownloads.setState({ tasks: [task()], batches: [], cancelling: [] });
     render(<DownloadBar />);
+
+    // Greyed out, but present — an action nobody can see is an action nobody
+    // knows exists.
     expect(screen.getByText('下载中')).toBeDefined();
+    expect(screen.getByRole('button', { name: '固定' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.queryByText(/已选/)).toBeNull();
 
     useLibrary.setState({ selectedIds: ['song-1', 'song-2'] });
-    expect(await screen.findByText('已选 2 首')).toBeDefined();
-    // The download did not stop — its progress just lives in the popover now.
-    expect(screen.queryByText('下载中')).toBeNull();
 
-    useLibrary.setState({ selectedIds: [] });
-    expect(await screen.findByText('下载中')).toBeDefined();
+    expect(await screen.findByText('已选 2 首')).toBeDefined();
+    expect(screen.getByRole('button', { name: '固定' }).hasAttribute('disabled')).toBe(false);
+    // The download line is still right there next to it.
+    expect(screen.getByText('下载中')).toBeDefined();
   });
 
-  it('offers "remove from this list" only inside a real playlist (B-9)', async () => {
+  it('puts the batch buttons after everything else in the row', () => {
+    useLibrary.setState({ selectedIds: ['song-1'] });
+    render(<DownloadBar trailing={<button type="button">排序</button>} />);
+
+    // The sort control belongs to the INPUT row; the status row underneath is
+    // full width, so the batch group really is at the right edge.
+    const row = screen.getByRole('button', { name: '清空选择' }).parentElement;
+    expect(row?.textContent).toContain('已选 1 首');
+    expect(row?.textContent).not.toContain('排序');
+    const buttons = [...(row?.querySelectorAll('button') ?? [])].map(
+      (b) => b.getAttribute('aria-label') ?? b.textContent,
+    );
+    expect(buttons.at(-1)).toBe('清空选择');
+  });
+
+  it('keeps "remove from this list" in place but dead where it cannot apply (B-9)', () => {
     useLibrary.setState({ selectedIds: ['song-1'], playlistId: VIRTUAL_ALL_PLAYLIST_ID });
     const { rerender } = render(<DownloadBar />);
-    expect(screen.queryByRole('button', { name: '从当前列表移除' })).toBeNull();
+    const removeButton = (): HTMLElement => screen.getByRole('button', { name: '从当前列表移除' });
+
+    // A toolbar that changes shape with the view is one you re-read every time.
+    expect(removeButton().hasAttribute('disabled')).toBe(true);
 
     useLibrary.setState({ playlistId: PLAYLIST, search: '' });
     rerender(<DownloadBar />);
-    expect(screen.getByRole('button', { name: '从当前列表移除' })).toBeDefined();
+    expect(removeButton().hasAttribute('disabled')).toBe(false);
 
     // A search result spans the library, so it is not a member list.
     useLibrary.setState({ search: '周' });
     rerender(<DownloadBar />);
-    expect(screen.queryByRole('button', { name: '从当前列表移除' })).toBeNull();
+    expect(removeButton().hasAttribute('disabled')).toBe(true);
   });
 
   it('pins the whole selection from the bar', async () => {
