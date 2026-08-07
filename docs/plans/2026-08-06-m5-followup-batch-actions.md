@@ -55,3 +55,20 @@
 **自动**：`just check` + 全仓测试绿；选择纯函数（区间跨越、锚点失效、自净）、store（切歌单清空、刷新自净）、组件（表头三态、Shift 区间、右键落在选区外重置、批量删除确认后发 N 个请求、部分失败文案）。
 
 **用户手动**：多选手感（Cmd/Shift）、操作条观感与 24px 高度是否够用、批量删除的心理安全感、下载中出现选区时状态行被顶掉是否别扭。
+
+## 5. 实施记录（S1–S3，2026-08-06）
+
+三批已提交，每批 `just check` + 全仓测试绿。测试规模：gui 329（S1 +16 / S2 +9 / S3 +14）。
+
+- **S1 `c68bb63`**：`lib/selection.ts`（`toggleIn` / `rangeBetween` / `pruneMissing` + 表头两态判定）+ store 的 `selectedIds`/`selectionAnchor` 与五个动作 + 三条清空规则；三个旧消费者迁移，行为不变。
+- **S2 `de2ac48`**：36px 复选框列 + 表头三态 + Cmd/Shift 点选 + Esc 清空（让位对话框）+ 右键选区规则 + 拖拽清空选择；列宽改双固定列。
+- **S3**：`lib/batch-actions.ts`（`runBatch` / `batchMessage`）+ `hooks/useBatchActions.ts` + `BatchActionBar` + 右键菜单批量转发。
+
+### 与计划的偏差（已实现为准）
+
+1. **动作逻辑抽成 `useBatchActions` hook**（计划写在 `BatchActionBar` 里）：右键菜单要用同一套动作，「菜单删一首、操作条删五首」这种分叉是静默且破坏性的。确认框各自渲染（两棵树），共享的是执行与统计。
+2. **右键菜单只转发五项**（固定 / 取消固定 / 添加到歌单 / 从当前列表移除 / 删除），标签带数量（「删除歌曲 2 首」）；播放、复制/打开/编辑链接、复制 ID、重新下载、歌词两项**保持单行**——前者天然单行，后者不在本轮范围。菜单顶部加「已选 N 首」标签，让转发可见。
+3. **`ContextMenuLabel` 补进 ui 包装**（shadcn 那份没生成）。
+4. **行内悬停操作列保持单行**：props 拆成 `RowActionProps`（悬停列）/ `RowMenuProps`（菜单，多一个 `inSelection`）。
+5. **N 次串行会带来 N 次刷新**（每个 store 动作自带 `refresh()`）：lane 会把前 N-1 次 abort 掉，最后一次落地，自我收敛——记录而不优化。
+6. **B-10 的互斥没有自动化测试**：jsdom 里 rect 恒为 0，dnd-kit 的 drop 驱动不了（spike §8.4 已锁定），靠代码 + 手动验收。

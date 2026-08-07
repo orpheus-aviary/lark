@@ -5,18 +5,21 @@ import type { PlaylistData, SongData, UpdateSongRequest } from '@lark/shared';
 import { ListMinus, ListPlus, Play, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useBatchActions } from '../hooks/useBatchActions.js';
 import { errorMessage } from '../lib/errors.js';
 import { formatDateTime, formatDuration, formatFileSize } from '../lib/format.js';
 import { getPlatform } from '../platform/index.js';
 import { useLibrary } from '../stores/library.js';
 import { usePlaylists, userPlaylists } from '../stores/playlists.js';
 import type { ColumnVisibility } from '../stores/view-prefs.js';
+import { ConfirmDialog } from './ConfirmDialog.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -161,13 +164,18 @@ function EditableCell({ value, display, onCommit }: EditableCellProps): React.JS
   );
 }
 
-interface RowMenuProps {
+interface RowActionProps {
   song: SongData;
   actions: SongActions;
   removableFrom: string | null;
   onPlay: (song: SongData) => void;
   onRequestDelete: (song: SongData) => void;
   onEditLink: (song: SongData) => void;
+}
+
+interface RowMenuProps extends RowActionProps {
+  /** True when this row is part of a MULTI selection (B-4). */
+  inSelection: boolean;
 }
 
 /** The Go six plus `播放` (master plan §5.4), rendered under §4.1's rules. */
@@ -178,55 +186,100 @@ function SongContextMenu({
   onPlay,
   onRequestDelete,
   onEditLink,
+  inSelection,
 }: RowMenuProps): React.JSX.Element {
+  const batch = useBatchActions();
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
+  // Right-clicking one of several selected rows acts on all of them (B-4).
+  // Anything inherently single — play, copy, edit this link — stays single
+  // however many rows are selected.
+  const many = inSelection && batch.count > 1;
+  const suffix = many ? ` ${batch.count} 首` : '';
+
   return (
-    <ContextMenuContent className="w-44">
-      {/* A missing file downloads and then plays (M5-9), so nothing here is
+    <>
+      <ContextMenuContent className="w-44">
+        {many && (
+          <>
+            <ContextMenuLabel>已选 {batch.count} 首</ContextMenuLabel>
+            <ContextMenuSeparator />
+          </>
+        )}
+        {/* A missing file downloads and then plays (M5-9), so nothing here is
           disabled — the `[需要下载]` marker is the only hint needed. */}
-      <ContextMenuItem onSelect={() => onPlay(song)}>播放</ContextMenuItem>
-      {actions.targets.length > 0 && (
-        <ContextMenuSub>
-          <ContextMenuSubTrigger>添加到歌单</ContextMenuSubTrigger>
-          <ContextMenuSubContent>
-            {actions.targets.map((playlist) => (
-              <ContextMenuItem key={playlist.id} onSelect={() => actions.addTo(playlist)}>
-                {playlist.name}
-              </ContextMenuItem>
-            ))}
-          </ContextMenuSubContent>
-        </ContextMenuSub>
-      )}
-      {removableFrom !== null && (
-        <ContextMenuItem onSelect={() => actions.removeFrom(removableFrom)}>
-          从当前列表移除
-        </ContextMenuItem>
-      )}
-      <ContextMenuItem onSelect={actions.redownloadLyrics}>重新下载歌词</ContextMenuItem>
-      <ContextMenuItem onSelect={actions.deleteLyrics}>删除歌词</ContextMenuItem>
-      <ContextMenuItem onSelect={actions.copyId}>复制歌曲 ID</ContextMenuItem>
-      <ContextMenuSeparator />
-      {/* The link three (M5-10). Copy/open need a link to work with; editing
+        <ContextMenuItem onSelect={() => onPlay(song)}>播放</ContextMenuItem>
+        {actions.targets.length > 0 && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>添加到歌单{suffix}</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              {actions.targets.map((playlist) => (
+                <ContextMenuItem
+                  key={playlist.id}
+                  onSelect={() => (many ? batch.addTo(playlist) : actions.addTo(playlist))}
+                >
+                  {playlist.name}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
+        {removableFrom !== null && (
+          <ContextMenuItem
+            onSelect={() => (many ? batch.removeFromCurrent() : actions.removeFrom(removableFrom))}
+          >
+            从当前列表移除{suffix}
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem onSelect={actions.redownloadLyrics}>重新下载歌词</ContextMenuItem>
+        <ContextMenuItem onSelect={actions.deleteLyrics}>删除歌词</ContextMenuItem>
+        <ContextMenuItem onSelect={actions.copyId}>复制歌曲 ID</ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* The link three (M5-10). Copy/open need a link to work with; editing
           one is how a song without a link gets one. */}
-      <ContextMenuItem disabled={song.source_url === null} onSelect={actions.copyLink}>
-        复制链接
-      </ContextMenuItem>
-      <ContextMenuItem disabled={song.source_url === null} onSelect={actions.openLink}>
-        打开链接
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => onEditLink(song)}>编辑链接…</ContextMenuItem>
-      <ContextMenuItem onSelect={actions.togglePin}>
-        {song.pinned ? '取消固定' : '固定'}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={actions.redownload}>重新下载</ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem variant="destructive" onSelect={() => onRequestDelete(song)}>
-        删除歌曲
-      </ContextMenuItem>
-    </ContextMenuContent>
+        <ContextMenuItem disabled={song.source_url === null} onSelect={actions.copyLink}>
+          复制链接
+        </ContextMenuItem>
+        <ContextMenuItem disabled={song.source_url === null} onSelect={actions.openLink}>
+          打开链接
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => onEditLink(song)}>编辑链接…</ContextMenuItem>
+        {many ? (
+          <>
+            <ContextMenuItem onSelect={() => batch.pin(true)}>固定{suffix}</ContextMenuItem>
+            <ContextMenuItem onSelect={() => batch.pin(false)}>取消固定{suffix}</ContextMenuItem>
+          </>
+        ) : (
+          <ContextMenuItem onSelect={actions.togglePin}>
+            {song.pinned ? '取消固定' : '固定'}
+          </ContextMenuItem>
+        )}
+        <ContextMenuItem onSelect={actions.redownload}>重新下载</ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          variant="destructive"
+          onSelect={() => (many ? setConfirmBatchDelete(true) : onRequestDelete(song))}
+        >
+          删除歌曲{suffix}
+        </ContextMenuItem>
+      </ContextMenuContent>
+
+      <ConfirmDialog
+        open={confirmBatchDelete}
+        title="删除歌曲"
+        description={`确定删除选中的 ${batch.count} 首吗？音频与歌词文件会一并移入废纸篓。`}
+        confirmLabel="删除"
+        destructive
+        onConfirm={() => {
+          setConfirmBatchDelete(false);
+          batch.deleteSelected();
+        }}
+        onCancel={() => setConfirmBatchDelete(false)}
+      />
+    </>
   );
 }
 
-interface ActionsCellProps extends RowMenuProps {
+interface ActionsCellProps extends RowActionProps {
   /** Hover-only unless this row is the selected one (Go behaviour). */
   alwaysVisible: boolean;
 }
@@ -363,6 +416,7 @@ export function SongRow({
   const updateSong = useLibrary((s) => s.updateSong);
   const actions = useSongActions(song);
   const menuProps = { song, actions, removableFrom, onPlay, onRequestDelete, onEditLink };
+  const menuPropsWithSelection = { ...menuProps, inSelection: isSelected };
 
   const commitEdit = (field: EditField, value: string): void => {
     // An emptied song name is discarded; an emptied artist is a real value.
@@ -470,7 +524,7 @@ export function SongRow({
         </tr>
       </ContextMenuTrigger>
 
-      <SongContextMenu {...menuProps} />
+      <SongContextMenu {...menuPropsWithSelection} />
     </ContextMenu>
   );
 }

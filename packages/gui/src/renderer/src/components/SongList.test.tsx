@@ -507,3 +507,71 @@ describe('multi-selection (S2)', () => {
     expect(selected()).toEqual(['song-1', 'song-2']);
   });
 });
+
+describe('batch actions from the row menu (S3/B-4)', () => {
+  const THREE = [
+    song({ id: 'song-1', name: '第一首' }),
+    song({ id: 'song-2', name: '第二首' }),
+    song({ id: 'song-3', name: '第三首' }),
+  ];
+
+  beforeEach(() => {
+    useLibrary.setState({ songs: THREE, selectedIds: [], selectionAnchor: null });
+  });
+
+  const selectTwo = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
+    await user.click(screen.getByTestId('song-row-song-1'));
+    await user.keyboard('{Meta>}');
+    await user.click(screen.getByTestId('song-row-song-3'));
+    await user.keyboard('{/Meta}');
+  };
+
+  it('says how many rows it is about, and pins all of them', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await selectTwo(user);
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    expect(screen.getByText('已选 2 首')).toBeDefined();
+
+    await user.click(screen.getByRole('menuitem', { name: '固定 2 首' }));
+
+    await waitFor(() => {
+      const pins = calls.filter((c) => c.method === 'PUT' && c.url.includes('/pin'));
+      expect(pins.map((c) => c.url.split('/songs/')[1])).toEqual(['song-1/pin', 'song-3/pin']);
+    });
+  });
+
+  it('stays single-row when only one is selected', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await user.click(screen.getByTestId('song-row-song-2'));
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-2'));
+    await screen.findByRole('menu');
+
+    expect(screen.queryByText(/已选/)).toBeNull();
+    expect(screen.getByRole('menuitem', { name: '固定' })).toBeDefined();
+  });
+
+  it('asks before deleting a selection, and deletes all of it', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await selectTwo(user);
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    await user.click(screen.getByRole('menuitem', { name: '删除歌曲 2 首' }));
+
+    // Nothing goes out until the confirmation is answered (B-8).
+    expect(await screen.findByRole('dialog')).toBeDefined();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: '删除' }));
+    await waitFor(() => {
+      const deletes = calls.filter((c) => c.method === 'DELETE');
+      expect(deletes).toHaveLength(2);
+    });
+  });
+});

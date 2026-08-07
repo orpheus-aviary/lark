@@ -14,6 +14,7 @@ import { taskLabel } from '../lib/download-labels.js';
 import { errorMessage } from '../lib/errors.js';
 import { activeTask, batchProgress, useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
+import { BatchActionBar } from './BatchActionBar.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
 import { DownloadTasksPopover } from './DownloadTasksPopover.js';
 import { PasteInputModal } from './PasteInputModal.js';
@@ -36,6 +37,7 @@ export function DownloadBar(): React.JSX.Element {
   const downloadSong = useDownloads((s) => s.downloadSong);
   const cancel = useDownloads((s) => s.cancel);
   const playlistId = useLibrary((s) => s.playlistId);
+  const hasSelection = useLibrary((s) => s.selectedIds.length > 0);
 
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -133,34 +135,42 @@ export function DownloadBar(): React.JSX.Element {
           that appears, disappears or grows would make the whole table jump.
           24px rather than 20 because the batch-action bar shares this row. */}
       <div className="flex h-6 items-center gap-1.5 text-xs">
-        {(busy || current) && (
-          <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
-        )}
-        <span
-          className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
-        >
-          {busy
-            ? '正在解析输入…'
-            : current
-              ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
-              : (notice?.text ?? '')}
-        </span>
-        {progress && (
-          <span className="shrink-0 text-muted-foreground tabular-nums">
-            {progress.done}/{progress.batch.total}
-          </span>
-        )}
-        {current && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label="取消下载"
-            title={cancellable ? '取消下载' : '当前阶段不可取消'}
-            disabled={!cancellable}
-            onClick={() => void cancelCurrent()}
-          >
-            <X />
-          </Button>
+        {/* A selection owns this row while it exists (B-5). The download's own
+            progress is still in the tasks popover next door. */}
+        {hasSelection ? (
+          <BatchActionBar />
+        ) : (
+          <>
+            {(busy || current) && (
+              <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+            )}
+            <span
+              className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
+            >
+              {busy
+                ? '正在解析输入…'
+                : current
+                  ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
+                  : (notice?.text ?? '')}
+            </span>
+            {progress && (
+              <span className="shrink-0 text-muted-foreground tabular-nums">
+                {progress.done}/{progress.batch.total}
+              </span>
+            )}
+            {current && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="取消下载"
+                title={cancellable ? '取消下载' : '当前阶段不可取消'}
+                disabled={!cancellable}
+                onClick={() => void cancelCurrent()}
+              >
+                <X />
+              </Button>
+            )}
+          </>
         )}
       </div>
 

@@ -69,7 +69,13 @@ beforeEach(() => {
     }),
   );
   useDownloads.setState({ tasks: [], batches: [], cancelling: [] });
-  useLibrary.setState({ playlistId: VIRTUAL_ALL_PLAYLIST_ID, search: '', songs: [] });
+  useLibrary.setState({
+    playlistId: VIRTUAL_ALL_PLAYLIST_ID,
+    search: '',
+    songs: [],
+    selectedIds: [],
+    selectionAnchor: null,
+  });
 });
 
 afterEach(() => {
@@ -187,5 +193,62 @@ describe('status line', () => {
 
     expect(await screen.findByText(/取消中/)).toBeDefined();
     expect(screen.getByRole('button', { name: '取消下载' }).hasAttribute('disabled')).toBe(true);
+  });
+});
+
+describe('the batch action bar shares this row (S3/B-5)', () => {
+  const PLAYLIST = 'a4f1e3c2-0000-4000-8000-000000000001';
+
+  it('takes the row over from the download status while a selection exists', async () => {
+    useDownloads.setState({ tasks: [task()], batches: [], cancelling: [] });
+    render(<DownloadBar />);
+    expect(screen.getByText('下载中')).toBeDefined();
+
+    useLibrary.setState({ selectedIds: ['song-1', 'song-2'] });
+    expect(await screen.findByText('已选 2 首')).toBeDefined();
+    // The download did not stop — its progress just lives in the popover now.
+    expect(screen.queryByText('下载中')).toBeNull();
+
+    useLibrary.setState({ selectedIds: [] });
+    expect(await screen.findByText('下载中')).toBeDefined();
+  });
+
+  it('offers "remove from this list" only inside a real playlist (B-9)', async () => {
+    useLibrary.setState({ selectedIds: ['song-1'], playlistId: VIRTUAL_ALL_PLAYLIST_ID });
+    const { rerender } = render(<DownloadBar />);
+    expect(screen.queryByRole('button', { name: '从当前列表移除' })).toBeNull();
+
+    useLibrary.setState({ playlistId: PLAYLIST, search: '' });
+    rerender(<DownloadBar />);
+    expect(screen.getByRole('button', { name: '从当前列表移除' })).toBeDefined();
+
+    // A search result spans the library, so it is not a member list.
+    useLibrary.setState({ search: '周' });
+    rerender(<DownloadBar />);
+    expect(screen.queryByRole('button', { name: '从当前列表移除' })).toBeNull();
+  });
+
+  it('pins the whole selection from the bar', async () => {
+    const user = userEvent.setup();
+    useLibrary.setState({ selectedIds: ['song-1', 'song-2'] });
+    render(<DownloadBar />);
+
+    await user.click(screen.getByRole('button', { name: '固定' }));
+
+    await waitFor(() => {
+      const pins = calls.filter((c) => c.url.includes('/pin'));
+      expect(pins).toHaveLength(2);
+      expect(pins[0]?.body).toEqual({ pinned: true });
+    });
+  });
+
+  it('clears the selection from the ✕', async () => {
+    const user = userEvent.setup();
+    useLibrary.setState({ selectedIds: ['song-1'] });
+    render(<DownloadBar />);
+
+    await user.click(screen.getByRole('button', { name: '清空选择' }));
+
+    expect(useLibrary.getState().selectedIds).toEqual([]);
   });
 });
