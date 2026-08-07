@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@lark/core": "workspace:*",
     "@lark/shared": "workspace:*",
     "commander": "13.1.0"
   },

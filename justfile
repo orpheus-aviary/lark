@@ -30,6 +30,14 @@ daemon-no-gui-electron:
 shared-node-free:
     bash scripts/check-shared-node-free.sh
 
+# The CLI's module graph (M6-21): no daemon / gui / electron, and no STATIC
+# import of the core barrel — that one would drag better-sqlite3 into commands
+# that never open a database.
+
+[group('lint')]
+cli-no-daemon-gui:
+    bash scripts/check-cli-no-daemon-gui.sh
+
 # Structured logging hygiene (M2-15): no direct console writes outside the
 # terminal-facing lines of cli.ts / boot.ts, and no secret field or whole
 # config object handed to a logger call.
@@ -39,7 +47,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron daemon-no-gui-electron shared-node-free log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron daemon-no-gui-electron cli-no-daemon-gui shared-node-free log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
@@ -65,8 +73,11 @@ test-core: ensure-node-abi build-shared
 test-daemon: ensure-node-abi build-shared build-core build-daemon
     pnpm --filter @lark/daemon run test
 
+# The CLI links core for its zero-native subpaths (paths / config /
+# daemon-control) and, from T3, loads the barrel dynamically for `--direct` —
+# so the binding has to be Node-loadable before a test run (M6-16).
 [group('test')]
-test-cli: build-shared
+test-cli: ensure-node-abi build-shared build-core
     pnpm --filter @lark/cli run test
 
 # GUI unit tests run under plain Node (the tested main-process modules are
@@ -102,7 +113,7 @@ build-gui: build-shared build-core build-daemon
     pnpm --filter @lark/gui run build
 
 [group('build')]
-build-cli: build-shared
+build-cli: build-shared build-core
     pnpm --filter @lark/cli run build
 
 # ─── ABI toggling (M1-13) ───────────────────────────────

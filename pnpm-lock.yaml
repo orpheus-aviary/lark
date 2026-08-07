@@ -26,6 +26,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@lark/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@lark/shared':
         specifier: workspace:*
         version: link:../../packages/shared
