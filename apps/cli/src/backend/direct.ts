@@ -344,7 +344,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     },
     importPreview: async (filePath) => {
       const file = await attemptAsync(async () =>
-        core.parseAndValidate(await readImportFile(core, filePath)),
+        core.parseAndValidate(await readImportFile(filePath)),
       );
       return ok(attempt(() => core.previewImport(db, file)));
     },
@@ -354,7 +354,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // and the digest is what makes that safe: identical bytes mean
       // `reuse[].index` still points at the entry the user saw (M5-13).
       const file = await attemptAsync(async () =>
-        core.parseAndValidate(await readImportFile(core, request.file_path)),
+        core.parseAndValidate(await readImportFile(request.file_path)),
       );
       if (file.digest !== request.digest) {
         throw new CliError('IMPORT_SOURCE_CHANGED', '文件在预览之后发生了变化，请重新预览再导入');
@@ -374,13 +374,51 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
   };
 }
 
-/** Same 20MB ceiling the daemon enforces, checked before the read (§4.1). */
-async function readImportFile(core: Core, filePath: string): Promise<Buffer> {
+/** Same 20MB ceiling the daemon enforces (§4.1). */
+const IMPORT_FILE_MAX_BYTES = 20 * 1024 * 1024;
+
+const unreadable = (filePath: string, err: unknown): CliError =>
+  new CliError(
+    'INVALID_IMPORT_FILE',
+    `无法读取 ${filePath}：${err instanceof Error ? err.message : String(err)}`,
+  );
+
+/**
+ * Read an import file the way the daemon's route does, down to the error code:
+ * `INVALID_IMPORT_FILE` for anything unreadable or oversized, with the size
+ * checked before any bytes are read AND against the buffer that arrived.
+ *
+ * The parity matters because this is the file a user points at by hand —
+ * "it says INVALID_IMPORT_FILE over HTTP and something else with --direct" is
+ * exactly the kind of difference that makes the flag feel like a fork.
+ */
+async function readImportFile(filePath: string): Promise<Buffer> {
   const { readFile, stat } = await import('node:fs/promises');
-  const size = await attemptAsync(async () => (await stat(filePath)).size);
-  if (size > 20 * 1024 * 1024) throw usageError(`导入文件超过 20MB：${filePath}`);
-  void core; // the cap lives here, not in core
-  return await readFile(filePath);
+
+  let size: number;
+  try {
+    const info = await stat(filePath);
+    if (!info.isFile()) throw new Error('不是一个文件');
+    size = info.size;
+  } catch (err) {
+    throw unreadable(filePath, err);
+  }
+  const tooBig = (bytes: number): CliError =>
+    new CliError(
+      'INVALID_IMPORT_FILE',
+      `导入文件最大 ${IMPORT_FILE_MAX_BYTES / (1024 * 1024)}MB（当前 ${Math.ceil(bytes / (1024 * 1024))}MB）`,
+    );
+  if (size > IMPORT_FILE_MAX_BYTES) throw tooBig(size);
+
+  let buffer: Buffer;
+  try {
+    buffer = await readFile(filePath);
+  } catch (err) {
+    throw unreadable(filePath, err);
+  }
+  // A file that grew between the stat and the read.
+  if (buffer.byteLength > IMPORT_FILE_MAX_BYTES) throw tooBig(buffer.byteLength);
+  return buffer;
 }
 
 /** The wire's `all` is core's `library`: songs land, no membership rows. */

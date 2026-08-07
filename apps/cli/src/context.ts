@@ -25,8 +25,6 @@ export interface CommandContext {
   streams: Streams;
   flags: GlobalFlags;
   identity: IdentityHandle;
-  /** How the backend was chosen. Commands rarely care; `status` does. */
-  mode: ModeDecision;
 }
 
 export interface ContextOptions {
@@ -55,7 +53,7 @@ export async function withContext<T>(
 
   const opened = await backendFor(mode, streams);
   try {
-    return await body({ backend: opened.backend, streams, flags: options.flags, identity, mode });
+    return await body({ backend: opened.backend, streams, flags: options.flags, identity });
   } finally {
     // A direct backend holds a database handle — and, for a write, the writer
     // lock. Both are released here whether the command succeeded or threw:

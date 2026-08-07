@@ -148,6 +148,5 @@ export function fakeContext(
     streams,
     flags: { json: false, direct: false, yes: true, ...flags },
     identity: new IdentityHandle(),
-    mode: { kind: 'http' },
   };
 }

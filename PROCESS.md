@@ -50,7 +50,15 @@
   - 多选：36px 复选框列 + 表头三态（语义是**当前视图内**）+ Cmd/Shift 点选 + Esc 清空（让位对话框）+ 右键 Finder 规则；批量操作条常驻在下载状态行右端（固定高度 28px，与下载状态共存，无选区时整组灰显），五个动作，添加到歌单一次请求、其余 N 次串行且部分失败如实汇报
   - **用户手感验收后再修一轮（2026-08-07，子计划 §6）**：批量条改真按钮并常驻右端灰显（推翻 B-5 的二选一）、行内按钮常驻放大、固定改行内蓝色图钉按钮（去掉「加粗=已固定」）、排序控件移进输入行让状态行铺满
   - **验收复跑**：`just accept-gui` 15/15、`just accept-m5` 22/22。期间修正 accept-m5 一处**过度指定的断言**（写死「只有一首可清理」，而真实库里用户重下过的歌同样是 `downloaded`、同样可清理——改断不变量）
-- [ ] **M6 CLI** — 扩展 M0 CLI 骨架（@lark/cli status 命令已落地）：双后端（--direct）、全命令、GUI 拉起、skill export
+- [ ] **M6 CLI**（进行中，2026-08-07）— 子计划 `docs/plans/2026-08-07-m6-cli.md`（六轮评审，决策 M6-1–M6-23，§8 逐批回填实施记录）
+  - [x] **T0 地基**（`03ae963` / `3262f55` / `0275032` / `5527bf0`）— 跨进程 writer lock + 四方接线（boot 锁序冻结、migrate-go 锁内权威重判、backupNest 复制前取锁）；`/status` 公开 `nest_fingerprint` + `local_api_version`（`LOCAL_API_VERSION` 下沉 shared 并 2→3）；`openDatabaseReadonly` 零写入只读开库 + `loadConfigReadonly`；`@lark/core/daemon-control`（pid 只读探测 / 五步 stop 协议 / 指纹）与 `native-probe`；错误码两注册表 + daemon `STATUS_BY_CODE` 穷尽类型化
+  - [x] **T1 CLI 基建**（`0a6b04f`）— 身份五态（线格式显式联合 + pid 咬合）、`decideMode` 五态矩阵、`EXIT_MAP` 穷尽（七档退出码）、输出契约（`--json` 下 exit 0 ⇔ stdout 一条信封）、token 每次现读、confirm 三规则、守卫 `cli-no-daemon-gui`
+  - [x] **T2 songs + playlist**（`26a2097`）— 两组命令走 HTTP、`<name|id>` 解析（歧义列候选不代选）、破坏性命令确认、导出原子写 / 导入两段式 digest；`sanitizeFileName` 下沉 shared 与 GUI 共用
+  - [x] **T3 `--direct` 后端 + cache 组**（`5bb2514`）— 读只读开库不取锁 / 写持写锁、§4.1 适配矩阵、错误按类名映射（动态 import 下 instanceof 不可靠）；冒烟抓到并修掉两处双后端差异（uuid 门禁、虚拟 all）
+  - [ ] T4 download / url / lyrics — 逐行预检 + 分块 + batch 契约 + `--wait` 两路 + 三个终态错误码
+  - [ ] T5 play / now-playing / gui / daemon / stop-daemon — `ensureDaemon` 统一 + spawn ownership + child 双段回收
+  - [ ] T6 skill export（契约测试 + 不入备份）
+  - [ ] T7 `just accept-cli`（23 条判据，含双后端领域错误对拍）+ 文档回写
 - [ ] **M7 打包发布 v0.1.0** — electron-builder mac arm64（asar:false）、ffmpeg-static/ffprobe-static 锁版本 + 打包后冒烟测试、FFmpeg 许可交付、ABI recipes、验收清单
 
 ## 后续

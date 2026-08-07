@@ -6,7 +6,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交）；**M5 后续已完成**（2026-08-07：状态色 token + 行状态四通道 + 两轴排序 + 多选与批量操作；子计划：`docs/plans/2026-08-06-m5-followup-batch-actions.md`，决策 B-1–B-12；四批提交，全仓测试 1173，`just accept-gui` 15/15 + `just accept-m5` 22/22 复跑通过）；**下一步 M6（CLI）**。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交）；**M5 后续已完成**（2026-08-07：状态色 token + 行状态四通道 + 两轴排序 + 多选与批量操作；子计划：`docs/plans/2026-08-06-m5-followup-batch-actions.md`，决策 B-1–B-12；四批提交，全仓测试 1173，`just accept-gui` 15/15 + `just accept-m5` 22/22 复跑通过）；**M6 CLI 进行中**（2026-08-07：T0 地基（跨进程 writer lock 四方接线 + `/status` 公开指纹 + 零写入只读开库 + `daemon-control` / `native-probe` + 错误码注册表）、T1 CLI 基建（身份五态 + `decideMode` + `EXIT_MAP` + 输出契约）、T2 songs/playlist 命令组、T3 `--direct` 后端与 cache 组已完成，**下一步 T4（download / url / lyrics）**；子计划：`docs/plans/2026-08-07-m6-cli.md`，决策 M6-1–M6-23 + 六轮评审 + §8 实施记录）。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -38,13 +38,14 @@ lark/
 └── docs/
 ```
 
-依赖方向：`shared ← core ← daemon ← gui`；`cli → shared`（HTTP backend，当前唯一）+ `core`（`--direct`，M6 起）。三条守卫进 `just check`：core 禁 daemon/gui/electron、daemon 禁 gui/electron、shared 禁一切 Node builtin（`node:` 前缀与裸名都拦）。
+依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。四条守卫进 `just check`：core 禁 daemon/gui/electron、daemon 禁 gui/electron、shared 禁一切 Node builtin（`node:` 前缀与裸名都拦）、cli 禁 daemon/gui/electron **且禁静态 import core barrel**。
 
 **已决定**（主计划 §1）：不抽 `@orpheus-aviary/daemon-kit`，v0.1 直接复制 owl 模式，出现明显重复再重构。
 
 ## 注意事项
 
 - **daemon 统一入口**：CLI 和 GUI 都通过 daemon HTTP API（默认端口 **47100**，端口段 `471xx` 归 lark）；daemon 存活时 CLI **一律禁止 `--direct` 写**（无 `--force`，R31）
+- **跨进程写互斥**（M6 T0）：daemon / `--direct` 写 / migrate-go / backup-nest 四方共守 `songs.db.writer.lock`（常驻 SQLite 锁库，`BEGIN EXCLUSIVE`，kill -9 自动释放，**锁文件永不删**）；锁序冻结 **writer → migrate → 真库 EXCLUSIVE**；读路径不取任何锁（只读打开、零写入）
 - **数据目录**：`~/orpheus-aviary-nest/lark/`
 - **统一响应格式**：`{"success": bool, "data": {}, "message": "..."}`；例外：`/audio`（二进制 + Range）、`/lyrics`（text/plain）、`/events`（SSE）
 - **token**：由 daemon 生成并原子发布 0600 文件；GUI 侧每次读取，不进 URL/DOM/日志/媒体 src（R21/R29）
@@ -82,7 +83,7 @@ lark/
 
 ### M4 实测锁定（详见 `docs/plans/2026-08-05-m4-gui-base.md` §8）
 
-- **daemon 复用判定只信鉴权 `GET /api/instance`**：`/status` 只有 pid/uptime/version，token 往返也只证明「两边各有一份同样的 token 副本」（整目录复制 nest 后依然成立）。比对 `realpath(nest_dir)` + `local_api_version`，**复用永不认领所有权**，证明不了身份的分支一律弹框中止、不 spawn、不停陌生进程
+- **daemon 复用判定只信鉴权 `GET /api/instance`**（M4 口径；**M6 T0 起 `/status` 另有公开 `nest_fingerprint`，见下方 M6 段**）：M4 时 `/status` 只有 pid/uptime/version，token 往返也只证明「两边各有一份同样的 token 副本」（整目录复制 nest 后依然成立）。比对 `realpath(nest_dir)` + `local_api_version`，**复用永不认领所有权**，证明不了身份的分支一律弹框中止、不 spawn、不停陌生进程
 - **`contextBridge` 冻结 `window.larkAPI`**：改它的字段会**静默失败**（CDP 里覆盖 `pickMp3` → 真的弹出原生对话框）。测试要整体替换 `window.larkAPI` 对象
 - **CDP 打字**：窗口不是系统焦点时 `Input.dispatchKeyEvent` 只发 `keyDown` 进不了 React，必须补 `char` + `text: '\r'`
 - **pino-roll 写的是 `lark.log.1`**（不是 daemon 打印的 `lark.log`）——读日志断言要 glob `lark.log*`
@@ -117,6 +118,15 @@ lark/
 - **表头三态复选框的语义是「当前视图内」**：搜索/歌单已经筛过一轮，全选绝不能越过视图去够整个库
 - **`mkdtemp` 建的临时目录测试要自己收尾**：`dialog-ipc` 与 M3 的 fixture 各漏了一处，累计在 `/tmp` 留下 237 个目录才被发现——建目录的 `beforeEach`/`beforeAll` 必须配对 `rmSync`
 
+### M6 实测锁定（进行中，详见 `docs/plans/2026-08-07-m6-cli.md` §8）
+
+- **`BEGIN EXCLUSIVE` 会在锁库旁留 `-journal`**：备份自己持写锁，所以遍历 nest 时那个边车**一定在**——凡是「复制 / 比对 nest 目录」的逻辑都要按前缀排除两个锁库
+- **同进程两个连接照样互斥**：SQLite 在进程内自己记 inode 锁状态，双迁移器 / 双写者的竞争能在单进程测试里真实复现
+- **`/status` 的身份字段是必填的显式联合**：两个字段都合法 = M6 形，两个都缺 = pre-M6 形，**半套或畸形一律 unverifiable**（不猜）；指纹一律对 `realpathMissingOk(larkDir())` 求，fresh nest 才能和 daemon 建目录后的结果对上
+- **动态 import 的 core 不能用 `instanceof`**：`--direct` 后端按 `err.name` 匹配错误类——动态 import 的模块对象与静态 import 的不是同一个
+- **双后端差异要靠冒烟才看得见**：已抓到两处——路由层的 uuid 门禁（直连少了会把 `INVALID_ID` 报成 `NOT_FOUND`）、虚拟 `all` 由 daemon 拼装（直连少了会让「按名字引用歌单」随 daemon 在不在而变）
+- **`search` 是 `LIKE` 子串预筛，不是判定**：`<name|id>` 解析必须在结果里再做精确匹配；SQLite 的 `LIKE` 对 ASCII 大小写不敏感，假后端写成 `includes()` 会制造不存在的 bug
+
 ### M3 实测锁定（详见 `docs/plans/2026-08-04-m3-download-pipeline.md` §7）
 
 - **`nav` 匿名返回 envelope `code: -101`（未登录）但照给 `wbi_img`**——WBI 取 key 判定**看字段不看 code**，看 code 会在健康环境上 fail-closed
@@ -145,11 +155,12 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 ## 关键参考
 
 - 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`
+- **M6 子计划（当前）**：`docs/plans/2026-08-07-m6-cli.md`（§8 实施记录逐批回填）
 - M5 子计划：`docs/plans/2026-08-06-m5-features.md`；M5 后续（多选批量）：`docs/plans/2026-08-06-m5-followup-batch-actions.md`
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
-- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>` / `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just spike-media-*`）
+- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`，全局 bin 待 M7）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just spike-media-*`）
 - Go 版（功能参照）：`../lark-go/`
 - 跨仓架构：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`
 - skybridge 架构：`../aviary/docs/SKYBRIDGE_ARCH.md`

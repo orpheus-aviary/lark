@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { localTokenPath } from '@lark/core/paths';
 
 /** The current local token, or null when there is no readable one. */
-export function readDaemonToken(tokenPath: string = localTokenPath()): string | null {
+function readDaemonToken(tokenPath: string = localTokenPath()): string | null {
   try {
     const token = readFileSync(tokenPath, 'utf-8').trim();
     return token === '' ? null : token;

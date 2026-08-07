@@ -112,7 +112,7 @@ interface InstanceReply {
 /** How many times a pid disagreement is worth re-resolving before refusing. */
 const PID_RETRIES = 2;
 
-export function localNestFingerprint(larkDirPath: () => string = larkDir): string {
+function localNestFingerprint(larkDirPath: () => string = larkDir): string {
   // `realpathMissingOk`, not `realpath`: a fresh nest has no directory yet, and
   // the fingerprint of a path that does not exist must equal the one the
   // daemon will publish after creating it (M6-19).

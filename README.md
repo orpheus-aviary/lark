@@ -8,7 +8,7 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层、M2 daemon 基础路由、M3 下载管线、M4 GUI 基座、**M5 新特性**（设置页 + 主题 / 缓存 LRU 与固定 / 按需下载 / 链接编辑 / 歌单导入导出 / 拖拽排序）及其后续（状态色与行状态、两轴排序、多选与批量操作）均已完成，验收 `just accept-gui` 15/15 + `just accept-m5` 22/22；下一步 M6 CLI。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层、M2 daemon 基础路由、M3 下载管线、M4 GUI 基座、**M5 新特性**（设置页 + 主题 / 缓存 LRU 与固定 / 按需下载 / 链接编辑 / 歌单导入导出 / 拖拽排序）及其后续（状态色与行状态、两轴排序、多选与批量操作）均已完成，验收 `just accept-gui` 15/15 + `just accept-m5` 22/22。**M6 CLI 进行中**：跨进程写锁、身份五态、`--direct` 双后端与 songs / playlist / cache 命令组已落地（T0–T3），下载、播放拉起、`skill export` 与 `just accept-cli` 待做。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
@@ -25,7 +25,7 @@ just dev-daemon      # 前台起 daemon（127.0.0.1:47100）
 just stop-daemon     # 停 daemon（先经 /status 确权，再等它真的退出）
 curl http://127.0.0.1:47100/status
 
-just cli status      # 经 HTTP 查 daemon（--json 输出原始信封）
+just cli status      # daemon 在不在、是不是本数据目录的（--json 输出信封）
 just dev             # 起 GUI（自己拉起并确权 daemon；已有本 nest daemon 则复用不认领）
 just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一方式
 
@@ -87,6 +87,29 @@ Go 版重新打开。`just migrate-go` 尊重 `LARK_NEST_DIR`，所以演练一�
 真实 nest 到临时目录再跑）；它是幂等的，对已迁移的库只会报 `already-migrated`。迁移前请先
 退出 Go 版 lark 和 daemon。
 
+### CLI（M6 进行中）
+
+`just cli <args>` 跑的就是对外的 `lark`（全局 bin 要等 M7）。已经能用的：
+
+```bash
+just cli status                          # daemon 在不在、是不是本目录的
+just cli songs list --search 周杰伦       # 也有 search / get / edit / delete / pin / unpin
+just cli playlist songs 收藏              # list / create / rename / delete / add / remove / reorder
+just cli playlist export 收藏 -o ~/backup # 目录目标会补 <歌单名>.lark-playlist.json
+just cli playlist import ~/x.json --yes  # 两段式：先预览再带 digest 提交
+just cli cache status                    # status / evict
+```
+
+三条全局规矩：
+
+- **`<name|id>`**：歌曲和歌单都能用名字指；重名不替你挑，报 `AMBIGUOUS_*` 并列出候选。
+- **`--direct`**：不经 daemon，直接开本地库。读在任何情况下都安全（只读打开、不取锁）；
+  **写在 daemon 存活时一律被拒**（R31），没有 daemon 时也必须显式写出这个 flag——不会静默降级。
+- **`--json` / `--yes`**：`--json` 下「exit 0 ⇔ stdout 恰好一条成功信封」，失败则 stdout 空、
+  stderr 一条错误信封；破坏性命令在 `--json` 或非 TTY 下必须显式 `--yes`。退出码分七档：
+  1 操作失败 · 2 用法错 · 3 环境（token / 权限 / 没有库 / ABI）· 4 没有 daemon ·
+  5 有东西占着且拒绝（另一实例 / 另一个 nest / 需要迁移）· 130 中断。
+
 媒体协议 spike（M4 移植来源）：`just spike-media-server` / `just spike-media-app` 双终端手动跑，
 `just spike-media-check` 跑完整校验层。结论见 `docs/plans/2026-07-31-m0-scaffold-media-spike.md` §6；
 正式实现见 `packages/gui/src/main/media-protocol.ts`，六项判据的回归跑 `just accept-gui`。
@@ -95,8 +118,10 @@ Go 版重新打开。`just migrate-go` 尊重 `LARK_NEST_DIR`，所以演练一�
 
 任何时候要复制或恢复 `~/orpheus-aviary-nest/`（演练迁移、做验收副本、备份），规矩是同一套：
 
-- **运行态文件一律不复制**：`daemon-token`、`daemon.pid`、`logs/`、`songs.db.migrate.lock`
-  ——它们属于产生它们的那个进程，复制过去只会让新实例读到别人的身份。
+- **运行态文件一律不复制**：`daemon-token`、`daemon.pid`、`logs/`、两个锁库
+  （`songs.db.migrate.lock` / `songs.db.writer.lock`，连同它们持锁时的 `-journal` 边车）
+  ——它们属于产生它们的那个进程，复制过去只会让新实例读到别人的身份。`lark-skill.md`
+  与它的临时文件同理不复制（随时可重新导出）。
 - **DB 一致性**：`songs.db` 是 WAL 模式。复制前必须确认 daemon 与 GUI 都已退出、且没有
   `songs.db-wal` / `songs.db-shm` 残留；确认不了就别直接拷，走快照。
 - **快照入口**：`just backup-nest [目标目录]`。它会拒绝在 daemon 存活时运行（在线备份只冻结
