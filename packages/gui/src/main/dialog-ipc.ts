@@ -5,6 +5,7 @@
 import { randomUUID } from 'node:crypto';
 import { rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { sanitizeFileName } from '@lark/shared';
 import type {
   BrowserWindow,
   OpenDialogOptions,
@@ -29,10 +30,6 @@ export interface SaveExportInput {
   content: string;
 }
 
-/** Characters a filename cannot carry, plus the C0 range and DEL. */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what has to go
-const UNSAFE_FILENAME_CHARS = /[/\\:*?"<>|\u0000-\u001f\u007f]/g;
-
 /** Multi-select .mp3 picker. Cancel (or no selection) → empty array. */
 export async function pickMp3(dialogLike: OpenDialogLike, win: BrowserWindow): Promise<string[]> {
   const result = await dialogLike.showOpenDialog(win, {
@@ -54,20 +51,9 @@ export async function pickJsonFile(
   return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0];
 }
 
-/**
- * Strip what a filename cannot carry (M5-12). The suggested name comes from a
- * playlist name, which is free text — a `/` in it would silently redirect the
- * save, and a leading `.` would hide the file.
- */
-export function sanitizeFileName(name: string): string {
-  const cleaned = name
-    .replace(UNSAFE_FILENAME_CHARS, '')
-    .replace(/^\.+/, '')
-    .trim()
-    // Playlist names are capped at 500 characters, filenames at ~255 BYTES.
-    .slice(0, 80);
-  return cleaned === '' ? 'playlist' : cleaned;
-}
+// The rule moved into `@lark/shared` in M6: `lark playlist export -o <dir>`
+// derives a filename the same way, and two copies would drift.
+export { sanitizeFileName };
 
 /**
  * Ask where to put an export and write it there.

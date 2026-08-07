@@ -62,60 +62,68 @@ const DIRECT_REJECTED = (what: string): { kind: 'error'; code: CliErrorCode; mes
 });
 
 export function decideMode(input: ModeInput): ModeDecision {
-  const { need, direct, identity, localPid } = input;
-
-  if (need === 'none') {
-    return direct
-      ? { kind: 'error', code: 'USAGE_ERROR', message: '这个命令是纯本地操作，不接受 --direct。' }
-      : { kind: 'http' }; // never used; commands with need 'none' do not ask
+  switch (input.need) {
+    case 'none':
+      return input.direct
+        ? { kind: 'error', code: 'USAGE_ERROR', message: '这个命令是纯本地操作，不接受 --direct。' }
+        : { kind: 'http' }; // never used; commands with need 'none' do not ask
+    case 'daemon':
+      return decideDaemon(input);
+    case 'read':
+      return decideRead(input);
+    case 'write':
+      return decideWrite(input);
   }
+}
 
-  if (need === 'daemon') {
-    if (direct) return DIRECT_REJECTED('该命令');
-    switch (identity.state) {
-      case 'current':
-        return { kind: 'http' };
-      case 'absent':
-        return input.canLaunch === true
-          ? { kind: 'launch' }
-          : {
-              kind: 'error',
-              code: 'DAEMON_UNAVAILABLE',
-              message: 'daemon 未在运行——先跑 `lark daemon`，或用 `lark play` / `lark gui` 拉起。',
-            };
-      case 'other-nest':
-        return {
-          kind: 'error',
-          code: 'DAEMON_OTHER_NEST',
-          message: '端口 47100 被另一个数据目录的 lark daemon 占用——先停掉那个实例。',
-        };
-      case 'same-nest-incompatible':
-        return {
-          kind: 'error',
-          code: 'DAEMON_INCOMPATIBLE',
-          message: '运行中的 daemon 协议版本不兼容——先 `lark stop-daemon` 停掉旧实例。',
-        };
-      case 'occupied-unverifiable':
-        return {
-          kind: 'error',
-          code: 'DAEMON_UNVERIFIED',
-          message: '端口 47100 被占用且无法确认对方是本数据目录的 lark daemon——拒绝继续。',
-        };
-    }
+function decideDaemon(input: ModeInput): ModeDecision {
+  const { direct, identity } = input;
+  if (direct) return DIRECT_REJECTED('该命令');
+  switch (identity.state) {
+    case 'current':
+      return { kind: 'http' };
+    case 'absent':
+      return input.canLaunch === true
+        ? { kind: 'launch' }
+        : {
+            kind: 'error',
+            code: 'DAEMON_UNAVAILABLE',
+            message: 'daemon 未在运行——先跑 `lark daemon`，或用 `lark play` / `lark gui` 拉起。',
+          };
+    case 'other-nest':
+      return {
+        kind: 'error',
+        code: 'DAEMON_OTHER_NEST',
+        message: '端口 47100 被另一个数据目录的 lark daemon 占用——先停掉那个实例。',
+      };
+    case 'same-nest-incompatible':
+      return {
+        kind: 'error',
+        code: 'DAEMON_INCOMPATIBLE',
+        message: '运行中的 daemon 协议版本不兼容——先 `lark stop-daemon` 停掉旧实例。',
+      };
+    case 'occupied-unverifiable':
+      return {
+        kind: 'error',
+        code: 'DAEMON_UNVERIFIED',
+        message: '端口 47100 被占用且无法确认对方是本数据目录的 lark daemon——拒绝继续。',
+      };
   }
+}
 
-  if (need === 'read') {
-    if (identity.state === 'current' && !direct) return { kind: 'http' };
-    if (identity.state === 'current') return { kind: 'direct-read' };
-    // Any other state: a read writes nothing, so it is safe everywhere. Say so
-    // on stderr when it is not the obvious case, since the answer may be
-    // staler than the running daemon's.
-    return identity.state === 'absent'
-      ? { kind: 'direct-read' }
-      : { kind: 'direct-read', note: `直接读取本地库（${identity.state}）` };
-  }
+function decideRead(input: ModeInput): ModeDecision {
+  const { direct, identity } = input;
+  if (identity.state === 'current') return direct ? { kind: 'direct-read' } : { kind: 'http' };
+  // Any other state: a read writes nothing, so it is safe everywhere. Say so
+  // on stderr when it is not the obvious case, since the answer may be staler
+  // than the running daemon's.
+  return identity.state === 'absent'
+    ? { kind: 'direct-read' }
+    : { kind: 'direct-read', note: `直接读取本地库（${identity.state}）` };
+}
 
-  // need === 'write'
+function decideWrite(input: ModeInput): ModeDecision {
+  const { direct, identity, localPid } = input;
   switch (identity.state) {
     case 'current':
       return direct

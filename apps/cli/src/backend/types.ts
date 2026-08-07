@@ -1,4 +1,26 @@
-import type { ApiResponse, StatusData } from '@lark/shared';
+import type {
+  ApiResponse,
+  PlaylistData,
+  PlaylistExportData,
+  PlaylistImportData,
+  PlaylistImportPreviewData,
+  PlaylistReorderRequest,
+  PlaylistSongsAddedData,
+  SongData,
+  SongSortField,
+  SortOrder,
+  StatusData,
+  UpdateSongRequest,
+} from '@lark/shared';
+
+/** `GET /songs` query, already validated by the command layer. */
+export interface SongListQuery {
+  search?: string;
+  sort?: SongSortField;
+  order?: SortOrder;
+  limit?: number;
+  offset?: number;
+}
 
 /**
  * What a command may call, independent of how it reaches the data.
@@ -19,4 +41,46 @@ import type { ApiResponse, StatusData } from '@lark/shared';
  */
 export interface Backend {
   status(): Promise<ApiResponse<StatusData>>;
+
+  // ── Songs ──────────────────────────────────────────
+  listSongs(query: SongListQuery): Promise<ApiResponse<SongData[]>>;
+  getSong(id: string): Promise<ApiResponse<SongData>>;
+  updateSong(id: string, patch: UpdateSongRequest): Promise<ApiResponse<SongData>>;
+  deleteSong(id: string): Promise<ApiResponse<{ id: string }>>;
+  pinSong(id: string, pinned: boolean): Promise<ApiResponse<SongData>>;
+
+  // ── Playlists ──────────────────────────────────────
+  listPlaylists(): Promise<ApiResponse<PlaylistData[]>>;
+  createPlaylist(name: string): Promise<ApiResponse<PlaylistData>>;
+  renamePlaylist(id: string, name: string): Promise<ApiResponse<PlaylistData>>;
+  deletePlaylist(id: string): Promise<ApiResponse<{ id: string }>>;
+  listPlaylistSongs(id: string): Promise<ApiResponse<SongData[]>>;
+  addPlaylistSongs(
+    id: string,
+    songIds: readonly string[],
+  ): Promise<ApiResponse<PlaylistSongsAddedData>>;
+  removePlaylistSong(
+    id: string,
+    songId: string,
+  ): Promise<ApiResponse<{ playlist_id: string; song_id: string }>>;
+  reorderPlaylist(
+    id: string,
+    move: PlaylistReorderRequest,
+  ): Promise<ApiResponse<{ playlist_id: string }>>;
+
+  // ── Transfer (M6-13) ───────────────────────────────
+  exportPlaylist(id: string): Promise<ApiResponse<PlaylistExportData>>;
+  importPreview(filePath: string): Promise<ApiResponse<PlaylistImportPreviewData>>;
+  importPlaylist(request: ImportCommitRequest): Promise<ApiResponse<PlaylistImportData>>;
+}
+
+/** `POST /playlists/import` body, as the command layer assembles it. */
+export interface ImportCommitRequest {
+  file_path: string;
+  digest: string;
+  target:
+    | { kind: 'all' }
+    | { kind: 'playlist'; playlist_id: string }
+    | { kind: 'new'; name: string };
+  reuse?: readonly { index: number; song_id: string }[];
 }
