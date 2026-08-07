@@ -26,9 +26,17 @@ import {
 } from '@lark/core';
 import {
   API_PATHS,
+  DOWNLOAD_BATCH_GROUPS_MAX,
+  DOWNLOAD_BATCH_ITEMS_MAX,
+  DOWNLOAD_BATCH_KEYWORD_MAX,
+  DOWNLOAD_INPUT_MAX,
+  DOWNLOAD_PARSE_LINES_MAX,
+  DOWNLOAD_PLAYLIST_NAME_MAX,
   type DownloadBatchGroupInput,
   type DownloadBatchItemInput,
   type DownloadTaskAcceptedData,
+  FETCH_LIST_ITEMS_MAX,
+  FETCH_LIST_PAGES_MAX,
   type FetchListData,
   type ParsedItem,
   apiPath,
@@ -46,17 +54,15 @@ import {
   requiredUuid,
 } from '../validation.js';
 
-/** Input guardrails (M3-11). Not product limits — bounds on one request's work. */
-const INPUT_MAX = 8 * 1024;
-const PARSE_LINES_MAX = 200;
-const BATCH_GROUPS_MAX = 20;
-const BATCH_ITEMS_MAX = 1000;
-// A 953-item favourites folder needs 48 pages, so the original 50 sat right on
-// top of a real library. 200 pages is ~12s of sequential requests, which is
-// still inside one request's budget.
-const FETCH_LIST_PAGES_MAX = 200;
-const FETCH_LIST_ITEMS_MAX = 5000;
-const PLAYLIST_NAME_MAX = 200;
+// Input guardrails (M3-11). Not product limits — bounds on one request's work.
+// The numbers live in `@lark/shared` since M6: the CLI splits a pasted file
+// into requests that fit, and it can only do that against the same constants
+// the daemon rejects on (M6-11).
+const INPUT_MAX = DOWNLOAD_INPUT_MAX;
+const PARSE_LINES_MAX = DOWNLOAD_PARSE_LINES_MAX;
+const BATCH_GROUPS_MAX = DOWNLOAD_BATCH_GROUPS_MAX;
+const BATCH_ITEMS_MAX = DOWNLOAD_BATCH_ITEMS_MAX;
+const PLAYLIST_NAME_MAX = DOWNLOAD_PLAYLIST_NAME_MAX;
 
 export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): void {
   const bilibili = ctx.bilibili;
@@ -318,7 +324,10 @@ function readBatchGroups(raw: unknown): DownloadBatchGroupInput[] {
 function readItem(raw: unknown): DownloadBatchItemInput {
   const item = objectBody(raw, ['kind', 'bvid', 'page', 'title', 'query']);
   if (item.kind === 'keyword') {
-    return { kind: 'keyword', query: requiredString(item, 'query', { maxLength: 500 }) };
+    return {
+      kind: 'keyword',
+      query: requiredString(item, 'query', { maxLength: DOWNLOAD_BATCH_KEYWORD_MAX }),
+    };
   }
   if (item.kind !== 'video') {
     throw new InvalidRequestError('INVALID_BODY', "item.kind must be 'video' or 'keyword'");

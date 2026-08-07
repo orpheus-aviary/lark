@@ -5,6 +5,8 @@
 
 export * from './types.js';
 export * from './config-types.js';
+export * from './error-codes.js';
+export * from './limits.js';
 export * from './transport.js';
 export * from './sse.js';
 export * from './api-paths.js';

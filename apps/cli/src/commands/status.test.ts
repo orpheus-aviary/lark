@@ -1,11 +1,18 @@
-import type { ApiResponse, StatusData } from '@lark/shared';
+import { type ApiResponse, LOCAL_API_VERSION, type StatusData } from '@lark/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Backend } from '../backend/types.js';
 import { runStatus } from './status.js';
 
 const ENVELOPE: ApiResponse<StatusData> = {
   success: true,
-  data: { status: 'ok', pid: 4242, uptime: 12.7, version: '0.1.0' },
+  data: {
+    status: 'ok',
+    pid: 4242,
+    uptime: 12.7,
+    version: '0.1.0',
+    nest_fingerprint: 'a'.repeat(64),
+    local_api_version: LOCAL_API_VERSION,
+  },
   message: 'daemon is running',
 };
 

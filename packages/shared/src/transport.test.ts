@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { LOCAL_API_VERSION } from './api-paths.js';
 import { ApiError, configureTransport, request, requestText } from './index.js';
 import type { StatusData } from './types.js';
 
 const BASE = 'http://127.0.0.1:47100';
 
-const STATUS: StatusData = { status: 'ok', pid: 42, uptime: 1.5, version: '0.1.0' };
+const STATUS: StatusData = {
+  status: 'ok',
+  pid: 42,
+  uptime: 1.5,
+  version: '0.1.0',
+  nest_fingerprint: 'a'.repeat(64),
+  local_api_version: LOCAL_API_VERSION,
+};
 
 function envelope(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

@@ -13,6 +13,24 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
   return `http://127.0.0.1:${port}`;
 }
 
+/**
+ * Compatibility gate for the local HTTP protocol (M4-2). A front-end refuses
+ * to talk to a running daemon whose `local_api_version` differs — the package
+ * version cannot carry that signal (it sits at 0.1.0 across protocol changes).
+ * Bump on any breaking change to the daemon's local API.
+ *
+ * Lives here, in the wire contract, rather than in `@lark/daemon`: since M6
+ * the CLI compares it too, and the CLI must not depend on the daemon package
+ * (M6-21).
+ *
+ *   2 (M5): `[theme]` in the config plus the M5 routes (/cache, playlist
+ *     import/export, ensure-file).
+ *   3 (M6): `GET /status` carries `nest_fingerprint` + `local_api_version`,
+ *     which is what identity resolution is built on — an M5 daemon answers
+ *     without them and cannot be adopted.
+ */
+export const LOCAL_API_VERSION = 3;
+
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {
   status: '/status',

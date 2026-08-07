@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ApiResponse, CapabilitiesData, InstanceData } from '@lark/shared';
+import { nestFingerprint } from '@lark/core';
+import type { ApiResponse, CapabilitiesData, InstanceData, StatusData } from '@lark/shared';
 import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerAllRoutes } from '../server.js';
@@ -55,6 +56,36 @@ async function registeredRoutes(): Promise<Set<string>> {
   await bare.close();
   return routes;
 }
+
+describe('GET /status', () => {
+  let nest: string;
+
+  beforeEach(() => {
+    nest = mkdtempSync(join(tmpdir(), 'lark-status-'));
+    mkdirSync(join(nest, 'lark'), { recursive: true });
+    vi.stubEnv('LARK_NEST_DIR', nest);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(nest, { recursive: true, force: true });
+  });
+
+  it('publishes identity without a token (M6-19)', async () => {
+    // Unauthenticated on purpose: this is the response a CLI facing an
+    // occupied port has to settle identity from, before it knows whether the
+    // daemon on the other end would even accept its token.
+    const res = await app.injectRaw({ method: 'GET', url: '/status' });
+    expect(res.statusCode).toBe(200);
+
+    const data = res.json<ApiResponse<StatusData>>().data as StatusData;
+    expect(data.pid).toBe(process.pid);
+    // The same hash the caller computes for its own nest — realpath'd on both
+    // sides, since /tmp is a symlink on macOS.
+    expect(data.nest_fingerprint).toBe(nestFingerprint(realpathSync(join(nest, 'lark'))));
+    expect(data.local_api_version).toBe(LOCAL_API_VERSION);
+  });
+});
 
 describe('GET /api/instance', () => {
   let nest: string;

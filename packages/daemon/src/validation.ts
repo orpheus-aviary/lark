@@ -15,12 +15,12 @@
 // the error handler's "expected 4xx" class: the envelope carries the code, and
 // nothing lands in the error log.
 
-import { type PlaylistImportTarget, isUuidV4 } from '@lark/shared';
+import { type DaemonEnvelopeErrorCode, type PlaylistImportTarget, isUuidV4 } from '@lark/shared';
 
 export class InvalidRequestError extends Error {
   readonly statusCode = 400;
   constructor(
-    readonly code: string,
+    readonly code: DaemonEnvelopeErrorCode,
     message: string,
     /**
      * Machine-readable payload for the envelope's `details` (M5-20) — e.g.

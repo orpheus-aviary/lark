@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import { isDaemonEnvelopeErrorCode } from '@lark/shared';
 import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import { corsOriginDelegate, isHostAllowed } from './access-guard.js';
 import { checkLocalToken } from './auth.js';
@@ -98,7 +99,12 @@ export function buildServer(ctx: AppContext): FastifyInstance {
     if (status >= 400 && status < 500) {
       if (reply.sent) return;
       const details = err instanceof InvalidRequestError ? err.details : undefined;
-      fail(reply, status, err.message || 'Bad Request', err.code ?? 'BAD_REQUEST', details);
+      // `err.code` is whatever threw: our own registered code, or one of
+      // Fastify's `FST_ERR_*` internals. Only the former may go on the wire —
+      // a client that branches on `error_code` has no mapping for a framework
+      // constant, and the shared registry is the closed set it does map (M6-6).
+      const code = isDaemonEnvelopeErrorCode(err.code) ? err.code : 'BAD_REQUEST';
+      fail(reply, status, err.message || 'Bad Request', code, details);
       return;
     }
 

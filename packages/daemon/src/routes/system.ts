@@ -1,10 +1,11 @@
 import { realpathSync } from 'node:fs';
-import { paths } from '@lark/core';
+import { nestFingerprint, paths, realpathMissingOk } from '@lark/core';
 import {
   API_PATHS,
   type CapabilitiesData,
   type CapabilityEndpoint,
   type InstanceData,
+  LOCAL_API_VERSION,
   PLAYER_COMMANDS,
   type StatusData,
   apiPath,
@@ -12,7 +13,6 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { ok } from '../response.js';
-import { LOCAL_API_VERSION } from '../version.js';
 
 const PLAYER_COMMAND_DESCRIPTIONS: Record<(typeof PLAYER_COMMANDS)[number], string> = {
   play: 'Play a specific song (waits for the GUI ack)',
@@ -186,6 +186,12 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
   // probe it before they can read the token file, and it is the only exemption
   // in the Bearer gate. `pid` is what lets `stop-daemon` / the GUI prove the
   // process behind the pid file really is this daemon (M2-3).
+  //
+  // Since M6 it also answers WHOSE daemon this is: `nest_fingerprint` +
+  // `local_api_version` let a caller holding no usable token distinguish "my
+  // daemon" from "another nest's daemon" instead of failing closed on both
+  // (M6-19). Computed per request, like `/api/instance`'s realpath — the cost
+  // is one syscall and a hash of a short string.
   app.get(API_PATHS.status, async (_req, reply) => {
     ok(
       reply,
@@ -194,6 +200,8 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
         pid: process.pid,
         uptime: process.uptime(),
         version: ctx.version,
+        nest_fingerprint: nestFingerprint(realpathMissingOk(paths.larkDir())),
+        local_api_version: LOCAL_API_VERSION,
       } satisfies StatusData,
       'daemon is running',
     );

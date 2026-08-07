@@ -120,7 +120,18 @@ export interface PlaylistData {
 /** The virtual all-songs playlist id (R3/R24) — read-only, never a DB row. */
 export const VIRTUAL_ALL_PLAYLIST_ID = 'all';
 
-/** `GET /status` payload — the daemon liveness probe (permanently unauthed). */
+/**
+ * `GET /status` payload — the daemon liveness probe (permanently unauthed).
+ *
+ * `nest_fingerprint` and `local_api_version` are what let an unauthenticated
+ * caller settle IDENTITY, not just liveness (M6-19): before them, a CLI facing
+ * an occupied port could not tell "my daemon" from "another nest's daemon"
+ * without a token the other nest would never accept.
+ *
+ * Both are REQUIRED from M6 on. A response carrying neither is a pre-M6 daemon
+ * (the legacy shape); one carrying a malformed or half-present pair is not
+ * something to guess about — probes treat it as unverifiable and refuse.
+ */
 export interface StatusData {
   status: 'ok';
   /** Daemon process id, used by the GUI to adopt / replace a running daemon. */
@@ -129,6 +140,15 @@ export interface StatusData {
   uptime: number;
   /** Daemon package version. */
   version: string;
+  /**
+   * SHA-256 (64 lowercase hex) of the daemon's `realpath(larkDir())`. Proves
+   * two processes mean the same data directory without publishing the path:
+   * the hash leaks path EQUALITY and is guessable by dictionary, which is
+   * accepted on a 127.0.0.1 socket behind the Host whitelist.
+   */
+  nest_fingerprint: string;
+  /** Local HTTP protocol gate — same value `GET /api/instance` reports. */
+  local_api_version: number;
 }
 
 /**

@@ -19,6 +19,10 @@
     "./config": {
       "import": "./dist/config/index.js",
       "types": "./dist/config/index.d.ts"
+    },
+    "./daemon-control": {
+      "import": "./dist/daemon-control/index.js",
+      "types": "./dist/daemon-control/index.d.ts"
     }
   },
   "scripts": {
