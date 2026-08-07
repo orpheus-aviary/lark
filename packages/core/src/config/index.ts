@@ -28,6 +28,7 @@ import {
   type ThemeMode,
 } from '@lark/shared';
 import { parse, stringify } from 'smol-toml';
+import { ConfigUnsafePermissionsError } from '../errors.js';
 import { aviaryConfigPath, configPath } from '../paths.js';
 
 export const DEFAULT_CONFIG: LarkConfig = {
@@ -66,6 +67,39 @@ export function loadConfig(path?: string): LarkConfig {
   }
 
   tightenPermissions(filePath);
+
+  const parsed = parse(readFileSync(filePath, 'utf-8'));
+  const merged = deepMerge(
+    structuredClone(DEFAULT_CONFIG) as unknown as Record<string, unknown>,
+    parsed,
+  ) as unknown as LarkConfig;
+  return sanitize(merged);
+}
+
+/**
+ * Read the config WITHOUT touching the disk (M6-23).
+ *
+ * `loadConfig` is a write path in two ways — it creates a default file when
+ * none exists, and it chmods an unsafe one to 0600 — which is exactly right
+ * for the daemon and exactly wrong for `lark songs list --direct`: a read
+ * command holds no writer lock, so both of those would land behind a running
+ * backup's back.
+ *
+ * So: missing file yields the in-memory defaults and creates nothing, and an
+ * unsafe file is REFUSED rather than repaired. The permission rule is the same
+ * one `loadConfig` enforces (`mode & 0o077`, so 0700 passes) — a read command
+ * that quietly accepted a world-readable api_key would make the whole
+ * tightening pointless.
+ */
+export function loadConfigReadonly(path?: string): LarkConfig {
+  const filePath = path ?? configPath();
+
+  if (!existsSync(filePath)) return structuredClone(DEFAULT_CONFIG);
+
+  const mode = statSync(filePath).mode & 0o777;
+  if ((mode & 0o077) !== 0) {
+    throw new ConfigUnsafePermissionsError(filePath, mode);
+  }
 
   const parsed = parse(readFileSync(filePath, 'utf-8'));
   const merged = deepMerge(

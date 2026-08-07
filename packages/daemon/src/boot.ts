@@ -49,6 +49,7 @@ import {
   IncompatibleDbError,
   MigrationBusyError,
   MigrationResidueError,
+  PidFileCorruptError,
   SchemaMismatchError,
   type WriterLock,
   WriterLockBusyError,
@@ -70,12 +71,7 @@ import { type AcceptanceOptions, type AppContext, CONTEXT_DEFAULTS } from './con
 import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
 import { generateLocalToken, publishLocalToken } from './local-token.js';
-import {
-  DaemonAlreadyRunningError,
-  PidFileCorruptError,
-  acquireDaemonLock,
-  removePid,
-} from './pid.js';
+import { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 import { PlayerRuntime } from './player-runtime.js';
 import { buildServer } from './server.js';
 

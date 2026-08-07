@@ -1,15 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { paths } from '@lark/core';
+import { PidFileCorruptError, paths } from '@lark/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  DaemonAlreadyRunningError,
-  PidFileCorruptError,
-  acquireDaemonLock,
-  readPid,
-  removePid,
-} from './pid.js';
+import { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 
 /** A pid high enough that nothing owns it (the stale-file case). */
 const DEAD_PID = 999999;
@@ -54,49 +48,8 @@ describe('acquireDaemonLock', () => {
   });
 });
 
-describe('readPid', () => {
-  it('returns null when there is no lock file', () => {
-    expect(readPid()).toBeNull();
-  });
-
-  it('returns the pid of a live owner', () => {
-    writePidFile(String(process.pid));
-    expect(readPid()).toBe(process.pid);
-  });
-
-  it('removes a stale file and returns null', () => {
-    writePidFile(String(DEAD_PID));
-    expect(readPid()).toBeNull();
-    expect(existsSync(paths.pidPath())).toBe(false);
-  });
-
-  it.each([
-    ['an empty file', ''],
-    ['whitespace', '   \n'],
-    ['zero', '0'],
-    ['one (kill(1) would signal init)', '1'],
-    ['a negative number (kill would signal a process GROUP)', '-42'],
-    ['a non-number', 'daemon'],
-    ['a float', '12.5'],
-    ['an unsafe integer', '99999999999999999999'],
-  ])('rejects %s without deleting the file', (_label, content) => {
-    writePidFile(content);
-    expect(() => readPid()).toThrow(PidFileCorruptError);
-    expect(existsSync(paths.pidPath())).toBe(true);
-  });
-
-  it('treats EPERM as alive — the pid belongs to someone else, do not steal it', () => {
-    writePidFile(String(DEAD_PID));
-    vi.spyOn(process, 'kill').mockImplementation(() => {
-      const err = new Error('operation not permitted') as NodeJS.ErrnoException;
-      err.code = 'EPERM';
-      throw err;
-    });
-
-    expect(readPid()).toBe(DEAD_PID);
-    expect(existsSync(paths.pidPath())).toBe(true);
-  });
-});
+// The reader's own tests live with it, in
+// `@lark/core/daemon-control` (M6-9) — what is left here is the write half.
 
 describe('removePid', () => {
   it('removes the file when it still holds our pid', () => {

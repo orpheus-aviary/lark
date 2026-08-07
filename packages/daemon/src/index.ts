@@ -16,13 +16,9 @@ export { DAEMON_VERSION, LOCAL_API_VERSION } from './version.js';
 export { EventsBus } from './events/bus.js';
 export { GuiCapacityError, GuiChannel, type GuiConnection } from './events/gui-channel.js';
 export { generateLocalToken, publishLocalToken } from './local-token.js';
-export {
-  DaemonAlreadyRunningError,
-  PidFileCorruptError,
-  acquireDaemonLock,
-  readPid,
-  removePid,
-} from './pid.js';
+// Reading the pid file lives in `@lark/core/daemon-control` (M6-9); only the
+// write half is the daemon's.
+export { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 export { type CommandOutcome, PlayerRuntime } from './player-runtime.js';
 export { fail, ok } from './response.js';
 export { buildServer, registerAllRoutes } from './server.js';

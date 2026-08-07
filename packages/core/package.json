@@ -23,6 +23,10 @@
     "./daemon-control": {
       "import": "./dist/daemon-control/index.js",
       "types": "./dist/daemon-control/index.d.ts"
+    },
+    "./native-probe": {
+      "import": "./dist/native-probe.js",
+      "types": "./dist/native-probe.d.ts"
     }
   },
   "scripts": {

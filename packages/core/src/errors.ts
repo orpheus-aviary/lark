@@ -53,6 +53,57 @@ export class MigrationBusyError extends Error {
 }
 
 /**
+ * `lark_config.toml` is group- or world-accessible and the caller is a READ
+ * path, which may not repair it (M6-23). The file holds a live api_key, so
+ * this is a refusal, not a warning.
+ */
+export class ConfigUnsafePermissionsError extends Error {
+  readonly path: string;
+  readonly mode: number;
+  constructor(path: string, mode: number) {
+    super(
+      `config file ${path} has unsafe mode 0${mode.toString(8)} (it holds an api_key). Run any lark write command, or start the daemon once, to tighten it to 0600.`,
+    );
+    this.name = 'ConfigUnsafePermissionsError';
+    this.path = path;
+    this.mode = mode;
+  }
+}
+
+/**
+ * There is no library here yet: no file at all, or a file with an empty
+ * schema. A write path would create one; a read path has nothing to show and
+ * says so (M6-20).
+ */
+export class DatabaseNotInitializedError extends Error {
+  readonly dbPath: string;
+  constructor(dbPath: string) {
+    super(
+      `No lark library at ${dbPath} yet. Start the daemon once (\`lark daemon\`) — it creates the library, and finishes an interrupted migration if there is one.`,
+    );
+    this.name = 'DatabaseNotInitializedError';
+    this.dbPath = dbPath;
+  }
+}
+
+/**
+ * The library is at an older schema version this build knows how to migrate,
+ * but the caller is a READ path and read paths do not migrate (M6-20).
+ */
+export class MigrationPendingError extends Error {
+  readonly dbPath: string;
+  readonly dbVersion: number;
+  constructor(dbPath: string, dbVersion: number, target: number) {
+    super(
+      `Database at ${dbPath} is at v${dbVersion} and this build expects v${target}. Start the daemon once (\`lark daemon\`) to complete the upgrade, then retry.`,
+    );
+    this.name = 'MigrationPendingError';
+    this.dbPath = dbPath;
+    this.dbVersion = dbVersion;
+  }
+}
+
+/**
  * Another process holds the cross-process writer lock for this library
  * (M6-18): a running daemon, a `lark --direct` write, a Go migration or a nest
  * backup. Never a stale-lock false positive — the lock is an fcntl lock the

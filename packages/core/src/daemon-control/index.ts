@@ -8,3 +8,5 @@
 // else that loads a `.node` file.
 
 export * from './fingerprint.js';
+export * from './pid.js';
+export * from './stop.js';

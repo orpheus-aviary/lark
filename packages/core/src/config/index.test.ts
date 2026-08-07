@@ -14,7 +14,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'smol-toml';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_CONFIG, loadConfig, redactConfig, resolveLlmConfig, saveConfig } from './index.js';
+import { ConfigUnsafePermissionsError } from '../errors.js';
+import {
+  DEFAULT_CONFIG,
+  loadConfig,
+  loadConfigReadonly,
+  redactConfig,
+  resolveLlmConfig,
+  saveConfig,
+} from './index.js';
 
 let dir: string;
 
@@ -279,5 +287,51 @@ describe('redactConfig', () => {
     const pub = redactConfig(cfg);
     expect(pub.llm.has_api_key).toBe(true);
     expect(JSON.stringify(pub)).not.toContain('sk-secret');
+  });
+});
+
+describe('loadConfigReadonly (M6-23)', () => {
+  it('returns the defaults for a missing file and creates nothing', () => {
+    const cfg = loadConfigReadonly(cfgPath());
+
+    expect(cfg).toEqual(DEFAULT_CONFIG);
+    // `loadConfig` would have written a default file here. A read command
+    // holds no writer lock, so it must not.
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('parses and sanitises an existing 0600 file', () => {
+    writeFileSync(cfgPath(), '[log]\nlevel = "nonsense"\nmax_backups = 3\n', { mode: 0o600 });
+    chmodSync(cfgPath(), 0o600);
+
+    const cfg = loadConfigReadonly(cfgPath());
+
+    expect(cfg.log.level).toBe(DEFAULT_CONFIG.log.level); // out-of-domain → default
+    expect(cfg.log.max_backups).toBe(3);
+  });
+
+  it('refuses an unsafe file instead of tightening it', () => {
+    writeFileSync(cfgPath(), '[llm]\napi_key = "sk-secret"\n');
+    chmodSync(cfgPath(), 0o644);
+
+    expect(() => loadConfigReadonly(cfgPath())).toThrow(ConfigUnsafePermissionsError);
+    // Untouched: repairing it is a write, and a read path does not write.
+    expect(statSync(cfgPath()).mode & 0o777).toBe(0o644);
+  });
+
+  it('accepts 0700 — the rule is group/other access, not the exact mode', () => {
+    writeFileSync(cfgPath(), '[window]\nwidth = 900\n');
+    chmodSync(cfgPath(), 0o700);
+
+    expect(loadConfigReadonly(cfgPath()).window.width).toBe(900);
+  });
+
+  it('never reads the file into existence between the two calls', () => {
+    // Same permission rule as loadConfig, so a file loadConfig would accept is
+    // one loadConfigReadonly accepts, and vice versa.
+    writeFileSync(cfgPath(), '[window]\nwidth = 900\n');
+    chmodSync(cfgPath(), 0o600);
+
+    expect(loadConfigReadonly(cfgPath())).toEqual(loadConfig(cfgPath()));
   });
 });
