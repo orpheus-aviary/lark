@@ -4,11 +4,13 @@
 // includes `songs/`, the lyrics and the config is only coherent if the writers
 // are stopped. Hence the four contracts this implements:
 //
-//  1. Nobody may be running. A reachable `/status` or a live `daemon.pid`
-//     aborts the copy, and the source database is held with
-//     `locking_mode=EXCLUSIVE` for the duration — a daemon started midway
-//     fails to open its library instead of silently making the copy
-//     inconsistent with the files beside it.
+//  1. Nobody may be running, and nobody may start. A reachable `/status` or a
+//     live `daemon.pid` aborts the copy; the WRITER LOCK is held from before
+//     the first file is copied until the database backup is done (M6-18 ④),
+//     so a daemon or a `lark --direct` write that begins midway waits or
+//     fails instead of changing `lark_config.toml` or a song file behind the
+//     copy; and the source database is additionally held with
+//     `locking_mode=EXCLUSIVE` for the duration.
 //  2. The destination is ours. An explicit target must not exist and is
 //     created here; the source directory, any ancestor of it, any descendant
 //     of it and any symlink pointing back into it are refused. The default is
@@ -20,21 +22,47 @@
 
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { backupDatabase } from './db/backup.js';
+import { acquireWriterLock } from './db/writer-lock.js';
 import * as paths from './paths.js';
 
 /** Never copied: state that belongs to a running process, not to the library. */
-export const RUNTIME_ENTRIES = [
-  'daemon-token',
-  'daemon.pid',
-  'logs',
-  'songs.db.migrate.lock',
-] as const;
+export const RUNTIME_ENTRIES = ['daemon-token', 'daemon.pid', 'logs'] as const;
 
 /** Written by the backup itself, so the raw files are skipped by the copy. */
 const DB_ENTRIES = ['songs.db', 'songs.db-wal', 'songs.db-shm'] as const;
+
+/**
+ * The two lock databases, WITH their sidecars.
+ *
+ * Prefix-matched rather than named exactly, because a held lock has a
+ * `-journal` beside it: the backup now holds the writer lock for the whole
+ * copy (M6-18 ④), so its journal is guaranteed to exist while `readdir` runs.
+ * A lock file in a copy is meaningless at best — its fcntl state belongs to a
+ * process on this machine — and misleading at worst.
+ */
+const LOCK_DB_NAMES = ['songs.db.migrate.lock', 'songs.db.writer.lock'] as const;
+
+function isLockArtifact(name: string): boolean {
+  return LOCK_DB_NAMES.some((lock) => name === lock || name.startsWith(`${lock}-`));
+}
+
+/**
+ * Generated artefacts, excluded AT EVERY DEPTH (M6-14, sixth review ⑦).
+ *
+ * `lark skill export` writes its file with a same-directory temp + rename, and
+ * `--output` may point anywhere inside the nest — including a subdirectory, in
+ * which case a recursive copy would sweep up a half-written temp file that the
+ * skip list above (top-level entry names only) never sees. Skipping by
+ * BASENAME at every level is what makes that impossible; the artefact itself is
+ * skipped too, since it can be regenerated at any time and is not library data.
+ */
+function isSkillArtifact(path: string): boolean {
+  const name = basename(path);
+  return name === paths.SKILL_FILE_NAME || name.startsWith(paths.SKILL_TEMP_PREFIX);
+}
 
 const STATUS_TIMEOUT_MS = 1000;
 
@@ -125,7 +153,23 @@ export async function backupNest(options: BackupNestOptions = {}): Promise<Backu
   const sourceLark = await realpath(paths.larkDir());
   const sourceNest = await realpath(paths.nestDir());
 
-  const created = await createTarget(options.target);
+  // Before the first byte is copied, and before the destination exists: the
+  // liveness probe above is a snapshot, and only the lock keeps it true.
+  const writerLock = acquireWriterLock({ dbPath: join(sourceLark, 'songs.db') });
+  try {
+    return await copyUnderLock(sourceLark, sourceNest, options.target);
+  } finally {
+    writerLock.release();
+  }
+}
+
+/** The copy itself. Runs with the writer lock held; see {@link backupNest}. */
+async function copyUnderLock(
+  sourceLark: string,
+  sourceNest: string,
+  target: string | undefined,
+): Promise<BackupNestResult> {
+  const created = await createTarget(target);
   try {
     await assertDisjoint(created, sourceNest);
     const targetLark = join(created, 'lark');
@@ -134,10 +178,11 @@ export async function backupNest(options: BackupNestOptions = {}): Promise<Backu
     const skip = new Set<string>([...RUNTIME_ENTRIES, ...DB_ENTRIES]);
     const copied: string[] = [];
     for (const entry of await readdir(sourceLark)) {
-      if (skip.has(entry)) continue;
+      if (skip.has(entry) || isLockArtifact(entry) || isSkillArtifact(entry)) continue;
       await cp(join(sourceLark, entry), join(targetLark, entry), {
         recursive: true,
         preserveTimestamps: true,
+        filter: (source) => !isSkillArtifact(source),
       });
       copied.push(entry);
     }

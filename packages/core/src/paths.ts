@@ -72,3 +72,19 @@ export function trashDir(): string {
 export function aviaryConfigPath(): string {
   return join(nestDir(), 'aviary', 'aviary_config.toml');
 }
+
+/**
+ * `lark skill export`'s default output and the fixed prefix of its
+ * same-directory temp files (M6-14).
+ *
+ * Named here rather than in the command, because the backup has to recognise
+ * both: a generated skill file is not library data — it can be re-exported at
+ * any time — and a temp file caught mid-rename is not even a whole document.
+ */
+export const SKILL_FILE_NAME = 'lark-skill.md';
+export const SKILL_TEMP_PREFIX = '.lark-skill.md.tmp-';
+
+/** Default skill export target: `lark/lark-skill.md` */
+export function skillPath(): string {
+  return join(larkDir(), SKILL_FILE_NAME);
+}

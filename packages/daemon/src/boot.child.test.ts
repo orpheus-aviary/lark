@@ -9,6 +9,7 @@
 
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -20,6 +21,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { type WriterLock, WriterLockBusyError, acquireWriterLock } from '@lark/core';
 import { seedGoLegacyDb } from '@lark/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -47,6 +49,8 @@ const children: DaemonChild[] = [];
 const larkDir = (): string => join(nest, 'lark');
 const pidPath = (): string => join(larkDir(), 'daemon.pid');
 const tokenPath = (): string => join(larkDir(), 'daemon-token');
+const configPath = (): string => join(larkDir(), 'lark_config.toml');
+const dbPath = (): string => join(larkDir(), 'songs.db');
 
 function spawnDaemon(env: Record<string, string> = {}): DaemonChild {
   const proc = spawn(process.execPath, [CHILD_ENTRY], {
@@ -201,6 +205,83 @@ describe('boot', () => {
     expect(existsSync(pidPath())).toBe(false);
     expect(existsSync(tokenPath())).toBe(true); // published before the fatal
   });
+});
+
+// The acquisition order is only observable from outside: what exists on disk
+// at the moment the boot is blocked, and what the process does with a signal
+// while it sits in a synchronous SQLite call (M6-18 ①).
+describe('boot — writer lock', () => {
+  let blocker: WriterLock | null = null;
+
+  afterEach(() => {
+    blocker?.release();
+    blocker = null;
+  });
+
+  it('holds the lock for its whole life and releases it on exit', async () => {
+    const child = spawnDaemon();
+    await child.waitForPort();
+
+    expect(() => acquireWriterLock({ dbPath: dbPath() })).toThrow(WriterLockBusyError);
+
+    child.proc.kill('SIGTERM');
+    expect(await child.waitForExit()).toMatchObject({ code: 0 });
+
+    const afterExit = acquireWriterLock({ dbPath: dbPath() });
+    afterExit.release();
+  });
+
+  it('takes the pid lock first and writes no config while it waits', async () => {
+    // Exactly the backup-vs-boot interleaving (M6-18 ④): a backup holds the
+    // writer lock, a daemon starts midway, and `loadConfig()` — which
+    // CREATES a default file when none exists — must not run behind the
+    // backup's back.
+    blocker = acquireWriterLock({ dbPath: dbPath() });
+    const child = spawnDaemon();
+
+    // The pid lock is taken before the writer lock, so it appears even
+    // though this boot is never going to finish.
+    await vi.waitFor(() => expect(existsSync(pidPath())).toBe(true), { timeout: 10_000 });
+    expect(existsSync(configPath())).toBe(false);
+
+    const exit = await child.waitForExit();
+    expect(exit.code).toBe(1);
+    expect(child.stderr()).toContain('另一个写者持有写锁');
+    // Still nothing written, and the pid lock was handed back.
+    expect(existsSync(configPath())).toBe(false);
+    expect(existsSync(tokenPath())).toBe(false);
+    expect(existsSync(pidPath())).toBe(false);
+  }, 20_000);
+
+  it('does not tighten an existing config while it waits', async () => {
+    // `loadConfig()` chmods a world-readable config to 0600 — a write, on
+    // the far side of the lock like every other.
+    writeFileSync(configPath(), '[log]\nlevel = "info"\n');
+    chmodSync(configPath(), 0o644);
+    blocker = acquireWriterLock({ dbPath: dbPath() });
+
+    const child = spawnDaemon();
+    expect(await child.waitForExit()).toMatchObject({ code: 1 });
+
+    expect(statSync(configPath()).mode & 0o777).toBe(0o644);
+  }, 20_000);
+
+  it('honours a SIGTERM delivered while it is blocked on the lock', async () => {
+    // The checkpoint protocol (sixth review ③): `process.on` callbacks do
+    // not run while SQLite waits inside its busy handler, so the signal is
+    // only observable after the call returns. Boot must still exit 0 —
+    // first-wins says a signal beats the lock timeout that follows it.
+    blocker = acquireWriterLock({ dbPath: dbPath() });
+    const child = spawnDaemon();
+
+    await vi.waitFor(() => expect(existsSync(pidPath())).toBe(true), { timeout: 10_000 });
+    await sleep(150); // comfortably inside the 5s wait
+    child.proc.kill('SIGTERM');
+
+    expect(await child.waitForExit()).toMatchObject({ code: 0 });
+    expect(existsSync(pidPath())).toBe(false);
+    expect(existsSync(configPath())).toBe(false);
+  }, 20_000);
 });
 
 describe('stop-daemon', () => {

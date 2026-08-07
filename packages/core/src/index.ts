@@ -8,6 +8,7 @@ export * from './daemon-control/index.js';
 export * from './logger/index.js';
 export * from './errors.js';
 export * from './db/index.js';
+export * from './db/writer-lock.js';
 export { LATEST_KNOWN_VERSION } from './db/migrate.js';
 export * from './db/backup.js';
 export * from './backup-nest.js';

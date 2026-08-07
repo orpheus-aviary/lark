@@ -1,15 +1,19 @@
 // One-shot Go songs.db → schema v1 migration (T5, master plan §3.3 in full).
 //
-// Order of operations: idempotency peek → migration lock → old-daemon probe →
-// DB-level EXCLUSIVE on the source → column comparison → integrity/FK checks
-// → checkpoint (busy asserted) → online backup → build `.migrating` at v1 →
-// JS row-by-row transform → acceptance (counts, schema signature, integrity,
-// FK, strictly-increasing ranks, fail-closed) → close every handle → atomic
-// two-rename swap with old-swap rollback → cleanup.
+// Order of operations: unlocked preview (idempotency + Go fingerprint) →
+// WRITER lock → migration lock → old-daemon probe → the same read-only verdict
+// again, now authoritative under the locks → DB-level EXCLUSIVE on the source
+// → integrity/FK checks → checkpoint (busy asserted) → online backup → build
+// `.migrating` at v1 → JS row-by-row transform → acceptance (counts, schema
+// signature, integrity, FK, strictly-increasing ranks, fail-closed) → close
+// every handle → atomic two-rename swap with old-swap rollback → cleanup.
 //
-// Path discipline: every side file (.migrate.lock / daemon.pid / .migrating /
-// .old-swap / backup / sidecars) derives from dbPath — never from global
-// paths.ts — so fixture runs in a temp dir can't touch the real nest.
+// The lock order — writer → migrate → the source's EXCLUSIVE — is frozen
+// across all four writers of this library (M6-18).
+//
+// Path discipline: every side file (.writer.lock / .migrate.lock / daemon.pid /
+// .migrating / .old-swap / backup / sidecars) derives from dbPath — never from
+// global paths.ts — so fixture runs in a temp dir can't touch the real nest.
 //
 // (`.exec` below is better-sqlite3's Database#exec — SQL, not child_process.)
 
@@ -23,11 +27,12 @@ import {
   SourceDbCorruptionError,
 } from '../errors.js';
 import { backupDatabase } from './backup.js';
-import { acquireMigrateLock } from './migrate-lock.js';
+import { type MigrateLock, acquireMigrateLock } from './migrate-lock.js';
 import { LATEST_KNOWN_VERSION, applyForwardMigrations } from './migrate.js';
 import { probeGoDaemon, probeGoDaemonPid } from './probe-go.js';
 import { fsIsoTimestamp, migratingPath, oldSwapPath } from './recovery.js';
 import { assertSchemaV1 } from './schema-signature.js';
+import { acquireWriterLock } from './writer-lock.js';
 
 /** Minimal structural logger — pino's Logger satisfies this. */
 export interface MigrateLogger {
@@ -63,6 +68,9 @@ export interface GoMigrateResult {
 
 const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
+/** How long the read-only verdict waits out a competing lock holder. */
+const PEEK_BUSY_TIMEOUT_MS = 2000;
+
 /** Strict RFC3339 → unix-ms; null when unparseable. Offsets are respected. */
 export function parseRfc3339(value: unknown): number | null {
   if (typeof value !== 'string' || !RFC3339_RE.test(value)) return null;
@@ -97,9 +105,30 @@ interface GoMemberRow {
   position: number;
 }
 
-function peekIdempotency(dbPath: string, startedAt: number): GoMigrateResult | null {
+type SourceVerdict =
+  | { kind: 'already-migrated'; result: GoMigrateResult }
+  | { kind: 'migratable'; hasDuration: boolean };
+
+/**
+ * The complete verdict on the source library, taken through a READ-ONLY
+ * handle: already at v1 (nothing to do), or a genuine Go-era library plus the
+ * column layout the transform needs.
+ *
+ * Called twice on purpose (M6-18 ③). The first call is an unlocked fast path,
+ * so re-running the command on a migrated library answers immediately instead
+ * of queueing behind whoever holds the writer lock. The second runs INSIDE the
+ * locks and is the authoritative one — it is what justifies the same-value
+ * `user_version` write that follows, and it writes nothing itself, so a
+ * library that turned out not to be migratable is handed back untouched.
+ */
+function inspectSource(dbPath: string, startedAt: number): SourceVerdict {
   const peek = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
   try {
+    // better-sqlite3 would otherwise wait out its own 5s default before
+    // surfacing a raw SQLITE_BUSY. Somebody holding the source EXCLUSIVE — a
+    // Go daemon, or another migrator that got here first — is a condition this
+    // command has a name for, so answer with that name, quickly.
+    peek.pragma(`busy_timeout = ${PEEK_BUSY_TIMEOUT_MS}`);
     const v = peek.pragma('user_version', { simple: true }) as number;
     if (v > LATEST_KNOWN_VERSION) {
       throw new IncompatibleDbError(dbPath, v, LATEST_KNOWN_VERSION);
@@ -110,12 +139,15 @@ function peekIdempotency(dbPath: string, startedAt: number): GoMigrateResult | n
       const n = (table: string) =>
         (peek.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
       return {
-        backup_path: '',
-        songs: n('songs'),
-        playlists: n('playlists'),
-        memberships: n('playlist_songs'),
-        elapsed_ms: Date.now() - startedAt,
-        already_migrated: true,
+        kind: 'already-migrated',
+        result: {
+          backup_path: '',
+          songs: n('songs'),
+          playlists: n('playlists'),
+          memberships: n('playlist_songs'),
+          elapsed_ms: Date.now() - startedAt,
+          already_migrated: true,
+        },
       };
     }
     if (v > 0) {
@@ -124,7 +156,18 @@ function peekIdempotency(dbPath: string, startedAt: number): GoMigrateResult | n
         `user_version=${v} — not a Go-era library; open it normally instead of migrating`,
       );
     }
-    return null;
+    // v === 0: the Go fingerprint IS the column layout. Verified here, before
+    // any escalation, so an unrecognised v0 database is refused without a
+    // single byte written to it.
+    return { kind: 'migratable', ...verifyGoColumns(peek, dbPath) };
+  } catch (err) {
+    if (String((err as { code?: string }).code).startsWith('SQLITE_BUSY')) {
+      throw new MigrationBusyError(
+        'exclusive_lock_busy',
+        'another process is holding the source database — quit the Go app, or wait for the running migration to finish',
+      );
+    }
+    throw err;
   } finally {
     peek.close();
   }
@@ -171,16 +214,25 @@ export async function migrateFromGoDb(
   if (!existsSync(dbPath)) {
     throw new SchemaMismatchError(dbPath, 'no database file to migrate');
   }
-  const shortCircuit = peekIdempotency(dbPath, startedAt);
-  if (shortCircuit) return shortCircuit;
+  // Unlocked fast path: an already-migrated library, or one that was never a
+  // Go library, is answered without waiting on anybody's lock.
+  const preview = inspectSource(dbPath, startedAt);
+  if (preview.kind === 'already-migrated') return preview.result;
 
   const migrating = migratingPath(dbPath);
   const oldSwap = oldSwapPath(dbPath);
-  const lock = acquireMigrateLock(dbPath);
+  // Lock order (M6-18): writer → migrate → the source's own EXCLUSIVE.
+  // The migrate lock is taken INSIDE the try: acquiring it can throw
+  // (`migrate_lock_busy`), and a throw between the two acquisitions would
+  // otherwise strand the writer lock for the life of the process.
+  const writerLock = acquireWriterLock({ dbPath });
+  let lock: MigrateLock | null = null;
   let source: BetterSqlite3.Database | null = null;
   let temp: BetterSqlite3.Database | null = null;
 
   try {
+    lock = acquireMigrateLock(dbPath);
+
     // ── Old daemon probe (friendly tier; the EXCLUSIVE lock is the guard) ──
     if (options.httpProbe === false) {
       const pid = probeGoDaemonPid(dbPath);
@@ -196,6 +248,16 @@ export async function migrateFromGoDb(
         throw new MigrationBusyError('daemon_alive', daemon.detail);
       }
     }
+
+    // ── Authoritative re-judge, under the locks, still zero writes ────────
+    //
+    // The preview above was taken with nobody holding anything: between it and
+    // here, another migrator could have finished the job, or a daemon could
+    // have forward-migrated the library. The same-value `user_version` write
+    // below is only justified by THIS verdict.
+    const verdict = inspectSource(dbPath, startedAt);
+    if (verdict.kind === 'already-migrated') return verdict.result;
+    const { hasDuration } = verdict;
 
     // ── DB-level exclusivity on the source ────────────────────────────────
     source = new BetterSqlite3(dbPath);
@@ -220,8 +282,8 @@ export async function migrateFromGoDb(
       throw err;
     }
 
-    // ── Structure + health checks ─────────────────────────────────────────
-    const { hasDuration } = verifyGoColumns(source, dbPath);
+    // ── Health checks ─────────────────────────────────────────────────────
+    // (Structure was verified read-only above, before the escalation.)
     runChecks(source, 'source database');
     const ckpt = source.pragma('wal_checkpoint(TRUNCATE)') as { busy: number }[];
     if (ckpt[0]?.busy !== 0) {
@@ -444,6 +506,8 @@ export async function migrateFromGoDb(
     } catch {
       /* best-effort; recovery removes orphans next open */
     }
-    lock.release();
+    // Released in reverse acquisition order (M6-18).
+    lock?.release();
+    writerLock.release();
   }
 }

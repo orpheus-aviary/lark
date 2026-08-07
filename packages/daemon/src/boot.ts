@@ -21,6 +21,24 @@
 //     acquisition order, and releases the PID lock LAST (releasing it first,
 //     as owl does, lets a successor daemon open the database this one still
 //     holds).
+//
+// ACQUISITION ORDER IS FROZEN (M6-18 ①):
+//
+//   mkdir → PID lock → signal handlers → WRITER lock → config → logger → …
+//
+// Two constraints pin it. The signal handlers go up the moment the pid file
+// exists, or a SIGTERM in the next window takes the process down by system
+// default with the lock file still on disk. And the writer lock comes before
+// `loadConfig()`, because that call WRITES — a default file when none exists,
+// a chmod when an old one is world-readable — and a backup copying the nest
+// must not have config change under it.
+//
+// The writer lock is also the first LONG synchronous step, which needs its own
+// discipline: `process.on` handlers cannot run while SQLite blocks inside its
+// busy handler, so a signal arriving mid-wait is delivered only after the call
+// returns. Hence the checkpoint pattern — capture the outcome, `setImmediate`
+// so a pending signal lands, THEN decide between finishing the stop and
+// aborting the boot (M6-18 ①, sixth review ③).
 
 import { mkdirSync } from 'node:fs';
 import {
@@ -32,6 +50,9 @@ import {
   MigrationBusyError,
   MigrationResidueError,
   SchemaMismatchError,
+  type WriterLock,
+  WriterLockBusyError,
+  acquireWriterLock,
   createBilibiliClient,
   createDatabase,
   createLogger,
@@ -81,6 +102,19 @@ export interface BootOptions {
 type LifecycleState = 'booting' | 'running' | 'stopping' | 'stopped';
 type StopReason = 'signal' | 'boot-failure' | 'fatal';
 
+/**
+ * How long boot waits for the writer lock (M6-18 ①).
+ *
+ * Long enough to absorb a short CLI `--direct` write that started a moment
+ * earlier, short enough that a long holder (a nest backup, a cache eviction)
+ * reports a comprehensible "someone else is writing" instead of a daemon that
+ * looks hung.
+ */
+const WRITER_LOCK_WAIT_MS = 5000;
+
+/** Yield once so a signal delivered during a long synchronous call can land. */
+const drainPendingSignals = (): Promise<void> => new Promise((r) => setImmediate(r));
+
 function resolvePort(port: number | undefined): number {
   if (port === undefined) return DEFAULT_DAEMON_PORT;
   if (!Number.isSafeInteger(port) || port < 0 || port > 65535) {
@@ -98,6 +132,9 @@ function resolvePort(port: number | undefined): number {
 function describeBootFailure(err: unknown): string {
   if (err instanceof DaemonAlreadyRunningError) return err.message;
   if (err instanceof PidFileCorruptError) return err.message;
+  if (err instanceof WriterLockBusyError) {
+    return `${err.message}\n（另一个写者持有写锁：迁移、备份，或一条 \`lark --direct\` 写命令。等它结束后重试。）`;
+  }
   if (err instanceof GoMigrationRequiredError) {
     return `${err.message}\n运行 \`just migrate-go\` 完成迁移后再启动 daemon。`;
   }
@@ -128,25 +165,48 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   const port = resolvePort(options.port);
 
   mkdirSync(paths.larkDir(), { recursive: true });
-  const config = (options.resolveConfig ?? loadConfig)();
   const logFilePath = paths.larkLogPath();
-  // Keep the concrete pino type: `createDatabase` wants pino's Logger, while
-  // AppContext only needs the four-method subset this satisfies structurally.
-  const logger = createLogger({ filePath: logFilePath, config: config.log, name: 'daemon' });
 
   let state: LifecycleState = 'booting';
   let stopReason: StopReason | null = null;
   /** True while `boot` itself drives the sequence (see the header note). */
   let bootDriving = true;
   let lockHeld = false;
+  let writerLock: WriterLock | null = null;
+  // Keep the concrete pino type: `createDatabase` wants pino's Logger, while
+  // AppContext only needs the four-method subset this satisfies structurally.
+  // Null until the config it is configured from has been read.
+  let logger: ReturnType<typeof createLogger> | null = null;
   let ctx: AppContext | null = null;
   let server: FastifyInstance | null = null;
   let teardownPromise: Promise<void> | null = null;
   const shutdownController = new AbortController();
 
+  /**
+   * Lifecycle logging that also works BEFORE the logger exists.
+   *
+   * The window is real: signal handlers go up right after the pid lock, while
+   * the log file still needs the config, which still needs the writer lock. A
+   * stop in that window has to say so somewhere, and stderr is the only
+   * channel a foreground daemon has left.
+   */
+  const lifecycleLog = (
+    level: 'info' | 'error',
+    fields: Record<string, unknown>,
+    msg: string,
+  ): void => {
+    if (logger !== null) {
+      if (level === 'error') logger.error(fields, msg);
+      else logger.info(fields, msg);
+      return;
+    }
+    const line = `[lark daemon] ${msg} ${JSON.stringify(fields)}`;
+    console.error(line); // log-hygiene: console-ok
+  };
+
   const beginStop = (reason: StopReason): boolean => {
     if (stopReason !== null) return false; // first-wins
-    logger.info({ from: state, reason }, 'daemon stopping');
+    lifecycleLog('info', { from: state, reason }, 'daemon stopping');
     stopReason = reason;
     state = 'stopping';
     return true;
@@ -178,6 +238,10 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       ctx?.guiChannel.close(); // registry timers + connection refs
       ctx?.eventsBus.close();
       ctx?.sqlite.close();
+      // After the database handle, before the pid file: the writer lock says
+      // "this library has a writer", and that stays true until the last
+      // connection to it is gone (M6-18 ①).
+      writerLock?.release();
       if (lockHeld) removePid(); // last: the lock outlives everything it guards
       state = 'stopped';
     })();
@@ -203,7 +267,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   /** Abort a boot that cannot continue: explain, tear down, exit 1. */
   const abortBoot = async (err: unknown): Promise<void> => {
     beginStop('boot-failure'); // may lose to an in-flight signal — that is fine
-    logger.error({ err }, 'daemon failed to start');
+    lifecycleLog('error', { err }, 'daemon failed to start');
     console.error(describeBootFailure(err)); // log-hygiene: console-ok
     await finishStop();
   };
@@ -221,10 +285,46 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   // the database and possibly a half-written token file still held.
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
-      logger.info({ signal }, 'stop requested');
+      lifecycleLog('info', { signal }, 'stop requested');
       requestStop('signal');
     });
   }
+
+  // ── Writer lock, then the first writes of the boot ───────────────────────
+  //
+  // `loadConfig()` is a WRITE (it creates a default file, and tightens a
+  // world-readable one to 0600), so it belongs on this side of the lock: a
+  // nest backup holding the lock must be able to copy the config knowing
+  // nobody is about to rewrite it.
+  //
+  // Nothing between the lock call and the checkpoint may assume a signal was
+  // handled — `process.on` callbacks do not run while SQLite waits inside its
+  // busy handler. Capture, drain, then decide (sixth review ③).
+  let writerLockError: unknown = null;
+  try {
+    writerLock = acquireWriterLock({
+      dbPath: paths.dbPath(),
+      busyTimeoutMs: WRITER_LOCK_WAIT_MS,
+    });
+  } catch (err) {
+    writerLockError = err;
+  }
+  await drainPendingSignals();
+  if (stopReason !== null) return finishStop(); // a signal beat us: exit 0
+  if (writerLockError !== null) {
+    await abortBoot(writerLockError);
+    return;
+  }
+
+  let config: LarkConfig;
+  try {
+    config = (options.resolveConfig ?? loadConfig)();
+    logger = createLogger({ filePath: logFilePath, config: config.log, name: 'daemon' });
+  } catch (err) {
+    await abortBoot(err);
+    return;
+  }
+  if (stopReason !== null) return finishStop();
 
   try {
     const { db, sqlite } = createDatabase({ dbPath: paths.dbPath(), logger });

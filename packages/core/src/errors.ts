@@ -53,6 +53,28 @@ export class MigrationBusyError extends Error {
 }
 
 /**
+ * Another process holds the cross-process writer lock for this library
+ * (M6-18): a running daemon, a `lark --direct` write, a Go migration or a nest
+ * backup. Never a stale-lock false positive — the lock is an fcntl lock the
+ * kernel drops when its holder dies.
+ */
+export class WriterLockBusyError extends Error {
+  readonly dbPath: string;
+  /** How long the caller was willing to wait, in ms (0 = did not wait). */
+  readonly waitedMs: number;
+  constructor(dbPath: string, waitedMs: number) {
+    super(
+      waitedMs > 0
+        ? `another process is writing the lark library at ${dbPath} (waited ${waitedMs}ms for the writer lock) — stop the daemon or wait for the migration / backup to finish`
+        : `another process is writing the lark library at ${dbPath} — stop the daemon or wait for the migration / backup to finish`,
+    );
+    this.name = 'WriterLockBusyError';
+    this.dbPath = dbPath;
+    this.waitedMs = waitedMs;
+  }
+}
+
+/**
  * Crash residue around a migration ({main, .migrating, .old-swap}) is in a
  * state that cannot be resolved automatically. Fail-closed: nothing was
  * deleted — the message carries manual-recovery guidance (M1-10).

@@ -67,6 +67,35 @@ describe('what lands in the copy', () => {
     expect(existsSync(join(result.larkDir, 'songs.db.migrate.lock'))).toBe(false);
   });
 
+  it('leaves the lock databases and their sidecars behind', async () => {
+    // The backup itself holds the writer lock while it reads the directory
+    // (M6-18 ④), so `songs.db.writer.lock-journal` is guaranteed to exist at
+    // that moment. A lock file in a copy means nothing — its fcntl state
+    // belongs to a process on this machine.
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    const copied = readdirSync(result.larkDir);
+    expect(copied.filter((name) => name.includes('.lock'))).toEqual([]);
+  });
+
+  it('never copies a skill export or a half-written skill temp file', async () => {
+    // `--output` may point at a subdirectory, where the top-level skip list
+    // cannot see it — hence the basename filter at every depth (M6-14).
+    const lark = join(nest, 'lark');
+    writeFileSync(join(lark, 'lark-skill.md'), '# skill');
+    writeFileSync(join(lark, '.lark-skill.md.tmp-abc123'), '# half written');
+    mkdirSync(join(lark, 'exports'), { recursive: true });
+    writeFileSync(join(lark, 'exports', 'lark-skill.md'), '# skill');
+    writeFileSync(join(lark, 'exports', '.lark-skill.md.tmp-def456'), '# half written');
+    writeFileSync(join(lark, 'exports', 'keep-me.json'), '{}');
+
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    expect(existsSync(join(result.larkDir, 'lark-skill.md'))).toBe(false);
+    expect(existsSync(join(result.larkDir, '.lark-skill.md.tmp-abc123'))).toBe(false);
+    expect(readdirSync(join(result.larkDir, 'exports'))).toEqual(['keep-me.json']);
+  });
+
   it('produces a database with the same rows and no wal sidecar', async () => {
     const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
 
