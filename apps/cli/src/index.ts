@@ -16,8 +16,19 @@
 
 import { Command } from 'commander';
 import { runCacheEvict, runCacheStatus } from './commands/cache.js';
+import { type DaemonCommandDeps, runDaemonStart, runStopDaemon } from './commands/daemon.js';
 import { assertDownloadShape, runDownload, runSongsRedownload } from './commands/download.js';
+import { runGui } from './commands/gui.js';
 import { runLyricsDelete, runLyricsRedownload } from './commands/lyrics.js';
+import {
+  assertPlayShape,
+  playOptionsFrom,
+  runMode,
+  runNowPlaying,
+  runPlay,
+  runPlayerControl,
+  runSeek,
+} from './commands/player.js';
 import {
   runPlaylistAdd,
   runPlaylistCreate,
@@ -39,7 +50,7 @@ import { runStatus } from './commands/status.js';
 import { runPlaylistExport, runPlaylistImport } from './commands/transfer.js';
 import { runUrlGet, runUrlRecognize, runUrlSet } from './commands/url.js';
 import { type CommandContext, type GlobalFlags, withContext } from './context.js';
-import { toCliError } from './lib/errors.js';
+import { CliError, toCliError } from './lib/errors.js';
 import { exitCodeFor } from './lib/exit-codes.js';
 import { IdentityHandle } from './lib/identity.js';
 import { emitError, processStreams } from './lib/output.js';
@@ -69,22 +80,49 @@ async function run(body: () => Promise<void>): Promise<void> {
   }
 }
 
-/**
- * Run `body` with a resolved backend. `need` decides which one it may be.
- *
- * `precheck` is for argument-shape rules, and it runs BEFORE the daemon is
- * probed: a command that cannot be obeyed no matter what is listening should
- * say so (exit 2) rather than send the user off to start a daemon that would
- * refuse it for the same reason (exit 4).
- */
+interface BackendOptions {
+  /**
+   * Argument-shape rules, run BEFORE the daemon is probed: a command that
+   * cannot be obeyed no matter what is listening should say so (exit 2)
+   * rather than send the user off to start a daemon that would refuse it for
+   * the same reason (exit 4).
+   */
+  precheck?: () => void;
+  /** May this command start a daemon? `play` and `gui` only (M6-2). */
+  canLaunch?: boolean;
+}
+
+/** Run `body` with a resolved backend. `need` decides which one it may be. */
 function withBackend(
   need: 'read' | 'write' | 'daemon',
   body: (ctx: CommandContext) => Promise<void>,
-  precheck?: () => void,
+  options: BackendOptions = {},
 ): Promise<void> {
   return run(async () => {
-    precheck?.();
-    await withContext(need, { flags: flags() }, body);
+    options.precheck?.();
+    await withContext(
+      need,
+      {
+        flags: flags(),
+        ...(options.canLaunch === undefined ? {} : { canLaunch: options.canLaunch }),
+      },
+      body,
+    );
+  });
+}
+
+/**
+ * The management commands take no backend at all — they are about the daemon
+ * PROCESS — but they still refuse `--direct`, which claims the opposite
+ * (M6-22).
+ */
+function withIdentity(body: (deps: DaemonCommandDeps) => Promise<void>): Promise<void> {
+  return run(async () => {
+    const current = flags();
+    if (current.direct) {
+      throw new CliError('USAGE_ERROR', '这个命令管理的是 daemon 进程本身，不接受 --direct。');
+    }
+    await body({ identity: new IdentityHandle(), streams: processStreams, json: current.json });
   });
 }
 
@@ -102,14 +140,71 @@ program
   .command('status')
   .description('Report whether OUR daemon is running, and refuse to guess when it is not')
   .action(() =>
-    run(async () => {
-      const identity = new IdentityHandle();
-      await runStatus(
-        { identity: () => identity.resolve(), streams: processStreams },
-        { json: flags().json },
-      );
-    }),
+    withIdentity((deps) =>
+      runStatus(
+        { identity: () => deps.identity.resolve(), streams: deps.streams },
+        {
+          json: deps.json,
+        },
+      ),
+    ),
   );
+
+// ─── daemon lifecycle ──────────────────────────────────
+
+program
+  .command('daemon')
+  .description('Start the daemon if it is not already running (idempotent)')
+  .action(() => withIdentity((deps) => runDaemonStart(deps)));
+
+program
+  .command('stop-daemon')
+  .description('Stop OUR daemon, after proving it is ours (idempotent)')
+  .action(() => withIdentity((deps) => runStopDaemon(deps)));
+
+// ─── playback ──────────────────────────────────────────
+
+program
+  .command('play [song]')
+  .description('Play a song, or a playlist with --playlist (starts the GUI if needed)')
+  .option('--playlist <name|id>', 'play this playlist; with [song], start there')
+  .option('--no-launch', 'never start a daemon or a GUI — report instead')
+  .action((songRef: string | undefined, raw: { playlist?: string; launch?: boolean }) => {
+    // commander stores `--no-launch` as `launch: false`, so the translation is
+    // explicit and tested (see `playOptionsFrom`).
+    const opts = playOptionsFrom(raw);
+    return withBackend('daemon', (ctx) => runPlay(ctx, songRef, opts), {
+      precheck: () => assertPlayShape(songRef, opts),
+      canLaunch: !opts.noLaunch,
+    });
+  });
+
+for (const control of ['pause', 'resume', 'next', 'prev'] as const) {
+  program
+    .command(control)
+    .description(`Tell the GUI to ${control}`)
+    .action(() => withBackend('daemon', (ctx) => runPlayerControl(ctx, control)));
+}
+
+program
+  .command('seek <seconds>')
+  .description('Jump to a position in the current song')
+  .action((seconds: string) => withBackend('daemon', (ctx) => runSeek(ctx, seconds)));
+
+program
+  .command('mode <mode>')
+  .description('Set the play mode: sequential | repeat-one | repeat-all | shuffle')
+  .action((mode: string) => withBackend('daemon', (ctx) => runMode(ctx, mode)));
+
+program
+  .command('now-playing')
+  .description('What the GUI is playing right now (never starts anything)')
+  .action(() => withBackend('daemon', (ctx) => runNowPlaying(ctx)));
+
+program
+  .command('gui')
+  .description('Open the lark window, starting a daemon first if there is none')
+  .action(() => withBackend('daemon', (ctx) => runGui(ctx), { canLaunch: true }));
 
 // ─── download ──────────────────────────────────────────
 
@@ -124,11 +219,9 @@ program
   .option('--no-wait', 'return as soon as it is queued')
   .option('--allow-partial', 'proceed even when the list only came back partially')
   .action((input: string | undefined, opts) =>
-    withBackend(
-      'daemon',
-      (ctx) => runDownload(ctx, input, opts),
-      () => assertDownloadShape(input, opts),
-    ),
+    withBackend('daemon', (ctx) => runDownload(ctx, input, opts), {
+      precheck: () => assertDownloadShape(input, opts),
+    }),
   );
 
 // ─── songs ─────────────────────────────────────────────

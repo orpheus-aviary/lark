@@ -10,6 +10,10 @@ import type {
   FetchListData,
   FetchListRequest,
   ParseResultData,
+  PlayerCommandAcceptedData,
+  PlayerCommandBody,
+  PlayerCommandName,
+  PlayerStatusResponse,
   PlaylistData,
   PlaylistExportData,
   PlaylistImportData,
@@ -101,6 +105,17 @@ export interface Backend {
   /** The whole queue snapshot — what `--wait` polls. */
   downloadTasks(): Promise<ApiResponse<DownloadTasksData>>;
   redownloadSong(id: string): Promise<ApiResponse<DownloadTaskAcceptedData>>;
+
+  // ── Player (M6-7) ──────────────────────────────────
+  //
+  // Playback happens in the GUI; the daemon is the only thing that can reach
+  // it (one SSE channel, one active consumer), and a command's answer is the
+  // GUI's ack — which is why these are daemon-only too.
+  playerStatus(): Promise<ApiResponse<PlayerStatusResponse>>;
+  playerCommand<C extends PlayerCommandName>(
+    command: C,
+    body: PlayerCommandBody<C>,
+  ): Promise<ApiResponse<PlayerCommandAcceptedData>>;
 
   // ── Source url (M6-12) ─────────────────────────────
   /** Preview what a URL resolves to. Writes nothing (R6). */

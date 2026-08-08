@@ -15,6 +15,7 @@ import type {
   FetchListData,
   ParseResultData,
   ParsedItem,
+  PlayerStatusResponse,
   PlaylistData,
   PlaylistExportData,
   PlaylistImportData,
@@ -50,6 +51,11 @@ export interface FakeBackendData {
   fetchList?: FetchListData;
   batches?: DownloadBatchesData;
   recognize?: RecognizeUrlData;
+
+  // Player (T5). `playerStatus` is also what the GUI-online poll reads, so a
+  // test scripts a GUI coming up by handing back a sequence of these.
+  playerStatus?: PlayerStatusResponse;
+  playerStatuses?: PlayerStatusResponse[];
   /**
    * One snapshot per `downloadTasks()` call; the last one repeats forever.
    * That is how a `--wait` test scripts "queued → running → succeeded" without
@@ -213,6 +219,19 @@ export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
       const snapshot = scripted.length > 1 ? (scripted.shift() as DownloadTasksData) : scripted[0];
       return Promise.resolve({ success: true, data: snapshot ?? { tasks: [], batches: [] } });
     },
+    playerStatus: () => {
+      calls.push({ method: 'playerStatus', args: [] });
+      // Scripted answers, last one repeating — the same shape `taskSnapshots`
+      // uses, for the same reason: a poll loop must see a stable final answer.
+      const scripted = data.playerStatuses ?? [];
+      const next = scripted.length > 1 ? (scripted.shift() as PlayerStatusResponse) : scripted[0];
+      const answer = next ??
+        data.playerStatus ?? { gui_online: false, player: null, reported_at: null };
+      return Promise.resolve({ success: true, data: answer });
+    },
+    playerCommand: (command, body) =>
+      record('playerCommand', [command, body], { request_id: 'request-1' }),
+
     redownloadSong: (id) => record('redownloadSong', [id], data.accepted ?? { task_id: 'task-1' }),
     recognizeUrl: (id, url) =>
       record('recognizeUrl', [id, url], data.recognize as RecognizeUrlData),

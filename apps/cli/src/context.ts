@@ -10,6 +10,7 @@ import { pidPath } from '@lark/core/paths';
 import { createHttpBackend } from './backend/http.js';
 import { type BackendNeed, type ModeDecision, decideMode } from './backend/resolve.js';
 import type { Backend } from './backend/types.js';
+import { ensureDaemon } from './lib/ensure-daemon.js';
 import { CliError } from './lib/errors.js';
 import { IdentityHandle } from './lib/identity.js';
 import { type Streams, processStreams } from './lib/output.js';
@@ -51,7 +52,7 @@ export async function withContext<T>(
     ...(options.canLaunch === undefined ? {} : { canLaunch: options.canLaunch }),
   });
 
-  const opened = await backendFor(mode, streams);
+  const opened = await backendFor(mode, streams, identity, options.flags);
   try {
     return await body({ backend: opened.backend, streams, flags: options.flags, identity });
   } finally {
@@ -68,7 +69,12 @@ interface OpenedBackend {
   close(): void;
 }
 
-async function backendFor(mode: ModeDecision, streams: Streams): Promise<OpenedBackend> {
+async function backendFor(
+  mode: ModeDecision,
+  streams: Streams,
+  identity: IdentityHandle,
+  flags: GlobalFlags,
+): Promise<OpenedBackend> {
   switch (mode.kind) {
     case 'error':
       throw new CliError(mode.code, mode.message);
@@ -84,8 +90,16 @@ async function backendFor(mode: ModeDecision, streams: Streams): Promise<OpenedB
         mode: mode.kind === 'direct-read' ? 'read' : 'write',
       });
     }
-    case 'launch':
-      // SEAM (removed in T5): `ensureDaemon` is what fills this in.
-      throw new CliError('DAEMON_UNAVAILABLE', 'daemon 未在运行——先跑 `lark daemon`。');
+    case 'launch': {
+      // Only `play` and `gui` reach this: nothing is on the port and the
+      // command is allowed to start one. `ensureDaemon` proves ownership and
+      // rebuilds the identity, so the HTTP backend below talks to a daemon
+      // this process has verified rather than to whatever answered first.
+      const result = await ensureDaemon({ identity });
+      // A child that survived SIGKILL is worth saying out loud — but not in
+      // `--json`, where exit 0 promises an empty stderr (M6-6).
+      if (result.note !== undefined && !flags.json) streams.err(result.note);
+      return { backend: createHttpBackend(), close: () => {} };
+    }
   }
 }

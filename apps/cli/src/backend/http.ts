@@ -10,6 +10,8 @@ import {
   type FetchListData,
   type FetchListRequest,
   type ParseResultData,
+  type PlayerCommandAcceptedData,
+  type PlayerStatusResponse,
   type PlaylistData,
   type PlaylistExportData,
   type PlaylistImportData,
@@ -84,6 +86,10 @@ export function createHttpBackend(baseUrl: string = defaultDaemonBaseUrl()): Bac
         apiPath.songRecognizeUrl(id),
         url === undefined ? {} : { url },
       ),
+
+    playerStatus: () => get<PlayerStatusResponse>(API_PATHS.playerStatus),
+    playerCommand: (command, body) =>
+      send<PlayerCommandAcceptedData>('POST', apiPath.playerCommand(command), body),
 
     downloadLyrics: (id) => send<DownloadTaskAcceptedData>('POST', apiPath.downloadLyrics(id)),
     deleteLyrics: (id) => send<{ id: string }>('DELETE', apiPath.lyrics(id)),

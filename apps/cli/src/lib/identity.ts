@@ -260,6 +260,19 @@ function sameNestDir(reported: string | null, localLarkDir: string): boolean {
 }
 
 /**
+ * What a consumer needs from an identity — resolve it, or (in the three
+ * sanctioned places) re-resolve it.
+ *
+ * An interface rather than the class, because `IdentityHandle` has private
+ * state and is therefore nominal: a test that wants to script "absent, then
+ * current" would otherwise have to drive it through fake sockets.
+ */
+export interface IdentityResolver {
+  resolve(): Promise<DaemonIdentity>;
+  resolveFresh(): Promise<DaemonIdentity>;
+}
+
+/**
  * A lazily resolved, cached identity.
  *
  * Cached because a single command may consult it several times (pick a
@@ -271,7 +284,7 @@ function sameNestDir(reported: string | null, localLarkDir: string): boolean {
  * callers by design (M6-19): the pid-binding retry above, the limited re-probe
  * of a live-but-silent pid, and rebuilding identity after spawning a daemon.
  */
-export class IdentityHandle {
+export class IdentityHandle implements IdentityResolver {
   #deps: IdentityDeps;
   #cached: Promise<DaemonIdentity> | null = null;
 

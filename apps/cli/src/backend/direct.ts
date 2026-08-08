@@ -350,6 +350,9 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     redownloadSong: () => Promise.reject(daemonOnly('重新下载')),
     recognizeUrl: () => Promise.reject(daemonOnly('联网识别链接')),
     downloadLyrics: () => Promise.reject(daemonOnly('下载歌词')),
+    // Playback lives in the GUI, and only the daemon can talk to it.
+    playerStatus: () => Promise.reject(daemonOnly('查看播放状态')),
+    playerCommand: () => Promise.reject(daemonOnly('播放控制')),
 
     // ── Lyrics (local file) ────────────────────────────
     deleteLyrics: async (id) => {
