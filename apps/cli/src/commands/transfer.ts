@@ -13,7 +13,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, statSync } from 'node:fs';
-import { rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import {
   type PlaylistExportData,
@@ -26,6 +26,7 @@ import { confirm } from '../lib/confirm.js';
 import { CliError, usageError } from '../lib/errors.js';
 import { emitEnvelope, successEnvelope } from '../lib/output.js';
 import { resolvePlaylistRef } from '../lib/resolve-ref.js';
+import { resolveTargetPath } from '../lib/target-path.js';
 
 /** Same cap the daemon enforces on an import file (M5-13). */
 const IMPORT_FILE_MAX_BYTES = 20 * 1024 * 1024;
@@ -67,14 +68,13 @@ export async function runPlaylistExport(
 
 /** A directory target gets the playlist's own name; a file target is used as-is. */
 function exportTarget(output: string, data: PlaylistExportData): string {
-  const absolute = isAbsolute(output) ? output : resolvePath(process.cwd(), output);
-  if (existsSync(absolute) && statSync(absolute).isDirectory()) {
-    return join(absolute, `${sanitizeFileName(data.playlist.name)}.lark-playlist.json`);
-  }
-  return absolute;
+  return resolveTargetPath(output, `${sanitizeFileName(data.playlist.name)}.lark-playlist.json`);
 }
 
 async function writeAtomically(target: string, contents: string): Promise<void> {
+  // The directory may be one the user just named (`-o ~/backup/`), so it is
+  // created before the temp file goes into it.
+  await mkdir(dirname(target), { recursive: true });
   const temp = join(dirname(target), `.${basename(target)}.tmp-${randomUUID()}`);
   await writeFile(temp, contents, { mode: 0o600 });
   await rename(temp, target);

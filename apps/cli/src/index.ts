@@ -39,6 +39,7 @@ import {
   runPlaylistReorder,
   runPlaylistSongs,
 } from './commands/playlist.js';
+import { runSkillExport } from './commands/skill.js';
 import {
   runSongsDelete,
   runSongsEdit,
@@ -117,12 +118,21 @@ function withBackend(
  * (M6-22).
  */
 function withIdentity(body: (deps: DaemonCommandDeps) => Promise<void>): Promise<void> {
+  return withLocal(
+    (deps) => body({ ...deps, identity: new IdentityHandle() }),
+    '这个命令管理的是 daemon 进程本身，不接受 --direct。',
+  );
+}
+
+/** A command that touches neither the daemon nor the library (M6-3). */
+function withLocal(
+  body: (deps: { streams: typeof processStreams; json: boolean }) => Promise<void>,
+  refusal = '这个命令是纯本地操作，不接受 --direct。',
+): Promise<void> {
   return run(async () => {
     const current = flags();
-    if (current.direct) {
-      throw new CliError('USAGE_ERROR', '这个命令管理的是 daemon 进程本身，不接受 --direct。');
-    }
-    await body({ identity: new IdentityHandle(), streams: processStreams, json: current.json });
+    if (current.direct) throw new CliError('USAGE_ERROR', refusal);
+    await body({ streams: processStreams, json: current.json });
   });
 }
 
@@ -407,6 +417,16 @@ cache
   .command('evict')
   .description('Delete least-recently-used downloaded audio down to the limit (asks first)')
   .action(() => withBackend('write', (ctx) => runCacheEvict(ctx)));
+
+// ─── skill ─────────────────────────────────────────────
+
+const skill = program.command('skill').description('The agent-facing skill document');
+
+skill
+  .command('export')
+  .description('Write the lark skill markdown, and print the prompt that installs it')
+  .option('-o, --output <path>', 'target file, or an existing directory')
+  .action((opts) => withLocal((deps) => runSkillExport(opts, deps)));
 
 // See packages/daemon/src/cli.ts — `from: 'node'` keeps argv parsing correct
 // when the CLI is invoked through Electron-as-Node.
