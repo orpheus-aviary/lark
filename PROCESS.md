@@ -56,10 +56,12 @@
   - [x] **T2 songs + playlist**（`26a2097`）— 两组命令走 HTTP、`<name|id>` 解析（歧义列候选不代选）、破坏性命令确认、导出原子写 / 导入两段式 digest；`sanitizeFileName` 下沉 shared 与 GUI 共用
   - [x] **T3 `--direct` 后端 + cache 组**（`5bb2514`）— 读只读开库不取锁 / 写持写锁、§4.1 适配矩阵、错误按类名映射（动态 import 下 instanceof 不可靠）；冒烟抓到并修掉两处双后端差异（uuid 门禁、虚拟 all）
   - [x] **T4 download / url / lyrics**（`11a65ae`）— 三种形状由 `/download/parse` 判定（单条 / 收藏夹合集 / 多行）、逐行预检与分块、batch 确认协议、`--wait` 两路轮询（任务滚出 ring → `TASK_STATE_UNKNOWN` 而非「失败」）、失败终态三码带快照；`songs url get/set/recognize --save`、`lyrics redownload/delete`。参数形状判定前移到探测 daemon 之前（零参数是 exit 2 不是 exit 4）
-  - [x] **T5 play / now-playing / gui / daemon / stop-daemon** — `ensureDaemon` 统一入口（只有 absent 能 spawn、pid 咬合确权、活 PID 限时重探、败方回收后复验胜者、SIGTERM→SIGKILL 双段硬截止）+ `stdio:'ignore'` 让父进程能立刻退出 + `--no-launch` 零 spawn + stop 五态矩阵（incompatible 允许停）+ 管理命令不取后端且拒 `--direct`。冒烟抓到 `--no-launch` 读错 commander 的存名而真的开了窗口
-  - [x] **T6 skill export** — 文档按「触发词 → 输出契约 → 退出码 → 命令 → 给 agent 的规矩」排；契约测试八条，其中一条从 `index.ts` 扫命令字面量与文档双向对齐；原子写（`.lark-skill.md.tmp-` 前缀，备份全深度排除，T0 已就位）；冒烟抓到 `-o <目录>/` 两处同源缺陷（skill export 报 ENOENT、**playlist export 静默写出一个以目录名命名的文件**），抽 `lib/target-path.ts` 一份实现修掉
-  - [x] **T7 `just accept-cli` + 文档收尾** — 27 条检查全过（身份五态含子进程 stub、R31 与写锁、fresh nest 初始化、零写入整树比对、双后端对拍、真实收藏夹批量下载、demo-gui-sim 三种应答、skill × backup 交错）；跑之前抓到 **fresh nest 上 `--direct` 写没 mkdir** 的真缺陷；如实收窄「`INVALID_ID` 在 CLI 表面不可达」。归用户手动：ABI 失配 exit 3、GUI 冷启动出声、skill 的 agent 可用性（M7）
+  - [x] **T5 play / now-playing / gui / daemon / stop-daemon**（`ef27588`）— `ensureDaemon` 统一入口（只有 absent 能 spawn、pid 咬合确权、活 PID 限时重探、败方回收后复验胜者、SIGTERM→SIGKILL 双段硬截止）+ `stdio:'ignore'` 让父进程能立刻退出 + `--no-launch` 零 spawn + stop 五态矩阵（incompatible 允许停）+ 管理命令不取后端且拒 `--direct`。冒烟抓到 `--no-launch` 读错 commander 的存名而真的开了窗口
+  - [x] **T6 skill export**（`21cc2ee`）— 文档按「触发词 → 输出契约 → 退出码 → 命令 → 给 agent 的规矩」排；契约测试八条，其中一条从 `index.ts` 扫命令字面量与文档双向对齐；原子写（`.lark-skill.md.tmp-` 前缀，备份全深度排除，T0 已就位）；冒烟抓到 `-o <目录>/` 两处同源缺陷（skill export 报 ENOENT、**playlist export 静默写出一个以目录名命名的文件**），抽 `lib/target-path.ts` 一份实现修掉
+  - [x] **T7 `just accept-cli` + 文档收尾**（`fc05c96`）— 27 条检查全过（身份五态含子进程 stub、R31 与写锁、fresh nest 初始化、零写入整树比对、双后端对拍、真实收藏夹批量下载、demo-gui-sim 三种应答、skill × backup 交错）；跑之前抓到 **fresh nest 上 `--direct` 写没 mkdir** 的真缺陷；如实收窄「`INVALID_ID` 在 CLI 表面不可达」。归用户手动：ABI 失配 exit 3、GUI 冷启动出声、skill 的 agent 可用性（M7）
 - [ ] **M7 打包发布 v0.1.0** — electron-builder mac arm64（asar:false）、ffmpeg-static/ffprobe-static 锁版本 + 打包后冒烟测试、FFmpeg 许可交付、ABI recipes、验收清单
+  - M6 留给 M7 的三件（子计划 §1 推迟表 + §8.10）：**全局 `lark` bin / npm 发布名**（现在只有 `just cli`）、**`lark daemon` / `lark gui` 的打包后定位**（dev 态靠走到 `pnpm-workspace.yaml`，两个 M7 SEAM 都标在 `apps/cli/src/lib/launch.ts`）、**skill 的「agent 实际可调用」验收**
+  - M6 归用户手动的两条也在 M7 一起复验：ABI 失配 exit 3、GUI 冷启动链出声
 
 ## 后续
 

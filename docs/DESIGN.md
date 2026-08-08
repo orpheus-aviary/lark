@@ -76,6 +76,28 @@ Electron main 是 daemon 的宿主，不是它的监工：
   收 409 `GUI_REGISTRATION_REQUIRED` 就重新注册；播放器命令按 SSE 到达顺序串行执行后 ack，
   超过 2.5s 才轮到的命令直接丢弃（daemon 已在 3s 回过 504）。
 
+### 3.2 CLI 与跨进程互斥（M6 落地，2026-08-08）
+
+CLI 是 daemon 的第二个前端，也是**唯一可以在没有 daemon 时读写库的入口**——所以互斥不能再靠
+「进程内一个写者」这个假设：
+
+- **跨进程 writer lock**：daemon / `--direct` 写 / `migrate-go` / `backup-nest` 四方共守
+  `songs.db.writer.lock`（常驻 SQLite 锁库，`BEGIN EXCLUSIVE`，内核 fcntl，kill -9 自动释放，
+  **锁文件永不删除**）。锁序冻结 **writer → migrate → 真库 EXCLUSIVE**；`--direct` 写的顺序是
+  **mkdir → 取锁 → 开库**，所以一个空 nest 也能被 CLI 初始化出来。
+- **读路径零写入**：只读开库不取任何锁、不建库、不改 journal 模式，因此在 daemon 运行时、
+  备份复制期、迁移进行中都安全。R31 只挡写：**daemon 存活时 `--direct` 写一律拒绝，无逃生门**。
+- **身份五态**：`GET /status` 公开 `nest_fingerprint`（`SHA-256(realpath(lark 目录))`）+
+  `local_api_version`，探测端据此分 current / absent / other-nest / same-nest-incompatible /
+  occupied-unverifiable。指纹只泄露「路径是否相同」，绑 127.0.0.1 + Host 白名单下接受。
+  非 current 一律 fail-closed；证明不了身份就既不用它也不停它。
+- **输出契约**：`--json` 下 **exit 0 ⇔ stdout 恰好一条成功信封且 stderr 为空**，非零 ⇔ stdout
+  为空、stderr 一条错误信封。七档退出码（0/1/2/3/4/5/130）把「命令写错了」「环境说不」
+  「没人监听」「有人在且拒绝」分开，因为这四种的修法不同。
+- **拉起链只属于 `play` 和 `gui`**：只有 absent 能 spawn，spawn 后必须用 `/status.pid` 咬合
+  确权，竞态败方回收自己的 child（SIGTERM → SIGKILL 双段硬截止）再完整复验胜者。
+  detached + `stdio:'ignore'`，父进程 spawn 完即退。
+
 ## 4. skybridge 接入
 
 ### 同步范围（2026-07-16 更新）
@@ -110,5 +132,5 @@ mp3 / 大文件策略已定（2026-07-16）：不同步、不走 attachment，�
 
 仍开放：
 - v0.2 歌词文本同步策略（change log vs attachment）
-- 与 jay 的工具调用协议（`lark skill export` 格式对齐 owl，jay TS 化时定消费方式）
+- 与 jay 的工具调用协议（`lark skill export` 已落地：YAML frontmatter + 输出契约 + 退出码表 + 命令参考，**安装方式是打印一段提示词让 agent 按自己的规范装**；jay TS 化时定消费方式，可用性验收挂 M7）
 - 与 owl 的跨工具联动（例如 owl 笔记里嵌播放列表链接）— 长期议题，v0.1 不做

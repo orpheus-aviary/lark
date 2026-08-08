@@ -8,7 +8,7 @@
 import type { StatusData } from '@lark/shared';
 import type { DaemonIdentity, IdentityResolver } from '../lib/identity.js';
 
-export function statusData(pid: number, overrides: Partial<StatusData> = {}): StatusData {
+function statusData(pid: number, overrides: Partial<StatusData> = {}): StatusData {
   return {
     status: 'ok',
     pid,

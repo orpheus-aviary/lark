@@ -97,10 +97,6 @@ async function requireGui(ctx: CommandContext, noLaunch: boolean, deps: GuiDeps)
   );
 }
 
-export interface SeekOptions {
-  position: string;
-}
-
 /** `pause` / `resume` / `next` / `prev` — no arguments, no launching. */
 export async function runPlayerControl(
   ctx: CommandContext,
