@@ -239,6 +239,15 @@ accept-gui *args: ensure-node-abi build-shared build-core build-daemon build-gui
 accept-m5 *args: ensure-node-abi build-shared build-core build-daemon
     node scripts/accept-m5.mjs {{args}}
 
+# The M6 acceptance matrix (plan §6): a real daemon on a copy of the nest,
+# driving the real `lark` binary — exit codes, stdout/stderr discipline, both
+# backends, real bilibili downloads, and the identity states. `--keep` leaves
+# the copy behind. Node ABI: backupNest and the daemon both load
+# better-sqlite3, and no Electron is involved.
+[group('accept')]
+accept-cli *args: ensure-node-abi build-shared build-core build-daemon build-cli
+    node scripts/accept-cli.mjs {{args}}
+
 # Copy the nest to a throwaway directory (M4-14⑧). Refuses while a daemon is
 # running: an online backup freezes the database only, so songs/ and the config
 # would otherwise come from a different moment. Runs on the Node ABI.

@@ -325,26 +325,35 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 
 ### 5.5 CLI（@lark/cli，供调试与 jay/agent 调用）
 
-双后端：默认 HTTP；`--direct` 走 core（仅曲库/歌单/导入导出等 DB 操作；下载和播放控制必须有 daemon）。**daemon 存活时一律禁止 direct 写，无 `--force` 逃生门**——进程内的播放/下载/清理互斥无法跨进程共享（R31）；读操作任何时候都放行。`<name|id>` 参数在歌单名重复时报 `AMBIGUOUS_PLAYLIST` 并列出候选 id（不强制歌单名唯一，R25）。全局 `--json` 供 agent 消费。
+> M6 已实现（2026-08-08）。以下为落地形态，与最初设想的差异都在子计划 `2026-08-07-m6-cli.md` §8 里有记录。
+
+双后端：默认 HTTP；`--direct` 走 core（仅曲库/歌单/导入导出/缓存/删歌词等本地操作；下载、联网识别、播放控制必须有 daemon）。**daemon 存活时一律禁止 direct 写，无 `--force` 逃生门**——进程内的播放/下载/清理互斥无法跨进程共享（R31，**机制已从「探活判断」升级为跨进程 writer lock**：daemon / direct 写 / migrate-go / backup-nest 四方共守 `songs.db.writer.lock`，锁序 writer → migrate → 真库）；读操作任何时候都放行，且**只读开库零写入**。
+
+**身份五态**（M6-19）：`/status` 公开 `nest_fingerprint` + `local_api_version`，探测端据此分 current / absent / other-nest / same-nest-incompatible / occupied-unverifiable，非 current 一律 fail-closed。`<name|id>` 参数在名字重复时报 `AMBIGUOUS_SONG` / `AMBIGUOUS_PLAYLIST` 并列出候选 id，**绝不代选**（R25）。
+
+**输出契约**：全局 `--json` 供 agent 消费——**exit 0 ⇔ stdout 恰好一条成功信封且 stderr 为空；非零 ⇔ stdout 为空、stderr 一条错误信封**。人类模式是领域文本，不承诺稳定；`--help` / `--version` 是例外（普通文本 exit 0）。退出码七档：0 成功 / 1 操作失败 / 2 命令写错了 / 3 环境说不 / 4 没人监听 / 5 有人在且拒绝 / 130 中断。
 
 ```
 lark status | daemon | stop-daemon
-lark download <关键词或URL> [--playlist <name|id>]        # 批量: --batch <file|stdin>
-lark songs list|search|get|edit|delete [--json]
-lark songs url get|set|recognize <song>                    # recognize 为预览，需 --save 显式写入
-lark songs redownload <song>
-lark playlist list|create|rename|delete|add|remove|reorder
-lark playlist export <name|all> -o file.json
+lark download [输入] [--playlist <name|id>] [--wait|--no-wait] [--allow-partial]
+                                                           # 批量: --batch <file|->（`-` = stdin）
+                                                           # 单条默认跟到终态；收藏夹/合集先展开再确认
+lark songs list|search|get|edit|delete|pin|unpin|redownload
+lark songs url get|set|recognize <song> [--save]           # recognize 为预览，需 --save 显式写入
+lark playlist list|songs|create|rename|delete|add|remove|reorder
+lark playlist export <name|all> -o <file|dir>
 lark playlist import file.json [--to all|<name>|--new <name>]
-lark play <song|--playlist <name>> | pause | resume | next | prev | seek <s> | mode <m>
+lark play [song] [--playlist <name>] [--no-launch] | pause | resume | next | prev | seek <s> | mode <m>
 lark now-playing
 lark lyrics redownload|delete <song>
 lark cache status|evict
-lark gui                                                   # 拉起 GUI
-lark skill export                                          # 生成 agent skills 文档（对齐 owl）
+lark gui                                                   # 拉起 GUI（必要时先拉起 daemon）
+lark skill export [-o <path>]                              # 生成 agent skill 文档（对齐 owl）
 ```
 
-播放类命令若探测到无 GUI 在线（SSE 判定）→ 自动 `open -a Lark`（dev 态 spawn）→ 等上线 → 下发命令并等 ack。
+`play` 是唯一有拉起链的命令：没有 daemon 就先起一个（确权后重建身份），没有 GUI 就拉一个并等它注册（≤15s），`--no-launch` 则在 spawn 之前就退出。其余播放命令不拉起——没有 GUI 时拿 `GUI_OFFLINE`(4)。dev 态用 workspace 里的 Electron 起 `packages/gui`，打包后的 `open -a Lark` 归 M7。
+
+破坏性命令（三个 delete、`cache evict`、批量下载）统一确认：TTY 询问、非 TTY 必须 `--yes`、**`--json` 模式一律必须 `--yes`**（绝不把提问打进被解析的流里）。
 
 ## 6. 里程碑（v0.1 内部切片）
 

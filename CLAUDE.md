@@ -6,7 +6,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交）；**M5 后续已完成**（2026-08-07：状态色 token + 行状态四通道 + 两轴排序 + 多选与批量操作；子计划：`docs/plans/2026-08-06-m5-followup-batch-actions.md`，决策 B-1–B-12；四批提交，全仓测试 1173，`just accept-gui` 15/15 + `just accept-m5` 22/22 复跑通过）；**M6 CLI 进行中**（2026-08-07：T0 地基（跨进程 writer lock 四方接线 + `/status` 公开指纹 + 零写入只读开库 + `daemon-control` / `native-probe` + 错误码注册表）、T1 CLI 基建（身份五态 + `decideMode` + `EXIT_MAP` + 输出契约）、T2 songs/playlist 命令组、T3 `--direct` 后端与 cache 组、T4 download / url / lyrics、T5 play / gui / daemon 生命周期、T6 skill export 已完成，**下一步 T7（`just accept-cli` + 文档收尾）**；子计划：`docs/plans/2026-08-07-m6-cli.md`，决策 M6-1–M6-23 + 六轮评审 + §8 实施记录）。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交）；**M5 后续已完成**（2026-08-07：状态色 token + 行状态四通道 + 两轴排序 + 多选与批量操作；子计划：`docs/plans/2026-08-06-m5-followup-batch-actions.md`，决策 B-1–B-12；四批提交，全仓测试 1173，`just accept-gui` 15/15 + `just accept-m5` 22/22 复跑通过）；**M6 CLI 已完成**（2026-08-08：T0 地基（跨进程 writer lock 四方接线 + `/status` 公开指纹 + 零写入只读开库 + `daemon-control` / `native-probe` + 错误码注册表）、T1 CLI 基建（身份五态 + `decideMode` + `EXIT_MAP` + 输出契约）、T2 songs/playlist、T3 `--direct` 后端与 cache 组、T4 download / url / lyrics、T5 play / gui / daemon 生命周期、T6 skill export、T7 验收与文档收尾；子计划：`docs/plans/2026-08-07-m6-cli.md`，决策 M6-1–M6-23 + 六轮评审 + §8 实施记录；**`just accept-cli` 27/27**，剩用户手动三条：ABI 失配 exit 3、GUI 冷启动出声、skill 的 agent 可用性（M7））。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -118,7 +118,7 @@ lark/
 - **表头三态复选框的语义是「当前视图内」**：搜索/歌单已经筛过一轮，全选绝不能越过视图去够整个库
 - **`mkdtemp` 建的临时目录测试要自己收尾**：`dialog-ipc` 与 M3 的 fixture 各漏了一处，累计在 `/tmp` 留下 237 个目录才被发现——建目录的 `beforeEach`/`beforeAll` 必须配对 `rmSync`
 
-### M6 实测锁定（进行中，详见 `docs/plans/2026-08-07-m6-cli.md` §8）
+### M6 实测锁定（详见 `docs/plans/2026-08-07-m6-cli.md` §8）
 
 - **`BEGIN EXCLUSIVE` 会在锁库旁留 `-journal`**：备份自己持写锁，所以遍历 nest 时那个边车**一定在**——凡是「复制 / 比对 nest 目录」的逻辑都要按前缀排除两个锁库
 - **同进程两个连接照样互斥**：SQLite 在进程内自己记 inode 锁状态，双迁移器 / 双写者的竞争能在单进程测试里真实复现
@@ -135,6 +135,9 @@ lark/
 - **虚拟时钟的 `sleep` 必须 yield 宏任务**（`setImmediate`）：`Promise.resolve()` 让轮询循环一路跑到 deadline，期间 child 的 `exit` 事件（定时器）永远排不上，测出来的是「超时」而不是被测的分支
 - **CLI 不能 import electron**（守卫会拦），要 Electron 二进制就读 `node_modules/electron/path.txt` 拼 `dist/`；daemon 侧用 `process.execPath` + `packages/daemon/dist/cli.js`。两处定位都在 `lib/launch.ts`，标了 M7 SEAM
 - **`-o <目录>/` 里的末尾分隔符就是「这是目录」**：只用 `existsSync && isDirectory()` 判，不存在的目录会被当成文件路径——skill export 报 ENOENT，playlist export 更糟（静默写出一个以目录名命名的文件）。判定收敛在 `lib/target-path.ts` 一处
+- **验收脚本里 `spawnSync` 会堵住事件循环**：进程内起的 HTTP stub 永远答不上被同步 spawn 的 CLI，五态 stub 判据会全变成「没人监听」——stub 要放子进程
+- **`INVALID_ID` 在 CLI 表面不可达**：每个 id 参数都是 `<name|id>`，先过解析——uuid 形状查不到 → `NOT_FOUND`，非 uuid → 当名字搜 → 还是 `NOT_FOUND`。id 门禁仍在（直连补的那个），只是命令行走不到
+- **`backupNest` 只在 daemon 停掉后能跑**（在线备份只冻结 DB），验收脚本里凡涉及备份的检查都得排在停机之后
 - **管理命令（`status` / `daemon` / `stop-daemon`）不取后端**：它们说的是进程不是曲库，走后端会导致「库坏了就停不了 daemon」；`--direct` 在这一层直接拒
 
 ### M3 实测锁定（详见 `docs/plans/2026-08-04-m3-download-pipeline.md` §7）
@@ -165,12 +168,12 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 ## 关键参考
 
 - 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`
-- **M6 子计划（当前）**：`docs/plans/2026-08-07-m6-cli.md`（§8 实施记录逐批回填）
+- M6 子计划：`docs/plans/2026-08-07-m6-cli.md`（§8 逐批实施记录 + §6 验收判据）
 - M5 子计划：`docs/plans/2026-08-06-m5-features.md`；M5 后续（多选批量）：`docs/plans/2026-08-06-m5-followup-batch-actions.md`
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
-- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`，全局 bin 待 M7）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just spike-media-*`）
+- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`，全局 bin 待 M7）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just spike-media-*`）
 - Go 版（功能参照）：`../lark-go/`
 - 跨仓架构：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`
 - skybridge 架构：`../aviary/docs/SKYBRIDGE_ARCH.md`

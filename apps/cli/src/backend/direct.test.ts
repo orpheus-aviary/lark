@@ -11,6 +11,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -138,6 +139,21 @@ describe('opening the library', () => {
   it('reports an uninitialised library rather than creating one', async () => {
     expect(await codeOf(() => createDirectBackend({ mode: 'read' }))).toBe('DB_NOT_INITIALIZED');
     expect(readdirSync(larkDir())).toEqual([]);
+  });
+
+  it('creates the nest directory a first write needs, but never for a read', async () => {
+    // A fresh nest has no `lark/` at all, and the lock database cannot be
+    // created in a directory that does not exist (§6-3: `--direct` is how you
+    // initialise one without starting a daemon). The read path must NOT do
+    // this — it writes nothing, by definition.
+    rmSync(larkDir(), { recursive: true, force: true });
+    expect(await codeOf(() => createDirectBackend({ mode: 'read' }))).toBe('DB_NOT_INITIALIZED');
+    expect(existsSync(larkDir())).toBe(false);
+
+    await withDirect('write', async (backend) => {
+      await backend.createPlaylist('新');
+    });
+    expect(await withDirect('read', async (b) => (await b.listPlaylists()).data?.length)).toBe(2);
   });
 
   it('refuses to write while another writer holds the lock', async () => {

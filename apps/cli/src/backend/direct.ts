@@ -15,6 +15,8 @@
 // native module built for the other runtime when it never intended to open a
 // database (M6-21).
 
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { VIRTUAL_ALL_PLAYLIST_ID, isUuidV4 } from '@lark/shared';
 import type { ApiResponse, PlaylistData, SongData } from '@lark/shared';
 import { CliError, usageError } from '../lib/errors.js';
@@ -69,6 +71,12 @@ function openForRead(core: Core, dbPath: string): DirectBackend {
 }
 
 function openForWrite(core: Core, dbPath: string): DirectBackend {
+  // A write may be the FIRST thing that ever happens in this nest, and the
+  // lock database cannot be created in a directory that does not exist. The
+  // frozen order for a direct write is mkdir → lock → open (M6-18 ②); the read
+  // path deliberately does none of this and answers `DB_NOT_INITIALIZED`.
+  mkdirSync(dirname(dbPath), { recursive: true });
+
   // The lock comes FIRST: `createDatabase` runs crash recovery and forward
   // migrations, which are writes like any other.
   const lock = attempt(() => core.acquireWriterLock({ dbPath }));

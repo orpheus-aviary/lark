@@ -8,7 +8,7 @@
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层、M2 daemon 基础路由、M3 下载管线、M4 GUI 基座、**M5 新特性**（设置页 + 主题 / 缓存 LRU 与固定 / 按需下载 / 链接编辑 / 歌单导入导出 / 拖拽排序）及其后续（状态色与行状态、两轴排序、多选与批量操作）均已完成，验收 `just accept-gui` 15/15 + `just accept-m5` 22/22。**M6 CLI 进行中**：跨进程写锁、身份五态、`--direct` 双后端与 songs / playlist / cache 命令组已落地（T0–T3），下载、播放拉起、`skill export` 与 `just accept-cli` 待做。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
+🚀 **开发中**（2026-07-16 启动）。M0 脚手架 + 媒体 spike、M1 core 数据层、M2 daemon 基础路由、M3 下载管线、M4 GUI 基座、**M5 新特性**（设置页 + 主题 / 缓存 LRU 与固定 / 按需下载 / 链接编辑 / 歌单导入导出 / 拖拽排序）及其后续（状态色与行状态、两轴排序、多选与批量操作）均已完成，验收 `just accept-gui` 15/15 + `just accept-m5` 22/22。**M6 CLI 已完成**（2026-08-08）：跨进程 writer lock、身份五态（`/status` 公开指纹）、`--direct` 双后端、全部命令组（songs / playlist / download / play / lyrics / cache / daemon 生命周期 / skill export），验收 `just accept-cli` 27/27。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，进度见 `PROCESS.md`。
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
@@ -31,6 +31,8 @@ just gui-preview     # 用 build 产物起 GUI —— 验证生产 CSP 的唯一
 
 just backup-nest [目标目录]   # 安全复制整个 nest（见下「nest 复制」）
 just accept-gui [--keep]     # 六项判据 + 会话矩阵：真 GUI × 真 daemon × nest 副本
+just accept-m5 [--keep]      # M5 判据：缓存清理 / 按需下载 / 歌单导入导出（真实 bilibili）
+just accept-cli [--keep]     # M6 判据：真 daemon × nest 副本，驱动真实 `lark` 二进制
 
 just check           # lint + tsc -b + 依赖方向守卫 + 日志卫生守卫 + spike fast 层
 just test            # 全部 vitest
