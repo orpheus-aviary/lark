@@ -362,3 +362,15 @@ onSuccess: 'node scripts/gen-publishable-manifest.mjs',
 - **`dist-publish/` 与 `vendor/` 都得排除出 biome**，否则 `just lint` 会去 lint 打包产物和 ffmpeg 源码树。
 - **LICENSE（MIT）提前到 T3**：manifest 的 `files` 与 `license` 都指着它，判据 8 的干净安装也要它在包里。T4 只剩 NOTICE 与关于页。
 - 判据 8 预演已过：`just pack-cli` → 干净 prefix `npm i -g` → `lark --version` / `lark-cli --help` 双 bin 可用。
+
+### 8.5 T1 实施：GUI 打包链（2026-08-10）
+
+两个模式都出了真包：`release/system/Lark-0.1.0-arm64.dmg`（139MB）与
+`release/bundled/…`（141MB，差的 2MB 就是 ffmpeg + NOTICE 的 FFmpeg 段）。
+
+- **`identity: '-'` 在 electron-builder 26.15.3 上是一等公民**——计划里写的「26.15.7 起」引了一个**还不存在的版本号**（npm 上最新就是 26.15.3）。实测日志 `signing … identityName=- identityHash=none`，产物 `codesign -dv` 报 `flags=0x2(adhoc)` + `Identifier=com.orpheusaviary.lark`，判据 2 直接过。owl 的 `afterPack` 钩子仍然保留：它幂等（`--force` 覆盖），而「让一个随版本变化的行为去决定 app 能不能启动」不值得赌。
+- **打包后 ffmpeg 仍然可用**：`codesign --deep` 会重写 Mach-O，但 configure 串活在 `__TEXT` 里——从 app 包里取出的二进制跑真实闭环通过，configure 与锁值仍**逐字节相等**、无 nonfree。这正好印证 §3.0「SHA 语义」那条：原始 SHA 只验到入包前，之后靠 configure + 能力 + 闭环。
+- **NOTICE 提前到 T1**：`extraResources` 指着 staging 里的文件，缺了 electron-builder 直接失败。已实现三段式的前两段（全生产依赖聚合 **195 个包** / bundled 追加 FFmpeg+LAME 逐库段），T4 只剩覆盖检查与 GUI 关于页。system 包实测无 FFmpeg 段但共有段完整。
+- **`just package [mode]` 位置参数**按 H1 落地；`bundled` 每次前置 `fetch-ffmpeg --verify`。**负向实测**：把 `vendor/ffmpeg` 换成 stub 后 `just package bundled` 在校验处失败退出，electron-builder 根本没启动。
+- `package-fixture` 出 `release/fixture/`，stub 正常进包——机制（extraResources 复制 / 注入 / resolver bundle 级）可验，且它过不了 bundled 的锁校验。
+- electron-builder 的噪音里有两条**不是问题**：`asar usage is disabled`（R17 要求）、`platform-specific optional dependencies not bundled`（列的全是 linux/win 的 tailwind-oxide 与 lightningcss，本包只出 darwin-arm64）。
