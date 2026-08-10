@@ -411,3 +411,26 @@ LICENSE 与 NOTICE 生成链已分别在 T3 / T1 落地（原因见 §8.4、§8.
 - **`missing` 子态是真的**：用包内 `dist/testing/boot-child.js` 把媒体搜索路径指向一个空目录 + `PATH=/nonexistent` 起一个**真实打包 daemon**，capabilities 报 `missing`、两个路径都是 `null`、有 detail；导入 503 `MEDIA_TOOLS_UNAVAILABLE`；下载任务终态带同一句话。全程没动用户的 Homebrew 一根手指。
 - **判据 5d 实测**：停机重启后 token 确实轮换，同一个 renderer 不刷新继续播（`err=none`，位置 263.8s）——M0 spike 的判据 6 在**打包产物**上复现。
 - `cleanEnv` 用解构丢弃而不是 `delete`（Biome 拦 `delete`，而赋 `undefined` 会把字符串 `"undefined"` 写进环境）。它必须清掉 justfile 导出的 `LARK_MEDIA_TOOLS_DIR`，否则 `system` 包会经开发者的 vendor 目录解析出 ffmpeg——那正是这套验收要能分辨的东西。
+
+### 8.9 发版 v0.1.0（2026-08-10）
+
+**已上线**：[Release v0.1.0](https://github.com/orpheus-aviary/lark/releases/tag/v0.1.0)（bundled，`Lark-0.1.0-arm64.dmg`）+ [`@orpheus-aviary/lark-cli@0.1.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。绑定：tag `v0.1.0` → `9581bbc`；dmg `e8ccc68f…`；tgz `f3f69c30…`（registry 回读的 shasum 与本地验收的那一份逐字节相同）。
+
+九步全走完，四处与计划不同：
+
+1. **仓库此前从未 push 过**——第一次 push 是 128 个 commit 连同全部 docs/plans。发版前对全历史扫过凭据，唯一命中的 `sk-*` 都是 config 测试里的假串。
+2. **github.com 在本机网络下三次里约通一次**：push / tag / release 全部要重试循环。`git push … | tail` 会把 git 的退出码吞掉（管道返回 tail 的），第一次「PUSH OK」是假的——重试循环必须直接判 `git push` 的状态。
+3. **npm 要求 2FA**：`npm login` 的会话凭据直接 403，必须用带 bypass 的 granular token。新包发布后 **CDN 会继续缓存发布前的 404 约 40 秒**——`npm view` 查不到不代表没发出去，`npm access get status` 走的是 API，那时已经回 `public`。
+4. **图标返工两次**（见 §8.10），tag 与 draft 因此重打了两轮。当时 npm 未发、Release 仍是 draft，**没有任何人能取到 v0.1.0**，所以按用户裁定移 tag 而不是升版本号；M7-11 那条「公开 tag 不可重写」保护的是已发布产物的消费者，此处可证为零。
+
+### 8.10 图标：两次量错才量对
+
+**症状**：装进「应用程序」后，lark 的图标比 owl 明显小一圈，四周一圈灰色光晕。
+
+- **第一次判断错在用 alpha 找边界**：源图是一块圆角方块浮在灰色光晕里，而那圈光晕是**不透明的**——按 alpha 量出来「内容填了 94.5%」，看着却只有 88%。真正能分辨的是**饱和度**：方块与它的深绿描边是彩色的，光晕是灰的。
+- **第一次修同样错**：裁到方块边界后为了凑正方形把裁剪框上移 6 像素，**正好把 6 行光晕收了回来**。打包产物实测最外圈 39/256 不透明、且全是灰的。
+- **真正的差别不是「填多满」**：owl 的外 40 像素**完全透明**，图标本来就该是一块四周留白的方块。lark 之前是齐边方块裹灰雾，第一次修成了齐边方块（仍带残雾）。
+- **定案**：一次性产出 `lark-icon-source.png`——沿检测到的边框再内收 2px 裁出方块、透明补正方形、缩到画布 90%（owl 同款比例）。原始艺术图留在库里，配方写进 `build-icons.mjs` 注释。补透明边距是这一步不能用 sips 的原因：**sips 只能用颜色补边，而不能有颜色正是要求本身**。
+- 判据（打包产物最外圈不透明像素）：修前 39/256 全灰 → 第一次修仍有残留 → 现在 **0/128**，与 owl 一致。
+
+**另一件事没有解决，但确认不是回归**：Finder 里图标带「禁止」徽章。lark 与 owl 的 `spctl -a` **都是 rejected**（ad-hoc 签名的既定代价，R28/M7-1 明确选的），两个 bundle 在架构、权限、xattr、Info.plist、LaunchServices 注册上逐项一致。用户复验后表示可以接受。
