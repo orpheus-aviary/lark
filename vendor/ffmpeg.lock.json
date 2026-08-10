@@ -1,0 +1,56 @@
+{
+  "_comment": [
+    "The ffmpeg supply chain for `bundled` builds (M7 T0). Tracked; the binaries it",
+    "describes are not — `just fetch-ffmpeg` reproduces them from these sources.",
+    "",
+    "WHY WE BUILD RATHER THAN DOWNLOAD: the `ffmpeg-static` / `@derhuerst/ffprobe-static`",
+    "npm packages ship `--enable-nonfree` binaries, which may not be redistributed at",
+    "all — not under GPL, not under anything (verified 2026-08-08 against the installed",
+    "package). The one credible prebuilt alternative (Martin Riedl's macOS arm64 release,",
+    "verified nonfree-free on 2026-08-10) is `--enable-gpl --enable-version3` with 30",
+    "static external libraries, every one of which we would have to mirror the",
+    "corresponding source for. This profile has one external library and is LGPL.",
+    "",
+    "The configure line is deliberately path-free: it is compared byte for byte in",
+    "accept-pack, so it must not carry whichever directory the build happened to run in.",
+    "That is why every path below is relative to the ffmpeg source directory."
+  ],
+  "lock_version": 1,
+  "profile": "lark-minimal-lgpl",
+  "license": "LGPL-2.1-or-later",
+  "target": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "macos_min": "11.0"
+  },
+  "build_script": "scripts/vendor-ffmpeg.mjs",
+  "build_script_version": 1,
+  "configure": "--prefix=../out --extra-cflags='-I../prefix/include -mmacosx-version-min=11.0' --extra-ldflags='-L../prefix/lib -mmacosx-version-min=11.0' --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-network --disable-ffplay --disable-shared --enable-static --enable-small --enable-libmp3lame --enable-protocol='file,pipe' --enable-demuxer='mov,mp3,aac,flac,wav,ogg,matroska' --enable-decoder='aac,aac_fixed,aac_latm,mp3,mp3float,flac,vorbis,pcm_s16le,pcm_s16be,pcm_f32le,alac,opus' --enable-parser='aac,aac_latm,mpegaudio,flac,vorbis,opus' --enable-encoder=libmp3lame --enable-muxer=mp3 --enable-filter='aresample,aformat,anull,atrim,volume' --enable-bsf=aac_adtstoasc",
+  "sources": [
+    {
+      "name": "FFmpeg",
+      "version": "8.1.2",
+      "license": "LGPL-2.1-or-later",
+      "license_file": "COPYING.LGPLv2.1",
+      "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+      "archive": "ffmpeg-8.1.2.tar.xz",
+      "urls": ["https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz"],
+      "patches": []
+    },
+    {
+      "name": "LAME",
+      "version": "3.100",
+      "license": "LGPL-2.0-or-later",
+      "license_file": "COPYING",
+      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
+      "archive": "lame-3.100.tar.gz",
+      "_url_comment": "SourceForge is upstream; the mirror serves the byte-identical tarball and is listed second because the sha256 above is what actually decides.",
+      "urls": [
+        "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
+        "https://sources.voidlinux.org/lame-3.100/lame-3.100.tar.gz"
+      ],
+      "configure": "--prefix=<prefix> --disable-shared --enable-static --disable-frontend --disable-dependency-tracking --disable-gtktest",
+      "patches": []
+    }
+  ]
+}

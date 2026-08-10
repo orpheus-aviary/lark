@@ -40,7 +40,8 @@
       "release",
       "*.db",
       "spikes/**/fixtures",
-      "spikes/**/.runtime"
+      "spikes/**/.runtime",
+      "vendor"
     ]
   },
   "overrides": [

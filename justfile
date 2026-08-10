@@ -1,5 +1,21 @@
 # lark justfile
 
+# ─── The dev/test media toolchain (M7 T0) ───────────────
+#
+# Vendor first, the machine's own install otherwise. Point the resolver's
+# bundle level at `vendor/ffmpeg/` when it is there, so a dev run exercises the
+# binaries a `bundled` release actually ships; when it is not, resolution falls
+# through to Homebrew and everything still works with `brew install ffmpeg`.
+#
+# Testing is not distributing, so this level of the search carries no licence
+# opinion — `just fetch-ffmpeg` is where the nonfree gate lives.
+#
+# Empty when absent, which the resolver reads as "unset" (an empty
+# `LARK_MEDIA_TOOLS_DIR` is not a broken bundle).
+
+_vendor_ffmpeg := justfile_directory() / "vendor/ffmpeg"
+export LARK_MEDIA_TOOLS_DIR := if path_exists(_vendor_ffmpeg / "ffmpeg") == "true" { _vendor_ffmpeg } else { "" }
+
 # ─── Lint & Format ──────────────────────────────────────
 
 [group('lint')]
@@ -115,6 +131,29 @@ build-gui: build-shared build-core build-daemon
 [group('build')]
 build-cli: build-shared build-core
     pnpm --filter @lark/cli run build
+
+# ─── Vendored ffmpeg (M7 T0) ────────────────────────────
+#
+# `bundled` releases carry their own ffmpeg/ffprobe, built here from source.
+# Not downloaded from npm: `ffmpeg-static` and `@derhuerst/ffprobe-static` ship
+# `--enable-nonfree` binaries, which may not be redistributed under any licence.
+# This profile is LGPL with exactly one external library (LAME).
+#
+# Everything the build needs is in `vendor/ffmpeg.lock.json` (source URLs,
+# sha256s, the verbatim configure line). The products land in `vendor/ffmpeg/`,
+# which is gitignored — the lock is the artifact, not the binaries.
+#
+# Verification is what makes this a gate rather than a convenience: the
+# configure line must match the lock byte for byte, carry no `--enable-nonfree`,
+# cover the frozen capability list, and transcode a real M4A to a real MP3.
+# `just package bundled` runs it every time, which is what keeps a stub out of
+# a release.
+#
+# Takes ~4 minutes the first time and is a no-op afterwards. Pass `--force` to
+# rebuild, `--verify` to check without ever building.
+[group('build')]
+fetch-ffmpeg *args: build-shared build-core
+    node scripts/vendor-ffmpeg.mjs {{args}}
 
 # ─── ABI toggling (M1-13) ───────────────────────────────
 #
