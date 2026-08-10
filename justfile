@@ -513,3 +513,19 @@ install:
 
 [group('setup')]
 reinstall: clean-all install
+
+# The M7 acceptance matrix (plan §3.5), against the artifacts about to be
+# published. THREE positional parameters, all required — the mode decides what
+# the app is even supposed to contain, and the two paths are the exact files
+# the release gate will upload and publish.
+#
+#   just accept-pack bundled packages/gui/release/bundled/Lark-0.1.0-arm64.dmg \
+#                            apps/cli/orpheus-aviary-lark-cli-0.1.0.tgz
+#
+# The dmg is mounted READ-ONLY and everything app-shaped is checked inside that
+# mount — never `release/<mode>/mac-arm64/Lark.app`. Its sha256 is taken before
+# and after, so "we verified the thing we are shipping" is a fact rather than a
+# habit. No ABI juggling: every runtime under test brings its own binding.
+[group('accept')]
+accept-pack mode dmg tgz *args: build-shared build-core
+    node scripts/accept-pack.mjs {{mode}} {{dmg}} {{tgz}} {{args}}
