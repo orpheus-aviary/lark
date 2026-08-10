@@ -344,3 +344,21 @@ onSuccess: 'node scripts/gen-publishable-manifest.mjs',
 - H4 [P1] NOTICE 只覆盖 FFmpeg，漏 renderer 打进去的 JS 依赖（实查 out/renderer 无 @license 文本；`!**/*.md` 排掉 tailwind-merge/sonner 的 LICENSE.md）→ gen-notices 三段式：共有段 = 全生产依赖聚合（两模式必含）+ bundled 附加段 + 覆盖检查防新增依赖漏更新
 - H5 [P1] ready 判据弱于冻结能力清单（stub 伪造几行输出即可全绿）→ runtime probe 核对完整能力清单；accept-pack 用 DMG 内二进制跑真实「M4A → MP3 → ffprobe JSON」闭环；★ nonfree 校验只管 vendor 获取与 bundled 分发物，system/env 来源只做功能兼容（不无端拒绝用户自装构建）
 - H6 [P2] fixture 与正式 bundled 无隔离 → `package-fixture` 独立 recipe → `release/fixture/`；正式 bundled 每次跑 `fetch-ffmpeg` 锁校验（stub 过不了）；发版永不从 fixture 目录取
+
+### 8.4 T3 首日 spike：tsup 保住 `--direct` 边界（2026-08-10）
+
+**结论：GO**，`splitting: true` 就够，双 entry 后备不用。
+
+| 判据 | 结果 |
+|---|---|
+| ① entry chunk 无 better-sqlite3 / barrel 静态引用 | **过**。entry 静态图里 better-sqlite3 只出现在 `probeNativeAbi` 自己的 `await import('better-sqlite3')` 里——那正是那个函数的职责。core barrel 落在独立 chunk（176KB），`--direct` 才加载 |
+| ② Node ABI + fresh nest 先写后读 | **过**。`playlist create smoke --direct` → `songs list --direct` → `playlist list --direct` 全 exit 0，虚拟 `all` 在 |
+| ③ Electron ABI 下 `--help` exit 0、无 daemon 的 `status` exit 4 + `DAEMON_UNAVAILABLE` | **过** |
+
+- **③ 的第一版测法是假的**：用 Electron 运行时 + Electron ABI 的 binding 去跑，两边匹配，什么都证明不了。真正的判据是**运行时与 binding 不匹配**（plain node + Electron ABI），此时 `--help` 与 `status` 仍然必须正常——这才说明 better-sqlite3 根本没被加载。已按后者复测通过。
+- **顺手抓到 M7-14 要修的东西**：不匹配时 `--direct` 报的是 `UNKNOWN` + **exit 1** + 一段裸的 NODE_MODULE_VERSION 文案。已改为 barrel 动态 import **之前**先 `probeNativeAbi()` → `ABI_MISMATCH` + exit 3。
+- **probe 文案改双态**（F6）：`native-probe` 只回结构化 `reason`（`abi-mismatch` / `load-failed`），句子由 CLI 侧按「在不在工作区里」生成——`just test-core` 对装了 npm 包的人是一场空跑。
+- **manifest 的 deps 由 `externals.json` 单一来源导出**：tsup 的 `external` 与发布包的 `dependencies` 是同一份，漂移不了。契约测试跑在**产物**上（守卫是 rg 源码的，看不见打包结果）。
+- **`dist-publish/` 与 `vendor/` 都得排除出 biome**，否则 `just lint` 会去 lint 打包产物和 ffmpeg 源码树。
+- **LICENSE（MIT）提前到 T3**：manifest 的 `files` 与 `license` 都指着它，判据 8 的干净安装也要它在包里。T4 只剩 NOTICE 与关于页。
+- 判据 8 预演已过：`just pack-cli` → 干净 prefix `npm i -g` → `lark --version` / `lark-cli --help` 双 bin 可用。
