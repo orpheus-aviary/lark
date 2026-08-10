@@ -14,6 +14,7 @@ import { saveWindowSize } from './daemon-config.js';
 import { DaemonManager, DaemonStartError } from './daemon-manager.js';
 import { registerDialogIpc } from './dialog-ipc.js';
 import { installMediaProtocol, registerMediaScheme } from './media-protocol.js';
+import { withMediaToolsDir } from './media-tools-dir.js';
 import { ensureNestIdentity, nestDirFromAdditionalData } from './nest.js';
 import { QuitCoordinator } from './quit.js';
 import { WindowMemory } from './window-memory.js';
@@ -45,7 +46,9 @@ const manager = new DaemonManager({
   tokenPath,
   daemonCliPath: createRequire(import.meta.url).resolve('@lark/daemon/cli'),
   execPath: process.execPath,
-  env: process.env, // inherits LARK_NEST_DIR; the manager never adds a token
+  // Inherits LARK_NEST_DIR; the manager never adds a token (R29). A `bundled`
+  // build additionally points the daemon at its own ffmpeg (M7-16).
+  env: withMediaToolsDir(process.env, { resourcesPath: process.resourcesPath }),
   spawnImpl: (command, args, options) => spawn(command, args, options),
   readFileImpl: (path) => readFileSync(path, 'utf8'),
   realpathImpl: (path) => realpathSync(path),

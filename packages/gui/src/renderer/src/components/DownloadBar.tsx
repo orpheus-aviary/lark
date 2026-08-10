@@ -14,6 +14,7 @@ import { taskLabel } from '../lib/download-labels.js';
 import { errorMessage } from '../lib/errors.js';
 import { activeTask, batchProgress, useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
+import { mediaToolsWarning, useMediaTools } from '../stores/media-tools.js';
 import { BatchActionBar } from './BatchActionBar.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
 import { DownloadTasksPopover } from './DownloadTasksPopover.js';
@@ -42,6 +43,8 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const downloadSong = useDownloads((s) => s.downloadSong);
   const cancel = useDownloads((s) => s.cancel);
   const playlistId = useLibrary((s) => s.playlistId);
+  const mediaTools = useMediaTools((s) => s.info);
+  const refreshMediaTools = useMediaTools((s) => s.refresh);
 
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
@@ -55,6 +58,12 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
     const timer = setTimeout(() => setNotice(null), notice.error ? NOTICE_MS.error : NOTICE_MS.ok);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  // Asked once at startup. The settings dialog re-asks on every open, which is
+  // where a user goes after installing ffmpeg.
+  useEffect(() => {
+    refreshMediaTools();
+  }, [refreshMediaTools]);
 
   /** §4.1: `all` is not a target — the song is only added to the library. */
   const targetPlaylist = playlistId === VIRTUAL_ALL_PLAYLIST_ID ? undefined : playlistId;
@@ -91,6 +100,8 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const current = activeTask(tasks);
   const progress = current ? batchProgress(batches, current.id) : null;
   const isCancelling = current !== null && cancelling.includes(current.id);
+  const toolsWarning = mediaToolsWarning(mediaTools);
+  const showsError = notice?.error === true || (!busy && current === null && toolsWarning !== null);
   // A task in `saving` has passed the point where aborting helps (M3 contract).
   const cancellable = current !== null && current.stage !== 'saving' && !isCancelling;
 
@@ -147,14 +158,16 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         {(busy || current) && (
           <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
         )}
-        <span
-          className={`truncate ${notice?.error ? 'text-destructive' : 'text-muted-foreground'}`}
-        >
+        {/* The ffmpeg warning takes the idle slot rather than a line of its
+            own: this row has a fixed height on purpose, and every download
+            from here fails without it, so an empty status line is the wrong
+            thing to show (M7-18). Anything actually happening outranks it. */}
+        <span className={`truncate ${showsError ? 'text-destructive' : 'text-muted-foreground'}`}>
           {busy
             ? '正在解析输入…'
             : current
               ? `${taskLabel(current)}${isCancelling ? '（取消中）' : ''}`
-              : (notice?.text ?? '')}
+              : (notice?.text ?? toolsWarning ?? '')}
         </span>
         {progress && (
           <span className="shrink-0 text-muted-foreground tabular-nums">

@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
+import { mediaToolsWarning, useMediaTools } from '../stores/media-tools.js';
 import { Button } from './ui/button.js';
 import {
   Dialog,
@@ -246,12 +247,50 @@ function CacheBlock(): React.JSX.Element {
   );
 }
 
+/**
+ * Where ffmpeg came from and whether it works (M7-18).
+ *
+ * The path and the source are both shown on purpose: "bundled" and "the one
+ * you installed with brew" fail in different ways, and a bug report that
+ * cannot tell them apart is unactionable.
+ */
+function MediaToolsBlock(): React.JSX.Element {
+  const info = useMediaTools((s) => s.info);
+  if (info === null) return <p className="text-muted-foreground text-xs">正在检测 ffmpeg…</p>;
+
+  const warning = mediaToolsWarning(info);
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3 text-xs">
+      {warning === null ? (
+        <div className="grid grid-cols-[8rem_1fr] gap-y-1">
+          <span className="text-muted-foreground">状态</span>
+          <span>可用（{MEDIA_TOOL_SOURCES[info.ffmpeg?.source ?? 'path']}）</span>
+          <span className="text-muted-foreground">ffmpeg</span>
+          <span className="break-all font-mono">{info.ffmpeg?.path}</span>
+          <span className="text-muted-foreground">ffprobe</span>
+          <span className="break-all font-mono">{info.ffprobe?.path}</span>
+        </div>
+      ) : (
+        <p className="text-destructive">{warning}</p>
+      )}
+    </div>
+  );
+}
+
+const MEDIA_TOOL_SOURCES: Record<string, string> = {
+  env: '环境变量指定',
+  bundle: '应用内置',
+  homebrew: 'Homebrew',
+  path: 'PATH',
+};
+
 export function SettingsDialog(): React.JSX.Element {
   const config = useConfig((s) => s.config);
   const refreshConfig = useConfig((s) => s.refresh);
   const patchConfig = useConfig((s) => s.patch);
   const refreshCache = useCache((s) => s.refresh);
   const watchCache = useCache((s) => s.setWatching);
+  const refreshMediaTools = useMediaTools((s) => s.refresh);
 
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -269,8 +308,11 @@ export function SettingsDialog(): React.JSX.Element {
     watchCache(true);
     refreshConfig();
     refreshCache();
+    // Re-probed on every open: `brew install ffmpeg` in another window and
+    // reopening this dialog is the intended recovery path, no restart (M7-18).
+    refreshMediaTools();
     setFieldError(null);
-  }, [open, refreshConfig, refreshCache, watchCache]);
+  }, [open, refreshConfig, refreshCache, refreshMediaTools, watchCache]);
 
   // The draft follows the mirror while the dialog is closed, and is left alone
   // once it is open — a background refresh must not discard what was typed.
@@ -460,6 +502,10 @@ export function SettingsDialog(): React.JSX.Element {
                   </Select>
                 </Field>
                 <CacheBlock />
+              </Section>
+
+              <Section title="媒体工具" hint="下载与导入都要用 ffmpeg 转码和识别格式">
+                <MediaToolsBlock />
               </Section>
 
               <Section title="窗口" hint="下次启动生效；之后拖动窗口会覆盖这里的值">

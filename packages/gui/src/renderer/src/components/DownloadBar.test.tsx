@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
+import { useMediaTools } from '../stores/media-tools.js';
 import { DownloadBar } from './DownloadBar.js';
 
 interface Call {
@@ -69,6 +70,7 @@ beforeEach(() => {
     }),
   );
   useDownloads.setState({ tasks: [], batches: [], cancelling: [] });
+  useMediaTools.setState({ info: null });
   useLibrary.setState({
     playlistId: VIRTUAL_ALL_PLAYLIST_ID,
     search: '',
@@ -272,5 +274,48 @@ describe('the batch action bar shares this row (S3/B-5)', () => {
     await user.click(screen.getByRole('button', { name: '清空选择' }));
 
     expect(useLibrary.getState().selectedIds).toEqual([]);
+  });
+});
+
+// M7-18. The row has a fixed height (M4 acceptance: a growing status line
+// makes the whole song table jump), so the warning takes the idle slot rather
+// than adding a line — and yields it the moment there is real news.
+describe('the ffmpeg warning', () => {
+  const MISSING = {
+    state: 'missing',
+    ffmpeg: null,
+    ffprobe: null,
+    detail: '没有找到：ffmpeg',
+  } as const;
+
+  it('says what to install when there is no ffmpeg', async () => {
+    render(<DownloadBar />);
+    useMediaTools.setState({ info: MISSING });
+
+    await waitFor(() => expect(screen.getByText(/brew install ffmpeg/)).toBeTruthy());
+  });
+
+  it('stays quiet when the toolchain is fine', () => {
+    render(<DownloadBar />);
+    useMediaTools.setState({
+      info: {
+        state: 'ready',
+        ffmpeg: { path: '/opt/homebrew/bin/ffmpeg', source: 'homebrew' },
+        ffprobe: { path: '/opt/homebrew/bin/ffprobe', source: 'homebrew' },
+        detail: null,
+      },
+    });
+
+    expect(screen.queryByText(/brew install ffmpeg/)).toBeNull();
+  });
+
+  it('gives the slot back to a running download', async () => {
+    render(<DownloadBar />);
+    useMediaTools.setState({ info: MISSING });
+    await waitFor(() => expect(screen.getByText(/brew install ffmpeg/)).toBeTruthy());
+
+    useDownloads.setState({ tasks: [task()] });
+
+    await waitFor(() => expect(screen.queryByText(/brew install ffmpeg/)).toBeNull());
   });
 });
