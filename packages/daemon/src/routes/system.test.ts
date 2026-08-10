@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nestFingerprint } from '@lark/core';
+import { fakeMediaTools } from '@lark/core/testing';
 import type { ApiResponse, CapabilitiesData, InstanceData, StatusData } from '@lark/shared';
 import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -139,5 +140,34 @@ describe('GET /api/capabilities', () => {
   it('gives every endpoint a description', async () => {
     const missing = (await capabilities()).endpoints.filter((e) => !e.description?.trim());
     expect(missing).toEqual([]);
+  });
+
+  // M7-18: the one field on this response that is about the machine rather
+  // than the build. A client cannot warn about a download that will fail
+  // without it, which is why it is required at LOCAL_API_VERSION 4.
+  describe('media_tools', () => {
+    it('reports the resolved toolchain and where it came from', async () => {
+      const tools = (await capabilities()).media_tools;
+      expect(tools.state).toBe('ready');
+      expect(tools.ffmpeg?.path).toBeTruthy();
+      expect(['env', 'bundle', 'homebrew', 'path']).toContain(tools.ffmpeg?.source);
+      expect(tools.detail).toBeNull();
+    });
+
+    it('names no binary, and gives a reason, when there is none', async () => {
+      await closeTestContext(ctx);
+      await app.close();
+      ctx = createTestContext({
+        mediaTools: fakeMediaTools({ unavailable: new Error('ffmpeg is not installed') }),
+      });
+      app = buildTestServer(ctx);
+
+      expect((await capabilities()).media_tools).toEqual({
+        state: 'missing',
+        ffmpeg: null,
+        ffprobe: null,
+        detail: 'ffmpeg is not installed',
+      });
+    });
   });
 });

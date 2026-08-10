@@ -47,6 +47,8 @@ import {
   ForwardMigrationError,
   GoMigrationRequiredError,
   IncompatibleDbError,
+  MediaToolsRegistry,
+  type MediaToolsRegistryOptions,
   MigrationBusyError,
   MigrationResidueError,
   PidFileCorruptError,
@@ -60,7 +62,6 @@ import {
   loadConfig,
   paths,
   recoverSongsStore,
-  resolveFfmpegBinaries,
   resolveLlmConfig,
 } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
@@ -88,6 +89,13 @@ export interface BootOptions {
   stallBeforeListenMs?: number;
   /** TEST SEAM: fire `requestFatal` this long after a successful boot. */
   fatalAfterMs?: number;
+  /**
+   * TEST / ACCEPTANCE SEAM: where the media toolchain is looked for, and how
+   * it is probed. The shipped CLI never passes it — accept-pack drives the
+   * missing/incompatible states through `testing/boot-child.ts`, the same
+   * containment M2 used, so the shipped daemon grows no test switches (M7-18).
+   */
+  mediaTools?: MediaToolsRegistryOptions;
   /**
    * ACCEPTANCE SEAMS (M4 T6): `/audio` write pacing and the debug stream
    * counter. Only `testing/boot-child.ts` ever sets these.
@@ -331,13 +339,22 @@ export async function boot(options: BootOptions = {}): Promise<void> {
     logger.info({ ...recovery, notes: undefined }, 'songs store recovered');
     for (const note of recovery.notes) logger.warn({ note }, 'recovery note');
 
-    const binaries = resolveFfmpegBinaries();
+    // Probed once here and shared by every consumer (M7-18). Note where this
+    // sits: INSIDE the fatal try, but its verdict is not a boot outcome. A
+    // machine with no ffmpeg still gets a daemon — the library browses, plays
+    // and edits fine, and `GET /api/capabilities` is how the user finds out
+    // why downloading does not. Refusing to boot would take away the very
+    // surface that explains the problem.
+    const mediaTools = new MediaToolsRegistry(options.mediaTools);
+    const toolsState = await mediaTools.refresh();
     logger.info(
       {
-        ffmpeg: binaries.ffmpeg.path,
-        ffmpeg_source: binaries.ffmpeg.source,
-        ffprobe: binaries.ffprobe.path,
-        ffprobe_source: binaries.ffprobe.source,
+        state: toolsState.state,
+        ffmpeg: toolsState.ffmpeg?.path ?? null,
+        ffmpeg_source: toolsState.ffmpeg?.source ?? null,
+        ffprobe: toolsState.ffprobe?.path ?? null,
+        ffprobe_source: toolsState.ffprobe?.source ?? null,
+        detail: toolsState.detail,
       },
       'media tools resolved',
     );
@@ -351,6 +368,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       db,
       sqlite,
       bilibili,
+      mediaTools,
       // Read fresh, so a PATCH /config is picked up by the next task — and
       // snapshotted per task, so it cannot change mid-download.
       getLlmConfig: () => resolveLlmConfig(ctx?.config ?? config),
@@ -434,6 +452,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       cacheLeases: new SongLeaseRegistry(),
       downloads,
       bilibili,
+      mediaTools,
       shutdownSignal: shutdownController.signal,
       ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
     });

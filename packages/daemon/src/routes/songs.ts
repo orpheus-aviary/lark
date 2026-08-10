@@ -252,7 +252,9 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
       }
     }
 
-    const result = await importSongs(ctx.db, ctx.sqlite, paths as string[], {
+    // Throws `MEDIA_TOOLS_UNAVAILABLE` (503) when this machine has no usable
+    // ffprobe, rather than reporting every path as a bad file (M7-18).
+    const result = await importSongs(ctx.db, ctx.sqlite, ctx.mediaTools, paths as string[], {
       signal: ctx.shutdownSignal,
     });
     if (result.imported.length > 0) ctx.eventsBus.emit({ type: 'songs:changed' });

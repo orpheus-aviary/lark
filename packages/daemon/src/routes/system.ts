@@ -221,11 +221,18 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
     } satisfies InstanceData);
   });
 
+  // The endpoint list is static; `media_tools` is not. Reading it costs
+  // nothing (`snapshot` never probes) but a stale `missing` would outlive the
+  // `brew install` that fixed it, so this asks for a refresh — which the
+  // registry answers from cache unless the last verdict was bad AND older than
+  // its floor. That makes "install ffmpeg, reopen settings" work without a
+  // restart, and keeps a settings page that polls from forking processes.
   app.get(API_PATHS.capabilities, async (_req, reply) => {
     ok(reply, {
       name: 'lark',
       version: ctx.version,
       endpoints: [...ENDPOINTS],
+      media_tools: await ctx.mediaTools.refresh(),
     } satisfies CapabilitiesData);
   });
 }

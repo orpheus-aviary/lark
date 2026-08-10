@@ -302,7 +302,16 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // the only writer (R31 + the writer lock held for the whole command).
       const claims = new core.ClaimRegistry();
       const bilibili = core.createBilibiliClient();
-      const deps = { db, sqlite, bilibili, llm: null, timeouts: core.DEFAULT_TIMEOUTS };
+      const deps = {
+        db,
+        sqlite,
+        bilibili,
+        llm: null,
+        // Carried for the type only: the eviction probe asks bilibili whether
+        // a stored key still resolves, and never touches a media file.
+        mediaTools: new core.MediaToolsRegistry(),
+        timeouts: core.DEFAULT_TIMEOUTS,
+      };
 
       const run = await attemptAsync(() =>
         core.runEviction(db, {

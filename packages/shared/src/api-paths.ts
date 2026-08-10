@@ -28,8 +28,12 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *   3 (M6): `GET /status` carries `nest_fingerprint` + `local_api_version`,
  *     which is what identity resolution is built on — an M5 daemon answers
  *     without them and cannot be adopted.
+ *   4 (M7): `GET /api/capabilities` carries `media_tools`, and download /
+ *     import answer `MEDIA_TOOLS_UNAVAILABLE` instead of folding a missing
+ *     ffmpeg into a per-file failure. A client written against 4 renders a
+ *     state a 3 daemon never reports.
  */
-export const LOCAL_API_VERSION = 3;
+export const LOCAL_API_VERSION = 4;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {

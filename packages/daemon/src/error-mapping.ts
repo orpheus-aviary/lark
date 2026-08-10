@@ -85,6 +85,9 @@ const STATUS_BY_CODE: Record<DaemonEnvelopeErrorCode, number> = {
   FFMPEG_FAILED: 500,
   LLM_FAILED: 502,
   LLM_NOT_CONFIGURED: 400,
+  // 503, not 500: the request was fine and the daemon is fine — a dependency
+  // this machine needs is absent, and the caller can retry after installing it.
+  MEDIA_TOOLS_UNAVAILABLE: 503,
   NORMALIZE_FAILED: 502,
   PREFLIGHT_TIMEOUT: 504,
   SOURCE_GONE: 410,

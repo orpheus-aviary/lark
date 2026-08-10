@@ -109,6 +109,9 @@ async function probe(ctx: AppContext, sourceKey: string): Promise<boolean> {
     sqlite: ctx.sqlite,
     bilibili: ctx.bilibili,
     llm: null, // a probe never re-identifies; it only confirms the stored key
+    // Carried for the type, never exercised: `probeSourceKey` asks bilibili
+    // whether a key still resolves and touches no media.
+    mediaTools: ctx.mediaTools,
     timeouts: DEFAULT_TIMEOUTS,
   };
   const signal = withTimeout(DEFAULT_TIMEOUTS.bilibiliMeta, ctx.shutdownSignal);

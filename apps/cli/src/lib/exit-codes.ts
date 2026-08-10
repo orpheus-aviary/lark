@@ -151,6 +151,9 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   // ── 3: the environment says no ───────────────────────
   UNAUTHORIZED: EXIT_ENVIRONMENT,
   LLM_NOT_CONFIGURED: EXIT_ENVIRONMENT,
+  // Same shape as LLM_NOT_CONFIGURED: the request was fine, this machine is
+  // missing a dependency, and the fix is an install rather than a retry.
+  MEDIA_TOOLS_UNAVAILABLE: EXIT_ENVIRONMENT,
   ABI_MISMATCH: EXIT_ENVIRONMENT,
   CONFIG_UNSAFE_PERMISSIONS: EXIT_ENVIRONMENT,
   DB_NOT_INITIALIZED: EXIT_ENVIRONMENT,

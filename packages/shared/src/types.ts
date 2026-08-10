@@ -176,10 +176,40 @@ export interface CapabilityEndpoint {
   description: string;
 }
 
+/**
+ * Where ffmpeg came from and whether it can do the job (M7-18).
+ *
+ * `source` says which of the four resolution levels won, which is the
+ * difference between "the bundled copy" and "the one you installed" — the
+ * question a bug report about a broken download has to answer first. Both
+ * paths are `null` unless the state is `ready`: naming a binary that failed to
+ * answer would read as "we found this and it works".
+ */
+export type MediaToolSource = 'env' | 'bundle' | 'homebrew' | 'path';
+
+export interface MediaToolInfo {
+  path: string;
+  source: MediaToolSource;
+}
+
+export interface MediaToolsInfo {
+  state: 'ready' | 'missing' | 'incompatible';
+  ffmpeg: MediaToolInfo | null;
+  ffprobe: MediaToolInfo | null;
+  /** Safe to show a user. `null` when ready. */
+  detail: string | null;
+}
+
 export interface CapabilitiesData {
   name: 'lark';
   version: string;
   endpoints: CapabilityEndpoint[];
+  /**
+   * Required since LOCAL_API_VERSION 4. Download, import and redownload all
+   * refuse with `MEDIA_TOOLS_UNAVAILABLE` when this is not `ready`, so a client
+   * that renders those actions has to be able to see it coming.
+   */
+  media_tools: MediaToolsInfo;
 }
 
 // ─── Cache (M5) ────────────────────────────────────────

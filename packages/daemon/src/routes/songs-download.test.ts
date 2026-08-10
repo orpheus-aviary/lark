@@ -2,13 +2,17 @@
 // the four-branch source edit, and the claim guards that keep a delete from
 // racing a download.
 
-import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
-import { createSong, paths, resolveFfmpegBinaries } from '@lark/core';
-import { type FakeUpstream, startFakeUpstream } from '@lark/core/testing';
+import {
+  MediaToolsRegistry,
+  MediaToolsUnavailableError,
+  createSong,
+  ensureMp3,
+  paths,
+} from '@lark/core';
+import { type FakeUpstream, fakeMediaTools, startFakeUpstream, toneWav } from '@lark/core/testing';
 import { API_PATHS, type SongData, apiPath } from '@lark/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -33,39 +37,19 @@ let fakeMp3Path: string;
 beforeAll(async () => {
   fixtures = mkdtempSync(join(tmpdir(), 'lark-import-fixtures-'));
   mp3Path = join(fixtures, '稻香.mp3');
-  fakeMp3Path = join(fixtures, 'actually-aac.mp3');
-  const { ffmpeg } = resolveFfmpegBinaries();
-  const run = promisify(execFile);
-  await run(ffmpeg.path, [
-    '-v',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'sine=frequency=440:duration=1',
-    '-c:a',
-    'libmp3lame',
-    '-f',
-    'mp3',
-    '-y',
-    mp3Path,
-  ]);
-  // An AAC file wearing a .mp3 extension — the case only the container check
-  // catches (fifth review ⑨).
-  await run(ffmpeg.path, [
-    '-v',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'sine=frequency=440:duration=1',
-    '-c:a',
-    'aac',
-    '-f',
-    'mp4',
-    '-y',
-    fakeMp3Path,
-  ]);
+  fakeMp3Path = join(fixtures, 'actually-wav.mp3');
+
+  // The real mp3 is transcoded from a hand-written WAV rather than synthesised
+  // with `-f lavfi`: the vendored build carries no lavfi demuxer (M7 T0).
+  const tools = await new MediaToolsRegistry().acquire();
+  const wavPath = join(fixtures, 'tone.wav');
+  writeFileSync(wavPath, toneWav(1));
+  await ensureMp3(tools.ffmpeg.path, wavPath, mp3Path);
+
+  // Not an mp3, wearing a .mp3 extension — the case only the container check
+  // catches (fifth review ⑨). It used to be AAC-in-MP4; a WAV proves the same
+  // thing and needs no encoder the shipped build does not have.
+  writeFileSync(fakeMp3Path, toneWav(1));
 }, 60_000);
 
 beforeEach(async () => {
@@ -138,7 +122,7 @@ describe('POST /songs/import', () => {
   }, 60_000);
 
   // Extension checks cannot see this; only the container can.
-  it('refuses an AAC file wearing a .mp3 extension, and says why', async () => {
+  it('refuses a non-mp3 file wearing a .mp3 extension, and says why', async () => {
     const res = await post(API_PATHS.songImport, { file_paths: [fakeMp3Path] });
     const { imported, failed } = bodyOf(res).data;
     expect(imported).toEqual([]);
@@ -173,6 +157,26 @@ describe('POST /songs/import', () => {
     writeFileSync(flac, 'x');
     const res = await post(API_PATHS.songImport, { file_paths: [flac] });
     expect(bodyOf(res).data.failed[0].reason).toContain('.mp3');
+  });
+
+  // Before M7-18 this answered 200 with every path in `failed`, each reason
+  // being ffprobe's spawn error — telling the user their twenty mp3s were bad
+  // when the truth was that this machine cannot inspect any file at all.
+  it('refuses the whole request when the machine has no ffprobe', async () => {
+    await app.close();
+    await closeTestContext(ctx);
+    ctx = createTestContext({
+      bilibiliBase: upstream.baseUrl,
+      mediaTools: fakeMediaTools({
+        unavailable: new MediaToolsUnavailableError('missing', '没有找到：ffprobe'),
+      }),
+    });
+    app = buildTestServer(ctx);
+
+    const res = await post(API_PATHS.songImport, { file_paths: [mp3Path] });
+    expect(res.statusCode).toBe(503);
+    expect(bodyOf(res).error_code).toBe('MEDIA_TOOLS_UNAVAILABLE');
+    expect(bodyOf(res).message).toContain('brew install ffmpeg');
   });
 
   it('enforces the batch guardrails', async () => {

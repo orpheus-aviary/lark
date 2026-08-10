@@ -8,10 +8,11 @@
 // unpatched original; caller-supplied headers always win, so a single call can
 // override the bearer inline.
 
-import type { BilibiliClient } from '@lark/core';
+import type { BilibiliClient, MediaToolsProvider } from '@lark/core';
 import {
   DEFAULT_CONFIG,
   DownloadEngine,
+  MediaToolsRegistry,
   createBilibiliClient,
   createDatabase,
   resolveLlmConfig,
@@ -89,6 +90,12 @@ export interface TestContextOptions {
   bilibiliBase?: string;
   /** Shorten the ensure-lease TTL, or drive it off a fake clock (M5-6). */
   cacheLeases?: SongLeaseOptions;
+  /**
+   * Replace the media toolchain (M7-18). Defaults to a real registry over this
+   * machine; pass `fakeMediaTools({unavailable: …})` to test what a machine
+   * without ffmpeg answers.
+   */
+  mediaTools?: MediaToolsProvider;
 }
 
 export interface TestContext extends AppContext {
@@ -109,6 +116,10 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
   const bilibili: BilibiliClient = createBilibiliClient(
     options.bilibiliBase === undefined ? {} : { apiBase: options.bilibiliBase },
   );
+  // Real by default: the handful of route tests that transcode for real need a
+  // real toolchain, and everything else never reaches it. A test that wants a
+  // machine WITHOUT ffmpeg passes `fakeMediaTools({unavailable})`.
+  const mediaTools = options.mediaTools ?? new MediaToolsRegistry();
 
   // Wired like boot's: engine callbacks are the only event source for the
   // asynchronous half of a download, so a test that asserts on SSE has to see
@@ -117,6 +128,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     db,
     sqlite,
     bilibili,
+    mediaTools,
     getLlmConfig: () => resolveLlmConfig(ctx.config),
     shutdownSignal: shutdownController.signal,
     callbacks: {
@@ -183,6 +195,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     cacheLeases: new SongLeaseRegistry(options.cacheLeases),
     downloads,
     bilibili,
+    mediaTools,
     shutdownSignal: shutdownController.signal,
     ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
     fatals,

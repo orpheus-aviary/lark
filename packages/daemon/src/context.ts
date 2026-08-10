@@ -1,4 +1,4 @@
-import type { BilibiliClient, DownloadEngine, LarkDatabase } from '@lark/core';
+import type { BilibiliClient, DownloadEngine, LarkDatabase, MediaToolsProvider } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { AudioStreamRegistry } from './audio-streams.js';
@@ -86,6 +86,14 @@ export interface AppContext {
    * second identity to risk control from the same process.
    */
   bilibili: BilibiliClient;
+  /**
+   * ONE media toolchain for the whole daemon (M7-18), for the same reason as
+   * `bilibili` and then some: before this, `GET /api/capabilities` and the
+   * download engine resolved ffmpeg independently, so the daemon could report
+   * "no ffmpeg" in one breath and transcode through Homebrew in the next.
+   * Everything that spawns ffmpeg or ffprobe goes through this.
+   */
+  mediaTools: MediaToolsProvider;
   /**
    * Aborted when the daemon starts stopping (M3-13).
    *

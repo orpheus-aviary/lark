@@ -5,15 +5,12 @@
 // pagelist entry for the stored `bvid:cid`. A key the upstream does not know
 // is exactly what a dead source looks like.
 
-import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import {
   DEFAULT_CONFIG,
   createSong,
-  resolveFfmpegBinaries,
   setFileOrigin,
   setPinned,
   songAudioPath,
@@ -21,7 +18,7 @@ import {
   songLyricsPath,
   touchLastAccessed,
 } from '@lark/core';
-import { type FakeUpstream, startFakeUpstream } from '@lark/core/testing';
+import { type FakeUpstream, startFakeUpstream, toneWav } from '@lark/core/testing';
 import {
   API_PATHS,
   type ApiResponse,
@@ -31,7 +28,7 @@ import {
   type LarkEvent,
   type SongData,
 } from '@lark/shared';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { scheduleEvictionInBackground } from '../cache.js';
 import {
   type TestApp,
@@ -53,7 +50,6 @@ let liveKeys: string[];
 let nextKey = 0;
 
 let audioFixture: Buffer;
-let fixtureDir: string;
 let ctx: TestContext;
 let app: TestApp;
 let nest: string;
@@ -130,28 +126,11 @@ const evict = async (): Promise<CacheEvictResultData> => {
   return res.json<ApiResponse<CacheEvictResultData>>().data as CacheEvictResultData;
 };
 
-beforeAll(async () => {
-  // A real m4a for the one test that runs an actual download end to end.
-  fixtureDir = mkdtempSync(join(tmpdir(), 'lark-cache-fixture-'));
-  const path = join(fixtureDir, 'fixture.m4a');
-  const { ffmpeg } = resolveFfmpegBinaries();
-  await promisify(execFile)(ffmpeg.path, [
-    '-v',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'sine=frequency=440:duration=1',
-    '-c:a',
-    'aac',
-    '-y',
-    path,
-  ]);
-  audioFixture = readFileSync(path);
-}, 60_000);
-
-afterAll(() => {
-  rmSync(fixtureDir, { recursive: true, force: true });
+beforeAll(() => {
+  // Real audio for the one test that runs an actual download end to end.
+  // Written by hand, not synthesised: the vendored ffmpeg has no lavfi
+  // demuxer and no AAC encoder (M7 T0).
+  audioFixture = toneWav(1);
 });
 
 beforeEach(async () => {
