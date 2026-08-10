@@ -9,7 +9,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "test": "vitest run --passWithNoTests",
-    "build:deps": "pnpm -F @lark/shared build && pnpm -F @lark/core build && pnpm -F @lark/daemon build"
+    "build:deps": "pnpm -F @lark/shared build && pnpm -F @lark/core build && pnpm -F @lark/daemon build",
+    "build:icons": "node scripts/build-icons.mjs",
+    "build:notices": "node ../../scripts/gen-notices.mjs $LARK_FFMPEG_MODE",
+    "package": "pnpm build:deps && pnpm build:icons && pnpm build:notices && electron-vite build && electron-builder install-app-deps && electron-builder --mac --arm64 --config electron-builder.config.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",
@@ -38,6 +41,7 @@
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "5.2.0",
     "electron": "43.2.0",
+    "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
     "jsdom": "25.0.1",
     "typescript": "5.9.3",

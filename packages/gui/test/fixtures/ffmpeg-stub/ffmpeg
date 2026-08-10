@@ -1,0 +1,5 @@
+#!/bin/sh
+# A stub. See README.md — this exists to prove files were copied and an
+# environment variable was injected, and nothing else.
+echo "lark packaging stub — not a real ffmpeg" >&2
+exit 1

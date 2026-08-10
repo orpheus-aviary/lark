@@ -379,6 +379,55 @@ pack-cli: build-cli-dist
     npm pack --pack-destination .. >/dev/null
     cd .. && ls -1 orpheus-aviary-lark-cli-*.tgz
 
+# ─── Packaging (M7 T1) ──────────────────────────────────
+#
+# `just package` / `just package system` — a POSITIONAL parameter, not
+# `mode=system`: just parses a `name=value` argument as a variable override
+# only BEFORE the recipe name, so `just package mode=system` looks for a second
+# recipe called `mode=system` and reports "does not contain recipe" (1.46.0,
+# measured).
+#
+# The two modes differ in exactly one thing — whether ffmpeg rides along — and
+# that difference is carried end to end: its own output directory, its own
+# NOTICE, its own install instructions. A `system` build tells the user to run
+# `brew install ffmpeg`; a `bundled` build carries a vendored LGPL copy whose
+# provenance is re-verified against the lock on every single run, which is what
+# keeps a stub out of a release.
+
+[group('package')]
+package mode="bundled": ensure-electron-abi
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{mode}}" in
+        bundled) just fetch-ffmpeg --verify ;;
+        system)  ;;
+        *) echo "unknown mode '{{mode}}' — use: just package [bundled|system]" >&2; exit 2 ;;
+    esac
+    # Clean only THIS mode's directory: the other mode's artifact is somebody
+    # else's release and must not disappear because of a build here.
+    rm -rf "packages/gui/release/{{mode}}"
+    cd packages/gui && LARK_FFMPEG_MODE={{mode}} pnpm run package
+
+# The mechanism-only build (M7-16): a stub ffmpeg, so extraResources copying,
+# the env injection and the resolver's bundle level can be exercised without a
+# four-minute toolchain build. Lands in `release/fixture/` and is NEVER a
+# release candidate — the stub cannot pass `fetch-ffmpeg`'s verification, and
+# `just package bundled` runs that first.
+[group('package')]
+package-fixture: ensure-electron-abi
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf packages/gui/release/fixture
+    cd packages/gui && LARK_FFMPEG_MODE=fixture pnpm run package
+
+# Undo `electron-builder install-app-deps`, which rebuilds better-sqlite3 for
+# the packaged Electron and leaves the workspace on that ABI. Uses lark's
+# build-release path rather than a prebuilt (owl's `unpackage` grabs a binding
+# for npm's bundled Node and re-breaks the host).
+[group('package')]
+unpackage: ensure-node-abi
+    @echo "workspace is back on the Node ABI."
+
 # ─── Media spike (M0 T4/T5) ─────────────────────────────
 #
 # `spikes/media-protocol/` validates lark-media:// before M4 ports it into the
@@ -446,8 +495,11 @@ probe-bilibili:
 
 [group('clean')]
 clean:
-    rm -rf packages/*/dist apps/*/dist packages/gui/out
+    rm -rf packages/*/dist apps/*/dist apps/*/dist-publish packages/gui/out
     rm -rf packages/*/*.tsbuildinfo apps/*/*.tsbuildinfo
+    # Packaging output. `vendor/ffmpeg` is deliberately NOT here: it costs four
+    # minutes to rebuild and `fetch-ffmpeg` re-verifies it anyway.
+    rm -rf packages/gui/release apps/cli/*.tgz
 
 [group('clean')]
 clean-all: clean
