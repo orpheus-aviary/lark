@@ -374,3 +374,21 @@ onSuccess: 'node scripts/gen-publishable-manifest.mjs',
 - **`just package [mode]` 位置参数**按 H1 落地；`bundled` 每次前置 `fetch-ffmpeg --verify`。**负向实测**：把 `vendor/ffmpeg` 换成 stub 后 `just package bundled` 在校验处失败退出，electron-builder 根本没启动。
 - `package-fixture` 出 `release/fixture/`，stub 正常进包——机制（extraResources 复制 / 注入 / resolver bundle 级）可验，且它过不了 bundled 的锁校验。
 - electron-builder 的噪音里有两条**不是问题**：`asar usage is disabled`（R17 要求）、`platform-specific optional dependencies not bundled`（列的全是 linux/win 的 tailwind-oxide 与 lightningcss，本包只出 darwin-arm64）。
+
+### 8.6 T2 实施：打包后进程定位（2026-08-10）
+
+判据 10 已在本机跑通——用**装出来的** CLI（`npm i -g` 到临时 prefix）驱动 T1 出的 bundled app：
+
+- 无效 `LARK_APP_PATH` → 立刻 `USAGE_ERROR`，不回落（E16）；
+- 无 `LARK_APP_PATH` 且 `/Applications` 里没有 → 报出找过哪两个位置；
+- 有效 `LARK_APP_PATH` → daemon 真的从包里起来（`pgrep` 见 `Lark.app/Contents/MacOS/Lark … @lark/daemon/dist/cli.js daemon`），`/status` 应答 `local_api_version: 4`，capabilities 的 `media_tools` 是 **`state: ready` + `source: "bundle"` + 包内路径**。判据 4 的 bundled ready 子态顺带一起过了。
+
+**一个必须写进验收脚本的坑**：在仓库里跑 `node apps/cli/dist-publish/index.js` 时，`LARK_APP_PATH` **完全不起作用**——`isDevCheckout()` 沿着目录往上一直能走到 `pnpm-workspace.yaml`，于是走的是 dev 分支。第一次测判据 10 就被这个骗过去了（无效路径「成功」启动了 daemon）。**accept-pack 必须从工作区之外运行 CLI**（判据 8 装出来的那份），否则判据 10 测的是另一条代码路径。
+
+其余实施要点：
+
+- `resolveAppBundle` 只查三处（`LARK_APP_PATH` → `/Applications` → `~/Applications`），不做 `mdfind`：搜出来的很可能是 ~/Downloads 或一个挂载中的 DMG，从马上要弹出的磁盘映像里起 daemon 比找不到更糟。判真 = 包里有 daemon cli（缺 Resources 的 app 从外面看毫无破绽）。
+- 打包态 daemon 用**同一个包**里的 Electron 跑**同一个包**里的 daemon：用本进程的 Node 会加载为另一运行时编译的 better-sqlite3，用别的包的 Electron 则是两套安装混用。`lark gui` 同理用 `open <resolveAppBundle() 的路径>` 而不是 `open -a Lark`——`-a` 由 LaunchServices 挑，可能挑到另一份。
+- `LaunchedChild.state` 加 `exitCode` / `signal`：`/usr/bin/open` 的工作就是交给 LaunchServices 然后退出，按 dev 的「退出即崩溃」判，**每一次**打包态 `lark gui` 都会在窗口出现之前失败。非零退出仍然是「app 起不来」，所以留的是码不是布尔。
+- `ensure-daemon` 的 ABI 预检只在 dev 分支跑（M7-15）：打包态子进程加载的是包内那份 better-sqlite3，探本进程这份等于测了个无关副本，还可能拒绝一个本来能跑的 daemon。子进程立刻退出仍然会被观测到并上报。
+- 测试要能到达打包分支得显式注入 `packaged: true`——测试自己就跑在工作区里，`isDevCheckout()` 恒真。
