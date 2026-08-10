@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FakeChild, fakeSpawn } from '../testing/fake-child.js';
 import type { CliError } from './errors.js';
-import { daemonLaunchCommand, guiLaunchCommand, launchDetached, workspaceRoot } from './launch.js';
+import {
+  daemonLaunchCommand,
+  guiLaunchCommand,
+  launchDetached,
+  resolveAppBundle,
+  workspaceRoot,
+} from './launch.js';
 
 let root: string;
 
@@ -48,7 +54,7 @@ describe('workspaceRoot', () => {
 describe('daemonLaunchCommand', () => {
   it('runs the daemon CLI with THIS node', () => {
     touch(join(root, 'packages/daemon/dist/cli.js'));
-    expect(daemonLaunchCommand(root)).toEqual({
+    expect(daemonLaunchCommand({ root })).toEqual({
       command: process.execPath,
       args: [join(root, 'packages/daemon/dist/cli.js'), 'daemon'],
     });
@@ -57,7 +63,7 @@ describe('daemonLaunchCommand', () => {
   it('names the build step when the daemon has not been built', () => {
     let message = '';
     try {
-      daemonLaunchCommand(root);
+      daemonLaunchCommand({ root });
     } catch (err) {
       message = (err as CliError).message;
     }
@@ -78,7 +84,7 @@ describe('guiLaunchCommand', () => {
     // Read rather than imported: the CLI is not allowed to depend on electron
     // (M6-21), and it only needs the path.
     touch(join(root, 'packages/gui/out/main/index.js'));
-    expect(guiLaunchCommand(root)).toEqual({
+    expect(guiLaunchCommand({ root })).toEqual({
       command: join(root, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
       args: [join(root, 'packages/gui')],
     });
@@ -87,7 +93,7 @@ describe('guiLaunchCommand', () => {
   it('names the build step when the GUI has not been built', () => {
     let message = '';
     try {
-      guiLaunchCommand(root);
+      guiLaunchCommand({ root });
     } catch (err) {
       message = (err as CliError).message;
     }
@@ -131,5 +137,127 @@ describe('launchDetached', () => {
       }),
     );
     expect(code).toBe('DAEMON_UNAVAILABLE');
+  });
+});
+
+// ─── Packaged (M7-7) ───────────────────────────────────
+//
+// Every seam is injected, so none of this touches /Applications or cares
+// where the test runner lives on disk.
+
+const APP = '/Applications/Lark.app';
+const DAEMON_IN = (app: string) =>
+  `${app}/Contents/Resources/app/node_modules/@lark/daemon/dist/cli.js`;
+const FFMPEG_IN = (app: string) => `${app}/Contents/Resources/ffmpeg`;
+
+const withPaths =
+  (...paths: string[]) =>
+  (path: string) =>
+    paths.includes(path);
+
+describe('resolveAppBundle', () => {
+  it('takes /Applications first', () => {
+    expect(resolveAppBundle({ env: {}, home: '/Users/x', exists: withPaths(DAEMON_IN(APP)) })).toBe(
+      APP,
+    );
+  });
+
+  it('falls back to ~/Applications', () => {
+    const user = '/Users/x/Applications/Lark.app';
+    expect(
+      resolveAppBundle({ env: {}, home: '/Users/x', exists: withPaths(DAEMON_IN(user)) }),
+    ).toBe(user);
+  });
+
+  // An app bundle without the daemon inside looks perfectly normal from the
+  // outside, and adopting it would fail much later with something unrelated.
+  it('ignores a bundle that does not carry the daemon', () => {
+    expect(codeOf(() => resolveAppBundle({ env: {}, home: '/Users/x', exists: () => false }))).toBe(
+      'USAGE_ERROR',
+    );
+  });
+
+  it('lets LARK_APP_PATH win', () => {
+    const custom = '/Volumes/build/Lark.app';
+    expect(
+      resolveAppBundle({
+        env: { LARK_APP_PATH: custom },
+        home: '/Users/x',
+        exists: withPaths(DAEMON_IN(custom), DAEMON_IN(APP)),
+      }),
+    ).toBe(custom);
+  });
+
+  // Fail-fast, never fall through (E16): whoever set the variable wants THAT
+  // bundle, and silently using another one is how you debug the wrong copy.
+  it('refuses a LARK_APP_PATH that is not usable, instead of looking elsewhere', () => {
+    expect(
+      codeOf(() =>
+        resolveAppBundle({
+          env: { LARK_APP_PATH: '/tmp/nope.app' },
+          home: '/Users/x',
+          exists: withPaths(DAEMON_IN(APP)),
+        }),
+      ),
+    ).toBe('USAGE_ERROR');
+  });
+});
+
+describe('daemonLaunchCommand (packaged)', () => {
+  it("runs the bundle's own Electron as node, on the bundle's own daemon", () => {
+    const command = daemonLaunchCommand({
+      packaged: true,
+      env: {},
+      home: '/Users/x',
+      exists: withPaths(DAEMON_IN(APP)),
+    });
+    expect(command).toEqual({
+      command: `${APP}/Contents/MacOS/Lark`,
+      args: [DAEMON_IN(APP), 'daemon'],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    });
+  });
+
+  it('points a bundled build at its own ffmpeg', () => {
+    const command = daemonLaunchCommand({
+      packaged: true,
+      env: {},
+      home: '/Users/x',
+      exists: withPaths(DAEMON_IN(APP), FFMPEG_IN(APP)),
+    });
+    expect(command.env).toEqual({
+      ELECTRON_RUN_AS_NODE: '1',
+      LARK_MEDIA_TOOLS_DIR: FFMPEG_IN(APP),
+    });
+  });
+
+  // A `system` build says nothing, and the daemon falls through to Homebrew.
+  it('says nothing about ffmpeg when the build carries none', () => {
+    const command = daemonLaunchCommand({
+      packaged: true,
+      env: {},
+      home: '/Users/x',
+      exists: withPaths(DAEMON_IN(APP)),
+    });
+    expect(command.env?.LARK_MEDIA_TOOLS_DIR).toBeUndefined();
+  });
+});
+
+describe('guiLaunchCommand (packaged)', () => {
+  // `open <path>`, never `open -a Lark`: `-a` lets LaunchServices choose, and
+  // it can choose a different copy than the daemon just came out of.
+  it('opens the same bundle the daemon resolved, by path', () => {
+    expect(
+      guiLaunchCommand({
+        packaged: true,
+        env: {},
+        home: '/Users/x',
+        exists: withPaths(DAEMON_IN(APP)),
+      }),
+    ).toEqual({
+      command: '/usr/bin/open',
+      args: [APP],
+      expectsImmediateExit: true,
+    });
   });
 });

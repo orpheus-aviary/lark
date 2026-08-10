@@ -37,6 +37,7 @@ import {
   type SpawnImpl,
   type SpawnedChild,
   daemonLaunchCommand,
+  isDevCheckout,
   launchDetached,
 } from './launch.js';
 import { abiError } from './native-abi.js';
@@ -53,6 +54,11 @@ export interface EnsureDaemonDeps {
   identity: IdentityResolver;
   spawnImpl?: SpawnImpl;
   probeAbi?: typeof probeNativeAbi;
+  /**
+   * Whether the ABI pre-check applies. Defaults to "only in a dev checkout" —
+   * see `spawnDaemon`.
+   */
+  checkAbi?: boolean;
   command?: () => LaunchCommand;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
@@ -73,6 +79,7 @@ interface Settings {
   identity: IdentityResolver;
   spawnImpl: SpawnImpl | undefined;
   probeAbi: typeof probeNativeAbi;
+  checkAbi: boolean;
   command: () => LaunchCommand;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
@@ -87,6 +94,7 @@ function settle(deps: EnsureDaemonDeps): Settings {
     identity: deps.identity,
     spawnImpl: deps.spawnImpl,
     probeAbi: deps.probeAbi ?? probeNativeAbi,
+    checkAbi: deps.checkAbi ?? isDevCheckout(),
     command: deps.command ?? (() => daemonLaunchCommand()),
     sleep: deps.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))),
     now: deps.now ?? (() => Date.now()),
@@ -133,8 +141,17 @@ async function awaitBoot(config: Settings, from: DaemonIdentity): Promise<Daemon
 async function spawnDaemon(config: Settings): Promise<EnsureDaemonResult> {
   // Spawning a daemon that will die on its first database call is worse than
   // not spawning it: the failure would surface as a timeout with no cause.
-  const abi = await config.probeAbi();
-  if (!abi.ok) throw abiError(abi);
+  //
+  // Only in a dev checkout, though (M7-15). Packaged, the daemon runs the app
+  // bundle's OWN Electron against the app bundle's OWN better-sqlite3, and
+  // this process is a completely separate npm install — probing here would
+  // test a copy the child never loads, and could refuse to spawn a daemon that
+  // would have worked perfectly. The spawn is observed either way: a child
+  // that dies on its first database call still exits, and that IS reported.
+  if (config.checkAbi) {
+    const abi = await config.probeAbi();
+    if (!abi.ok) throw abiError(abi);
+  }
 
   const launched = launchDetached(config.command(), config.spawnImpl);
   const { child, state } = launched;

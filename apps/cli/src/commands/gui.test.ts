@@ -76,3 +76,33 @@ describe('lark gui', () => {
     expect(err?.message).toContain('立刻退出');
   });
 });
+
+// M7-7: packaged, the child is `/usr/bin/open`, whose job is to hand the app
+// to LaunchServices and return. Every packaged `lark gui` would fail on the
+// dev rule ("it exited, so it crashed") before the window even appeared.
+describe('lark gui, packaged', () => {
+  const openCommand = () => ({
+    command: '/usr/bin/open',
+    args: ['/Applications/Lark.app'],
+    expectsImmediateExit: true,
+  });
+
+  it('treats `open` returning 0 as handoff, not death', async () => {
+    const spawn = fakeSpawn(new FakeChild(), true, 0);
+    const ctx = fakeContext({ playerStatuses: [online(false), online(true)] });
+    await runGui(ctx, { ...deps(spawn), command: openCommand });
+
+    expect(ctx.streams.stdout).toEqual(['✓ GUI 已启动']);
+  });
+
+  // Non-zero still means the app could not be started at all — which is why
+  // the exit CODE is kept and not just the fact of exiting (E9).
+  it('reports a non-zero `open` as a failure to start the app', async () => {
+    const spawn = fakeSpawn(new FakeChild(), true, 1);
+    const ctx = fakeContext({ playerStatus: online(false) });
+    const err = await caught(() => runGui(ctx, { ...deps(spawn), command: openCommand }));
+
+    expect(err?.code).toBe('GUI_ERROR');
+    expect(err?.message).toContain('LARK_APP_PATH');
+  });
+});

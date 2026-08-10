@@ -46,7 +46,11 @@ export interface FakeSpawn {
   options: SpawnOptions[];
 }
 
-export function fakeSpawn(child: FakeChild = new FakeChild(), dieOnSpawn = false): FakeSpawn {
+export function fakeSpawn(
+  child: FakeChild = new FakeChild(),
+  dieOnSpawn = false,
+  exitCode = 1,
+): FakeSpawn {
   const children: FakeChild[] = [];
   const options: SpawnOptions[] = [];
   return {
@@ -58,7 +62,7 @@ export function fakeSpawn(child: FakeChild = new FakeChild(), dieOnSpawn = false
       // `setImmediate` — the same phase {@link virtualClock} yields through,
       // queued FIRST, so a poll loop deterministically sees the exit on its
       // first pass.
-      if (dieOnSpawn) setImmediate(() => child.emit('exit', 1, null));
+      if (dieOnSpawn) setImmediate(() => child.emit('exit', exitCode, null));
       return child;
     },
   };

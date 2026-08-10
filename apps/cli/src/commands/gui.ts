@@ -20,6 +20,7 @@ import type { CommandContext } from '../context.js';
 import { CliError } from '../lib/errors.js';
 import {
   type LaunchCommand,
+  type LaunchedChild,
   type SpawnImpl,
   guiLaunchCommand,
   launchDetached,
@@ -65,7 +66,8 @@ export async function ensureGui(ctx: CommandContext, deps: GuiDeps = {}): Promis
   // Spawned and released in the same breath: no handle is kept, because there
   // is nothing this command would do with it. A GUI that fails to start is
   // reported by the timeout below, and the user has a window to look at.
-  const launched = launchDetached(deps.command?.() ?? guiLaunchCommand(), deps.spawnImpl);
+  const command = deps.command?.() ?? guiLaunchCommand();
+  const launched = launchDetached(command, deps.spawnImpl);
 
   const deadline = now() + waitMs;
   while (now() < deadline) {
@@ -73,12 +75,8 @@ export async function ensureGui(ctx: CommandContext, deps: GuiDeps = {}): Promis
     if (launched.state.error !== null) {
       throw new CliError('GUI_ERROR', `启动 GUI 失败：${launched.state.error.message}`);
     }
-    if (launched.state.exited) {
-      throw new CliError(
-        'GUI_ERROR',
-        'GUI 进程启动后立刻退出了——用 `just dev` 跑一次看它说了什么。',
-      );
-    }
+    const crash = describeExit(launched.state, command);
+    if (crash !== null) throw new CliError('GUI_ERROR', crash);
     if (await guiIsOnline(ctx)) return { launched: true, gui_online: true };
   }
 
@@ -86,6 +84,26 @@ export async function ensureGui(ctx: CommandContext, deps: GuiDeps = {}): Promis
     'GUI_TIMEOUT',
     `GUI 在 ${Math.round(waitMs / 1000)}s 内没有连上 daemon——窗口可能还在启动，稍后重试。`,
   );
+}
+
+/**
+ * Did the child dying mean anything bad? `null` when it did not.
+ *
+ * In dev the child IS the GUI, so any exit is a crash. Packaged, the child is
+ * `/usr/bin/open`, whose entire job is to hand the app to LaunchServices and
+ * return — treating that as a crash would fail every packaged `lark gui`
+ * before the window even appeared. A NON-ZERO exit from it still means the app
+ * could not be started, which is why the code is kept rather than the boolean
+ * alone (M7-7 / E9).
+ */
+function describeExit(state: LaunchedChild['state'], command: LaunchCommand): string | null {
+  if (!state.exited) return null;
+  if (command.expectsImmediateExit !== true) {
+    return 'GUI 进程启动后立刻退出了——用 `just dev` 跑一次看它说了什么。';
+  }
+  if (state.exitCode === 0) return null;
+  const how = state.signal !== null ? `被信号 ${state.signal} 结束` : `退出码 ${state.exitCode}`;
+  return `打开 Lark.app 失败（${command.command} ${how}）——确认应用包完整，或用 LARK_APP_PATH 指定位置。`;
 }
 
 export async function runGui(ctx: CommandContext, deps: GuiDeps = {}): Promise<void> {
