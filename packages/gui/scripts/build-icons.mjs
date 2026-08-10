@@ -11,26 +11,33 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const RESOURCES = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'resources');
-const SOURCE = join(RESOURCES, 'lark-logo-original.png');
-const CROPPED = join(RESOURCES, 'icon-cropped.png');
+const SOURCE = join(RESOURCES, 'lark-icon-source.png');
 const ICONSET = join(RESOURCES, 'icon.iconset');
 const OUTPUT = join(RESOURCES, 'icon.icns');
 
-/**
- * The source art is a rounded-square tile sitting inside a soft grey halo, and
- * that halo is OPAQUE — so macOS renders it as part of the icon and the tile
- * lands about 12% smaller than every neighbour in the Dock.
+/*
+ * WHY THERE ARE TWO PNGs HERE.
  *
- * The halo cannot be found by alpha (it is opaque), so these are the measured
- * bounds of the SATURATED pixels — the tile and its dark green border:
+ * `lark-logo-original.png` is the artwork as delivered: a rounded-square tile
+ * floating inside a soft grey halo. That halo is OPAQUE, so macOS renders it
+ * as part of the icon — the tile came out ~12% smaller than every neighbour in
+ * the Dock, with a visible grey ring around it.
  *
- *   x 63..964, y 47..937  →  902 × 891 inside a 1024 × 1024 canvas
+ * `lark-icon-source.png` is what an icon is supposed to look like: the tile
+ * alone, with real transparency around it, occupying 90% of the canvas — the
+ * same proportions owl's artwork already had. It was produced ONCE from the
+ * original, and the recipe is here so it can be redone if the art changes:
  *
- * Cropped to a square centred on that, which makes the tile fill the canvas
- * the way owl's source already does. Re-measure if the artwork is ever
- * replaced; nothing here detects the halo on its own.
+ *   1. find the tile: the bounding box of SATURATED pixels (alpha cannot see
+ *      the halo — it is opaque), then two pixels in on every side, because the
+ *      detector fires on the border and the halo's last breath sits just
+ *      outside it. Measured: x 63..964, y 47..937 of a 1024 x 1024 canvas.
+ *   2. crop to that, pad to square with TRANSPARENT pixels;
+ *   3. scale to 90% of a 1024 canvas, centred, transparent margin.
+ *
+ * Step 2 is why this is not done here with `sips`: sips pads with a colour,
+ * and a colour is exactly what must not be there.
  */
-const TILE = { size: 902, top: 41, left: 62 };
 
 if (!existsSync(SOURCE)) {
   process.stderr.write(`source image not found: ${SOURCE}\n`);
@@ -52,33 +59,15 @@ const SIZES = [
 ];
 
 rmSync(ICONSET, { recursive: true, force: true });
-rmSync(CROPPED, { force: true });
 mkdirSync(ICONSET, { recursive: true });
 
-execFileSync(
-  'sips',
-  [
-    '-c',
-    String(TILE.size),
-    String(TILE.size),
-    '--cropOffset',
-    String(TILE.top),
-    String(TILE.left),
-    SOURCE,
-    '--out',
-    CROPPED,
-  ],
-  { stdio: 'pipe' },
-);
-
 for (const [size, name] of SIZES) {
-  execFileSync('sips', ['-z', String(size), String(size), CROPPED, '--out', join(ICONSET, name)], {
+  execFileSync('sips', ['-z', String(size), String(size), SOURCE, '--out', join(ICONSET, name)], {
     stdio: 'pipe',
   });
 }
 
 execFileSync('iconutil', ['-c', 'icns', ICONSET, '-o', OUTPUT], { stdio: 'inherit' });
 rmSync(ICONSET, { recursive: true });
-rmSync(CROPPED, { force: true });
 
 process.stdout.write(`[icons] wrote ${OUTPUT}\n`);
