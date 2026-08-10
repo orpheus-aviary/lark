@@ -12,8 +12,25 @@ import { fileURLToPath } from 'node:url';
 
 const RESOURCES = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'resources');
 const SOURCE = join(RESOURCES, 'lark-logo-original.png');
+const CROPPED = join(RESOURCES, 'icon-cropped.png');
 const ICONSET = join(RESOURCES, 'icon.iconset');
 const OUTPUT = join(RESOURCES, 'icon.icns');
+
+/**
+ * The source art is a rounded-square tile sitting inside a soft grey halo, and
+ * that halo is OPAQUE — so macOS renders it as part of the icon and the tile
+ * lands about 12% smaller than every neighbour in the Dock.
+ *
+ * The halo cannot be found by alpha (it is opaque), so these are the measured
+ * bounds of the SATURATED pixels — the tile and its dark green border:
+ *
+ *   x 63..964, y 47..937  →  902 × 891 inside a 1024 × 1024 canvas
+ *
+ * Cropped to a square centred on that, which makes the tile fill the canvas
+ * the way owl's source already does. Re-measure if the artwork is ever
+ * replaced; nothing here detects the halo on its own.
+ */
+const TILE = { size: 902, top: 41, left: 62 };
 
 if (!existsSync(SOURCE)) {
   process.stderr.write(`source image not found: ${SOURCE}\n`);
@@ -35,15 +52,27 @@ const SIZES = [
 ];
 
 rmSync(ICONSET, { recursive: true, force: true });
+rmSync(CROPPED, { force: true });
 mkdirSync(ICONSET, { recursive: true });
 
+execFileSync(
+  'sips',
+  [
+    '-c', String(TILE.size), String(TILE.size),
+    '--cropOffset', String(TILE.top), String(TILE.left),
+    SOURCE, '--out', CROPPED,
+  ],
+  { stdio: 'pipe' },
+);
+
 for (const [size, name] of SIZES) {
-  execFileSync('sips', ['-z', String(size), String(size), SOURCE, '--out', join(ICONSET, name)], {
+  execFileSync('sips', ['-z', String(size), String(size), CROPPED, '--out', join(ICONSET, name)], {
     stdio: 'pipe',
   });
 }
 
 execFileSync('iconutil', ['-c', 'icns', ICONSET, '-o', OUTPUT], { stdio: 'inherit' });
 rmSync(ICONSET, { recursive: true });
+rmSync(CROPPED, { force: true });
 
 process.stdout.write(`[icons] wrote ${OUTPUT}\n`);
