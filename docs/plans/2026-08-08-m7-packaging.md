@@ -287,7 +287,43 @@ onSuccess: 'node scripts/gen-publishable-manifest.mjs',
 
 ## 8. 实施记录
 
-（逐批填写；T0/T3/T5 首日 spike 结论必须落此。）
+### 8.1 T0 首日 spike：ffmpeg 来源定案（2026-08-10）
+
+**结论：走乙（自建最小 LGPL profile）。** 甲已实测核过，作为备选记录在案。
+
+| | 甲 Martin Riedl `1785863997_9.0` | **乙 自建（采用）** |
+|---|---|---|
+| nonfree | 无（`versions.txt` 实读 configure） | 无 |
+| 许可 | `--enable-gpl --enable-version3` → **GPLv3** | `--disable-everything` 起手，不开 gpl/version3 → **LGPL 2.1+**（configure 自报 `License: LGPL version 2.1 or later`） |
+| 静态外部库 | **30 个**（x264/x265/aom/rav1e/svt-av1/vvenc/openssl/harfbuzz…），逐个都要镜像对应源码 | **1 个**（LAME 3.100） |
+| 体积 | 全家桶 | **ffmpeg 2.3MB + ffprobe 2.2MB** |
+| 维护 | 依赖第三方持续出包，需镜像 | 自持脚本，锁定版本 |
+
+判据是「许可干净度 > 义务面 > 维护成本」，三项乙全胜，且实建验证一次通过（clang 17 / arm64 / 约 4 分钟）。
+
+- **来源**：FFmpeg 8.1.2（`ffmpeg.org/releases`）+ LAME 3.100。选 8.1.x 而不是刚发的 9.0：与本机 Homebrew 的 8.1 同线，`system` 与 `bundled` 两个模式的行为差异最小。
+- **SourceForge 在本网络下会掉 TLS 握手**（LAME 首次下载即失败），`ffmpeg.org` 也随机掉过一次 → `fetch-ffmpeg` 每个 URL 重试两次，LAME 另记一个实测字节一致的镜像（sha256 才是判据）。
+- **configure 必须写成路径无关**：`--prefix=../out --extra-cflags=-I../prefix/include`。绝对路径会原样烙进二进制的 configure 串（`-show_program_version` 里看得到），那样锁值就绑死在某台机器的目录上，判据 3 的「configure 与锁值一致」无从谈起。
+- **能力清单实测覆盖**：protocol file/pipe、demuxer `mov,mp4,m4a,3gp,3g2,mj2` + mp3（外加 aac/flac/wav/ogg/matroska 供导入诊断）、decoder aac/mp3(+float)/alac/flac/opus/vorbis/pcm、encoder **只有 libmp3lame**、muxer **只有 mp3**。真实闭环 M4A → MP3 → ffprobe JSON 通过，`format_name` 正是代码注释里那两个串。
+- **反 stub 已实测**：把 vendor 里的两个二进制换成能伪造全部清单输出的 shell 脚本，`--verify` 在第一道 Mach-O 判定就拒（真二进制若谎报能力，则死在闭环那道）。
+
+### 8.2 T0 实施：与计划的偏差
+
+1. **`-hide_banner -v quiet -X` 只认第一个清单选项**——`-protocols -demuxers …` 串在一条命令里只会输出第一个，所以六次探测是六个子进程（并发跑，合计约 50ms），不是一次。
+2. **分隔线不是 `--`**：ffmpeg 8.1 的 `-demuxers` 打的是 ` ---`，且比旧版多一列设备标志。第一版解析器按字面 `--` 匹配，把一个完好的 Homebrew 构建判成「缺全部能力」。改成 `/^-{2,}$/`，并把**真实输出**（含 `---` 与设备列）写进 fixture。
+3. **`ffprobe -print_format json -show_program_version` 一次给全**：版本 + configure 串，且是 JSON。比解析 `-version` 文本稳，判据 3 与 nonfree 判定都用它。
+4. **单元测试不能再用 `-f lavfi` 造 fixture**——最小 profile 没有 lavfi 解复用器，也没有 AAC 编码器。改为 **纯 Node 写 WAV**（`@lark/core/testing` 的 `toneWav`）：44 字节头 + 正弦采样，被测构建只做它出厂要做的事。真 m4a 容器放在 `fetch-ffmpeg` 与 accept-pack 的闭环里，用入库的 `scripts/fixtures/tone-1s.m4a`（5KB）。
+   - 连带：`songs-download.test.ts` 里「AAC 冒充 .mp3」改成「WAV 冒充 .mp3」——同一条容器校验，不需要出厂没有的编码器。
+5. **`MediaToolsProvider` 加了 `acquire()`**（计划只写了共享 resolved binaries）：`fetchAudio` 要在**传输之前**判定，否则先拉完整首歌再报「没有 ffmpeg」。`use()` 只包住真正的 ffmpeg 调用，避免把网络/磁盘错误喂给「执行失败使 ready 失效」。
+6. **`MEDIA_TOOLS_UNAVAILABLE` → 503**（不是 500）：请求没问题、daemon 没问题，是这台机器缺件，装完可重试。CLI 侧归 exit **3**（与 `LLM_NOT_CONFIGURED` 同档）。
+7. **dev/test 链的 vendor 优先做在 justfile 顶层** `export LARK_MEDIA_TOOLS_DIR`（`path_exists` 判定，缺失时为空串 = resolver 视作未设）。整套 core/daemon 测试因此跑在**最小构建**上——这本身就是「冻结能力清单够不够用」的证据。⚠️ T5 的 accept-pack 必须显式清掉这个变量，否则会污染对打包产物的观测。
+8. **`biome.json` 要排除 `vendor/`**：ffmpeg 源码树里有 bootstrap.min.css 之类，会把 `just check` 淹掉。
+
+### 8.3 T0 结果
+
+- `just check` 绿；全仓测试 **1663**（shared 74 / core 569 / cli 344 / daemon 337 / gui 339）。
+- `just fetch-ffmpeg` 首次约 4 分钟，之后 `--verify` 60ms。
+- 双真相已消灭：capabilities 路由、下载引擎、`ensureMp3`/`probeAudio`、import 的 ffprobe 全部经 `ctx.mediaTools` 一份。
 
 ## 9. 评审记录
 
