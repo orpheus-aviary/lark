@@ -3,11 +3,12 @@ packages:
   - "apps/*"
   - "spikes/*"
 onlyBuiltDependencies:
+  # `ffmpeg-static` / `@derhuerst/ffprobe-static` used to be here for their
+  # binary-downloading postinstall. Both are gone (M7 T0): the binaries they
+  # fetch are `--enable-nonfree` builds, which may not be redistributed at all.
+  # ffmpeg now comes from `just fetch-ffmpeg` (a vendored LGPL build) or from
+  # the user's own install.
   - "@biomejs/biome"
   - better-sqlite3
   - electron
   - esbuild
-  # Both download their binary in a postinstall script. Without the allowance
-  # pnpm skips it silently and the packages resolve to a path that is not there.
-  - "@derhuerst/ffprobe-static"
-  - ffmpeg-static

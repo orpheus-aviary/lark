@@ -4,9 +4,10 @@
 // unbounded buffer and no way to cancel — a stuck transcode was a stuck app.
 // Three things change here:
 //
-//   - the binary is resolved deliberately (env → bundled static → PATH), so a
-//     packaged build and a dev checkout use the same code path and the
-//     difference is one env var;
+//   - WHICH binary runs is not decided here. Both functions take a resolved
+//     path from the process-wide `MediaToolsRegistry` (M7-18). They used to
+//     re-resolve per call, which is how the daemon ended up able to report
+//     "no ffmpeg" while happily transcoding through a Homebrew one;
 //   - every run carries an AbortSignal, so cancelling a task or stopping the
 //     daemon actually kills the child;
 //   - `maxBuffer` is explicit. Node's default is 1MB, but relying on a default
@@ -19,67 +20,13 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import ffprobeStaticModule from '@derhuerst/ffprobe-static';
-import ffmpegStaticModule from 'ffmpeg-static';
 import { FfmpegError } from '../errors.js';
 import { DEFAULT_TIMEOUTS, type DownloadTimeouts, withTimeout } from './timeouts.js';
-
-// Both packages are CommonJS with `module.exports = <path string>`, but their
-// bundled .d.ts files declare `export default`. Under NodeNext that makes TS
-// type the default import as the module namespace, while Node hands over the
-// string itself (verified: `typeof` is `string` for both). Re-typed once here,
-// at the boundary, rather than at each use.
-const ffmpegStaticPath = ffmpegStaticModule as unknown as string | null;
-const ffprobeStaticPath = ffprobeStaticModule as unknown as string | null;
 
 const execFileAsync = promisify(execFile);
 
 /** stderr is capped by `-v error`; 1MB is a backstop, not a working budget. */
 const MAX_BUFFER = 1024 * 1024;
-
-export type BinarySource = 'env' | 'static' | 'path';
-
-export interface ResolvedBinary {
-  path: string;
-  source: BinarySource;
-}
-
-export interface FfmpegBinaries {
-  ffmpeg: ResolvedBinary;
-  ffprobe: ResolvedBinary;
-}
-
-/**
- * Where the binaries come from, in priority order:
- *
- *   1. `LARK_FFMPEG_PATH` / `LARK_FFPROBE_PATH` — the seam M7's packaged build
- *      uses to point at the copies inside the app bundle;
- *   2. the static packages — what a dev checkout gets, with no system install;
- *   3. bare names, resolved through PATH — last resort, and the only case
- *      where the version is unknown.
- *
- * Re-read on every call (like `paths.nestDir`) so a test can flip an env var
- * without module-state gymnastics. Boot logs the result once.
- */
-export function resolveFfmpegBinaries(): FfmpegBinaries {
-  return {
-    ffmpeg: resolveOne(process.env.LARK_FFMPEG_PATH, ffmpegStaticPath, 'ffmpeg'),
-    ffprobe: resolveOne(process.env.LARK_FFPROBE_PATH, ffprobeStaticPath, 'ffprobe'),
-  };
-}
-
-function resolveOne(
-  override: string | undefined,
-  staticPath: string | null,
-  fallbackName: string,
-): ResolvedBinary {
-  if (override !== undefined && override !== '') return { path: override, source: 'env' };
-  // Both packages default-export the path itself. The older `ffprobe-static`
-  // exported `{path}` instead — and on top of that only shipped an Intel mac
-  // build, which is why this is @derhuerst's fork.
-  if (staticPath !== null && staticPath !== '') return { path: staticPath, source: 'static' };
-  return { path: fallbackName, source: 'path' };
-}
 
 export interface FfmpegRunOptions {
   /** Cancellation from the owning task. Composed with the stage timeout. */
@@ -101,14 +48,14 @@ export interface FfmpegRunOptions {
  * a suitable output format" — a message that reads like a codec problem.
  */
 export async function ensureMp3(
+  ffmpegPath: string,
   inputPath: string,
   outputPath: string,
   options: FfmpegRunOptions = {},
 ): Promise<void> {
   const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
-  const { ffmpeg } = resolveFfmpegBinaries();
   await run(
-    ffmpeg.path,
+    ffmpegPath,
     [
       '-nostdin',
       '-v',
@@ -141,13 +88,13 @@ export interface AudioInfo {
 
 /** Duration + container format. Used for both download and import. */
 export async function probeAudio(
+  ffprobePath: string,
   filePath: string,
   options: FfmpegRunOptions = {},
 ): Promise<AudioInfo> {
   const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
-  const { ffprobe } = resolveFfmpegBinaries();
   const stdout = await run(
-    ffprobe.path,
+    ffprobePath,
     ['-v', 'error', '-show_entries', 'format=duration,format_name', '-of', 'json', filePath],
     withTimeout(timeouts.ffprobe, options.signal),
     'ffprobe',
@@ -205,7 +152,10 @@ async function run(
 function describeFailure(label: string, binary: string, err: unknown): string {
   const e = err as NodeJS.ErrnoException & { stderr?: string; killed?: boolean };
   if (e?.code === 'ENOENT') {
-    return `${label} not found at ${binary} — set LARK_${label.toUpperCase()}_PATH or reinstall dependencies`;
+    // Reachable even though the registry probed successfully: the binary can
+    // disappear between the probe and the run (an app bundle replaced under a
+    // running daemon). `noteExecutionFailure` invalidates the verdict on this.
+    return `${label} not found at ${binary} — install ffmpeg (\`brew install ffmpeg\`) or set LARK_${label.toUpperCase()}_PATH`;
   }
   if (e?.name === 'AbortError' || e?.killed === true) {
     return `${label} was cancelled or timed out`;

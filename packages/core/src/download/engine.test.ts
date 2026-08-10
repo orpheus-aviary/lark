@@ -5,26 +5,28 @@
 // pasted single-part URL downloads with NO LLM configured — so that case runs
 // first and with `llm: null` everywhere it can reach.
 
-import { execFile } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promisify } from 'node:util';
 import type { LlmConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
 import { songs } from '../db/schema.js';
+import { MediaToolsUnavailableError } from '../errors.js';
 import { songLyricsPath } from '../library/lyrics.js';
 import { createPlaylist, deletePlaylist, getPlaylistSongs } from '../library/playlists.js';
 import { getSong, listSongs } from '../library/songs.js';
+import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
+import { resolveMediaTools } from '../media-tools/resolve.js';
 import { songsDir } from '../paths.js';
+import { fakeMediaTools } from '../testing/fake-media-tools.js';
 import type { FakeUpstream } from '../testing/fake-upstream.js';
 import { startFakeUpstream } from '../testing/fake-upstream.js';
+import { toneWav } from '../testing/tone-wav.js';
 import { createBilibiliClient } from './bilibili.js';
 import { DownloadEngine, describeTaskError, downloadDedupeKey } from './engine.js';
-import { resolveFfmpegBinaries } from './ffmpeg.js';
 import { DEFAULT_TIMEOUTS } from './timeouts.js';
 
 const BVID = 'BV1Ki4y1y7HC';
@@ -36,26 +38,24 @@ let db: LarkDatabase;
 let sqlite: BetterSqlite3.Database;
 let upstream: FakeUpstream;
 let engine: DownloadEngine | null = null;
+/** The real registry: these tests transcode for real, so the tools must be real. */
+let mediaTools: MediaToolsRegistry;
 
 beforeAll(async () => {
-  // A real m4a, so ffmpeg has something it can genuinely transcode.
-  const dir = mkdtempSync(join(tmpdir(), 'lark-engine-fixture-'));
-  const path = join(dir, 'fixture.m4a');
-  const { ffmpeg } = resolveFfmpegBinaries();
-  await promisify(execFile)(ffmpeg.path, [
-    '-v',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'sine=frequency=440:duration=1',
-    '-c:a',
-    'aac',
-    '-y',
-    path,
-  ]);
-  audioFixture = readFileSync(path);
-  rmSync(dir, { recursive: true, force: true });
+  // Real audio, so ffmpeg has something it can genuinely transcode. Written
+  // by hand rather than synthesised by ffmpeg: the vendored build has neither
+  // the lavfi demuxer nor an AAC encoder (M7 T0).
+  audioFixture = toneWav(1);
+
+  const outcome = resolveMediaTools();
+  if (!outcome.ok) throw new Error(`no usable ffmpeg for the test run: ${outcome.detail}`);
+  mediaTools = new MediaToolsRegistry();
+  const probe = await mediaTools.refresh();
+  if (probe.state !== 'ready') {
+    throw new Error(
+      `no usable ffmpeg for the test run (${probe.state}): ${probe.detail} — run \`just fetch-ffmpeg\` or \`brew install ffmpeg\``,
+    );
+  }
 }, 60_000);
 
 beforeEach(async () => {
@@ -77,6 +77,7 @@ afterEach(async () => {
 });
 
 interface BuildOptions {
+  mediaTools?: MediaToolsProvider;
   llm?: LlmConfig;
   capacity?: number;
   callbacks?: ConstructorParameters<typeof DownloadEngine>[0]['callbacks'];
@@ -88,6 +89,7 @@ function build(options: BuildOptions = {}): DownloadEngine {
     db,
     sqlite,
     getLlmConfig: () => llmConfig,
+    mediaTools: options.mediaTools ?? mediaTools,
     bilibili: createBilibiliClient({ apiBase: upstream.baseUrl, timeouts: DEFAULT_TIMEOUTS }),
     lyricsOrigins: upstream.lyricsOrigins(),
     ...(options.capacity === undefined ? {} : { capacity: options.capacity }),
@@ -162,6 +164,27 @@ describe('single-part URL with no LLM', () => {
     expect(staged).toEqual([]);
     // The fake LLM endpoint was never called.
     expect(upstream.requests.filter((p) => p.includes('completions'))).toEqual([]);
+  }, 60_000);
+
+  // M7-18. Two things are asserted, and the second is the point: the task
+  // fails with a code that names the machine's problem, and it fails BEFORE
+  // the transfer — pulling down a whole track only to discover there is
+  // nothing to transcode it with is a minutes-long way to say "install
+  // ffmpeg".
+  it('fails with MEDIA_TOOLS_UNAVAILABLE before downloading a byte', async () => {
+    const e = build({
+      mediaTools: fakeMediaTools({
+        unavailable: new MediaToolsUnavailableError('missing', '没有找到：ffmpeg'),
+      }),
+    });
+    const { id } = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, id);
+
+    const task = taskOf(e, id);
+    expect(task.state).toBe('failed');
+    expect(task.error_code).toBe('MEDIA_TOOLS_UNAVAILABLE');
+    // `/media/` is where the fake upstream serves the bytes.
+    expect(upstream.requests.filter((p) => p.startsWith('/media/'))).toEqual([]);
   }, 60_000);
 
   it('adds the song to the requested playlists', async () => {

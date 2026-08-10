@@ -79,6 +79,10 @@ export const DAEMON_ENVELOPE_ERROR_CODES = [
   'FFMPEG_FAILED',
   'LLM_FAILED',
   'LLM_NOT_CONFIGURED',
+  // Not a download-only failure despite living in this group: import raises it
+  // too. It says "this machine has no usable ffmpeg", which is never a property
+  // of the song or the file (M7-18).
+  'MEDIA_TOOLS_UNAVAILABLE',
   'NORMALIZE_FAILED',
   'PREFLIGHT_TIMEOUT',
   'SOURCE_GONE',
@@ -108,6 +112,7 @@ export const TASK_ERROR_CODES = [
   'INVALID_SOURCE',
   'LLM_FAILED',
   'LLM_NOT_CONFIGURED',
+  'MEDIA_TOOLS_UNAVAILABLE',
   'NORMALIZE_FAILED',
   'NOT_FOUND',
   'PREFLIGHT_TIMEOUT',

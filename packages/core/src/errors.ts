@@ -343,6 +343,31 @@ export class FfmpegError extends CodedError {
 }
 
 /**
+ * There is no usable ffmpeg/ffprobe on this machine (M7-18).
+ *
+ * Distinct from `FfmpegError` on purpose: that one means "the tools ran and
+ * rejected this file", which is about the media. This one means the tools are
+ * absent or unfit before any file is involved, which is about the machine — the
+ * user installs something, or fixes a broken app bundle. Both download and
+ * import raise it, so neither can degrade a missing toolchain into "this song
+ * failed".
+ */
+export class MediaToolsUnavailableError extends CodedError {
+  readonly code = 'MEDIA_TOOLS_UNAVAILABLE';
+  /** `missing` = not on disk; `incompatible` = there, but cannot do the job. */
+  readonly state: 'missing' | 'incompatible';
+  constructor(state: 'missing' | 'incompatible', detail: string) {
+    super(
+      state === 'missing'
+        ? `没有找到可用的 ffmpeg：${detail}。用 \`brew install ffmpeg\` 安装后重试。`
+        : `ffmpeg 不可用：${detail}`,
+    );
+    this.name = 'MediaToolsUnavailableError';
+    this.state = state;
+  }
+}
+
+/**
  * The file landed but the database transaction did not (M3-7). Everything is
  * rolled back before this is thrown: the new file is gone and any previous
  * file is back in place.

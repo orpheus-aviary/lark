@@ -25,6 +25,7 @@ import type { LarkDatabase } from '../db/index.js';
 import { songs } from '../db/schema.js';
 import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
 import { writeLyrics } from '../library/lyrics.js';
+import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
 import { ensureMp3, probeAudio } from './ffmpeg.js';
 import { type NormalizedSource, normalizeSourceOnline } from './link.js';
@@ -41,6 +42,13 @@ export interface PipelineDeps {
   bilibili: BilibiliClient;
   /** The task's config snapshot: `null` means no LLM for this whole task. */
   llm: LlmConfig | null;
+  /**
+   * The process-wide media toolchain (M7-18). Not a path pair: acquiring
+   * through the registry is what lets a toolchain that broke mid-session be
+   * re-probed, and what makes "no ffmpeg" a `MEDIA_TOOLS_UNAVAILABLE` before
+   * the download starts instead of a transcode failure after it.
+   */
+  mediaTools: MediaToolsProvider;
   timeouts: DownloadTimeouts;
   fetchImpl?: typeof fetch;
   lyricsOrigins?: Partial<LyricsOrigins>;
@@ -287,6 +295,10 @@ export async function fetchAudio(
   ctx: StepContext,
 ): Promise<StagedAudio> {
   const paths = stagePaths(input.songId, input.taskId);
+  // Before any bytes move: the transfer exists only to be transcoded, so a
+  // machine with no usable ffmpeg should fail here rather than after it has
+  // pulled down the whole track (M7-18).
+  await deps.mediaTools.acquire();
   // A brand-new song has no directory yet, and staging happens INSIDE it (the
   // whole point of same-volume staging), so it has to exist first.
   await mkdir(paths.dir, { recursive: true });
@@ -304,20 +316,21 @@ export async function fetchAudio(
   );
 
   ctx.reportStage('converting');
-  try {
-    await ensureMp3(paths.download, paths.transcoded, {
+  const probe = await deps.mediaTools.use(async (tools) => {
+    try {
+      await ensureMp3(tools.ffmpeg.path, paths.download, paths.transcoded, {
+        signal: ctx.signal,
+        timeouts: deps.timeouts,
+      });
+    } finally {
+      // The raw download is dead weight either way, and leaving it behind would
+      // make the next startup recovery report residue that is not residue.
+      await unlink(paths.download).catch(() => {});
+    }
+    return probeAudio(tools.ffprobe.path, paths.transcoded, {
       signal: ctx.signal,
       timeouts: deps.timeouts,
     });
-  } finally {
-    // The raw download is dead weight either way, and leaving it behind would
-    // make the next startup recovery report residue that is not residue.
-    await unlink(paths.download).catch(() => {});
-  }
-
-  const probe = await probeAudio(paths.transcoded, {
-    signal: ctx.signal,
-    timeouts: deps.timeouts,
   });
   return { path: paths.transcoded, duration: probe.duration };
 }

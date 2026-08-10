@@ -56,6 +56,7 @@ import {
   setFileOrigin,
   updateSongInTx,
 } from '../library/songs.js';
+import type { MediaToolsProvider } from '../media-tools/registry.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
 import { type BilibiliClient, createBilibiliClient } from './bilibili.js';
 import { ClaimRegistry } from './claims.js';
@@ -123,6 +124,13 @@ export interface DownloadEngineOptions {
    * (M3-4).
    */
   getLlmConfig: () => LlmConfig;
+  /**
+   * The process-wide media toolchain (M7-18). Required, and deliberately not
+   * defaulted to a fresh registry: two registries would probe twice, cache
+   * separately, and could disagree — the same second-truth bug the download
+   * pipeline had before.
+   */
+  mediaTools: MediaToolsProvider;
   bilibili?: BilibiliClient;
   logger?: EngineLogger;
   timeouts?: DownloadTimeouts;
@@ -623,6 +631,7 @@ export class DownloadEngine {
       sqlite: this.#options.sqlite,
       bilibili: this.#bilibili,
       llm: task.llm,
+      mediaTools: this.#options.mediaTools,
       timeouts: this.#timeouts,
       ...(this.#options.fetchImpl === undefined ? {} : { fetchImpl: this.#options.fetchImpl }),
       ...(this.#options.lyricsOrigins === undefined

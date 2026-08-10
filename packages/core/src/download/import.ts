@@ -20,6 +20,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import type { LarkDatabase } from '../db/index.js';
 import { songDirPath } from '../library/lyrics.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
+import type { MediaToolsProvider } from '../media-tools/registry.js';
 import { isMp3Format, probeAudio } from './ffmpeg.js';
 import { landSongFile, stagePaths } from './resolve.js';
 import type { DownloadTimeouts } from './timeouts.js';
@@ -35,21 +36,31 @@ export interface ImportOptions {
  * The extension gate is a cheap filter, not the check: `probeAudio` decides
  * whether a `.mp3` is really an mp3, because an AAC renamed to `.mp3` would
  * otherwise enter the library and fail to play much later (fifth review ⑨).
+ *
+ * "One bad file never fails the batch" has one exception, and it is the reason
+ * `mediaTools` is acquired up front rather than per file: no ffprobe is not a
+ * property of any file. Reporting it once per path as an import failure told
+ * the user their twenty mp3s were bad when the truth was that this machine
+ * cannot inspect any of them (M7-18).
  */
 export async function importSongs(
   db: LarkDatabase,
   sqlite: BetterSqlite3.Database,
+  mediaTools: MediaToolsProvider,
   filePaths: readonly string[],
   options: ImportOptions = {},
 ): Promise<ImportResultData> {
   const imported: { song_id: string; name: string }[] = [];
   const failed: { path: string; reason: string }[] = [];
 
+  const tools = await mediaTools.acquire();
+
   for (const filePath of filePaths) {
     options.signal?.throwIfAborted();
     try {
-      imported.push(await importOne(db, sqlite, filePath, options));
+      imported.push(await importOne(db, sqlite, tools.ffprobe.path, filePath, options));
     } catch (err) {
+      mediaTools.noteExecutionFailure(err);
       failed.push({ path: filePath, reason: err instanceof Error ? err.message : String(err) });
     }
   }
@@ -59,6 +70,7 @@ export async function importSongs(
 async function importOne(
   db: LarkDatabase,
   sqlite: BetterSqlite3.Database,
+  ffprobePath: string,
   filePath: string,
   options: ImportOptions,
 ): Promise<{ song_id: string; name: string }> {
@@ -85,7 +97,7 @@ async function importOne(
     // library — a path the user has never seen and cannot act on. The reason
     // has to talk about the file they picked; `failed[].path` already carries
     // it, so the staged name is replaced rather than appended.
-    const probe = await probeAudio(staged, {
+    const probe = await probeAudio(ffprobePath, staged, {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.timeouts === undefined ? {} : { timeouts: options.timeouts }),
     }).catch((err: unknown) => {
