@@ -58,9 +58,15 @@ mkdirSync(ICONSET, { recursive: true });
 execFileSync(
   'sips',
   [
-    '-c', String(TILE.size), String(TILE.size),
-    '--cropOffset', String(TILE.top), String(TILE.left),
-    SOURCE, '--out', CROPPED,
+    '-c',
+    String(TILE.size),
+    String(TILE.size),
+    '--cropOffset',
+    String(TILE.top),
+    String(TILE.left),
+    SOURCE,
+    '--out',
+    CROPPED,
   ],
   { stdio: 'pipe' },
 );
