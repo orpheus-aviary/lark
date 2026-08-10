@@ -392,3 +392,11 @@ onSuccess: 'node scripts/gen-publishable-manifest.mjs',
 - `LaunchedChild.state` 加 `exitCode` / `signal`：`/usr/bin/open` 的工作就是交给 LaunchServices 然后退出，按 dev 的「退出即崩溃」判，**每一次**打包态 `lark gui` 都会在窗口出现之前失败。非零退出仍然是「app 起不来」，所以留的是码不是布尔。
 - `ensure-daemon` 的 ABI 预检只在 dev 分支跑（M7-15）：打包态子进程加载的是包内那份 better-sqlite3，探本进程这份等于测了个无关副本，还可能拒绝一个本来能跑的 daemon。子进程立刻退出仍然会被观测到并上报。
 - 测试要能到达打包分支得显式注入 `packaged: true`——测试自己就跑在工作区里，`isDevCheckout()` 恒真。
+
+### 8.7 T4 实施：许可交付收尾（2026-08-10）
+
+LICENSE 与 NOTICE 生成链已分别在 T3 / T1 落地（原因见 §8.4、§8.5），本批补齐剩下两件：
+
+- **覆盖检查**（`gen-notices.mjs --check <文件>`）：重走一遍依赖树，逐个核对 `### <名字> <版本>` **标题**存在——按名字子串搜会被别人许可证正文里的一次提及满足。另外交叉校验 FFmpeg 段：bundled 必须有、system 必须没有（不能声称带了一个并没带的 ffmpeg）。三种情况实测：bundled/system 各自的产物通过；拿 system 的文件去过 bundled 检查 → 「缺少 FFmpeg 段」；手工删掉 react 那一条 → 「未列出的生产依赖：react@19.2.4」。
+- **GUI 关于页**：main 读 `process.resourcesPath` 下的两份文件（dev 回落到仓库/staging），preload 加有类型只读 IPC，设置页「关于」区块两个按钮展开原文。**IPC 无参数**——renderer 报的是 `'license' | 'notices'` 这个闭集里的一个名字，不是路径；接受文件名的 IPC 就是一个任意文件读取原语，只差一个 bug 就会变成问题。「文档不在包内」是**答案而不是异常**（dev 没跑过 gen-notices 时确实没有），但打包态出现它就说明包坏了，验收会查。
+- README 加「安装」段：两种安装包的区别、`system` 版**下载前**要 `brew install ffmpeg`、以及「不确定就看设置 → 媒体工具」。
