@@ -1,6 +1,7 @@
 # lark TS 重写整体计划
 
 > 2026-07-16 首版；同日一轮评审修订（R1–R17：缓存误删/同步预留/迁移安全/媒体鉴权/识别接口）；二轮修订（R18–R28：身份域拆分/DB 级排他迁移/token 模型/全写路径原子化/schema 不变量）；三轮修订（R29–R32：token 归 daemon/source_key=bvid:cid/取消 --force/v0.2 必审补项）。
+> 2026-08-08 **R17 修订**（M7 子计划六轮评审）：ffmpeg-static/ffprobe-static 实测 nonfree、不可再分发，打包改走 `bundled | system` 两个一等模式——见 §1 R17 下方注记与 `docs/plans/2026-08-08-m7-packaging.md`。
 > 本文是 v0.1 的主计划；skybridge 接入（v0.2）与移动版（v0.3+）在各自开工前单独拉 design doc。
 
 ## 0. 目标
@@ -23,7 +24,7 @@
 | 决策点 | 结论 |
 |---|---|
 | 缓存形态 | **统一缓存模型**：可选「缓存上限」（默认不限 = 旧版行为），超限按最久未访问清理；单曲可固定；被清理的歌播放时凭链接自动重下 |
-| 音频格式 | **mp3 + 打包 ffmpeg**：沿用 `songs/<uuid>/song.mp3`，ffmpeg/ffprobe 打包进安装包 |
+| 音频格式 | **mp3 + 打包 ffmpeg**：沿用 `songs/<uuid>/song.mp3`，ffmpeg/ffprobe 打包进安装包（**M7 修订**：打包 = `bundled` 模式，另有一等的 `system` 模式依赖用户自装；见 R17 修订注记） |
 | 导入策略 | **按需下载**：导入只建条目 + 链接，播放或手动重下时才取文件 |
 | 打包平台 | **仅 macOS arm64**：对齐 owl 发布链路（dmg + ad-hoc 签名） |
 | 端口 | **47100**。端口段约定：`470xx` 留给 owl（daemon 47010、owl-server 47020），`471xx` 留给 lark |
@@ -55,6 +56,8 @@
 | R15 | 统一 JSON 信封的**明确例外**：`GET /audio/:id`（二进制 + Range）、`GET /lyrics/:id`（text/plain）、`GET /events`（SSE） |
 | R16 | **无 LLM 的确定性路径必须可用**：直链 URL 下载、凭 source_key 重下不依赖 LLM；仅自然语言搜索/识别/多 P 无 p 选集/歌名推断/歌词精选需要 LLM（歌词降级为相似度启发式） |
 | R17 | 打包**对齐 owl `asar: false`**；ffmpeg-static/ffprobe-static 锁定具体包与版本，加打包后冒烟测试（可执行、签名、Range 播放）；随发行版交付 FFmpeg 许可声明与源码获取方式 |
+
+> **R17 修订（2026-08-08，M7 子计划）**：`ffmpeg-static` / `@derhuerst/ffprobe-static` 的二进制实测带 `--enable-nonfree`，**不可再分发**——「锁版本 + extraResources」这条路作废，两个包从 core 依赖移除。改为交付 **`bundled | system` 两个一等构建模式**：bundled 走 T0 重建的可再分发供应链（自建最小 LGPL profile 或核验过的第三方 GPLv3 构建，`vendor/ffmpeg.lock.json` 逐库锁定 + `just fetch-ffmpeg` nonfree 门禁），system 依赖用户 `brew install ffmpeg`。`asar: false`、打包后冒烟、许可交付三条不变，许可交付面扩为**全部生产依赖**（M7-9）。详见 `docs/plans/2026-08-08-m7-packaging.md` §3.0。
 
 ### 2026-07-16 二轮评审修订新增
 
@@ -266,7 +269,7 @@ v0.2 开工 design doc 必须冻结：payload schema + 协议版本、删除墓�
 - **原子文件操作（R9/R22，覆盖全部写路径）**：下载写 `songs/<uuid>/.song.mp3.tmp` → rename `song.mp3`；本地导入复制到临时文件 → 校验（音频可解析）→ rename → 再提交 DB，失败清理临时文件；删除歌曲先把目录 rename 进 `trash/` → 提交 DB → 异步删除（DB 失败则目录恢复原位）；歌词写入同样临时文件 + rename。失败一律保留旧文件。队列按 song/任务合并去重；取消按任务 id；清理与进行中的下载/播放互斥。
 - 播放无文件歌曲自动触发 resolveSongFile，完成后自动开播（Go 版置灰不可播；行为变化已确认）。
 - **LLM 降级（R16）**：直链 URL（单 P 或带 `?p`）与凭 source_key 重下**不依赖 LLM**；关键词搜索、自动识别、多 P 无 p 选集、歌名歌手推断、歌词精选需要 LLM（未配置时明确报错提示；歌词降级为字符串相似度启发式选首个有效候选）。
-- ffmpeg/ffprobe 路径解析：优先打包内二进制（extraResources），回退系统 PATH（开发态）。
+- ffmpeg/ffprobe 路径解析：优先打包内二进制（extraResources），回退系统 PATH（开发态）。**M7 修订**：四级 resolver `env → bundle（`LARK_MEDIA_TOOLS_DIR` 目录信号）→ Homebrew 惯例位 → PATH`——Finder/LaunchServices 启动的 app 不继承 shell PATH（`launchctl getenv PATH` 实证空），只回退 PATH 会让 GUI 冷启动找不到用户装的 ffmpeg。
 
 ### 5.2 缓存模型（统一）
 
@@ -368,7 +371,7 @@ lark skill export [-o <path>]                              # 生成 agent skill 
 | **M4 GUI 基座** | electron-vite 三段、daemon spawn/确权、单实例、窗口管理、platform adapter、**lark-media:// 协议代理**、播放器 + 列表 + 歌单 + 搜索排序 + 歌词面板 + 快捷键 + 下载栏/批量弹窗 —— 功能对齐 Go 版 | |
 | **M5 新特性 + 对应路由** | 链接右键三件套 + 编辑链接对话框、缓存上限 + LRU + 固定 + `/cache/*` 路由 + 设置页、导入导出（`/playlists/import|export` + 目标选择/疑似重复 UI）、拖拽 reorder、播放触发按需下载 | 本计划核心增量 |
 | **M6 CLI** | commander + 双后端 + §5.5 全部命令 + GUI 拉起 + skill export + 测试 | |
-| **M7 打包发布 v0.1.0** | electron-builder（mac arm64 dmg、**asar:false**、**ad-hoc 签名——个人/内部发行，不做公证，R28**）、**ffmpeg-static/ffprobe-static 锁版本 + extraResources + 打包后冒烟测试（可执行/签名/Range 播放）**、FFmpeg 许可声明与源码获取方式随包交付、ABI 切换 recipe、手动验收清单、发版 | |
+| **M7 打包发布 v0.1.0** | electron-builder（mac arm64 dmg、**asar:false**、**ad-hoc 签名——个人/内部发行，不做公证，R28**）、**ffmpeg 供应链重建 + `bundled\|system` 两个一等模式 + MediaToolsRegistry 单一真相 + 打包后冒烟（可执行/签名/Range 播放/真实转码闭环）**、FFmpeg 与全部生产依赖的许可交付、ABI 切换 recipe、手动验收清单、发版 | 子计划 `docs/plans/2026-08-08-m7-packaging.md`；R17 已修订（ffmpeg-static 不可再分发） |
 
 ## 7. 后续版本
 
@@ -381,7 +384,7 @@ lark skill export [-o <path>]                              # 生成 agent skill 
 |---|---|
 | bilibili 接口风控变化（搜索接口可能要求 WBI 签名） | 移植时实测；WBI 参考取 lark-go **历史提交**（当前分支已无该实现）或社区文档 |
 | LLM 未配置 | 确定性路径不受影响（R16）；依赖 LLM 的功能明确报错并指引设置页 |
-| ffmpeg GPL 许可 | **分发即触发义务（与是否收费无关）**：锁定构建来源与版本，随包附 FFmpeg 许可声明 + 对应源码获取方式；如组件配置有疑义再评估自建 LGPL 构建 |
+| ffmpeg GPL 许可 | **分发即触发义务（与是否收费无关）**：锁定构建来源与版本，随包附 FFmpeg 许可声明 + 对应源码获取方式；如组件配置有疑义再评估自建 LGPL 构建。**2026-08-08 实证已触发这条**：现成的 static 包是 nonfree（连 GPL 都不能再分发），M7 T0 重建供应链，并留 `system` 模式作为一等保底 |
 | `<audio>`/EventSource 无法带鉴权头 | token 对齐 owl（preload→renderer，禁 URL/DOM/日志/媒体 src）+ `lark-media://` 主进程代理；**M0 spike 先行验证**，不通过则签名 URL fallback（R21） |
 | better-sqlite3 Node/Electron ABI 冲突 | 照抄 owl justfile ensure-abi recipes |
 | Go DB 迁移 | §3.3 协议：互斥 + 时间戳备份 + 临时库 + 验收 + 原子交换 + 幂等重试；真实旧库 fixture 单测 |

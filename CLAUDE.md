@@ -167,7 +167,8 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 
 ## 关键参考
 
-- 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`
+- 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（§1 R17 已修订：ffmpeg-static 不可再分发）
+- M7 子计划：`docs/plans/2026-08-08-m7-packaging.md`（六轮评审定稿；§3.0 ffmpeg 供应链与 MediaToolsRegistry、§3.5 验收与发版、§5 决策 M7-1–M7-19）
 - M6 子计划：`docs/plans/2026-08-07-m6-cli.md`（§8 逐批实施记录 + §6 验收判据）
 - M5 子计划：`docs/plans/2026-08-06-m5-features.md`；M5 后续（多选批量）：`docs/plans/2026-08-06-m5-followup-batch-actions.md`
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
