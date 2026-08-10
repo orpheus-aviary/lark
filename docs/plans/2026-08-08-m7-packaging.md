@@ -400,3 +400,14 @@ LICENSE 与 NOTICE 生成链已分别在 T3 / T1 落地（原因见 §8.4、§8.
 - **覆盖检查**（`gen-notices.mjs --check <文件>`）：重走一遍依赖树，逐个核对 `### <名字> <版本>` **标题**存在——按名字子串搜会被别人许可证正文里的一次提及满足。另外交叉校验 FFmpeg 段：bundled 必须有、system 必须没有（不能声称带了一个并没带的 ffmpeg）。三种情况实测：bundled/system 各自的产物通过；拿 system 的文件去过 bundled 检查 → 「缺少 FFmpeg 段」；手工删掉 react 那一条 → 「未列出的生产依赖：react@19.2.4」。
 - **GUI 关于页**：main 读 `process.resourcesPath` 下的两份文件（dev 回落到仓库/staging），preload 加有类型只读 IPC，设置页「关于」区块两个按钮展开原文。**IPC 无参数**——renderer 报的是 `'license' | 'notices'` 这个闭集里的一个名字，不是路径；接受文件名的 IPC 就是一个任意文件读取原语，只差一个 bug 就会变成问题。「文档不在包内」是**答案而不是异常**（dev 没跑过 gen-notices 时确实没有），但打包态出现它就说明包坏了，验收会查。
 - README 加「安装」段：两种安装包的区别、`system` 版**下载前**要 `brew install ffmpeg`、以及「不确定就看设置 → 媒体工具」。
+
+### 8.8 T5 实施：accept-pack（2026-08-10）
+
+`just accept-pack <mode> <dmg> <tgz>` 两个模式都跑通：**bundled 28/28、system 26/26**（bundled 多 2 条是 ffmpeg 的 configure 比对与真实闭环）。
+
+- **不需要切 ABI**（与计划 §3.5 的两阶段设想不同）：每个被测运行时都自带 binding——daemon 用 app 包里的那份，CLI 用 `npm i -g` 为宿主 Node 现装的那份。「另一个 ABI」由**用 app 的 Electron 跑装好的 CLI**制造，是真实失配，不用动仓库。E11 的阶段顺序因此简化成一条直线。
+- **`hdiutil -plist` 里要按 `mount-point` 这个 key 取值**，别按「长得像 /tmp 的字符串」——macOS 回的是解析后的 `/private/tmp/...`，`-mountrandom` 的参数只是父目录。
+- **判据 5 不能用 `fetch('lark-media://…')`**：CSP 的 `connect-src` 里没有这个 scheme（媒体走的是 `media-src`），renderer 里 fetch 直接 `Failed to fetch`。改成与 accept-gui 同款——经 daemon 的 player 命令驱动播放，从**副本的日志**里读 `audio range` 行来观测 206。日志记的是 Range **头字符串**、不是解析后的偏移，所以「这是一次 seek」要从 `bytes=(\d+)-` 里取。
+- **`missing` 子态是真的**：用包内 `dist/testing/boot-child.js` 把媒体搜索路径指向一个空目录 + `PATH=/nonexistent` 起一个**真实打包 daemon**，capabilities 报 `missing`、两个路径都是 `null`、有 detail；导入 503 `MEDIA_TOOLS_UNAVAILABLE`；下载任务终态带同一句话。全程没动用户的 Homebrew 一根手指。
+- **判据 5d 实测**：停机重启后 token 确实轮换，同一个 renderer 不刷新继续播（`err=none`，位置 263.8s）——M0 spike 的判据 6 在**打包产物**上复现。
+- `cleanEnv` 用解构丢弃而不是 `delete`（Biome 拦 `delete`，而赋 `undefined` 会把字符串 `"undefined"` 写进环境）。它必须清掉 justfile 导出的 `LARK_MEDIA_TOOLS_DIR`，否则 `system` 包会经开发者的 vendor 目录解析出 ffmpeg——那正是这套验收要能分辨的东西。
