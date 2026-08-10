@@ -71,8 +71,11 @@ describe('the skill document', () => {
     }
   });
 
-  it('tells the agent how to invoke it before the global bin exists', () => {
+  it('names the installed bin first, and the repo form as the alternative', () => {
+    expect(rendered).toContain('@orpheus-aviary/lark-cli');
     expect(rendered).toContain('just cli');
+    // The agent reaches for `lark` and only falls back to the repo form.
+    expect(rendered.indexOf('lark <command>')).toBeLessThan(rendered.indexOf('just cli'));
   });
 
   it('states the confirmation rule, which is where an agent gets stuck', () => {

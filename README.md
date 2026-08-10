@@ -89,9 +89,15 @@ Go 版重新打开。`just migrate-go` 尊重 `LARK_NEST_DIR`，所以演练一�
 真实 nest 到临时目录再跑）；它是幂等的，对已迁移的库只会报 `already-migrated`。迁移前请先
 退出 Go 版 lark 和 daemon。
 
-### CLI（M6 进行中）
+### CLI
 
-`just cli <args>` 跑的就是对外的 `lark`（全局 bin 要等 M7）。已经能用的：
+发布名 **`@orpheus-aviary/lark-cli`**，装完提供 `lark` 与 `lark-cli` 两个命令（仅 macOS arm64 / Node 24+）：
+
+```bash
+npm i -g @orpheus-aviary/lark-cli
+```
+
+仓库内不必安装，`just cli <args>` 跑的就是同一个 CLI。已经能用的：
 
 ```bash
 just cli status                          # daemon 在不在、是不是本目录的
@@ -156,4 +162,8 @@ just dev-daemon                        # 副本上起 daemon，真实曲库不�
 
 ## License
 
-TBD（与 aviary 保持一致）。
+MIT，见 [LICENSE](LICENSE)。
+
+桌面端的 `bundled` 安装包另带一份自建的 **FFmpeg**（LGPL 2.1+，外部库只有 LAME）；其构建来源、
+版本、完整 configure 与源码地址锁在 `vendor/ffmpeg.lock.json`，随发行版一并交付。`system`
+安装包不带 ffmpeg，改用 `brew install ffmpeg`。

@@ -39,6 +39,7 @@ import {
   daemonLaunchCommand,
   launchDetached,
 } from './launch.js';
+import { abiError } from './native-abi.js';
 
 export interface EnsureDaemonResult {
   /** True when THIS command started the daemon that is now running. */
@@ -133,7 +134,7 @@ async function spawnDaemon(config: Settings): Promise<EnsureDaemonResult> {
   // Spawning a daemon that will die on its first database call is worse than
   // not spawning it: the failure would surface as a timeout with no cause.
   const abi = await config.probeAbi();
-  if (!abi.ok) throw new CliError('ABI_MISMATCH', abi.message);
+  if (!abi.ok) throw abiError(abi);
 
   const launched = launchDetached(config.command(), config.spawnImpl);
   const { child, state } = launched;

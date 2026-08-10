@@ -15,12 +15,23 @@
 // instantiates a real Database, because merely importing the JS wrapper does
 // not load the `.node` file — a looser probe would always pass (M1-13).
 
+/**
+ * Why the binding could not be loaded.
+ *
+ * A REASON, not a sentence (M7-14). The fix differs by where the CLI is
+ * running from — a repo checkout is repaired with a just recipe that does not
+ * exist for someone who installed the published package — and core has no way
+ * to tell those apart. So the phrasing belongs to the caller.
+ */
+export type NativeAbiFailure = 'abi-mismatch' | 'load-failed';
+
 export type NativeAbiProbe =
   | { ok: true }
   | {
       ok: false;
-      /** Terminal-ready explanation, already carrying the fix. */
-      message: string;
+      reason: NativeAbiFailure;
+      /** The loader's own words, for the tail of whatever the caller writes. */
+      detail: string;
       cause: unknown;
     };
 
@@ -32,12 +43,6 @@ export async function probeNativeAbi(): Promise<NativeAbiProbe> {
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     const mismatch = /NODE_MODULE_VERSION|was compiled against a different/.test(detail);
-    return {
-      ok: false,
-      message: mismatch
-        ? `better-sqlite3 是为另一个运行时（Node / Electron）编译的，当前进程加载不了它。跑一次 \`just test-core\`（会自愈到 Node ABI）或 \`just dev\`（Electron ABI）后重试。\n${detail}`
-        : `无法加载原生模块 better-sqlite3：${detail}`,
-      cause,
-    };
+    return { ok: false, reason: mismatch ? 'abi-mismatch' : 'load-failed', detail, cause };
   }
 }

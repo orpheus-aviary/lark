@@ -116,7 +116,13 @@ describe('spawning', () => {
       ensureDaemon({
         ...base(spawn),
         identity: scripted([absent]),
-        probeAbi: () => Promise.resolve({ ok: false, message: 'ABI 不匹配', cause: null }),
+        probeAbi: () =>
+          Promise.resolve({
+            ok: false as const,
+            reason: 'abi-mismatch' as const,
+            detail: 'NODE_MODULE_VERSION 148 vs 137',
+            cause: null,
+          }),
       }),
     );
 

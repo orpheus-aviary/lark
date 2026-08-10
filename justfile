@@ -295,10 +295,89 @@ backup-nest *target: ensure-node-abi build-core
     node packages/core/scripts/backup-nest.mjs {{target}}
 
 # Run the user-facing CLI from dist, e.g. `just cli status --json`.
-# No global `lark` bin exists until M6/M7.
+# This is the workspace build; the published one is `just build-cli-dist`.
 [group('dev')]
 cli *args: build-cli
     node apps/cli/dist/index.js {{args}}
+
+# ─── CLI release artifact (M7 T3) ───────────────────────
+
+# Bundle the publishable CLI into `apps/cli/dist-publish/` and generate its
+# package.json. Separate from `build-cli` (tsc → `dist/`) so the workspace
+# build and the published one can never be confused for one another.
+[group('build')]
+build-cli-dist: build-shared build-core
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd apps/cli && pnpm exec tsup
+
+# Assert the published bundle behaves, on BOTH ABIs (M7-5, criterion 6).
+#
+# The point is the M6-21 boundary, which the dependency guard cannot see
+# because it greps source and this is a bundler's output. So the checks are
+# behavioural: under a runtime that CANNOT load better-sqlite3, `--help` and
+# `status` must still work, because neither ever intended to open a database.
+#
+# Run it with no daemon listening — `status` answering exit 4 is the criterion.
+[group('accept')]
+cli-smoke: build-cli-dist
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ENTRY="apps/cli/dist-publish/index.js"
+    NEST="$(mktemp -d /tmp/lark-cli-smoke-XXXXXX)"
+    trap 'rm -rf "$NEST"' EXIT
+    fail() { echo "  ✗ $1" >&2; exit 1; }
+
+    run() {  # run <runtime> <args...>  → sets OUT and CODE
+        set +e
+        if [ "$1" = electron ]; then
+            OUT=$(ELECTRON_RUN_AS_NODE=1 LARK_NEST_DIR="$NEST" \
+                node_modules/electron/dist/Electron.app/Contents/MacOS/Electron "${@:2}" 2>&1)
+        else
+            OUT=$(LARK_NEST_DIR="$NEST" node "${@:2}" 2>&1)
+        fi
+        CODE=$?
+        set -e
+    }
+
+    for runtime in node electron; do
+        echo "— $runtime"
+        run "$runtime" "$ENTRY" --help
+        [ "$CODE" -eq 0 ] || fail "--help exited $CODE"
+        echo "  ✓ --help exit 0"
+
+        run "$runtime" "$ENTRY" status --json
+        [ "$CODE" -eq 4 ] || fail "status with no daemon exited $CODE, expected 4"
+        echo "$OUT" | grep -q '"error_code":"DAEMON_UNAVAILABLE"' \
+            || fail "status did not report DAEMON_UNAVAILABLE: $OUT"
+        echo "  ✓ status with no daemon → exit 4 + DAEMON_UNAVAILABLE"
+    done
+
+    # And the boundary the other way round: `--direct` DOES need the binding,
+    # so on the runtime whose ABI it was not built for it must say so —
+    # ABI_MISMATCH (exit 3), not a dlopen stack under a generic failure.
+    node -e 'const D=require("better-sqlite3"); new D(":memory:").close()' >/dev/null 2>&1 \
+        && WRONG=electron || WRONG=node
+    node apps/cli/dist-publish/index.js playlist create smoke --direct --json >/dev/null 2>&1 || true
+    run "$WRONG" "$ENTRY" songs list --direct --json
+    if [ "$CODE" -eq 3 ] && echo "$OUT" | grep -q '"error_code":"ABI_MISMATCH"'; then
+        echo "  ✓ --direct on the wrong ABI → exit 3 + ABI_MISMATCH"
+    else
+        echo "  ! --direct on the wrong ABI: exit $CODE — needs a library to exist first"
+        echo "    (the full criterion runs in accept-pack, against the packaged app)"
+    fi
+    echo "cli-smoke passed."
+
+# Produce the tarball that gets published, at a fixed path (M7-19). The release
+# gate verifies THIS file and `npm publish` is handed THIS file — no rebuild in
+# between, so what was accepted is what ships.
+[group('build')]
+pack-cli: build-cli-dist
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd apps/cli/dist-publish
+    npm pack --pack-destination .. >/dev/null
+    cd .. && ls -1 orpheus-aviary-lark-cli-*.tgz
 
 # ─── Media spike (M0 T4/T5) ─────────────────────────────
 #

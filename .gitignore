@@ -2,10 +2,14 @@ node_modules/
 
 # Build output
 dist/
+dist-publish/
 out/
 build/
 release/
 *.tsbuildinfo
+# The publishable CLI tarball (`just pack-cli`). The release gate verifies and
+# publishes the same file; it is an artifact, not a source.
+*.tgz
 
 # Spike runtime state / generated fixtures
 spikes/**/fixtures/

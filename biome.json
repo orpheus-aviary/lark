@@ -36,6 +36,7 @@
     "ignore": [
       "node_modules",
       "dist",
+      "dist-publish",
       "out",
       "release",
       "*.db",

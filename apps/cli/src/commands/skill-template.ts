@@ -40,10 +40,12 @@ Data lives in \`~/orpheus-aviary-nest/lark/\` — override with \`LARK_NEST_DIR\
 
 ## Invocation
 
-Run through the Bash tool: \`lark <command> [flags]\`.
+Run through the Bash tool: \`lark <command> [flags]\` — for example
+\`lark songs list --json\`. Install it with
+\`npm i -g @orpheus-aviary/lark-cli\` if it is not on PATH.
 
-Inside the lark repository (before the global bin ships) the same commands are
-\`just cli <command> [flags]\` — for example \`just cli songs list --json\`.
+Inside the lark repository the same commands are \`just cli <command> [flags]\`,
+which runs the working copy rather than the installed one.
 
 ### Output contract
 

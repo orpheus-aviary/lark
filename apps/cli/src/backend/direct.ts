@@ -17,9 +17,11 @@
 
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { probeNativeAbi } from '@lark/core/native-probe';
 import { VIRTUAL_ALL_PLAYLIST_ID, isUuidV4 } from '@lark/shared';
 import type { ApiResponse, PlaylistData, SongData } from '@lark/shared';
 import { CliError, usageError } from '../lib/errors.js';
+import { abiError } from '../lib/native-abi.js';
 import { toDirectCliError } from './direct-errors.js';
 import type { Backend, ImportCommitRequest, SongListQuery } from './types.js';
 
@@ -41,6 +43,8 @@ export interface DirectBackendOptions {
   mode: 'read' | 'write';
   /** Overrides for tests; production always uses the real nest. */
   dbPath?: string;
+  /** Test seam: the ABI pre-check (M7-14). */
+  probeAbi?: typeof probeNativeAbi;
 }
 
 /**
@@ -51,6 +55,13 @@ export interface DirectBackendOptions {
  * `WRITER_BUSY`, a Go-era library is `MIGRATION_REQUIRED`.
  */
 export async function createDirectBackend(options: DirectBackendOptions): Promise<DirectBackend> {
+  // Probed BEFORE the barrel is imported (M7-14). Without this the failure is
+  // whatever dlopen said, wrapped as `UNKNOWN` and exit 1 — a message about
+  // NODE_MODULE_VERSION with no hint that it is repairable, and an exit code
+  // that says "the operation failed" rather than "this environment cannot".
+  const abi = await (options.probeAbi ?? probeNativeAbi)();
+  if (!abi.ok) throw abiError(abi);
+
   const core: Core = await import('@lark/core');
   const dbPath = options.dbPath ?? core.paths.dbPath();
 
