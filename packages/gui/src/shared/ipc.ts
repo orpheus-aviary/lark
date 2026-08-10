@@ -9,4 +9,10 @@ export const IPC_CHANNELS = {
   pickJsonFile: 'dialog:pick-json',
   /** Save dialog + atomic write for an export file; false on cancel. */
   saveExportFile: 'dialog:save-export',
+  /**
+   * Read one of the two shipped licence documents (M7-9). The renderer names
+   * a document from a closed set, never a path — an IPC that took a filename
+   * would be an arbitrary-file-read primitive.
+   */
+  readLegal: 'legal:read',
 } as const;

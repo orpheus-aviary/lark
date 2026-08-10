@@ -20,6 +20,7 @@ import { ApiError, LOG_LEVELS, THEME_MODES } from '@lark/shared';
 import { Settings } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import type { LegalDocument } from '../../../shared/lark-api.js';
 import { errorMessage } from '../lib/errors.js';
 import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
@@ -284,6 +285,57 @@ const MEDIA_TOOL_SOURCES: Record<string, string> = {
   path: 'PATH',
 };
 
+/**
+ * The licences that ship inside the app (M7-9).
+ *
+ * Read through the preload bridge rather than fetched: these are files in the
+ * app bundle, not something the daemon serves, and the one shown is the one
+ * that was actually delivered — not what the repo says today.
+ */
+function LegalBlock(): React.JSX.Element {
+  const [shown, setShown] = useState<LegalDocument | null>(null);
+  const [text, setText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const open = async (document: LegalDocument): Promise<void> => {
+    if (shown === document) {
+      setShown(null);
+      return;
+    }
+    setShown(document);
+    setLoading(true);
+    try {
+      setText(await window.larkAPI.readLegal(document));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 text-xs">
+      <div className="flex gap-2">
+        <Button size="sm" variant="secondary" onClick={() => void open('license')}>
+          许可证
+        </Button>
+        <Button size="sm" variant="secondary" onClick={() => void open('notices')}>
+          第三方软件声明
+        </Button>
+      </div>
+      {shown !== null && (
+        <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border p-3 font-mono text-[11px] leading-relaxed">
+          {loading
+            ? '读取中…'
+            : // Absent is reported rather than rendered as an empty box: in a
+              // packaged build this cannot happen (the release gate checks),
+              // so seeing it means something is genuinely wrong.
+              (text ??
+              '这份文档不在应用包内。开发态可以先跑 `node scripts/gen-notices.mjs bundled` 生成。')}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 export function SettingsDialog(): React.JSX.Element {
   const config = useConfig((s) => s.config);
   const refreshConfig = useConfig((s) => s.refresh);
@@ -506,6 +558,10 @@ export function SettingsDialog(): React.JSX.Element {
 
               <Section title="媒体工具" hint="下载与导入都要用 ffmpeg 转码和识别格式">
                 <MediaToolsBlock />
+              </Section>
+
+              <Section title="关于" hint={`lark ${window.larkAPI.guiVersion}`}>
+                <LegalBlock />
               </Section>
 
               <Section title="窗口" hint="下次启动生效；之后拖动窗口会覆盖这里的值">

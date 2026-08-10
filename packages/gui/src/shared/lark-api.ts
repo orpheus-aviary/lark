@@ -1,3 +1,11 @@
+/** The two documents that ship inside the app bundle (M7-9). */
+export type LegalDocument = 'license' | 'notices';
+
+export interface LegalDocuments {
+  readonly license: () => Promise<string | null>;
+  readonly notices: () => Promise<string | null>;
+}
+
 /** The preload bridge surface. Shared by preload (producer) and renderer (consumer). */
 export interface LarkApi {
   /**
@@ -35,4 +43,11 @@ export interface LarkApi {
     default_name: string;
     content: string;
   }) => Promise<boolean>;
+  /**
+   * lark's own licence, and the third-party notices for everything shipped
+   * with it. `null` means the document is not there — which is the truth in a
+   * dev checkout that has never generated one, and should never be true of a
+   * packaged build (the acceptance gate checks that).
+   */
+  readonly readLegal: (document: LegalDocument) => Promise<string | null>;
 }

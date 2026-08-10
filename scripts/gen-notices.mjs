@@ -32,9 +32,20 @@ const NODE_MODULES = join(ROOT, 'node_modules');
 
 const mode = process.argv[2];
 if (!['bundled', 'system', 'fixture'].includes(mode)) {
-  process.stderr.write('usage: gen-notices.mjs <bundled|system|fixture>\n');
+  process.stderr.write('usage: gen-notices.mjs <bundled|system|fixture> [--check <file>]\n');
   process.exit(2);
 }
+
+/**
+ * `--check <file>`: verify an EXISTING notice instead of writing one.
+ *
+ * This is the drift guard (M7-9). Adding a dependency is a one-line diff that
+ * changes what we are obliged to deliver, and nothing about that diff looks
+ * like a licensing decision — so the release gate re-walks the dependency tree
+ * and refuses a notice that is missing anyone.
+ */
+const checkIndex = process.argv.indexOf('--check');
+const checkPath = checkIndex === -1 ? null : process.argv[checkIndex + 1];
 
 const OUT_DIR = join(ROOT, 'packages/gui/release/staging', mode);
 const LICENSE_FILES = ['LICENSE', 'LICENSE.md', 'LICENSE.txt', 'LICENCE', 'License', 'license.md'];
@@ -174,6 +185,37 @@ const header = [
 ].join('\n');
 const sections = [commonSection(packages), mode === 'system' ? null : ffmpegSection()];
 const document = header + sections.filter((section) => section !== null).join('\n');
+
+if (checkPath !== null) {
+  if (!existsSync(checkPath)) {
+    process.stderr.write(`[notices] ${checkPath} does not exist\n`);
+    process.exit(1);
+  }
+  const shipped = readFileSync(checkPath, 'utf8');
+  // Heading match, not substring: `### react 19.2.4` must be present as an
+  // ENTRY. A bare name search would be satisfied by any mention anywhere,
+  // including inside somebody else's licence text.
+  const missing = [...packages]
+    .filter(([name, { manifest }]) => !shipped.includes(`### ${name} ${manifest.version}`))
+    .map(([name, { manifest }]) => `${name}@${manifest.version}`);
+
+  const needsFfmpeg = mode !== 'system';
+  const hasFfmpeg = shipped.includes('## FFmpeg');
+  const problems = [
+    ...(missing.length === 0 ? [] : [`未列出的生产依赖：${missing.join('、')}`]),
+    ...(needsFfmpeg && !hasFfmpeg ? ['缺少 FFmpeg 段'] : []),
+    // A system build must not claim to ship an ffmpeg it does not have.
+    ...(!needsFfmpeg && hasFfmpeg ? ['system 构建不该有 FFmpeg 段'] : []),
+  ];
+  if (problems.length > 0) {
+    process.stderr.write(`[notices] ERROR: ${problems.join('；')}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(
+    `[notices] ${mode}: ${packages.size} packages all present in ${checkPath}\n`,
+  );
+  process.exit(0);
+}
 
 mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(join(OUT_DIR, 'THIRD-PARTY-NOTICES.md'), `${document}\n`);

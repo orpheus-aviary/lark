@@ -12,6 +12,27 @@
 
 详见 `docs/DESIGN.md` 与 `../aviary/docs/ROADMAP.md`。
 
+## 安装
+
+仅 macOS arm64。
+
+**桌面端**：从 [Releases](https://github.com/orpheus-aviary/lark/releases) 下载 `Lark-<版本>-arm64.dmg`，拖进「应用程序」。首次打开要**右键 →「打开」**——安装包是 ad-hoc 签名、未做公证，双击会被 Gatekeeper 拦下。
+
+安装包有两种，Release 页会写明是哪一种：
+
+| | 自带 ffmpeg | 你需要做的 |
+|---|---|---|
+| `bundled` | 是（自建 LGPL 构建，见下方 License） | 无 |
+| `system` | 否 | **下载前**先 `brew install ffmpeg`——没有它，下载与导入都不可用 |
+
+不确定的话，装完打开「设置 → 媒体工具」，那里写着当前用的是哪一份 ffmpeg。
+
+**命令行**（可选，也可单独使用）：
+
+```bash
+npm i -g @orpheus-aviary/lark-cli
+```
+
 ## 开发
 
 前置：Node ≥ 22.12（本仓锁 `.node-version` = 24.13.0）、pnpm ≥ 10、`just`、`rg`。下载用的 ffmpeg/ffprobe

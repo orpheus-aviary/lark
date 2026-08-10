@@ -4,7 +4,8 @@
 
 import { randomUUID } from 'node:crypto';
 import { rename, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sanitizeFileName } from '@lark/shared';
 import type {
   BrowserWindow,
@@ -15,6 +16,7 @@ import type {
 } from 'electron';
 import { dialog, ipcMain } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc.js';
+import { readLegalDocument } from './legal-ipc.js';
 import { openExternalIfSafe } from './window.js';
 
 export interface OpenDialogLike {
@@ -111,4 +113,14 @@ export function registerDialogIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(IPC_CHANNELS.openExternal, (_event, url: unknown) =>
     typeof url === 'string' ? openExternalIfSafe(url) : false,
   );
+
+  // Closed set, checked here rather than trusted: the renderer picks a
+  // DOCUMENT, and anything else answers null instead of touching the disk.
+  ipcMain.handle(IPC_CHANNELS.readLegal, async (_event, document: unknown) => {
+    if (document !== 'license' && document !== 'notices') return null;
+    return await readLegalDocument(document, {
+      resourcesPath: process.resourcesPath,
+      devRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../../../..'),
+    });
+  });
 }

@@ -208,3 +208,31 @@ describe('the cache block', () => {
     success.mockRestore();
   });
 });
+
+// M7-9: the licences ship inside the app bundle, and a document nobody can
+// open from inside the app is a document nobody reads.
+describe('the about block', () => {
+  it('shows the licence that was actually shipped', async () => {
+    const user = userEvent.setup();
+    render(<SettingsDialog />);
+    await user.click(screen.getByRole('button', { name: '设置' }));
+
+    await user.click(await screen.findByRole('button', { name: '许可证' }));
+
+    expect(window.larkAPI.readLegal).toHaveBeenCalledWith('license');
+    expect(await screen.findByText(/MIT License/)).toBeTruthy();
+  });
+
+  // Absent is reported rather than rendered as an empty box: in a packaged
+  // build it cannot happen, so seeing it means something is genuinely wrong.
+  it('says so when the document is not in the bundle', async () => {
+    const user = userEvent.setup();
+    vi.mocked(window.larkAPI.readLegal).mockResolvedValueOnce(null);
+    render(<SettingsDialog />);
+    await user.click(screen.getByRole('button', { name: '设置' }));
+
+    await user.click(await screen.findByRole('button', { name: '第三方软件声明' }));
+
+    expect(await screen.findByText(/不在应用包内/)).toBeTruthy();
+  });
+});
