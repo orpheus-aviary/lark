@@ -45,8 +45,10 @@ describe('workspaceRoot', () => {
   });
 
   it('says so rather than guessing when there is no workspace', () => {
-    // M7 SEAM: a packaged `lark` lands here, and this message is what tells
-    // the user (and us) that the locators still assume a checkout.
+    // An installed `lark` has no workspace above it — which is not an error
+    // any more, it is the signal `usesAppBundle` reads. This still throws
+    // because callers that genuinely need a checkout (the dev launch paths)
+    // must not silently get a wrong answer.
     expect(codeOf(() => workspaceRoot('/nonexistent/somewhere/lark'))).toBe('USAGE_ERROR');
   });
 });

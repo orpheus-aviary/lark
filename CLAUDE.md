@@ -6,7 +6,24 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **开发中**（2026-07-16 启动）。**M0 已完成**（2026-07-31：五包骨架 + `GET /status` 垂直链路 + `lark-media://` spike 六项判据全过）；**M1 已完成**（2026-08-03：config/logger/paths + schema v1 迁移基座 + songs/playlists CRUD/稀疏 rank + Go 迁移协议全实现，副本验收对账 20/2/4；**真实库已于 2026-08-05 迁移**（20/2/4，备份 `songs.db.bak-go-<时间戳>` 留在 nest 里）；子计划：`docs/plans/2026-07-31-m1-core-data-layer.md`，决策 M1-1–M1-15 + §7 实施记录）；**M2 已完成**（2026-08-04：daemon 生命周期状态机 + PID 协议 + Bearer 鉴权 + SSE/gui 单消费者通道 + songs/playlists/audio/lyrics/player/config/capabilities 路由 + 日志卫生守卫；子计划：`docs/plans/2026-08-04-m2-daemon-routes.md`，决策 M2-1–M2-17 + §7 实施记录；用户验收通过 2026-08-04）；**M3 已完成**（2026-08-05：LLM client + bilibili/WBI + 链接规范化 + ffmpeg 封装 + 歌词三平台 + 下载队列与状态机 + R22 落盘与崩溃恢复 + daemon 十条路由与关停接线；子计划：`docs/plans/2026-08-04-m3-download-pipeline.md`，决策 M3-1–M3-14 + §7 实施记录；**T3 首日 gate GO**——fav/collection 匿名可用，`fetch-list` 保住全部范围）；**M4 已完成**（2026-08-05：Electron 宿主 spawn/确权/单实例/`lark-media://` 代理 + renderer 两纪元与 gui 会话 + 曲库/播放器/歌词/下载全套界面 + `just backup-nest` / `just accept-gui`；子计划：`docs/plans/2026-08-05-m4-gui-base.md`，决策 M4-1–M4-14 + 裁决 D1–D24 + §8 实施记录；**六项判据在正式 GUI × 真实 daemon × nest 副本上复跑 15/15**）；**M5 已完成**（2026-08-06：主题进 config + `ApiError.details` 透传 + 缓存 LRU/fail-closed 探活/`/cache` 两路由 + `ensure-file` 按需下载与 pending intent + 设置页与窗口记忆 + 链接右键三件套 + 歌单导入导出两段式 + 拖拽 reorder；子计划：`docs/plans/2026-08-06-m5-features.md`，决策 M5-1–M5-20 + §8 实施记录（含 §8.4 dnd-kit spike 定案：走 legacy）；七批提交）；**M5 后续已完成**（2026-08-07：状态色 token + 行状态四通道 + 两轴排序 + 多选与批量操作；子计划：`docs/plans/2026-08-06-m5-followup-batch-actions.md`，决策 B-1–B-12；四批提交，全仓测试 1173，`just accept-gui` 15/15 + `just accept-m5` 22/22 复跑通过）；**M6 CLI 已完成**（2026-08-08：T0 地基（跨进程 writer lock 四方接线 + `/status` 公开指纹 + 零写入只读开库 + `daemon-control` / `native-probe` + 错误码注册表）、T1 CLI 基建（身份五态 + `decideMode` + `EXIT_MAP` + 输出契约）、T2 songs/playlist、T3 `--direct` 后端与 cache 组、T4 download / url / lyrics、T5 play / gui / daemon 生命周期、T6 skill export、T7 验收与文档收尾；子计划：`docs/plans/2026-08-07-m6-cli.md`，决策 M6-1–M6-23 + 六轮评审 + §8 实施记录；**`just accept-cli` 27/27**，剩用户手动三条：ABI 失配 exit 3、GUI 冷启动出声、skill 的 agent 可用性（M7））。主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（含决策记录 R1–R32，三轮评审定稿）；进度跟踪：`PROCESS.md`。
+🚀 **v0.1.0 已发布**（2026-08-10）—— [Release](https://github.com/orpheus-aviary/lark/releases/tag/v0.1.0)（`Lark-0.1.0-arm64.dmg`，bundled 模式）+ [`@orpheus-aviary/lark-cli@0.1.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)，tag → `9581bbc`。
+
+M0–M7 全部完成，每个里程碑的子计划、决策与实测记录见 `docs/plans/` 与 `PROCESS.md`：
+
+| | 内容 | 验收 |
+|---|---|---|
+| M0 | 五包骨架 + `lark-media://` spike | 六项判据全过 |
+| M1 | core 数据层 + Go 库迁移协议 | 真实库已迁（20/2/4） |
+| M2 | daemon 生命周期 + 全路由 + SSE | 用户验收通过 |
+| M3 | 下载管线（bilibili / LLM / 歌词 / 原子落盘） | T3 gate GO |
+| M4 | GUI 基座 + 媒体协议移植 | `accept-gui` 15/15 |
+| M5 | 缓存模型 / 按需下载 / 歌单导入导出 / 多选批量 | `accept-m5` 22/22 |
+| M6 | CLI（双后端 + 身份五态 + skill export） | `accept-cli` 27/27 |
+| M7 | 打包发布（ffmpeg 供应链 + 两模式 + 许可交付） | `accept-pack` 28/28 |
+
+基线测试 **1697**（shared 74 / core 569 / cli 371 / daemon 337 / gui 346）。
+
+**下一步 v0.2**：接入 skybridge。开工前先出 design doc 冻结 sync v1 协议（payload / 墓碑 / LWW 三元组 / 全量 create-op 回填）。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -31,7 +48,7 @@ lark/
 │   ├── daemon/     # @lark/daemon — Fastify server + `lark daemon` 入口
 │   └── gui/        # @lark/gui — Electron main/preload/renderer
 ├── apps/
-│   └── cli/        # @lark/cli — 对外 CLI（bin `lark`；发布名 @orpheus-aviary/lark-cli 待 M7 定）
+│   └── cli/        # @lark/cli — 对外 CLI（发布为 @orpheus-aviary/lark-cli，bin `lark` / `lark-cli`）
 ├── spikes/
 │   └── media-protocol/  # lark-media:// 验证工程，长期保留作 M4 移植参照
 ├── scripts/        # 依赖方向守卫（rg 源码，不查 package.json）
@@ -133,19 +150,36 @@ lark/
 - **commander 把 `--no-x` 存成 `x: false`，从来不是 `noX: true`**：按声明时的名字去读，flag 静默失效——`lark play --no-launch` 因此真的开过一个 GUI 窗口。翻译写成显式函数并配回归测试
 - **daemon 先写 pid 文件再 listen**，所以「pid 活着但 `/status` 不应答」是**正在启动**的正常中间态，不是陌生进程——`ensureDaemon` 对它做限时只读重探（10s）而不是当场 fail-closed
 - **虚拟时钟的 `sleep` 必须 yield 宏任务**（`setImmediate`）：`Promise.resolve()` 让轮询循环一路跑到 deadline，期间 child 的 `exit` 事件（定时器）永远排不上，测出来的是「超时」而不是被测的分支
-- **CLI 不能 import electron**（守卫会拦），要 Electron 二进制就读 `node_modules/electron/path.txt` 拼 `dist/`；daemon 侧用 `process.execPath` + `packages/daemon/dist/cli.js`。两处定位都在 `lib/launch.ts`，标了 M7 SEAM
+- **CLI 不能 import electron**（守卫会拦），要 Electron 二进制就读 `node_modules/electron/path.txt` 拼 `dist/`；daemon 侧用 `process.execPath` + `packages/daemon/dist/cli.js`。两处定位都在 `lib/launch.ts`——M7 已给它们补了打包分支，见下方 M7 段
 - **`-o <目录>/` 里的末尾分隔符就是「这是目录」**：只用 `existsSync && isDirectory()` 判，不存在的目录会被当成文件路径——skill export 报 ENOENT，playlist export 更糟（静默写出一个以目录名命名的文件）。判定收敛在 `lib/target-path.ts` 一处
 - **验收脚本里 `spawnSync` 会堵住事件循环**：进程内起的 HTTP stub 永远答不上被同步 spawn 的 CLI，五态 stub 判据会全变成「没人监听」——stub 要放子进程
 - **`INVALID_ID` 在 CLI 表面不可达**：每个 id 参数都是 `<name|id>`，先过解析——uuid 形状查不到 → `NOT_FOUND`，非 uuid → 当名字搜 → 还是 `NOT_FOUND`。id 门禁仍在（直连补的那个），只是命令行走不到
 - **`backupNest` 只在 daemon 停掉后能跑**（在线备份只冻结 DB），验收脚本里凡涉及备份的检查都得排在停机之后
 - **管理命令（`status` / `daemon` / `stop-daemon`）不取后端**：它们说的是进程不是曲库，走后端会导致「库坏了就停不了 daemon」；`--direct` 在这一层直接拒
 
+### M7 实测锁定（详见 `docs/plans/2026-08-08-m7-packaging.md` §8）
+
+- **ffmpeg 是自建的，不是装来的**：`ffmpeg-static` / `@derhuerst/ffprobe-static` 的二进制 `--enable-nonfree`，**不可再分发**（连 GPL 都不行）。现在 `just fetch-ffmpeg` 从源码建最小 LGPL profile（FFmpeg + LAME，4.5MB），锁在 `vendor/ffmpeg.lock.json`。它是**发版门禁**：源码 SHA → configure 与锁值逐字节比对 → 见 nonfree 即拒 → 能力清单 → 真实 M4A→MP3→ffprobe 闭环。`just package bundled` 每次前置跑它，stub 过不了第一道（不是 Mach-O）
+- **configure 串必须路径无关**（`--prefix=../out` 这类相对路径）：绝对路径会烙进二进制、`-show_program_version` 读得到，锁值就绑死在某台机器的目录上
+- **媒体工具单一真相 = `ctx.mediaTools`（MediaToolsRegistry）**：capabilities / 下载引擎 / `probeAudio` / import 全部共享一份。`ensureMp3` 与 `probeAudio` **接收已解析的路径**，不许自己再找——以前各找各的，能出现「capabilities 报没有 ffmpeg，下载却通过 Homebrew 成功」。`ready` 缓存到执行失败（ENOENT/EACCES）才失效，`missing`/`incompatible` 按 ≥5s 节流重探
+- **ready 判定是完整能力清单**（demuxer mov/mp3 · decoder aac/mp3 · encoder libmp3lame · muxer mp3 · file protocol · ffprobe JSON），不是 `-version` 退出 0——后者一个 shell 脚本就能过
+- **ffmpeg 的清单输出**：`-hide_banner -v quiet -X` **只认第一个清单选项**（串多个只出第一个）；分隔线是 ` ---` 不是 ` --`（8.1 还多一列设备标志），按字面 `--` 匹配会把好构建判成「缺全部能力」
+- **单测不能用 `-f lavfi` 造 fixture**：最小 profile 没有 lavfi 也没有 AAC 编码器。改用 `@lark/core/testing` 的 `toneWav()`（纯 Node 写 44 字节头 + 正弦），真 m4a 容器只在 `fetch-ffmpeg` 与 accept-pack 的闭环里用（入库夹具 `scripts/fixtures/tone-1s.m4a`）
+- **`just package [mode]` 是位置参数**：`mode=system` 这种写法在 just 1.46.0 会被当成第二个 recipe 名（实测报 "does not contain recipe"）
+- **`identity: '-'` 在 electron-builder 26.15.3 上是一等公民**（产物 `flags=0x2(adhoc)`）；owl 的 `afterPack` 钩子仍保留，幂等，不赌版本行为
+- **打包后定位**：dev 与 packaged 由「能否走到 `pnpm-workspace.yaml`」一次决定。打包态所有路径来自**同一个** `resolveAppBundle()`——包内 Electron 跑包内 daemon 用包内 ffmpeg，`lark gui` 用 `open <该路径>` 而不是 `open -a Lark`（`-a` 由 LaunchServices 挑，可能挑到另一份）
+- **`/usr/bin/open` 正常退出不是崩溃**：`LaunchCommand.expectsImmediateExit` + `LaunchedChild.state.exitCode`——按 dev 的「退出即崩溃」判，每一次打包态 `lark gui` 都会在窗口出现前失败
+- **验收脚本必须从工作区之外跑 CLI**：仓库内跑时 `isDevCheckout()` 一路走到 `pnpm-workspace.yaml`，`LARK_APP_PATH` 被完全忽略——判据 10 会静默测成 dev 分支（踩过）
+- **renderer 不能 `fetch('lark-media://…')`**：CSP 的 `connect-src` 没这个 scheme（媒体走 `media-src`）。观测 206 要么经 daemon 的 player 命令驱动 + 读日志的 `audio range` 行，要么用媒体元素
+- **图标**：源图的灰光晕**不透明**，量边界要用饱和度不是 alpha；图标本该是四周有真透明留白的方块（owl 外 40px 全透明、占 90%）。`build-icons.mjs` 只做缩放，用备好的 `lark-icon-source.png`，配方写在注释里。判据：产物最外圈不透明像素 = 0
+- **发版**：npm 拒绝 `npm login` 的会话凭据（要 2FA），必须用带 bypass 的 granular token；发布成功后 CDN 还会缓存 404 约 40 秒（`npm access get status` 走 API，那时已经对）。github 在本机三通其一，且 **`git push … | tail` 会吞掉退出码**（管道返回 tail 的）
+
 ### M3 实测锁定（详见 `docs/plans/2026-08-04-m3-download-pipeline.md` §7）
 
 - **`nav` 匿名返回 envelope `code: -101`（未登录）但照给 `wbi_img`**——WBI 取 key 判定**看字段不看 code**，看 code 会在健康环境上 fail-closed
 - **`fav/resource/list` 的 `ps=20` 实返 15 条 + `has_more=true`**——分页结束只能信 `has_more`，按 ps 推断会漏掉一半；`folder/created/list-all` 匿名 `data:null`（需登录，但不在链路上，media_id 来自 URL）
 - **ffmpeg 输出到 `.tmp` 结尾的路径必须显式 `-f mp3`**——推不出容器时报的是「找不到合适的输出格式」，读起来像编码器问题
-- **`ffmpeg-static` / `@derhuerst/ffprobe-static` 定版 5.3.0**（实测 arm64 / ffmpeg 6.0）；两包是 CJS `module.exports = <路径>` 但 `.d.ts` 写 `export default`，NodeNext 下默认导入被当成模块命名空间，**需在导入边界一次性重标类型**
+- ~~`ffmpeg-static` / `@derhuerst/ffprobe-static` 定版 5.3.0~~ → **M7 已移除**：两包的二进制是 `--enable-nonfree`，不可再分发。现在 ffmpeg 由 `just fetch-ffmpeg` 自建（见下方 M7 段）
 - **酷狗三端点全支持 https**（Go 版两处明文 http 无必要）；`krcs.kugou.com/search` **必须带 `hash` + `duration`（毫秒）**，只给 keyword 返回空候选
 - **LRC 正则不能一份带 `g` 的同时用于 `.test()` 和 `matchAll`**——`.test()` 留下的 `lastIndex` 会让下一次匹配从半路起步
 - **落盘协议只承诺进程崩溃（kill -9）一致性**，不承诺断电（与 M1 同口径）；`.pending` manifest 的 `had_old` 是唯一能区分「崩在 bak 之前」（当前 song.mp3 是完好旧文件，**必须保留**）与「崩在 rename 之后」（未提交新文件，必须删）的信息
@@ -168,13 +202,13 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 ## 关键参考
 
 - 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（§1 R17 已修订：ffmpeg-static 不可再分发）
-- M7 子计划：`docs/plans/2026-08-08-m7-packaging.md`（六轮评审定稿；§3.0 ffmpeg 供应链与 MediaToolsRegistry、§3.5 验收与发版、§5 决策 M7-1–M7-19）
+- M7 子计划：`docs/plans/2026-08-08-m7-packaging.md`（§3.0 ffmpeg 供应链与 MediaToolsRegistry、§3.5 验收与发版、§5 决策 M7-1–M7-19、**§8 实施与发版记录**）
 - M6 子计划：`docs/plans/2026-08-07-m6-cli.md`（§8 逐批实施记录 + §6 验收判据）
 - M5 子计划：`docs/plans/2026-08-06-m5-features.md`；M5 后续（多选批量）：`docs/plans/2026-08-06-m5-followup-batch-actions.md`
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
-- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`，全局 bin 待 M7）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just spike-media-*`）
+- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（M7 判据 28 条，对着发布物本身跑）/ `just spike-media-*`）
 - Go 版（功能参照）：`../lark-go/`
 - 跨仓架构：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`
 - skybridge 架构：`../aviary/docs/SKYBRIDGE_ARCH.md`
