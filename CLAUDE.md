@@ -21,9 +21,23 @@ M0–M7 全部完成，每个里程碑的子计划、决策与实测记录见 `d
 | M6 | CLI（双后端 + 身份五态 + skill export） | `accept-cli` 27/27 |
 | M7 | 打包发布（ffmpeg 供应链 + 两模式 + 许可交付） | `accept-pack` 28/28 |
 
-基线测试 **1697**（shared 74 / core 569 / cli 371 / daemon 337 / gui 346）。
+v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346）。
 
-**下一步 v0.2**：接入 skybridge。开工前先出 design doc 冻结 sync v1 协议（payload / 墓碑 / LWW 三元组 / 全量 create-op 回填）。
+🚧 **v0.2 skybridge 同步开发中**——子计划 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`（六版终版，决策 D1–D8 全关闭）。批次 T0–T6：
+
+| 批 | 内容 | 状态 |
+|---|---|---|
+| T0 | 依赖钉版 + migration `0002-sync-activation` + 类型/错误码/`[sync]` config | ✅ |
+| T1 | core 基座（hlc/lww/tombstones/backfill/file-ops/emit 接线，四小批 a–d） | ✅ |
+| T2 | core engine（runSync / apply / conflicts CAS / retry / retention） | ✅ |
+| T3 | daemon（凭证与 binding / login 序列 / epoch / runner 与三触发器 / 路由 / boot drain，四小批 a–d） | ✅ |
+| T4 | GUI（徽章 + popover + 设置页 + 冲突页） | ⏳ 下一批 |
+| T5 | CLI（sync 七命令 + `songs --duplicates` + skill export） | ⏳ |
+| T6 | 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0 | ⏳ |
+
+当前测试 **2038**（shared 79 / core 809 / cli 371 / daemon 433 / gui 346）。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段。
+
+⚠️ **真实曲库一旦被 v0.2 daemon 打开就升到 schema v2，已发布的 0.1.0 会拒绝打开它**（`user_version > LATEST`）。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -66,7 +80,7 @@ lark/
 - **数据目录**：`~/orpheus-aviary-nest/lark/`
 - **统一响应格式**：`{"success": bool, "data": {}, "message": "..."}`；例外：`/audio`（二进制 + Range）、`/lyrics`（text/plain）、`/events`（SSE）
 - **token**：由 daemon 生成并原子发布 0600 文件；GUI 侧每次读取，不进 URL/DOM/日志/媒体 src（R21/R29）
-- **skybridge 预留**：v0.1 建 sync 三表**不写事件**；实体 `device_id` 仅存 skybridge 注册 ID（本地身份在 `local_metadata.device_uuid`，两域不混用）；v0.2 冻结协议后全量回填（R2/R18）
+- **skybridge 同步**（v0.2，schema v2 起）：实体 `device_id` 只存 skybridge 注册 ID（本地身份在 `local_metadata.device_uuid`，两域不混用）；凭证在**独立文件** `~/orpheus-aviary-nest/lark/skybridge.toml`（0600，不进 `/config` 通道，**backup 每一层都排除**）；`LOCAL_API_VERSION` = **5**（`/sync/*` 与 `/conflicts/*`）
 - **媒体文件**：歌曲本体不同步、不走 attachment——各设备凭 `source_key`（bilibili = `bvid:cid`）按需下载；歌词文件永不参与缓存清理
 - **缓存清理不变量**：只清理 `file_origin='downloaded'` 且清理前探活确认可重下的文件；imported（含 Go 迁移曲库）是用户资产，永不自动清理（R1/R26）
 
@@ -193,6 +207,20 @@ lark/
 - **`download:status` 带 `revision`**：`(state, stage)` 不唯一（绑定 song_id 时 stage 仍是 `resolving`）
 - **M5 的按需下载加 task kind `ensure-file`**，复用 `#runDownload`；不要另抽 `resolveSongFile`
 
+### v0.2 T0–T3 实测锁定（详见 `PROCESS.md` v0.2 段与 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`）
+
+- **sync 的两条通道不许混**：LWW put/墓碑（`create`/`update`/`delete`）带三元组、比键、**跳过自己的回声**；元数据 op（`set_lyrics`/`clear_lyrics`/`reorder`/`set_rank`）无键、只按 `server_seq` 定序、**自己的回声也要重放**——任何 rank 进 LWW 通道都会分叉（D7）
+- **rank 全部离开 LWW**：拖拽 = rank-only + `set_rank`；归一化 = 一条 `reorder`（超 4000 退化逐行）；add = **成对 emit**（create 不带 rank）
+- **同 `(provider,key)` 允许共存**（D8，0002 去 UNIQUE）：by-key 查找两条命中即 `AMBIGUOUS_SOURCE_KEY`，不猜
+- **SQLite `json_set(payload,'$.x',?)` 把绑定数字写成 `…000.0`**（`json_type` = real）：rebase 要 `CAST(? AS INTEGER)` 写、门放宽到 `IN ('integer','real')`，否则看不见自己的产物
+- **file-effect journal 的 arg 是快照**：执行器零推断（远端删除的 `audio_origin` 与 `lyrics_disposition` 都在入队事务里定）；boot **先 drain journal 再 recovery**，recovery 跳过 journal 还占着的目录
+- **墓碑的 `device_id` 存 `''` 不是 NULL**（`LwwTriple` 入口就把「没有设备」归一化了）——首次注册的重打戳要同时收 NULL / `''` / 本地 uuid 三种写法
+- **login 的补偿顺序冻结**：先 revoke（**仅本轮新注册的设备**）再 remote logout——logout 作废整个 token family，反序就没凭证可 revoke 了；复用的存量设备**绝不 revoke**
+- **旧 session 在 install 事务之前拆**：回填与 rebase 重写未推送变更的 key，在途的一轮会推旧 key 而本地留新 key
+- **一轮里吃了 401 只能 `dropSession`**，不能 `teardownSession`——后者要等在途的轮，而在途的就是自己
+- **push-on-mutation 走轮询不走事件**：`emitSyncChange` 在调用方事务内（事件可能早于 COMMIT 或在回滚后存活），而挂事件总线又漏掉 backfill 与 conflict resolve 这两条只 emit 不发曲库事件的路径
+- **`lifecycle` mutex 把函数排进微任务**：测「登出插在 refresh 中间」必须等被测函数**真的进去**再动手，否则测到的是排队而不是交错
+
 ## Commit 规范
 
 遵循上级 `orpheus-aviary/.claude/CLAUDE.md` 的 Conventional Commits。
@@ -202,6 +230,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 ## 关键参考
 
 - 主计划：`docs/plans/2026-07-16-ts-rewrite-master-plan.md`（§1 R17 已修订：ffmpeg-static 不可再分发）
+- **v0.2 子计划**：`docs/plans/2026-08-11-v0.2-skybridge-sync.md`（§3 协议冻结 / §4 落点 / §5 不变量清单 ㉑–㉚ / §7 批次 / §8 决策 D1–D8）；实施记录在 `PROCESS.md`
 - M7 子计划：`docs/plans/2026-08-08-m7-packaging.md`（§3.0 ffmpeg 供应链与 MediaToolsRegistry、§3.5 验收与发版、§5 决策 M7-1–M7-19、**§8 实施与发版记录**）
 - M6 子计划：`docs/plans/2026-08-07-m6-cli.md`（§8 逐批实施记录 + §6 验收判据）
 - M5 子计划：`docs/plans/2026-08-06-m5-features.md`；M5 后续（多选批量）：`docs/plans/2026-08-06-m5-followup-batch-actions.md`
