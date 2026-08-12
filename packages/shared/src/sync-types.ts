@@ -254,3 +254,119 @@ export interface ConflictResolveRequest {
   strategy: 'local' | 'remote';
   expected_current: LwwKey;
 }
+
+// ─── `/sync/*` responses ───────────────────────────────
+
+/**
+ * What a login did, beyond "it worked".
+ *
+ * `device_reused` and `device_stamp` are here because they explain something
+ * the user can otherwise only infer: whether this machine kept its identity in
+ * the workspace, and whether the rows on disk were re-attributed as a result.
+ */
+export interface SyncLoginResultData {
+  server_url: string;
+  user_id: string;
+  email: string;
+  device_id: string;
+  device_name: string;
+  device_reused: boolean;
+  workspace_id: string;
+  /** What the first bind published, or `null` when nothing was owed. */
+  backfill: SyncBackfillSummary | null;
+  /** Entities whose unpushed keys were rebased onto the server clock (§3.3). */
+  rebased_entities: number;
+  device_stamp: 'first-registration' | 'device-changed' | 'unchanged';
+}
+
+export interface SyncBackfillSummary {
+  songs: number;
+  playlists: number;
+  memberships: number;
+  lyrics: number;
+  /** Songs whose lyrics a pending change already covers (R5-2). */
+  lyrics_skipped: number;
+  /** Songs whose lyrics are too large to ever push (D3). */
+  lyrics_oversize: number;
+}
+
+export interface SyncLogoutResultData {
+  had_session: boolean;
+  /** False when the server could not be told; the local session is gone either way. */
+  revoked_remotely: boolean;
+}
+
+/** What one round moved. */
+export interface SyncRunResultData {
+  pulled: number;
+  pushed: number;
+  applied: number;
+  skipped: number;
+  dead_lettered: number;
+  conflicts: number;
+  /** True when the round stopped early because the session was replaced. */
+  cancelled: boolean;
+  pulled_seq: number;
+  pushed_seq: number;
+}
+
+/** One row of `GET /sync/devices`. */
+export interface SyncDeviceData {
+  id: string;
+  name: string;
+  platform: string | null;
+  app_version: string | null;
+  client_version: string | null;
+  created_at: number;
+  last_seen_at: number;
+  /** Non-null once revoked; a revoked device can still be listed. */
+  revoked_at: number | null;
+  /** True for the device this daemon is — never offer to revoke yourself by accident. */
+  is_current: boolean;
+}
+
+export interface SyncDevicesData {
+  devices: SyncDeviceData[];
+}
+
+export interface SyncRevokeDeviceRequest {
+  device_id: string;
+}
+
+export interface SyncFileOpsData {
+  file_ops: SyncFileOpSummary[];
+}
+
+/** What a retry drained. `skipped` counts rows left alone (busy, backing off). */
+export interface SyncFileOpRunData {
+  executed: number;
+  failed: number;
+  skipped: number;
+}
+
+// ─── `/conflicts/*` ────────────────────────────────────
+
+/**
+ * One conflict receipt: the two versions and the keys that decided between
+ * them. `remote` is what the row holds now; `local` is what this device had
+ * and can put back.
+ */
+export interface ConflictData {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  detected_at: number;
+  remote_seq: number | null;
+  local_payload: SongSyncPayload | null;
+  remote_payload: SongSyncPayload | null;
+  local_key: LwwKey;
+  remote_key: LwwKey;
+}
+
+export interface ConflictListData {
+  conflicts: ConflictData[];
+}
+
+export interface ConflictCountData {
+  count: number;
+}

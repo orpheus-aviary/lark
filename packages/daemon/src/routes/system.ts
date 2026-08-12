@@ -179,6 +179,62 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     path: API_PATHS.cacheEvict,
     description: 'Evict least-recently-used downloaded files down to the limit',
   },
+
+  // skybridge sync (v0.2).
+  {
+    method: 'POST',
+    path: API_PATHS.syncLogin,
+    description: 'Log in to a skybridge server and bind this library to its workspace',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.syncLogout,
+    description: 'Drop the sync session (the device and the binding survive)',
+  },
+  { method: 'POST', path: API_PATHS.syncRun, description: 'Run one sync round now' },
+  {
+    method: 'GET',
+    path: API_PATHS.syncStatus,
+    description: 'Sync state, counters, and anything waiting for a human',
+  },
+  {
+    method: 'GET',
+    path: API_PATHS.syncDevices,
+    description: 'Devices registered on the sync account',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.syncRevokeDevice,
+    description: 'Revoke a device on the sync account',
+  },
+  {
+    method: 'GET',
+    path: API_PATHS.syncFileOps,
+    description: 'Queued and failed file effects (lyrics text is redacted)',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.syncFileOpsRetry,
+    description: 'Retry failed file effects (all of them, or one by id)',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.syncFileOpsDiscard,
+    description: 'Abandon one permanently failed file effect, keeping a record of it',
+  },
+
+  {
+    method: 'GET',
+    path: API_PATHS.conflicts,
+    description: 'Unresolved edit conflicts, with both versions',
+  },
+  { method: 'GET', path: API_PATHS.conflictsCount, description: 'Unresolved conflict count' },
+  { method: 'GET', path: apiPath.conflict(':id'), description: 'One conflict record' },
+  {
+    method: 'POST',
+    path: apiPath.conflictResolve(':id'),
+    description: 'Keep the local or the remote version (CAS on the current LWW key)',
+  },
 ];
 
 export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): void {

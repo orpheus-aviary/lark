@@ -10,7 +10,12 @@
 // state whether or not the network is there, and the first round is what
 // discovers a token the server no longer likes.
 
-import { type SkybridgeCredentials, readBinding, readSkybridgeCredentials } from '@lark/core';
+import {
+  type SkybridgeCredentials,
+  SyncAuthRequiredError,
+  readBinding,
+  readSkybridgeCredentials,
+} from '@lark/core';
 import type { SyncAuthReason } from '@lark/shared';
 import type { AppContext } from '../context.js';
 import type { SkybridgeApi, SkybridgeClient } from './client.js';
@@ -65,6 +70,18 @@ export function buildSession(
     workspaceId: workspace.id,
     credentials,
   };
+}
+
+/**
+ * The session, or the refusal every caller owes a client without one.
+ *
+ * `SYNC_AUTH_REQUIRED` is a state rather than a fault: the daemon keeps
+ * serving the library, and the only thing that does not work is sync.
+ */
+export function requireSession(ctx: AppContext): SyncSession {
+  const session = ctx.sync.session;
+  if (session === null) throw new SyncAuthRequiredError();
+  return session;
 }
 
 export type RestoreOutcome =

@@ -92,7 +92,16 @@
   - **staging 分支未实现**（`write_lyrics` 只做 inline）：校验器对 `lrc` 的上限 256KB = inline 上限，而 emit 护栏是整条 change 240KB，合规 peer 发来的歌词必然装得下——v0.2 没有 staging 的生产者
 - [x] **T2 core engine**（2026-08-12）— `apply.ts`（四道门定序：父墓碑门 → ⚡ 回声分支 → self-replay → LWW；song/playlist 墓碑永久胜出、membership 三分支复活；reorder 去重/忽略未知/未提及者保序追加尾部；file 效应全部进 journal；未知或非法 change 存整条 envelope 进 dead-letter 并继续）· `conflicts.ts`（记录 + `expected_current` CAS 解决，`local` 走普通写路径重新 emit）· `engine.ts`（`SkybridgeClientLike` 接口让 core 零 skybridge 依赖、cursor 按 `(server_id, workspace_id)` 绑定参数、apply 与 cursor 同事务、提交后才 drain、push 双重装箱、duplicates 视为已结算、零 ack 即停、协作式取消、每轮学服务器时钟）· `retention.ts` · `retry.ts`。core 测试 **743**
   - **本批判断**：membership `delete` 不设父墓碑门（计划只对 create/set_rank 要求）——父没了也要能记下这次移除；retention 期限 30 天、同步失败退避梯度（10s/30s/1m/5m/15m）计划未冻结，由本批定
-- [ ] T3 daemon（login 序列 + epoch + boot drain + 路由 + status + `LOCAL_API_VERSION` bump）
+- [x] **T3 daemon**（2026-08-12）— 四批：**T3a** core 接缝（`skybridge.toml` 凭证 / binding 单例 / unbind / 七个错误类 / HTTPS 门 / duplicates / backup 排除）· **T3b** session + login/logout（冻结序列 + 全程补偿 + toml 回滚 + epoch 互斥）· **T3c** runner + 三触发器 + refresh + status + boot drain 接线 · **T3d** 路由九条 + conflicts 四条 + `LOCAL_API_VERSION` **4→5** + capabilities + 日志卫生。daemon 测试 **433**（339 → +94），全仓 **2038**
+  - **conflicts 四条定为** list / count / detail / resolve（用户拍板）：badge 只要 count，冲突页要 payload，两者代价差一个数量级
+  - **push-on-mutation 用 owl 的 outbox 轮询**（用户拍板，1s 探 `MAX(local_seq) WHERE synced_at IS NULL` + 去抖 800ms / 封顶 5s + 退避带抖动）。owl 的两条理由在 lark 只成立一半（daemon 全程持写锁 → 无进程外写者；挂 EventsBus 也在提交后），但 lark 自己有更硬的一条：**backfill 与 conflict resolve 都 emit 却不发曲库事件**，事件方案得靠「记得补触发」
+  - **device 重打戳不受「本事务写了 binding」约束**：换设备发生在重登时，binding 早已写好，加这个门会让 §3.7 的「设备更换」分支永远不可达。回填/rebase 仍按原条件
+  - **旧 session 在 install 事务之前拆**：回填与 rebase 重写未推送变更的 key，在途的一轮会推旧 key 而本地留新 key。代价是事务失败时 session 已没，catch 里按（已还原的）toml 重新 restore
+  - **refresh 回来按「凭证身份」而非只按 epoch 决定装不装**：唯一能中途改 epoch 的是某轮吃 401 调 `dropSession`（它不能进 mutex，否则等自己），而新 token 正是那个 401 的解药——只看 epoch 会把它丢掉并把用户推去输密码
+  - **§3.7 的 ⑤「retention watermark」不做**：lark 的裁剪口径是「`synced_at IS NOT NULL` 且超 30 天」，首登前的行 `synced_at` 必为 NULL，watermark 加不了保护（owl 需要它是因为口径不同）
+  - **backup 排除 `skybridge.toml` 从 T6 提前到 T3a**：凭证文件这一批就出现在 nest 里
+  - **实测锁定**：`app.inject` 的返回类型含 `void`，包一层 helper 必须显式标返回类型（M3 的老坑，vitest 用 esbuild 不报、`tsc` build 才报）· 墓碑的 `device_id` 存的是 `''` 不是 NULL（LwwTriple 入口就归一化了），首次注册的重打戳三种写法都要收 · `lifecycle` 把函数排进微任务，测「谁先谁后」必须等被测函数**真的进去**再动手
+  - **boot 冒烟**（临时 nest）：日志顺序 `sync file journal drained` → `songs store recovered` → `sync session restored` → `sync triggers started` → `daemon listening`；`/status` 报 `local_api_version: 5`；`/sync/status` 全字段就位；capabilities 65 条含 sync 九条 + conflicts 四条
 - [ ] T4 GUI（徽章 + popover + 设置页 + 冲突页）
 - [ ] T5 CLI（sync 七命令 + `songs --duplicates` + skill export）
 - [ ] T6 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0

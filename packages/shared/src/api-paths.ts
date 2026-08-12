@@ -32,8 +32,11 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     import answer `MEDIA_TOOLS_UNAVAILABLE` instead of folding a missing
  *     ffmpeg into a per-file failure. A client written against 4 renders a
  *     state a 3 daemon never reports.
+ *   5 (v0.2): the `/sync/*` and `/conflicts/*` surface, and the three sync SSE
+ *     events. A 4 daemon answers 404 to every one of them, which a badge
+ *     cannot tell from "sync is off" — hence a version, not feature detection.
  */
-export const LOCAL_API_VERSION = 4;
+export const LOCAL_API_VERSION = 5;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {
@@ -68,6 +71,24 @@ export const API_PATHS = {
   // file, the commit re-reads it and refuses if it changed in between.
   playlistImportPreview: '/playlists/import-preview',
   playlistImport: '/playlists/import',
+
+  // skybridge sync (v0.2). `/sync/status` is the only one a front-end polls;
+  // everything else is an action. The file-op trio exists because a failed
+  // file effect needs a way OUT of the daemon and back to a person.
+  syncLogin: '/sync/login',
+  syncLogout: '/sync/logout',
+  syncRun: '/sync/run',
+  syncStatus: '/sync/status',
+  syncDevices: '/sync/devices',
+  syncRevokeDevice: '/sync/revoke-device',
+  syncFileOps: '/sync/file-ops',
+  syncFileOpsRetry: '/sync/file-ops/retry',
+  syncFileOpsDiscard: '/sync/file-ops/discard',
+
+  // Conflicts (v0.2, D4). Records, not merges: LWW already decided, and these
+  // let the user put their own version back.
+  conflicts: '/conflicts',
+  conflictsCount: '/conflicts/count',
 } as const;
 
 /** Parameterised route paths. Ids are UUID v4 (or the literal `all`, R3). */
@@ -90,4 +111,8 @@ export const apiPath = {
   songRedownload: (id: string) => `/songs/${id}/redownload`,
   /** Fetch the audio only if it is missing (M5-8). */
   songEnsureFile: (id: string) => `/songs/${id}/ensure-file`,
+
+  // Conflicts (v0.2). The id is the conflict's, not the song's.
+  conflict: (id: string) => `/conflicts/${id}`,
+  conflictResolve: (id: string) => `/conflicts/${id}/resolve`,
 } as const;
