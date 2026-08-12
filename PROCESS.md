@@ -120,7 +120,7 @@
   - **`--duplicates` 拒绝一切收窄的 flag**（`--search` / `--limit` / `--offset`）：另一半在第二页或不匹配搜索时，重复对会看起来像单曲——正好是这个 flag 存在的理由。分页按 1000 扫全库，`--json` 出平铺列表（每行自带 key，调用方自己分组）
   - **`accept-cli` 的夹具在 T0 就坏了（本批修）**：harness 复制的是真实 nest 的 **v1** 副本，而 v0.2 的只读打开拒绝迁移（零写入是设计），于是整个「无 daemon」阶段全是 `MIGRATION_PENDING`。修法是复制后按用户的做法升一次级（起一次 daemon 再停）。**这条同时是给用户的真实提醒**：v1 库在 v0.2 下，`--direct` 读也要先起一次 daemon
   - **冒烟**（真 daemon × 全新 nest）：status/config-show/file-ops 空态 · 无会话 `run` → `SYNC_AUTH_REQUIRED`(3) · 明文 http 无 flag → `SYNC_INSECURE_URL`(2) · 有 flag 无 `--yes`（非 TTY）→ `USAGE_ERROR`(2) · 有 flag 有 `--yes` → 真去连（服务器不可达 → `SYNC_UNAVAILABLE`(1)）· daemon 活着 unbind → `DAEMON_RUNNING_BLOCKED`(5)，停机后 0 · 无 daemon 时 `status` → 4 而 `config-show` 照常 0
-- [ ] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套已落地（**19 例**：dual 15 / files 4，`just test-sync-e2e`），accept-sync 与发版未做
+- [ ] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套（**19 例**：dual 15 / files 4，`just test-sync-e2e`）与 `just accept-sync`（**34 条**）都已落地，只剩真实双机 soak 与发版
   - [x] **T6a 进程内 dual e2e**（2026-08-12）— 三个 lark 库（A/B/C，各自 `:memory:` core + 独立注册设备）对一台**进程内真 skybridge server**；L1–L15 / L18 / L19 共 15 例。**元数据 only**：三个设备在一个进程里无法各占一个 nest（`LARK_NEST_DIR` 是进程全局的），所以文件效应只断言 journal 行，真文件归 T6b
     - **server 依赖形态（用户拍板，偏离计划 §4.1 的「devDependency + 动态 import」）**：`@orpheus-aviary/skybridge-server` 是 `private: true` 未发 npm，**不进依赖**，运行时按「已安装包 → `LARK_SKYBRIDGE_SERVER` → 兄弟仓构建产物」解析，找不到就 skip；`just test-sync-e2e` 置 `LARK_SYNC_E2E_REQUIRED=1` 把 skip 变成硬失败，保证 recipe 不会静默绿。lark 单独 clone 后 `pnpm install` 永远不坏
     - 🐛 **抓到真缺陷并修**：`applySongDelete` / `applyPlaylistDelete` 把入站墓碑与 `max(行, 墓碑)` 比较，于是**编辑晚一毫秒的设备能留住别人已经删掉的歌**——而对端的 `applySongPut` 一旦有墓碑就无条件拒绝后续 update，两边永远不再和解。§3.2 的「song/playlist delete 永久胜出」只实现了一半。改成**只与墓碑比较**（幂等仍在），membership 保持原样（复活是 D6 要的）。三条确定性回归进 `apply.test.ts`
@@ -130,7 +130,16 @@
     - **一条断言被产品纠正**：`retry` 会重置 attempts，于是该行不再是「永久失败」，`discard` 按 R5-P1-1 答 **409 `FILE_OP_BUSY`**——测试改成把这条规则本身测出来
     - **夹具坑**：`write_lyrics` 的 `staging` 分支 v0.2 无生产者、被忽略，planted staging 路径**失败不了**；能真失败的是「歌曲目录是个普通文件」（ENOTDIR）
     - 计划 §6 的「pending 歌词 + 远端删除 → 隔离不删」没在这里重做：`file-ops.test.ts` 已确定性覆盖那个 arg 快照判定，跨进程重来一遍更慢更脆且无新信息
-  - [ ] T6c `just accept-sync`（两套 e2e + CLI 八命令 + CDP 徽章 + token/密码不落日志 + 0600 + HTTPS 跳闸 + 三处守卫一致 + backup 排除凭证）+ 真实双机 soak checklist
+  - [x] **T6c `just accept-sync` + soak checklist**（2026-08-12）— `scripts/accept-sync.mjs`，**34 条判据 34/34**（A 前置与守卫 3 · B 凭证与备份 4 · C HTTPS 门 5 · D CLI 九条 9 · E 跨设备闭环 6 · F GUI CDP 7）。手动那半在 `docs/plans/2026-08-12-v0.2-soak-checklist.md`（真实云端 server 的明文跳闸 / refresh 轮换 / 断网合盖，本地 loopback 永远走不到）
+    - **形态**：一台**真 skybridge server 子进程**（临时 db，端口 0 探空）+ **两台真 daemon**——设备 A 是真实曲库副本走 `lark` 二进制，设备 B 是独立 nest 的 `boot-child`（47101）走 HTTP。三段 ABI：node 跑 CLI 与两台 daemon → electron 跑 GUI 段（重启 A 的 daemon，GUI 走复用路径）→ 回 node 跑 `unbind`（直连写）
+    - **server 是硬失败不是 skip**（与 e2e 相反）：解析顺序 `LARK_SKYBRIDGE_SERVER_BIN` → 兄弟仓 `dist/bin` → 已安装包；「静默绿」比「跑不了」更糟
+    - **冲突/重复的制造靠「登出窗口」**：A `sync logout` 后编辑，改动留在 outbox 未推送——这既是冲突记录的 pending 门（§4.6）要的，也是同 key 共存要的（两端各自本地 `assertKeyFree` 都通过）。顺带把 `logout` 幂等与重登续传一起测了
+    - **实测抓到四处**（三处是 harness 自己的，一处是判据写法）：
+      - **`--yes` 是全局 flag、`--allow-insecure-http` 是子命令 flag**，位置放反 commander 自己退 1，长得和被测的拒绝一模一样（C3/C4 首跑假红）
+      - **`--json` 下 `sync unbind` 先往 stderr 打「要丢多少」再打错误信封**：整段 stderr 不是 JSON，`JSON.parse` 全流会拿不到 `error_code`——改成**从最后一行往前找**第一条能解析的
+      - **隔离目录是 `<song_id>-<op_uuid>`**（每 op 稳定，重放落同一处），不是 `<song_id>`
+      - **夹具四首歌必须互不相同**：首跑把「被远端删除的那首」和「重复对的一半」选成了同一首，删除顺手把重复对拆了，F6 于是量到 0 个 `[重复]`——测出来的是夹具 bug 不是产品 bug
+    - 判据 A2/A3 直接 import 三份 **dist**（shared 注册表 / daemon `statusForCode` / CLI `EXIT_MAP`）对账：11 个 sync 码全在，51 个信封码零孤儿
   - [ ] T6d 发版 0.2.0（用户已表示先不着急）
 
 ⚠️ **本机真实曲库一旦被 v0.2 的 daemon 打开就升到 v2，已发布的 0.1.0 将拒绝打开它**（`user_version > LATEST`）。开发期一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`。

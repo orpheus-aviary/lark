@@ -297,6 +297,21 @@ accept-m5 *args: ensure-node-abi build-shared build-core build-daemon
 accept-cli *args: ensure-node-abi build-shared build-core build-daemon build-cli
     node scripts/accept-cli.mjs {{args}}
 
+# The v0.2 sync acceptance matrix (plan §6): a REAL skybridge server, TWO real
+# daemons on two nests (a copy of the library through the CLI, and a second one
+# over HTTP), and the real GUI. It starts on the Node ABI, switches to Electron
+# for the window, and switches back for `sync unbind` — so it leaves the ABI
+# where it found it. `--keep` keeps the two nests and the server directory;
+# `--skip-e2e` skips the suites when they have just been run.
+#
+# The server is resolved at run time (sibling checkout, LARK_SKYBRIDGE_SERVER_BIN,
+# or an installed @orpheus-aviary/skybridge-server) and its absence FAILS: this
+# recipe must never be quietly green. The soak that needs a real network is a
+# person's job — docs/plans/2026-08-12-v0.2-soak-checklist.md.
+[group('accept')]
+accept-sync *args: ensure-node-abi build-shared build-core build-daemon build-cli build-gui
+    node scripts/accept-sync.mjs {{args}}
+
 # Copy the nest to a throwaway directory (M4-14⑧). Refuses while a daemon is
 # running: an online backup freezes the database only, so songs/ and the config
 # would otherwise come from a different moment. Runs on the Node ABI.
