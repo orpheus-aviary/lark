@@ -123,6 +123,11 @@ export const TASK_ERROR_CODES = [
   'DOWNLOAD_COMMIT_FAILED',
   'DOWNLOAD_QUEUE_FULL',
   'FFMPEG_FAILED',
+  // Raised by the sync file-effect runtime, which no task calls today. They
+  // are here because `describeTaskError` passes ANY CodedError through
+  // verbatim — the registry closes over the classes, not over today's callers.
+  'FILE_OP_BUSY',
+  'FILE_OP_NOT_FOUND',
   'INTERNAL_ERROR',
   'INVALID_IMPORT_FILE',
   'INVALID_REUSE',

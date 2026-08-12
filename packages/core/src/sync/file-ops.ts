@@ -1,0 +1,689 @@
+// The file-effect journal and the runtime that drains it (v0.2 T1b, §3.6).
+//
+// A sync decision that implies a file change has a window a database cannot
+// close on its own: the row is committed, the process dies, and the file is
+// still there — or worse, already half gone. So every file consequence is
+// WRITTEN DOWN in the same transaction as the decision, and executed after.
+// Boot drains the journal before anything else looks at the song directories.
+//
+// Two rules shape the arg column:
+//
+//   The arg is a SNAPSHOT, taken while the deciding transaction still had the
+//   truth in front of it. By the time the executor runs, the row it would have
+//   consulted is deleted — so the executor never re-derives, never infers, and
+//   never guesses. It does what the arg says.
+//
+//   Ops for one song run in strict id order; different songs overtake freely.
+//   A song whose first op is failing must not hold up an unrelated song, and
+//   an op that lands out of order for the SAME song would undo its neighbour.
+
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
+import { mkdir, readdir, rename, rm, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
+import {
+  SYNC_FILE_OP_INLINE_MAX,
+  SYNC_FILE_OP_MAX_ATTEMPTS,
+  type SyncFileOpSummary,
+} from '@lark/shared';
+import type BetterSqlite3 from 'better-sqlite3';
+import { ClaimRegistry } from '../download/claims.js';
+import { FileOpBusyError, FileOpNotFoundError, SongBusyError } from '../errors.js';
+import { songAudioPath, songDirPath, songLyricsPath, writeLyrics } from '../library/lyrics.js';
+import type { Logger } from '../logger/index.js';
+import { recoveredSongsDir } from '../paths.js';
+import { recordDeadLetter } from './changes.js';
+
+export const FILE_OP_KINDS = [
+  'delete_song_files',
+  'quarantine_song_files',
+  'write_lyrics',
+  'delete_lyrics',
+] as const;
+export type FileOpKind = (typeof FILE_OP_KINDS)[number];
+
+/** Audio this device recorded as re-downloadable, or not, or no longer knew. */
+export type AudioOrigin = 'downloaded' | 'imported' | null;
+
+/**
+ * A local delete: this machine's own user asked for it, the files are already
+ * confirmed gone from the library, and the whole directory goes.
+ */
+export interface DeleteLocalArg {
+  op_uuid: string;
+  policy: 'local';
+}
+
+/**
+ * A delete that arrived from another device.
+ *
+ * `audio_origin` decides the audio: `downloaded` can be fetched again from
+ * `source_key`, so it is deleted; `imported` only ever existed here, so it is
+ * quarantined; `null` (a Go-migrated song with no source at all) is treated as
+ * irreplaceable — the conservative reading is the only safe one.
+ *
+ * `lyrics_disposition` is decided in the ENQUEUE transaction, not here (R4-3):
+ * lyrics this device has edited but not yet pushed exist in exactly one place,
+ * and the executor cannot tell that from a file's size or age.
+ */
+export interface DeleteRemoteArg {
+  op_uuid: string;
+  policy: 'remote';
+  audio_origin: AudioOrigin;
+  lyrics_disposition: 'delete' | 'quarantine';
+  /** Directory NAME under `recovered-songs/`, never an absolute path — a nest that moved must still resolve it. */
+  quarantine_target: string;
+}
+
+export interface QuarantineArg {
+  op_uuid: string;
+  quarantine_target: string;
+}
+
+export interface WriteLyricsArg {
+  op_uuid: string;
+  /**
+   * The LRC itself. Always inline in v0.2: the emit guard (240KB for a whole
+   * change) sits below the payload validator's 256KB cap on `lrc`, so no
+   * conforming peer can send lyrics that do not fit in a journal row.
+   */
+  inline: string;
+}
+
+export interface DeleteLyricsArg {
+  op_uuid: string;
+}
+
+export type FileOpArg =
+  | DeleteLocalArg
+  | DeleteRemoteArg
+  | QuarantineArg
+  | WriteLyricsArg
+  | DeleteLyricsArg;
+
+interface FileOpRow {
+  id: number;
+  kind: string;
+  song_id: string;
+  arg: string | null;
+  created_at: number;
+  attempts: number;
+  last_error: string | null;
+  next_retry_at: number | null;
+}
+
+// ─── Enqueue (runs inside the deciding transaction) ─────
+
+function insertOp(
+  sqlite: BetterSqlite3.Database,
+  kind: FileOpKind,
+  songId: string,
+  arg: FileOpArg,
+  nowMs: number,
+): number {
+  const info = sqlite
+    .prepare(
+      `INSERT INTO sync_file_ops (kind, song_id, arg, created_at)
+       VALUES (?, ?, ?, ?)`,
+    )
+    .run(kind, songId, JSON.stringify(arg), nowMs);
+  return Number(info.lastInsertRowid);
+}
+
+/** `quarantine_target` for a song: stable per op, so a replay lands in the same place. */
+function quarantineName(songId: string, opUuid: string): string {
+  return `${songId}-${opUuid}`;
+}
+
+/** This device deleted the song. Everything under `songs/<id>/` goes. */
+export function enqueueLocalDelete(
+  sqlite: BetterSqlite3.Database,
+  songId: string,
+  nowMs: number = Date.now(),
+): number {
+  return insertOp(
+    sqlite,
+    'delete_song_files',
+    songId,
+    { op_uuid: randomUUID(), policy: 'local' },
+    nowMs,
+  );
+}
+
+/**
+ * A peer deleted the song. Snapshot everything the executor will need, INCLUDING
+ * whether the lyrics are still only here.
+ */
+export function enqueueRemoteDelete(
+  sqlite: BetterSqlite3.Database,
+  songId: string,
+  audioOrigin: AudioOrigin,
+  nowMs: number = Date.now(),
+): number {
+  const opUuid = randomUUID();
+  const arg: DeleteRemoteArg = {
+    op_uuid: opUuid,
+    policy: 'remote',
+    audio_origin: audioOrigin,
+    lyrics_disposition: lyricsAreOnlyHere(sqlite, songId) ? 'quarantine' : 'delete',
+    quarantine_target: quarantineName(songId, opUuid),
+  };
+  return insertOp(sqlite, 'delete_song_files', songId, arg, nowMs);
+}
+
+/**
+ * Are this song's lyrics unpublished work?
+ *
+ * True when a lyrics change for it is still in the outbox, or when one was
+ * archived as an outbound dead letter (too large to ever push). Either way the
+ * file on disk is the only copy in the world, and a remote delete must not be
+ * what destroys it — the pull-first window makes this a real sequence, not a
+ * theoretical one.
+ */
+function lyricsAreOnlyHere(sqlite: BetterSqlite3.Database, songId: string): boolean {
+  const pending = sqlite
+    .prepare(
+      `SELECT 1 FROM sync_changes
+       WHERE entity_type='song' AND entity_id=? AND op IN ('set_lyrics','clear_lyrics')
+         AND synced_at IS NULL
+       LIMIT 1`,
+    )
+    .get(songId);
+  if (pending !== undefined) return true;
+
+  const deadLettered = sqlite
+    .prepare(
+      `SELECT 1 FROM sync_dead_letters
+       WHERE direction='out' AND entity_type='song' AND entity_id=?
+         AND op IN ('set_lyrics','clear_lyrics')
+       LIMIT 1`,
+    )
+    .get(songId);
+  return deadLettered !== undefined;
+}
+
+/** Move the whole song directory aside without deleting anything. */
+export function enqueueQuarantine(
+  sqlite: BetterSqlite3.Database,
+  songId: string,
+  nowMs: number = Date.now(),
+): number {
+  const opUuid = randomUUID();
+  return insertOp(
+    sqlite,
+    'quarantine_song_files',
+    songId,
+    { op_uuid: opUuid, quarantine_target: quarantineName(songId, opUuid) },
+    nowMs,
+  );
+}
+
+/** Land lyrics that arrived from a peer. Blank content means "no lyrics". */
+export function enqueueWriteLyrics(
+  sqlite: BetterSqlite3.Database,
+  songId: string,
+  lrc: string,
+  nowMs: number = Date.now(),
+): number {
+  if (lrc.length > SYNC_FILE_OP_INLINE_MAX) {
+    throw new Error(
+      `lyrics for ${songId} are ${lrc.length} chars, over the ${SYNC_FILE_OP_INLINE_MAX} inline limit`,
+    );
+  }
+  return insertOp(sqlite, 'write_lyrics', songId, { op_uuid: randomUUID(), inline: lrc }, nowMs);
+}
+
+export function enqueueDeleteLyrics(
+  sqlite: BetterSqlite3.Database,
+  songId: string,
+  nowMs: number = Date.now(),
+): number {
+  return insertOp(sqlite, 'delete_lyrics', songId, { op_uuid: randomUUID() }, nowMs);
+}
+
+// ─── Reading the journal ───────────────────────────────
+
+export interface FileOpCounts {
+  /** Rows still eligible to run on their own. */
+  pending: number;
+  /** Rows that gave up and are waiting for the user (attempts >= the cap). */
+  failed: number;
+  lastError: string | null;
+}
+
+export function countFileOps(sqlite: BetterSqlite3.Database): FileOpCounts {
+  const row = sqlite
+    .prepare(
+      `SELECT
+         sum(CASE WHEN attempts < ? THEN 1 ELSE 0 END) AS pending,
+         sum(CASE WHEN attempts >= ? THEN 1 ELSE 0 END) AS failed
+       FROM sync_file_ops`,
+    )
+    .get(SYNC_FILE_OP_MAX_ATTEMPTS, SYNC_FILE_OP_MAX_ATTEMPTS) as {
+    pending: number | null;
+    failed: number | null;
+  };
+  const last = sqlite
+    .prepare(
+      'SELECT last_error FROM sync_file_ops WHERE last_error IS NOT NULL ORDER BY id DESC LIMIT 1',
+    )
+    .get() as { last_error: string } | undefined;
+  return {
+    pending: row.pending ?? 0,
+    failed: row.failed ?? 0,
+    lastError: last?.last_error ?? null,
+  };
+}
+
+/** Song directories parked in `recovered-songs/`. Survives restarts by construction. */
+export function countQuarantined(): number {
+  const dir = recoveredSongsDir();
+  if (!existsSync(dir)) return 0;
+  return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).length;
+}
+
+/**
+ * The redacted list behind `GET /sync/file-ops`.
+ *
+ * Inline lyrics become a size and a digest: the list exists so a caller can
+ * name an id for retry or discard, and shipping a song's whole lyric sheet
+ * through a status endpoint is not part of that.
+ */
+export function listFileOps(
+  sqlite: BetterSqlite3.Database,
+  state?: 'pending' | 'failed',
+): SyncFileOpSummary[] {
+  const where =
+    state === 'pending' ? 'WHERE attempts < ?' : state === 'failed' ? 'WHERE attempts >= ?' : '';
+  const stmt = sqlite.prepare(
+    `SELECT id, kind, song_id, arg, created_at, attempts, last_error, next_retry_at
+     FROM sync_file_ops ${where} ORDER BY id`,
+  );
+  const rows = (
+    state === undefined ? stmt.all() : stmt.all(SYNC_FILE_OP_MAX_ATTEMPTS)
+  ) as FileOpRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    kind: row.kind,
+    song_id: row.song_id,
+    attempts: row.attempts,
+    last_error: row.last_error,
+    next_retry_at: row.next_retry_at,
+    created_at: row.created_at,
+    inline: inlineDigest(row.arg),
+  }));
+}
+
+function inlineDigest(argJson: string | null): { size: number; sha256: string } | null {
+  const arg = parseArg(argJson);
+  if (arg === null || !('inline' in arg) || typeof arg.inline !== 'string') return null;
+  return {
+    size: Buffer.byteLength(arg.inline, 'utf8'),
+    sha256: createHash('sha256').update(arg.inline, 'utf8').digest('hex'),
+  };
+}
+
+function parseArg(argJson: string | null): Record<string, unknown> | null {
+  if (argJson === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(argJson);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── The runtime ───────────────────────────────────────
+
+export interface FileEffectRuntimeOptions {
+  sqlite: BetterSqlite3.Database;
+  /**
+   * The claim registry this process arbitrates song files with. The daemon
+   * passes ITS registry so a drain cannot run while a download is replacing
+   * the same song's audio; `--direct` and boot own the library alone and pass
+   * a fresh one.
+   */
+  claims?: ClaimRegistry;
+  /**
+   * Claim owner. A caller that ALREADY holds a claim for the song it just
+   * decided about passes its own owner, so the drain it triggers reuses that
+   * claim instead of blocking on itself (a registry owner never blocks itself).
+   */
+  owner?: string;
+  logger?: Logger;
+  nowMs?: () => number;
+}
+
+export interface DrainResult {
+  executed: number;
+  failed: number;
+  /** Ops left alone this round: busy song, backing off, or permanently failed. */
+  skipped: number;
+}
+
+/** Backoff per attempt, in ms. Past the last entry the op stops retrying itself. */
+const BACKOFF_MS = [5_000, 30_000, 120_000, 600_000, 1_800_000];
+
+export class FileEffectRuntime {
+  readonly #sqlite: BetterSqlite3.Database;
+  readonly #claims: ClaimRegistry;
+  readonly #owner: string;
+  readonly #logger?: Logger;
+  readonly #now: () => number;
+  #running: Promise<DrainResult> | null = null;
+
+  constructor(options: FileEffectRuntimeOptions) {
+    this.#sqlite = options.sqlite;
+    this.#claims = options.claims ?? new ClaimRegistry();
+    this.#owner = options.owner ?? `file-ops:${randomUUID()}`;
+    this.#logger = options.logger;
+    this.#now = options.nowMs ?? Date.now;
+  }
+
+  /** True while a drain is in flight — retry and discard refuse during one. */
+  get busy(): boolean {
+    return this.#running !== null;
+  }
+
+  /**
+   * Execute everything that is eligible right now.
+   *
+   * Concurrent callers share one pass rather than racing: a write route, the
+   * apply loop and the periodic sweep all trigger this, and two passes over
+   * the same rows would fight over the same claims.
+   */
+  drain(): Promise<DrainResult> {
+    if (this.#running !== null) return this.#running;
+    const run = this.#drainOnce().finally(() => {
+      this.#running = null;
+    });
+    this.#running = run;
+    return run;
+  }
+
+  /**
+   * Put failed rows back in play. Without an id: every permanently failed row.
+   *
+   * Resets the attempt count rather than nudging the backoff — the user is
+   * saying "I fixed the thing that was wrong", and starting over is what that
+   * means.
+   */
+  async retry(id?: number): Promise<DrainResult> {
+    this.#assertIdle('retry');
+    const now = this.#now();
+    if (id === undefined) {
+      this.#sqlite
+        .prepare(
+          'UPDATE sync_file_ops SET attempts = 0, next_retry_at = NULL, last_error = NULL WHERE attempts >= ?',
+        )
+        .run(SYNC_FILE_OP_MAX_ATTEMPTS);
+    } else {
+      const row = this.#readRow(id);
+      if (row === null) throw new FileOpNotFoundError(id);
+      this.#sqlite
+        .prepare(
+          'UPDATE sync_file_ops SET attempts = 0, next_retry_at = NULL, last_error = NULL WHERE id = ?',
+        )
+        .run(id);
+    }
+    this.#logger?.info({ id, at: now }, 'sync file ops requeued');
+    return this.drain();
+  }
+
+  /**
+   * Abandon one permanently failed op.
+   *
+   * Dangerous by nature — the file effect it describes will never happen — so
+   * it is per-row, it only accepts a row that has already given up, and the
+   * arg summary goes into the dead-letter archive before the row disappears.
+   * A discard nobody can audit later is just a deletion.
+   */
+  discard(id: number): void {
+    this.#assertIdle('discard');
+    const row = this.#readRow(id);
+    if (row === null) throw new FileOpNotFoundError(id);
+    if (row.attempts < SYNC_FILE_OP_MAX_ATTEMPTS) {
+      throw new FileOpBusyError(
+        `file op ${id} has not failed permanently yet (${row.attempts}/${SYNC_FILE_OP_MAX_ATTEMPTS} attempts) — retry it or wait`,
+      );
+    }
+
+    this.#sqlite.transaction(() => {
+      recordDeadLetter(this.#sqlite, {
+        direction: 'out',
+        reason: 'file_op_discarded',
+        entityType: 'song',
+        entityId: row.song_id,
+        op: row.kind,
+        payload: JSON.stringify({
+          kind: row.kind,
+          song_id: row.song_id,
+          attempts: row.attempts,
+          last_error: row.last_error,
+          created_at: row.created_at,
+          inline: inlineDigest(row.arg),
+        }),
+        nowMs: this.#now(),
+      });
+      this.#sqlite.prepare('DELETE FROM sync_file_ops WHERE id = ?').run(id);
+    })();
+  }
+
+  #assertIdle(action: string): void {
+    if (this.#running !== null) {
+      throw new FileOpBusyError(`cannot ${action} while file ops are executing — try again`);
+    }
+  }
+
+  #readRow(id: number): FileOpRow | null {
+    return (
+      (this.#sqlite.prepare('SELECT * FROM sync_file_ops WHERE id = ?').get(id) as
+        | FileOpRow
+        | undefined) ?? null
+    );
+  }
+
+  async #drainOnce(): Promise<DrainResult> {
+    const result: DrainResult = { executed: 0, failed: 0, skipped: 0 };
+    const rows = this.#sqlite
+      .prepare('SELECT * FROM sync_file_ops ORDER BY id')
+      .all() as FileOpRow[];
+    if (rows.length === 0) return result;
+
+    const now = this.#now();
+    /** Songs whose queue is blocked this round: a failure, a backoff, or a busy claim. */
+    const stalled = new Set<string>();
+
+    for (const row of rows) {
+      if (stalled.has(row.song_id)) {
+        result.skipped += 1;
+        continue;
+      }
+      if (row.attempts >= SYNC_FILE_OP_MAX_ATTEMPTS) {
+        // Waiting for a human. Everything behind it for this song waits too —
+        // the ops are ordered because they depend on each other.
+        stalled.add(row.song_id);
+        result.skipped += 1;
+        continue;
+      }
+      if (row.next_retry_at !== null && row.next_retry_at > now) {
+        stalled.add(row.song_id);
+        result.skipped += 1;
+        continue;
+      }
+
+      const claim = this.#tryClaim(row.song_id);
+      if (claim === null) {
+        stalled.add(row.song_id);
+        result.skipped += 1;
+        continue;
+      }
+
+      try {
+        await executeFileOp(row);
+        this.#sqlite.prepare('DELETE FROM sync_file_ops WHERE id = ?').run(row.id);
+        result.executed += 1;
+      } catch (err) {
+        this.#recordFailure(row, err);
+        stalled.add(row.song_id);
+        result.failed += 1;
+      } finally {
+        claim.release();
+      }
+    }
+
+    return result;
+  }
+
+  #tryClaim(songId: string): { release: () => void } | null {
+    try {
+      const token = this.#claims.acquire(songId, 'exclusive', this.#owner);
+      return { release: () => this.#claims.release(token) };
+    } catch (err) {
+      if (err instanceof SongBusyError) return null;
+      throw err;
+    }
+  }
+
+  #recordFailure(row: FileOpRow, err: unknown): void {
+    const attempts = row.attempts + 1;
+    const message = err instanceof Error ? err.message : String(err);
+    const backoff = BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1];
+    const nextRetryAt = attempts >= SYNC_FILE_OP_MAX_ATTEMPTS ? null : this.#now() + backoff;
+    this.#sqlite
+      .prepare(
+        'UPDATE sync_file_ops SET attempts = ?, last_error = ?, next_retry_at = ? WHERE id = ?',
+      )
+      .run(attempts, message.slice(0, 500), nextRetryAt, row.id);
+    this.#logger?.warn(
+      { op_id: row.id, kind: row.kind, song_id: row.song_id, attempts, err: message },
+      attempts >= SYNC_FILE_OP_MAX_ATTEMPTS
+        ? 'sync file op failed permanently — waiting for retry or discard'
+        : 'sync file op failed, will retry',
+    );
+  }
+}
+
+// ─── Execution (idempotent by construction) ────────────
+
+async function executeFileOp(row: FileOpRow): Promise<void> {
+  const arg = parseArg(row.arg);
+  if (arg === null) throw new Error(`file op ${row.id} has an unreadable arg`);
+
+  switch (row.kind) {
+    case 'delete_song_files':
+      return arg.policy === 'remote'
+        ? deleteRemote(row.song_id, arg as unknown as DeleteRemoteArg)
+        : rm(songDirPath(row.song_id), { recursive: true, force: true });
+    case 'quarantine_song_files':
+      return quarantineDir(row.song_id, String(arg.quarantine_target));
+    case 'write_lyrics':
+      return landLyrics(row.song_id, typeof arg.inline === 'string' ? arg.inline : '');
+    case 'delete_lyrics':
+      await unlink(songLyricsPath(row.song_id)).catch(ignoreMissing);
+      return;
+    default:
+      throw new Error(`file op ${row.id} has kind '${row.kind}', which this build cannot execute`);
+  }
+}
+
+function ignoreMissing(err: NodeJS.ErrnoException): void {
+  if (err.code !== 'ENOENT') throw err;
+}
+
+/**
+ * Apply a peer's delete to this device's files.
+ *
+ * Replaceable audio goes; irreplaceable audio and unpublished lyrics move to
+ * `recovered-songs/`. The song directory itself is removed only once whatever
+ * had to survive is out of it — and a rerun after a crash finds nothing left
+ * to do rather than a half-state, because every step tolerates having already
+ * happened.
+ */
+async function deleteRemote(songId: string, arg: DeleteRemoteArg): Promise<void> {
+  const dir = songDirPath(songId);
+  if (!existsSync(dir)) return;
+
+  const keepAudio = arg.audio_origin !== 'downloaded';
+  const keepLyrics = arg.lyrics_disposition === 'quarantine';
+
+  if (keepAudio && existsSync(songAudioPath(songId))) {
+    await moveInto(songAudioPath(songId), arg.quarantine_target, 'song.mp3');
+  } else {
+    await unlink(songAudioPath(songId)).catch(ignoreMissing);
+  }
+
+  if (keepLyrics && existsSync(songLyricsPath(songId))) {
+    await moveInto(songLyricsPath(songId), arg.quarantine_target, 'lyrics.lrc');
+  } else {
+    await unlink(songLyricsPath(songId)).catch(ignoreMissing);
+  }
+
+  // Anything else in there (a stray temp file) is ours and unreferenced.
+  await rm(dir, { recursive: true, force: true });
+}
+
+async function moveInto(from: string, targetName: string, fileName: string): Promise<void> {
+  const target = join(recoveredSongsDir(), targetName);
+  await mkdir(target, { recursive: true });
+  await rename(from, join(target, fileName));
+}
+
+/** Move the whole directory aside. A target that already exists means a rerun. */
+async function quarantineDir(songId: string, targetName: string): Promise<void> {
+  const dir = songDirPath(songId);
+  const target = join(recoveredSongsDir(), targetName);
+  if (!existsSync(dir)) return;
+  if (existsSync(target)) {
+    // The move already happened and the crash was after it; drop whatever is
+    // left behind rather than merging two directories.
+    await rm(dir, { recursive: true, force: true });
+    return;
+  }
+  await mkdir(recoveredSongsDir(), { recursive: true });
+  await rename(dir, target);
+}
+
+/**
+ * Write lyrics a peer sent. An empty document is the absence of lyrics, not a
+ * zero-byte file — `readLyrics` reports "no lyrics" by the file not being
+ * there, so writing one would be a lie that also fails the writer's own check.
+ */
+async function landLyrics(songId: string, lrc: string): Promise<void> {
+  if (lrc.trim() === '') {
+    await unlink(songLyricsPath(songId)).catch(ignoreMissing);
+    return;
+  }
+  await writeLyrics(songId, lrc);
+}
+
+/**
+ * Drop `recovered-songs/` entries that are empty, e.g. a quarantine that
+ * created its target and then crashed before the move. Boot calls this; it
+ * never touches a directory with files in it.
+ */
+export async function pruneEmptyQuarantines(): Promise<number> {
+  const root = recoveredSongsDir();
+  if (!existsSync(root)) return 0;
+  let removed = 0;
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = join(root, entry.name);
+    if ((await readdir(dir)).length === 0) {
+      await rm(dir, { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+/** Song directories a pending op still refers to — boot recovery must not touch them. */
+export function pendingFileOpSongIds(sqlite: BetterSqlite3.Database): Set<string> {
+  const rows = sqlite.prepare('SELECT DISTINCT song_id FROM sync_file_ops').all() as {
+    song_id: string;
+  }[];
+  return new Set(rows.map((r) => r.song_id));
+}

@@ -68,6 +68,19 @@ export function trashDir(): string {
   return join(larkDir(), 'trash');
 }
 
+/**
+ * Where files rescued from a remote delete land: `lark/recovered-songs/`.
+ *
+ * Sync may tell this device that a song is gone. Its audio can be re-fetched
+ * from `source_key`, but an IMPORTED file cannot — it only ever existed here.
+ * So a remote delete moves what it cannot replace into this directory instead
+ * of unlinking it, and `/sync/status` keeps counting what is in here so the
+ * pile stays visible rather than becoming a surprise at backup time (§3.6).
+ */
+export function recoveredSongsDir(): string {
+  return join(larkDir(), 'recovered-songs');
+}
+
 /** Aviary shared config, the LLM fallback source: `aviary/aviary_config.toml` */
 export function aviaryConfigPath(): string {
   return join(nestDir(), 'aviary', 'aviary_config.toml');

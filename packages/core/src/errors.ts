@@ -482,3 +482,30 @@ export class InvalidReuseError extends CodedError {
     this.name = 'InvalidReuseError';
   }
 }
+
+// ─── sync file-effect journal (v0.2 §3.6) ──────────────
+
+/** The journal row named by a retry / discard request is not there. */
+export class FileOpNotFoundError extends CodedError {
+  readonly code = 'FILE_OP_NOT_FOUND';
+  constructor(id: number) {
+    super(`file op ${id} not found`);
+    this.name = 'FileOpNotFoundError';
+  }
+}
+
+/**
+ * A file op cannot be retried or discarded right now.
+ *
+ * Two cases, one answer: the runtime is executing (so the row's state is about
+ * to change under the caller), or the row has not failed permanently yet (so
+ * discarding it would abandon work that is still going to run). Both are "ask
+ * again later", never "this is impossible".
+ */
+export class FileOpBusyError extends CodedError {
+  readonly code = 'FILE_OP_BUSY';
+  constructor(message: string) {
+    super(message);
+    this.name = 'FileOpBusyError';
+  }
+}
