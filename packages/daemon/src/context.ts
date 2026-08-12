@@ -6,6 +6,7 @@ import type { EvictionScheduler, SongLeaseRegistry } from './cache.js';
 import type { EventsBus } from './events/bus.js';
 import type { GuiChannel } from './events/gui-channel.js';
 import type { PlayerRuntime } from './player-runtime.js';
+import type { SyncRuntime } from './sync/runtime.js';
 import { DAEMON_VERSION } from './version.js';
 
 /** Loopback only. The daemon is a local service; nothing binds a public NIC. */
@@ -94,6 +95,15 @@ export interface AppContext {
    * Everything that spawns ffmpeg or ffprobe goes through this.
    */
   mediaTools: MediaToolsProvider;
+  /**
+   * The skybridge session and everything serialized around it (v0.2 §3.11).
+   *
+   * Always present, even on an install that has never logged in: "there is no
+   * session" is a state this object reports, not an absence a caller has to
+   * guess at. It owns the epoch and the lifecycle mutex, so login, logout, a
+   * token refresh and unbind cannot interleave.
+   */
+  sync: SyncRuntime;
   /**
    * Aborted when the daemon starts stopping (M3-13).
    *

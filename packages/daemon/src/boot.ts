@@ -75,6 +75,8 @@ import { generateLocalToken, publishLocalToken } from './local-token.js';
 import { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 import { PlayerRuntime } from './player-runtime.js';
 import { buildServer } from './server.js';
+import { withSyncRuntime } from './sync/runtime.js';
+import { restoreSession } from './sync/session.js';
 
 export interface BootOptions {
   /** Resolve the daemon config. Defaults to core's `loadConfig()`. */
@@ -427,35 +429,51 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       },
     });
 
-    ctx = withEvictionScheduler({
-      ...CONTEXT_DEFAULTS,
-      config,
-      port,
-      configPath: paths.configPath(),
-      requestFatal: (err: unknown) => {
-        // Idempotent AND non-waiting (M2-1 ①): the caller is usually a route
-        // that still has to send its 500. Teardown closes the server, which
-        // waits for that request — so it must not start until the caller has
-        // returned. Hence `setImmediate`, and never `await`.
-        if (!beginStop('fatal')) return;
-        logger.error({ err }, 'fatal daemon error — shutting down');
-        setImmediate(() => void finishStop());
+    ctx = withSyncRuntime(
+      withEvictionScheduler({
+        ...CONTEXT_DEFAULTS,
+        config,
+        port,
+        configPath: paths.configPath(),
+        requestFatal: (err: unknown) => {
+          // Idempotent AND non-waiting (M2-1 ①): the caller is usually a route
+          // that still has to send its 500. Teardown closes the server, which
+          // waits for that request — so it must not start until the caller has
+          // returned. Hence `setImmediate`, and never `await`.
+          if (!beginStop('fatal')) return;
+          logger.error({ err }, 'fatal daemon error — shutting down');
+          setImmediate(() => void finishStop());
+        },
+        logger,
+        db,
+        sqlite,
+        localToken: generateLocalToken(), // memory only until listen() succeeds
+        eventsBus,
+        guiChannel: new GuiChannel(),
+        player: new PlayerRuntime(),
+        audioStreams: new AudioStreamRegistry(),
+        cacheLeases: new SongLeaseRegistry(),
+        downloads,
+        bilibili,
+        mediaTools,
+        shutdownSignal: shutdownController.signal,
+        ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
+      }),
+    );
+
+    // Offline by construction: it reads the credential file and the binding
+    // row, and makes no request. A daemon must come up in the same state with
+    // or without a network, and it is the first ROUND that discovers a token
+    // the server no longer honours.
+    const restored = restoreSession(ctx);
+    logger.info(
+      {
+        installed: restored.installed,
+        reason: restored.installed ? null : restored.reason,
       },
-      logger,
-      db,
-      sqlite,
-      localToken: generateLocalToken(), // memory only until listen() succeeds
-      eventsBus,
-      guiChannel: new GuiChannel(),
-      player: new PlayerRuntime(),
-      audioStreams: new AudioStreamRegistry(),
-      cacheLeases: new SongLeaseRegistry(),
-      downloads,
-      bilibili,
-      mediaTools,
-      shutdownSignal: shutdownController.signal,
-      ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
-    });
+      'sync session restored',
+    );
+
     server = buildServer(ctx);
   } catch (err) {
     await abortBoot(err);

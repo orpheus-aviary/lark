@@ -285,12 +285,16 @@ export class EvictionScheduler {
  * scheduler through the context — so one of them has to be filled in after the
  * fact. Doing it here keeps the cast in one documented place instead of at
  * every construction site.
+ *
+ * `sync` is excluded from the input for the same reason `cacheScheduler` is:
+ * it is filled in by `withSyncRuntime` around this call, and neither completion
+ * helper can demand the other's field without making the pair uncallable.
  */
-export function withEvictionScheduler<T extends Omit<AppContext, 'cacheScheduler'>>(
+export function withEvictionScheduler<T extends Omit<AppContext, 'cacheScheduler' | 'sync'>>(
   ctx: T,
 ): T & { cacheScheduler: EvictionScheduler } {
-  const full = ctx as T & { cacheScheduler: EvictionScheduler };
-  full.cacheScheduler = new EvictionScheduler(full);
+  const full = ctx as unknown as T & { cacheScheduler: EvictionScheduler };
+  full.cacheScheduler = new EvictionScheduler(full as unknown as AppContext);
   return full;
 }
 

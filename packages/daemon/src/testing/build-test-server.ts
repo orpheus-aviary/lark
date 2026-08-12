@@ -35,6 +35,8 @@ import { EventsBus } from '../events/bus.js';
 import { GuiChannel, type GuiChannelOptions } from '../events/gui-channel.js';
 import { PlayerRuntime } from '../player-runtime.js';
 import { buildServer } from '../server.js';
+import type { SkybridgeApi } from '../sync/client.js';
+import { withSyncRuntime } from '../sync/runtime.js';
 
 /** Fixed token used by harness-built servers. */
 export const TEST_LOCAL_TOKEN = 'test-local-token-0123456789abcdef';
@@ -96,6 +98,12 @@ export interface TestContextOptions {
    * without ffmpeg answers.
    */
   mediaTools?: MediaToolsProvider;
+  /**
+   * The skybridge SDK surface (v0.2). Defaults to the real one, which is safe
+   * precisely because nothing calls it without a session — a test that wants a
+   * login passes a fake here.
+   */
+  skybridge?: SkybridgeApi;
 }
 
 export interface TestContext extends AppContext {
@@ -175,32 +183,35 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     ...options.engine,
   });
 
-  const ctx: TestContext = withEvictionScheduler({
-    ...CONTEXT_DEFAULTS,
-    config,
-    configPath: options.configPath,
-    saveConfigImpl: options.saveConfigImpl,
-    ackTimeoutMs: options.ackTimeoutMs ?? CONTEXT_DEFAULTS.ackTimeoutMs,
-    requestFatal: (err: unknown) => {
-      fatals.push(err);
-    },
-    logger: createRecordingLogger(),
-    db,
-    sqlite,
-    localToken: TEST_LOCAL_TOKEN,
-    eventsBus,
-    guiChannel: new GuiChannel(options.guiChannel),
-    player: new PlayerRuntime(),
-    audioStreams: new AudioStreamRegistry(),
-    cacheLeases: new SongLeaseRegistry(options.cacheLeases),
-    downloads,
-    bilibili,
-    mediaTools,
-    shutdownSignal: shutdownController.signal,
-    ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
-    fatals,
-    shutdownController,
-  });
+  const ctx: TestContext = withSyncRuntime(
+    withEvictionScheduler({
+      ...CONTEXT_DEFAULTS,
+      config,
+      configPath: options.configPath,
+      saveConfigImpl: options.saveConfigImpl,
+      ackTimeoutMs: options.ackTimeoutMs ?? CONTEXT_DEFAULTS.ackTimeoutMs,
+      requestFatal: (err: unknown) => {
+        fatals.push(err);
+      },
+      logger: createRecordingLogger(),
+      db,
+      sqlite,
+      localToken: TEST_LOCAL_TOKEN,
+      eventsBus,
+      guiChannel: new GuiChannel(options.guiChannel),
+      player: new PlayerRuntime(),
+      audioStreams: new AudioStreamRegistry(),
+      cacheLeases: new SongLeaseRegistry(options.cacheLeases),
+      downloads,
+      bilibili,
+      mediaTools,
+      shutdownSignal: shutdownController.signal,
+      ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
+      fatals,
+      shutdownController,
+    }),
+    options.skybridge === undefined ? {} : { api: options.skybridge },
+  );
   return ctx;
 }
 
