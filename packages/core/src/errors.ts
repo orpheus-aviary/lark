@@ -247,6 +247,32 @@ export class SourceKeyConflictError extends Error {
   }
 }
 
+/**
+ * An emit would have produced a change too large to push (§3.9).
+ *
+ * Raised at EMIT time, never at push time: a change the server would refuse
+ * must not enter the outbox at all, or it parks at the head of the queue and
+ * nothing behind it ever syncs again. Only lyrics can realistically hit it,
+ * and that path catches this and records an outbound dead letter instead —
+ * the song stays correct locally and stops being a sync convergence point.
+ */
+export class SyncChangeTooLargeError extends Error {
+  readonly entityType: string;
+  readonly entityId: string;
+  readonly op: string;
+  readonly bytes: number;
+  readonly limit: number;
+  constructor(entityType: string, entityId: string, op: string, bytes: number, limit: number) {
+    super(`${entityType}.${op} change is ${bytes} bytes, over the ${limit} byte sync limit`);
+    this.name = 'SyncChangeTooLargeError';
+    this.entityType = entityType;
+    this.entityId = entityId;
+    this.op = op;
+    this.bytes = bytes;
+    this.limit = limit;
+  }
+}
+
 // ─── Download pipeline errors (M3-11) ──────────────────
 //
 // These carry their own wire `code`, so a failing task and a failing HTTP
