@@ -12,11 +12,12 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { formatRelativeTime } from '../lib/format.js';
-import { authReasonLabel, fileOpKindLabel, syncBadgeView } from '../lib/sync-labels.js';
+import { authReasonLabel, syncBadgeView } from '../lib/sync-labels.js';
 import type { SyncTone } from '../lib/sync-labels.js';
 import { useSettingsUi } from '../stores/settings-ui.js';
 import { useSync } from '../stores/sync.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
+import { DISCARD_FILE_OP_DESCRIPTION, SyncFileOpsList } from './SyncFileOpsList.js';
 import { Button } from './ui/button.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
 
@@ -33,71 +34,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
     <div className="flex items-baseline justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
       <span className="tabular-nums">{children}</span>
-    </div>
-  );
-}
-
-/**
- * The rows that gave up. Both exits are here on purpose: retry is the cheap
- * one and is offered first, discard destroys the file effect for good and is
- * confirmed against a sentence that says what will never happen now.
- */
-function FileOpsBlock({ onDiscard }: { onDiscard: (id: number) => void }): React.JSX.Element {
-  const ops = useSync((s) => s.failedFileOps);
-  const retryFileOps = useSync((s) => s.retryFileOps);
-  const [busy, setBusy] = useState(false);
-
-  const retry = async (id?: number): Promise<void> => {
-    setBusy(true);
-    try {
-      const result = await retryFileOps(id);
-      if (result.failed > 0) toast.error(`重试后仍有 ${result.failed} 项失败`);
-      else toast.success(`已执行 ${result.executed} 项文件操作`);
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-destructive">文件操作失败 {ops.length}</span>
-        <Button size="sm" variant="secondary" disabled={busy} onClick={() => void retry()}>
-          全部重试
-        </Button>
-      </div>
-      <ul className="space-y-2">
-        {ops.map((op) => (
-          <li key={op.id} className="space-y-1 rounded-md border border-border p-2">
-            <p>
-              {fileOpKindLabel(op)} · 已试 {op.attempts} 次
-            </p>
-            {op.last_error !== null && <p className="text-destructive">{op.last_error}</p>}
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busy}
-                aria-label={`重试文件操作 #${op.id}`}
-                onClick={() => void retry(op.id)}
-              >
-                重试
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-destructive"
-                aria-label={`放弃文件操作 #${op.id}`}
-                onClick={() => onDiscard(op.id)}
-              >
-                放弃
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
@@ -218,7 +154,7 @@ export function SyncBadge(): React.JSX.Element {
                 )}
 
                 {status.file_op_failures > 0 && (
-                  <FileOpsBlock
+                  <SyncFileOpsList
                     onDiscard={(id) => {
                       // The confirmation is a Dialog, and a Dialog opened from
                       // inside a Popover fights it for focus — TopBar settled
@@ -275,7 +211,7 @@ export function SyncBadge(): React.JSX.Element {
       <ConfirmDialog
         open={pendingDiscard !== null}
         title="放弃文件操作"
-        description="放弃后这次文件操作永远不会执行：该删的文件会留下、该写的歌词不会写入，只在日志里留一条记录。确定吗？"
+        description={DISCARD_FILE_OP_DESCRIPTION}
         confirmLabel="放弃"
         destructive
         onConfirm={() => void confirmDiscard()}

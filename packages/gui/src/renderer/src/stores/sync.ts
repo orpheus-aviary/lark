@@ -20,19 +20,27 @@
 
 import type {
   ConflictCountData,
+  SyncDeviceData,
+  SyncDevicesData,
   SyncFileOpRunData,
   SyncFileOpSummary,
   SyncFileOpsData,
+  SyncLoginRequest,
+  SyncLoginResultData,
+  SyncLogoutResultData,
+  SyncRevokeDeviceRequest,
   SyncRunResultData,
   SyncStatusData,
 } from '@lark/shared';
 import { API_PATHS, request } from '@lark/shared';
 import { create } from 'zustand';
+import { errorMessage } from '../lib/errors.js';
 import { createLane } from '../lib/lanes.js';
 
 const statusLane = createLane();
 const conflictsLane = createLane();
 const fileOpsLane = createLane();
+const devicesLane = createLane();
 
 interface SyncState {
   /** `null` until the first answer — "unknown", never rendered as "off". */
@@ -45,6 +53,15 @@ interface SyncState {
   failedFileOps: readonly SyncFileOpSummary[];
   /** True while a manual round is in flight — the button must not re-arm. */
   running: boolean;
+  /**
+   * The account's devices. Unlike everything else here this is a REMOTE read
+   * (the daemon proxies it to skybridge), so it is fetched only when the sync
+   * settings are on screen, and its failure is reported next to the list
+   * rather than as a toast — an offline laptop is not an error the user asked
+   * for.
+   */
+  devices: readonly SyncDeviceData[];
+  devicesError: string | null;
   refresh: () => void;
   refreshConflicts: () => void;
   /** Adopt the count off a `conflicts:changed` frame. */
@@ -56,6 +73,11 @@ interface SyncState {
   retryFileOps: (id?: number) => Promise<SyncFileOpRunData>;
   /** Abandon one permanently-failed op. Destructive: confirm before calling. */
   discardFileOp: (id: number) => Promise<void>;
+  refreshDevices: () => void;
+  /** The whole install sequence, daemon-side. Throws — the form shows why. */
+  login: (body: SyncLoginRequest) => Promise<SyncLoginResultData>;
+  logout: () => Promise<SyncLogoutResultData>;
+  revokeDevice: (deviceId: string) => Promise<void>;
 }
 
 export const useSync = create<SyncState>((set, get) => ({
@@ -63,6 +85,8 @@ export const useSync = create<SyncState>((set, get) => ({
   conflicts: 0,
   failedFileOps: [],
   running: false,
+  devices: [],
+  devicesError: null,
 
   refresh: () => {
     void statusLane
@@ -138,5 +162,49 @@ export const useSync = create<SyncState>((set, get) => ({
     await request('POST', API_PATHS.syncFileOpsDiscard, { id });
     get().refresh();
     get().refreshFileOps();
+  },
+
+  refreshDevices: () => {
+    void devicesLane
+      .run((signal) =>
+        request<SyncDevicesData>('GET', API_PATHS.syncDevices, undefined, { signal }),
+      )
+      .then((envelope) => {
+        if (envelope === null) return;
+        if (envelope.data) set({ devices: envelope.data.devices, devicesError: null });
+      })
+      .catch((err: unknown) => {
+        // Kept, not swallowed: "the device list is empty" and "we could not
+        // ask" look identical on screen otherwise, and only one of them means
+        // this machine is the only device.
+        set({ devices: [], devicesError: errorMessage(err) });
+      });
+  },
+
+  login: async (body) => {
+    const envelope = await request<SyncLoginResultData>('POST', API_PATHS.syncLogin, body);
+    get().refresh();
+    get().refreshConflicts();
+    get().refreshDevices();
+    return envelope.data as SyncLoginResultData;
+  },
+
+  logout: async () => {
+    const envelope = await request<SyncLogoutResultData>('POST', API_PATHS.syncLogout);
+    // The binding, the cursor and the outbox all survive a logout (§3.7) — the
+    // only thing that changed is that nothing can be sent until the next login.
+    set({ devices: [], devicesError: null });
+    get().refresh();
+    return envelope.data as SyncLogoutResultData;
+  },
+
+  revokeDevice: async (deviceId) => {
+    await request('POST', API_PATHS.syncRevokeDevice, {
+      device_id: deviceId,
+    } satisfies SyncRevokeDeviceRequest);
+    get().refreshDevices();
+    // Revoking THIS device ends the session on the next round, so the status
+    // is worth re-reading even though the call was about a device.
+    get().refresh();
   },
 }));
