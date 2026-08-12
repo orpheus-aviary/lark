@@ -107,6 +107,21 @@ describe('rows', () => {
     );
   });
 
+  // D8: sync keeps both songs when two devices add the same video, so the list
+  // has to say WHICH rows the badge's "重复 N" is talking about.
+  it('marks every row of a group that shares a source key', () => {
+    useLibrary.setState({
+      songs: [
+        song({ id: 'song-1', name: '一份', source_provider: 'bilibili', source_key: 'BV1:1' }),
+        song({ id: 'song-2', name: '另一份', source_provider: 'bilibili', source_key: 'BV1:1' }),
+        song({ id: 'song-3', name: '独一份', source_provider: 'bilibili', source_key: 'BV2:1' }),
+      ],
+    });
+    renderList();
+
+    expect(screen.getAllByText('[重复]')).toHaveLength(2);
+  });
+
   // The link three plus pin and redownload (M5-10), in the D8 slot.
   it('greys out copy/open for a song with no link, and offers them with one', async () => {
     useLibrary.setState({

@@ -395,6 +395,12 @@ export interface SongRowProps {
   isSelected: boolean;
   isCurrent: boolean;
   /**
+   * This song shares its `(provider, key)` with another visible row (D8). Sync
+   * keeps both rather than guessing which to merge, so the marker is how the
+   * user finds the pair to clean up.
+   */
+  isDuplicate: boolean;
+  /**
    * Playlist this row can be removed FROM, or `null` when the view is not a
    * member list — the virtual `all` and search results both qualify (§4.1).
    */
@@ -419,6 +425,7 @@ export function SongRow({
   columns,
   isSelected,
   isCurrent,
+  isDuplicate,
   removableFrom,
   onPlay,
   onRequestDelete,
@@ -499,6 +506,14 @@ export function SongRow({
                   {song.name}
                   {!song.has_file && (
                     <span className="ml-1 text-destructive text-xs">[需要下载]</span>
+                  )}
+                  {isDuplicate && (
+                    <span
+                      className="ml-1 text-muted-foreground text-xs"
+                      title="与另一首歌来源相同（同步保留了两首，删掉多余的一首即可）"
+                    >
+                      [重复]
+                    </span>
                   )}
                 </>
               }

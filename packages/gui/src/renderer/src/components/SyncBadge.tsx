@@ -17,6 +17,7 @@ import type { SyncTone } from '../lib/sync-labels.js';
 import { useSettingsUi } from '../stores/settings-ui.js';
 import { useSync } from '../stores/sync.js';
 import { ConfirmDialog } from './ConfirmDialog.js';
+import { ConflictsDialog } from './ConflictsDialog.js';
 import { DISCARD_FILE_OP_DESCRIPTION, SyncFileOpsList } from './SyncFileOpsList.js';
 import { Button } from './ui/button.js';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js';
@@ -51,6 +52,7 @@ export function SyncBadge(): React.JSX.Element {
 
   const [open, setOpen] = useState(false);
   const [pendingDiscard, setPendingDiscard] = useState<number | null>(null);
+  const [conflictsOpen, setConflictsOpen] = useState(false);
 
   const view = syncBadgeView(status, conflicts);
   const needsLogin = status !== null && (!status.configured || status.state === 'auth_required');
@@ -150,7 +152,21 @@ export function SyncBadge(): React.JSX.Element {
                 )}
 
                 {conflicts > 0 && (
-                  <p className="text-destructive">有 {conflicts} 处冲突等待处理。</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-destructive">有 {conflicts} 处冲突等待处理。</span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        // Same reason as the discard confirmation: a Dialog
+                        // opened from inside a Popover fights it for focus.
+                        setOpen(false);
+                        setConflictsOpen(true);
+                      }}
+                    >
+                      查看
+                    </Button>
+                  </div>
                 )}
 
                 {status.file_op_failures > 0 && (
@@ -207,6 +223,8 @@ export function SyncBadge(): React.JSX.Element {
           </div>
         </PopoverContent>
       </Popover>
+
+      <ConflictsDialog open={conflictsOpen} onClose={() => setConflictsOpen(false)} />
 
       <ConfirmDialog
         open={pendingDiscard !== null}

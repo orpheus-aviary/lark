@@ -102,7 +102,15 @@
   - **backup 排除 `skybridge.toml` 从 T6 提前到 T3a**：凭证文件这一批就出现在 nest 里
   - **实测锁定**：`app.inject` 的返回类型含 `void`，包一层 helper 必须显式标返回类型（M3 的老坑，vitest 用 esbuild 不报、`tsc` build 才报）· 墓碑的 `device_id` 存的是 `''` 不是 NULL（LwwTriple 入口就归一化了），首次注册的重打戳三种写法都要收 · `lifecycle` 把函数排进微任务，测「谁先谁后」必须等被测函数**真的进去**再动手
   - **boot 冒烟**（临时 nest）：日志顺序 `sync file journal drained` → `songs store recovered` → `sync session restored` → `sync triggers started` → `daemon listening`；`/status` 报 `local_api_version: 5`；`/sync/status` 全字段就位；capabilities 65 条含 sync 九条 + conflicts 四条
-- [ ] T4 GUI（徽章 + popover + 设置页 + 冲突页）
+- [x] **T4 GUI**（2026-08-12）— 三批：**T4a** `stores/sync.ts` + 三个 sync SSE 事件接线 + StatusBar 徽章与 popover · **T4b** SettingsDialog 拆包 + `ui/tabs.tsx` + 同步 tab（登录/登出、设备与吊销、轮询间隔、file-ops）· **T4c** 冲突 Dialog（`expected_current` CAS）+ 列表「重复」标记 + CDP 冒烟。gui 测试 **378**（346 → +32），全仓 **2070**
+  - **形态三问用户拍板**：设置页加 Tabs（常规 / 同步，`radix-ui` 已在依赖里无新包）· 「列表同 key 标重复」纳入 T4（否则用户只看到「重复 2」却不知是哪两首）· 冲突页做独立 Dialog 从 popover 进（GUI 无路由，二级界面一律 Dialog）
+  - **T0 起 `just typecheck` 一直是红的**：`PublicLarkConfig` 加了 `sync` 段，gui 的两处 config fixture 没跟（`stores/config.test.ts` / `SettingsDialog.test.tsx`）——vitest 用 esbuild 不做类型检查，只有 `tsc -b` 会报，T4a 一并修
+  - **SettingsDialog 的 open 收进 store**（`stores/settings-ui.ts`）：popover 是第二个入口，「你还没登录」而没有按钮可点是死路；两个组件共享不了 `useState`
+  - **徽章的注意力计数 = 冲突 + 永久失败的 file op**：这两样只有人能清；隔离数 / 重复数 / dead-letter 是可见但不催办的信息，只在 popover 里列
+  - **file-ops 列表抽成共用组件**（`SyncFileOpsList`）：popover 与设置页都是遇到卡住文件操作的正当场所，两份「重试 / 放弃」等于两次把危险的那个写错的机会
+  - **冲突页只列有差异的字段**：差异本身就是被问的那个问题；`expected_current` 取记录里的 `remote_key`，409 `CONFLICT_VERSION_MISMATCH` → 提示「又被改过」并重拉列表，而不是报一句失败
+  - **重复标记按「当前视图」算**（`lib/duplicates.ts`）：跨歌单的一对由 `/sync/status` 计数与 T5 的 `lark songs --duplicates` 负责，`all` 视图下必然同时可见
+  - **CDP 冒烟 9/9**（全新空 nest + 真 daemon + build 产物）：未配置态徽章文案 → popover 说明与「去登录…」→ 打开设置 → 同步 tab 出登录表单 → 勾选明文 HTTP 后仍需二次确认 → 取消后零 `/sync/login` → 无 console error。**两处脚本坑**：Radix Tabs 的 trigger 不吃合成 `.click()`（激活在 `mousedown`，要补 mousedown/mouseup）· 按文本找按钮必须**精确匹配**——复选框 label 的文案里也有「登录」，`includes` 会点到 label，反而把刚勾上的跳闸开关又关掉（表现成「点了登录什么都没发生」）
 - [ ] T5 CLI（sync 七命令 + `songs --duplicates` + skill export）
 - [ ] T6 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0
 

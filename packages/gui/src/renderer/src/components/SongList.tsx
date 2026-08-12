@@ -5,6 +5,7 @@ import type { SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { duplicateSourceKeyIds } from '../lib/duplicates.js';
 import { errorMessage } from '../lib/errors.js';
 import { isAllSelected, isPartiallySelected } from '../lib/selection.js';
 import { sortSongs } from '../lib/song-sort.js';
@@ -206,6 +207,10 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
   const canReorder = removableFrom !== null && sort.field === 'default' && ordered.length > 1;
 
   const orderedIds = useMemo(() => ordered.map((song) => song.id), [ordered]);
+
+  // Marked per view, not per library: this is what the renderer can honestly
+  // know without a second query (D8 — see lib/duplicates).
+  const duplicates = useMemo(() => duplicateSourceKeyIds(songs), [songs]);
   const allSelected = isAllSelected(orderedIds, selectedIds);
   const someSelected = isPartiallySelected(orderedIds, selectedIds);
 
@@ -330,6 +335,7 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
                     columns,
                     isSelected: selectedIds.includes(song.id),
                     isCurrent: song.id === currentSongId,
+                    isDuplicate: duplicates.has(song.id),
                     removableFrom,
                     onPlay,
                     onRequestDelete: setPendingDelete,

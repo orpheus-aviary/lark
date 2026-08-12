@@ -20,6 +20,10 @@
 
 import type {
   ConflictCountData,
+  ConflictData,
+  ConflictListData,
+  ConflictResolveRequest,
+  LwwKey,
   SyncDeviceData,
   SyncDevicesData,
   SyncFileOpRunData,
@@ -32,7 +36,7 @@ import type {
   SyncRunResultData,
   SyncStatusData,
 } from '@lark/shared';
-import { API_PATHS, request } from '@lark/shared';
+import { API_PATHS, apiPath, request } from '@lark/shared';
 import { create } from 'zustand';
 import { errorMessage } from '../lib/errors.js';
 import { createLane } from '../lib/lanes.js';
@@ -41,6 +45,7 @@ const statusLane = createLane();
 const conflictsLane = createLane();
 const fileOpsLane = createLane();
 const devicesLane = createLane();
+const conflictListLane = createLane();
 
 interface SyncState {
   /** `null` until the first answer — "unknown", never rendered as "off". */
@@ -73,6 +78,24 @@ interface SyncState {
   retryFileOps: (id?: number) => Promise<SyncFileOpRunData>;
   /** Abandon one permanently-failed op. Destructive: confirm before calling. */
   discardFileOp: (id: number) => Promise<void>;
+  /**
+   * The conflict receipts themselves. Separate from `conflicts` (the count) on
+   * purpose: the badge asks for a number on every status change, and shipping
+   * every song's two payloads to answer "is there anything" would put the
+   * library on the wire once a second.
+   */
+  conflictList: readonly ConflictData[];
+  refreshConflictList: () => void;
+  /**
+   * Answer one conflict. `expected_current` is the remote winner's triple as
+   * the receipt recorded it — if a third device has written since, the daemon
+   * refuses (409) rather than letting a restore bury a change nobody saw.
+   */
+  resolveConflict: (
+    id: string,
+    strategy: ConflictResolveRequest['strategy'],
+    expectedCurrent: LwwKey,
+  ) => Promise<void>;
   refreshDevices: () => void;
   /** The whole install sequence, daemon-side. Throws — the form shows why. */
   login: (body: SyncLoginRequest) => Promise<SyncLoginResultData>;
@@ -87,6 +110,7 @@ export const useSync = create<SyncState>((set, get) => ({
   running: false,
   devices: [],
   devicesError: null,
+  conflictList: [],
 
   refresh: () => {
     void statusLane
@@ -162,6 +186,31 @@ export const useSync = create<SyncState>((set, get) => ({
     await request('POST', API_PATHS.syncFileOpsDiscard, { id });
     get().refresh();
     get().refreshFileOps();
+  },
+
+  refreshConflictList: () => {
+    void conflictListLane
+      .run((signal) => request<ConflictListData>('GET', API_PATHS.conflicts, undefined, { signal }))
+      .then((envelope) => {
+        if (envelope === null) return;
+        if (envelope.data) {
+          set({ conflictList: envelope.data.conflicts, conflicts: envelope.data.conflicts.length });
+        }
+      })
+      .catch(() => {
+        // The dialog says "正在读取…" rather than claiming there are none.
+      });
+  },
+
+  resolveConflict: async (id, strategy, expectedCurrent) => {
+    await request('POST', apiPath.conflictResolve(id), {
+      strategy,
+      expected_current: expectedCurrent,
+    } satisfies ConflictResolveRequest);
+    get().refreshConflictList();
+    // A `local` resolve wrote through the ordinary update path, so there is
+    // something to push now; the status carries the new pending count.
+    get().refresh();
   },
 
   refreshDevices: () => {

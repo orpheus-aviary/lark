@@ -31,11 +31,11 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 | T1 | core 基座（hlc/lww/tombstones/backfill/file-ops/emit 接线，四小批 a–d） | ✅ |
 | T2 | core engine（runSync / apply / conflicts CAS / retry / retention） | ✅ |
 | T3 | daemon（凭证与 binding / login 序列 / epoch / runner 与三触发器 / 路由 / boot drain，四小批 a–d） | ✅ |
-| T4 | GUI（徽章 + popover + 设置页 + 冲突页） | ⏳ 下一批 |
-| T5 | CLI（sync 七命令 + `songs --duplicates` + skill export） | ⏳ |
+| T4 | GUI（徽章 + popover + 设置页 Tabs + 冲突页 + 列表重复标记，三小批 a–c） | ✅ |
+| T5 | CLI（sync 七命令 + `songs --duplicates` + skill export） | ⏳ 下一批 |
 | T6 | 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0 | ⏳ |
 
-当前测试 **2038**（shared 79 / core 809 / cli 371 / daemon 433 / gui 346）。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段。
+当前测试 **2070**（shared 79 / core 809 / cli 371 / daemon 433 / gui 378）。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段。
 
 ⚠️ **真实曲库一旦被 v0.2 daemon 打开就升到 schema v2，已发布的 0.1.0 会拒绝打开它**（`user_version > LATEST`）。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。
 
@@ -219,6 +219,8 @@ lark/
 - **旧 session 在 install 事务之前拆**：回填与 rebase 重写未推送变更的 key，在途的一轮会推旧 key 而本地留新 key
 - **一轮里吃了 401 只能 `dropSession`**，不能 `teardownSession`——后者要等在途的轮，而在途的就是自己
 - **push-on-mutation 走轮询不走事件**：`emitSyncChange` 在调用方事务内（事件可能早于 COMMIT 或在回滚后存活），而挂事件总线又漏掉 backfill 与 conflict resolve 这两条只 emit 不发曲库事件的路径
+- **GUI 的两条口径（T4）**：徽章的「注意力计数」只算冲突与永久失败的 file op（只有人能清的两样），隔离/重复/dead-letter 只在 popover 里列；列表的「重复」标记按**当前视图**算，跨歌单的一对由 `/sync/status` 与 `lark songs --duplicates` 负责
+- **CDP 驱动 Radix Tabs 要补 `mousedown`**（激活不在 click 上），且按文本找按钮必须精确匹配——明文 HTTP 复选框的 label 文案里也有「登录」，`includes` 会点到 label 把跳闸开关关掉
 - **`lifecycle` mutex 把函数排进微任务**：测「登出插在 refresh 中间」必须等被测函数**真的进去**再动手，否则测到的是排队而不是交错
 
 ## Commit 规范
