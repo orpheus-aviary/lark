@@ -123,6 +123,8 @@ export const TASK_ERROR_CODES = [
   'AMBIGUOUS_SOURCE_KEY',
   'BILIBILI_FAILED',
   'BILIBILI_RISK_CONTROL',
+  // Raised when a conflict resolve loses its race, which no task calls today.
+  'CONFLICT_VERSION_MISMATCH',
   'DOWNLOAD_COMMIT_FAILED',
   'DOWNLOAD_QUEUE_FULL',
   'FFMPEG_FAILED',

@@ -18,13 +18,18 @@ export * from './db/migrate-go.js';
 export * from './db/probe-go.js';
 // sync (v0.2). The engine and apply land in T2; these are what the write
 // paths and the daemon already need.
+export * from './sync/apply.js';
 export * from './sync/backfill.js';
 export * from './sync/changes.js';
+export * from './sync/conflicts.js';
 export * from './sync/device.js';
+export * from './sync/engine.js';
 export * from './sync/file-ops.js';
 export * from './sync/hlc.js';
 export * from './sync/lww.js';
 export * from './sync/rebase.js';
+export * from './sync/retention.js';
+export * from './sync/retry.js';
 export * from './sync/tombstones.js';
 export * from './library/source.js';
 export * from './library/rank.js';

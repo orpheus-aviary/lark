@@ -536,3 +536,19 @@ export class AmbiguousSourceKeyError extends CodedError {
     this.songIds = songIds;
   }
 }
+
+/**
+ * A conflict resolve arrived with a stale `expected_current`.
+ *
+ * Between seeing a conflict and answering it, a third device can write again.
+ * Restoring the local copy over THAT would undo a change the user never saw,
+ * so the answer is refused and they get to decide once more against what the
+ * row actually holds now.
+ */
+export class ConflictVersionMismatchError extends CodedError {
+  readonly code = 'CONFLICT_VERSION_MISMATCH';
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictVersionMismatchError';
+  }
+}

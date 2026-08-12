@@ -90,7 +90,8 @@
   - **D8 四处审计结果**：`assertKeyFree` 改「key 变了才查」· `findSongByKey` 两条命中 → `AMBIGUOUS_SOURCE_KEY` · 导入走同一函数 · **缓存探活不用改**（从自己那一行读 key，探活后复查同一行）
   - **实测锁定**：SQLite `json_set(payload,'$.x',?)` 把绑定数字写成 `1800000000000.0`（`json_type` = **real**）——rebase 自己的产物会被 `='integer'` 的门挡住，看不见也改不动。改成 `CAST(? AS INTEGER)` 写、门放宽到 `IN ('integer','real')`，并加了「二次 rebase 能看见首次结果」的回归测试
   - **staging 分支未实现**（`write_lyrics` 只做 inline）：校验器对 `lrc` 的上限 256KB = inline 上限，而 emit 护栏是整条 change 240KB，合规 peer 发来的歌词必然装得下——v0.2 没有 staging 的生产者
-- [ ] T2 core engine（runSync/apply/conflicts CAS/retry/retention）
+- [x] **T2 core engine**（2026-08-12）— `apply.ts`（四道门定序：父墓碑门 → ⚡ 回声分支 → self-replay → LWW；song/playlist 墓碑永久胜出、membership 三分支复活；reorder 去重/忽略未知/未提及者保序追加尾部；file 效应全部进 journal；未知或非法 change 存整条 envelope 进 dead-letter 并继续）· `conflicts.ts`（记录 + `expected_current` CAS 解决，`local` 走普通写路径重新 emit）· `engine.ts`（`SkybridgeClientLike` 接口让 core 零 skybridge 依赖、cursor 按 `(server_id, workspace_id)` 绑定参数、apply 与 cursor 同事务、提交后才 drain、push 双重装箱、duplicates 视为已结算、零 ack 即停、协作式取消、每轮学服务器时钟）· `retention.ts` · `retry.ts`。core 测试 **743**
+  - **本批判断**：membership `delete` 不设父墓碑门（计划只对 create/set_rank 要求）——父没了也要能记下这次移除；retention 期限 30 天、同步失败退避梯度（10s/30s/1m/5m/15m）计划未冻结，由本批定
 - [ ] T3 daemon（login 序列 + epoch + boot drain + 路由 + status + `LOCAL_API_VERSION` bump）
 - [ ] T4 GUI（徽章 + popover + 设置页 + 冲突页）
 - [ ] T5 CLI（sync 七命令 + `songs --duplicates` + skill export）
