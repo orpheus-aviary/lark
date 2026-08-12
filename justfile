@@ -99,6 +99,16 @@ test-cli: ensure-node-abi build-shared build-core
 # GUI unit tests run under plain Node (the tested main-process modules are
 # electron-free by design), so this stays on the Node ABI — no electron-abi
 # recipe here (M4-3).
+# The multi-device sync e2e (v0.2 T6): three lark libraries against a REAL
+# in-process skybridge server. That server is a PRIVATE package, so it is
+# resolved at run time — installed package, `LARK_SKYBRIDGE_SERVER`, or the
+# sibling checkout's build. `LARK_SYNC_E2E_REQUIRED=1` turns "not found" from a
+# skip into a failure, so this recipe cannot be quietly green.
+[group('test')]
+test-sync-e2e: ensure-node-abi build-shared build-core
+    LARK_SYNC_E2E_REQUIRED=1 pnpm --filter @lark/daemon exec vitest run \
+        --config vitest.e2e.config.ts
+
 [group('test')]
 test-gui: build-shared build-core build-daemon
     pnpm --filter @lark/gui run test

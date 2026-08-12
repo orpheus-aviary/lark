@@ -419,11 +419,15 @@ function applySongDelete(ctx: Ctx, change: InboundChange, payload: TombstoneSync
     return;
   }
 
-  const current = effectiveKey(
-    readSongLww(ctx.sqlite, change.entity_id),
-    readTombstone(ctx.sqlite, 'song', change.entity_id)?.key ?? null,
-  );
-  if (current !== null && cmpLww(key, current) <= 0) {
+  // A song's delete wins PERMANENTLY (§3.2 / D6), so it is compared against
+  // the tombstone only — never against the row. Comparing against the row
+  // would let a device whose edit is a millisecond newer keep a song every
+  // other device has already buried: their `applySongPut` refuses any later
+  // update once a tombstone exists, so nothing would ever reconcile the two
+  // again. (Caught by the dual e2e's delete-versus-edit race.) The tombstone
+  // comparison is what keeps a re-delivered older delete idempotent.
+  const buried = readTombstone(ctx.sqlite, 'song', change.entity_id)?.key ?? null;
+  if (buried !== null && cmpLww(key, buried) <= 0) {
     skip(ctx);
     return;
   }
@@ -524,11 +528,10 @@ function applyPlaylistDelete(ctx: Ctx, change: InboundChange, payload: Tombstone
     return;
   }
 
-  const current = effectiveKey(
-    readPlaylistLww(ctx.sqlite, change.entity_id),
-    readTombstone(ctx.sqlite, 'playlist', change.entity_id)?.key ?? null,
-  );
-  if (current !== null && cmpLww(key, current) <= 0) {
+  // Permanent, same as a song's (§3.2): the tombstone alone decides whether
+  // this delete has already been applied.
+  const buried = readTombstone(ctx.sqlite, 'playlist', change.entity_id)?.key ?? null;
+  if (buried !== null && cmpLww(key, buried) <= 0) {
     skip(ctx);
     return;
   }

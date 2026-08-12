@@ -241,6 +241,40 @@ describe('song deletes', () => {
     expect(JSON.parse(op.arg)).toMatchObject({ policy: 'remote', audio_origin: 'imported' });
   });
 
+  // §3.2 / D6: for songs and playlists the delete wins PERMANENTLY. Comparing
+  // the incoming tombstone against the ROW would let a device whose edit is a
+  // millisecond newer keep a song every other device buried — and their
+  // `applySongPut` refuses any later update once a tombstone exists, so the
+  // two would never reconcile. (The dual e2e's delete-versus-edit race caught
+  // this; the assertion belongs here, where it is deterministic.)
+  it('buries a song even when the local row is newer than the delete', () => {
+    const song = createSong(db(), sq(), { name: '本机刚改过' });
+    sq()
+      .prepare('UPDATE songs SET updated_at = ?, lww_counter = 9 WHERE id = ?')
+      .run(9e12, song.id);
+
+    const result = apply(
+      change('song', song.id, 'delete', { updated_at_ms: 1000, lww_counter: 0 }),
+    );
+
+    expect(result).toMatchObject({ applied: 1 });
+    expect(songRow(song.id)).toBeUndefined();
+    expect(readTombstone(sq(), 'song', song.id)).not.toBeNull();
+  });
+
+  it('is idempotent when the same delete is delivered twice', () => {
+    const song = createSong(db(), sq(), { name: '删两次' });
+    const tombstone = { updated_at_ms: 5000, lww_counter: 0 };
+
+    apply(change('song', song.id, 'delete', tombstone));
+    const again = apply(change('song', song.id, 'delete', tombstone));
+
+    expect(again).toMatchObject({ applied: 0, skipped: 1 });
+    // And no second file effect: the executor would have nothing to do, but
+    // the row would still be there to explain later.
+    expect(journal()).toHaveLength(1);
+  });
+
   it('records a tombstone for a song it never had', () => {
     const id = randomUUID();
     apply(change('song', id, 'delete', { updated_at_ms: 5000, lww_counter: 0 }));
@@ -304,6 +338,41 @@ describe('playlists', () => {
     apply(change('playlist', id, 'delete', { updated_at_ms: 7000, lww_counter: 0 }));
     expect(sq().prepare('SELECT 1 FROM playlists WHERE id = ?').get(id)).toBeUndefined();
     expect(readTombstone(sq(), 'playlist', id)).not.toBeNull();
+  });
+
+  // Same permanence rule as a song's (§3.2): a rename that happened later does
+  // not save a playlist another device deleted.
+  it('buries a playlist even when the local row is newer than the delete', () => {
+    const playlist = createPlaylist(db(), sq(), '本机刚改过');
+    sq()
+      .prepare('UPDATE playlists SET updated_at = ?, lww_counter = 9 WHERE id = ?')
+      .run(9e12, playlist.id);
+
+    apply(change('playlist', playlist.id, 'delete', { updated_at_ms: 1000, lww_counter: 0 }));
+
+    expect(sq().prepare('SELECT 1 FROM playlists WHERE id = ?').get(playlist.id)).toBeUndefined();
+    expect(readTombstone(sq(), 'playlist', playlist.id)).not.toBeNull();
+  });
+
+  // A membership is the ONE entity where a delete is beatable: re-adding a
+  // song has to win, or "remove then add again" would be impossible (D6).
+  it('lets a newer membership survive a delete that lost to it', () => {
+    const playlist = createPlaylist(db(), sq(), 'p');
+    const song = createSong(db(), sq(), { name: 's' });
+    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    sq()
+      .prepare('UPDATE playlist_songs SET updated_at = ?, lww_counter = 9 WHERE song_id = ?')
+      .run(9e12, song.id);
+
+    const result = apply(
+      change('playlist_song', membershipEntityId(playlist.id, song.id), 'delete', {
+        updated_at_ms: 1000,
+        lww_counter: 0,
+      }),
+    );
+
+    expect(result).toMatchObject({ applied: 0, skipped: 1 });
+    expect(members(playlist.id)).toHaveLength(1);
   });
 
   it('adopts a peer order, ignores ids it does not have, and keeps the rest at the tail', () => {
