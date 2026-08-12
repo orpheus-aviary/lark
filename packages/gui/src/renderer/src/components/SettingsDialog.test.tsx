@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
+import { useSettingsUi } from '../stores/settings-ui.js';
 import { SettingsDialog } from './SettingsDialog.js';
 
 const MIB = 1024 * 1024;
@@ -20,6 +21,7 @@ function publicConfig(overrides: Partial<PublicLarkConfig> = {}): PublicLarkConf
     font: { global_font_size: 14, lyrics_font_size: 14 },
     log: { level: 'info', max_size_mb: 10, max_backups: 5 },
     storage: { cache_limit_mb: 0 },
+    sync: { interval_min: 5 },
     ...overrides,
   };
 }
@@ -93,6 +95,9 @@ beforeEach(() => {
   );
   useConfig.setState({ config });
   useCache.setState({ status: null, loading: false, evicting: false });
+  // The dialog's open flag lives in a store now (v0.2 T4), so it outlives the
+  // unmount and would leak into the next test.
+  useSettingsUi.setState({ open: false });
 });
 
 afterEach(() => {

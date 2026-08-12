@@ -25,6 +25,7 @@ import { errorMessage } from '../lib/errors.js';
 import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
 import { mediaToolsWarning, useMediaTools } from '../stores/media-tools.js';
+import { useSettingsUi } from '../stores/settings-ui.js';
 import { Button } from './ui/button.js';
 import {
   Dialog,
@@ -344,7 +345,11 @@ export function SettingsDialog(): React.JSX.Element {
   const watchCache = useCache((s) => s.setWatching);
   const refreshMediaTools = useMediaTools((s) => s.refresh);
 
-  const [open, setOpen] = useState(false);
+  // The open flag lives in a store rather than here: the sync popover is a
+  // second door into this dialog (v0.2 T4), and two components cannot share a
+  // `useState`.
+  const open = useSettingsUi((s) => s.open);
+  const setOpen = useSettingsUi((s) => s.setOpen);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   /** Field path → message, straight from the daemon's `details.path` (M5-20). */

@@ -15,6 +15,24 @@ export function formatFileSize(bytes: number | undefined): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
+/**
+ * "刚刚" / "3 分钟前" / "2 小时前", falling back to the absolute stamp past a
+ * day (v0.2 T4). A sync that last ran on Tuesday is better said as a date than
+ * as "97 小时前" — the relative form stops being readable long before that.
+ *
+ * `now` is a parameter rather than a `Date.now()` call so the caller controls
+ * the clock and the test does not have to fake one.
+ */
+export function formatRelativeTime(ms: number, now: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '';
+  const elapsed = now - ms;
+  if (elapsed < 0) return '刚刚'; // a clock that ran backwards is not "in -3 分钟"
+  if (elapsed < 60_000) return '刚刚';
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)} 分钟前`;
+  if (elapsed < 86_400_000) return `${Math.floor(elapsed / 3_600_000)} 小时前`;
+  return formatDateTime(ms);
+}
+
 /** Local `YYYY-MM-DD HH:mm:ss` from a unix-ms timestamp. */
 export function formatDateTime(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '';

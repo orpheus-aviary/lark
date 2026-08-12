@@ -4,6 +4,7 @@
 import { useLibrary } from '../stores/library.js';
 import { PLAY_MODE_LABELS, usePlayer } from '../stores/player.js';
 import { useSession } from '../stores/session.js';
+import { SyncBadge } from './SyncBadge.js';
 
 const SSE_LABELS = { connecting: '连接中…', online: '在线', offline: '离线' } as const;
 
@@ -38,6 +39,8 @@ export function StatusBar(): React.JSX.Element {
       <span>·</span>
       <span>{PLAY_MODE_LABELS[playMode]}</span>
       <div className="flex-1" />
+      <SyncBadge />
+      <span>·</span>
       <span>共 {total} 首</span>
     </footer>
   );

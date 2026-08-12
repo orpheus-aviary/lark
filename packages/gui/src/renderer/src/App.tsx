@@ -15,6 +15,7 @@ import { useDataBus } from './stores/data-bus.js';
 import { useLibrary } from './stores/library.js';
 import { usePlayer } from './stores/player.js';
 import { usePlaylists } from './stores/playlists.js';
+import { useSync } from './stores/sync.js';
 import { applyFontSizes, watchTheme } from './theme/theme.js';
 
 /**
@@ -26,6 +27,8 @@ export function App(): React.JSX.Element {
   const font = useConfig((s) => s.config?.font);
   const themeMode = useConfig((s) => s.config?.theme.mode ?? 'system');
   const refreshConfig = useConfig((s) => s.refresh);
+  const refreshSync = useSync((s) => s.refresh);
+  const refreshConflicts = useSync((s) => s.refreshConflicts);
   const refreshSongs = useLibrary((s) => s.refresh);
   const refreshPlaylists = usePlaylists((s) => s.refresh);
   const play = usePlayer((s) => s.play);
@@ -33,10 +36,13 @@ export function App(): React.JSX.Element {
 
   useKeyboardShortcuts();
 
-  // Initial config fetch; later refreshes ride the hello epoch (M4-8).
+  // Initial config and sync fetches; later refreshes ride the hello epoch
+  // (M4-8) and, for sync, its own `sync:status_changed` frames.
   useEffect(() => {
     refreshConfig();
-  }, [refreshConfig]);
+    refreshSync();
+    refreshConflicts();
+  }, [refreshConfig, refreshSync, refreshConflicts]);
 
   // Font sizes are DOM-level variables (body scope), not React state — the
   // one legitimate "sync with an external system" job (M4-12).

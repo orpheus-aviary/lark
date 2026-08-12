@@ -7,6 +7,7 @@
 import type { GuiRegisterData, LarkEvent, StatusData } from '@lark/shared';
 import { API_PATHS, request, subscribeSse } from '@lark/shared';
 import { useEffect } from 'react';
+import { toast } from 'sonner';
 import { getPlatform } from '../platform/index.js';
 import { handlePlayerCommand } from '../player/remote.js';
 import { useCache } from '../stores/cache.js';
@@ -15,6 +16,7 @@ import { useDataBus } from '../stores/data-bus.js';
 import { useDownloads } from '../stores/download.js';
 import { usePlayer } from '../stores/player.js';
 import { useSession } from '../stores/session.js';
+import { useSync } from '../stores/sync.js';
 import { GuiSession } from './gui-session.js';
 
 function dispatchEvent(event: LarkEvent): void {
@@ -49,6 +51,21 @@ function dispatchEvent(event: LarkEvent): void {
     case 'download:cancelled':
     case 'download:batches-changed':
       useDownloads.getState().applyEvent(event);
+      return;
+    case 'sync:status_changed':
+      // The frame carries the state and nothing else by design (§4.4), so it
+      // is a refetch trigger: every number the badge shows comes from
+      // `GET /sync/status`, which is also where a failed file op is counted.
+      useSync.getState().refresh();
+      return;
+    case 'conflicts:changed':
+      useSync.getState().adoptConflicts(event.count);
+      return;
+    case 'sync:file_quarantined':
+      // Nothing is lost, but nobody would ever look in `recovered-songs/`
+      // without being told — and the status counter alone is silent.
+      toast.warning('有歌曲的文件被移入 recovered-songs/（远端删除，本机文件无法重新下载）');
+      useSync.getState().refresh();
       return;
     default:
       return;
@@ -87,6 +104,11 @@ export function EventsSubscriber(): null {
         usePlayer.getState().reportNow();
         useDownloads.getState().resetEventStream();
         useDownloads.getState().refresh();
+        // Sync state is not replayed either: a daemon that restarted mid-round
+        // comes back `idle`, and a badge still reading `syncing` would be a lie
+        // nothing else corrects.
+        useSync.getState().refresh();
+        useSync.getState().refreshConflicts();
       },
       onGenerationChange: () => useSession.getState().bumpGeneration(),
       onEvent: dispatchEvent,
