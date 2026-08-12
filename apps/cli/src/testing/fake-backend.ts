@@ -23,8 +23,20 @@ import type {
   RecognizeUrlData,
   SongData,
   StatusData,
+  SyncFileOpRunData,
+  SyncFileOpState,
+  SyncFileOpSummary,
+  SyncLoginResultData,
+  SyncLogoutResultData,
+  SyncRunResultData,
+  SyncStatusData,
 } from '@lark/shared';
-import type { Backend, ImportCommitRequest, SongListQuery } from '../backend/types.js';
+import type {
+  Backend,
+  ImportCommitRequest,
+  SongListQuery,
+  SyncUnbindData,
+} from '../backend/types.js';
 import type { CommandContext, GlobalFlags } from '../context.js';
 import { IdentityHandle } from '../lib/identity.js';
 import { type Streams, captureStreams } from '../lib/output.js';
@@ -54,6 +66,16 @@ export interface FakeBackendData {
 
   // Player (T5). `playerStatus` is also what the GUI-online poll reads, so a
   // test scripts a GUI coming up by handing back a sequence of these.
+  // Sync (v0.2 T5).
+  syncStatus?: SyncStatusData;
+  syncLogin?: SyncLoginResultData;
+  syncLogout?: SyncLogoutResultData;
+  syncRun?: SyncRunResultData;
+  syncFileOps?: SyncFileOpSummary[];
+  syncFileOpRun?: SyncFileOpRunData;
+  syncPending?: { total: number; unpublished_deletes: number };
+  syncUnbind?: SyncUnbindData;
+
   playerStatus?: PlayerStatusResponse;
   playerStatuses?: PlayerStatusResponse[];
   /**
@@ -246,6 +268,24 @@ export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
       record('importPreview', [filePath], data.preview as PlaylistImportPreviewData),
     importPlaylist: (request: ImportCommitRequest) =>
       record('importPlaylist', [request], data.importResult as PlaylistImportData),
+
+    syncStatus: () => record('syncStatus', [], data.syncStatus as SyncStatusData),
+    syncLogin: (body) => record('syncLogin', [body], data.syncLogin as SyncLoginResultData),
+    syncLogout: () =>
+      record('syncLogout', [], data.syncLogout ?? { had_session: true, revoked_remotely: true }),
+    syncRun: () => record('syncRun', [], data.syncRun as SyncRunResultData),
+    syncFileOps: (state?: SyncFileOpState) =>
+      record('syncFileOps', [state], { file_ops: data.syncFileOps ?? [] }),
+    syncFileOpsRetry: (id?: number) =>
+      record(
+        'syncFileOpsRetry',
+        [id],
+        data.syncFileOpRun ?? { executed: 0, failed: 0, skipped: 0 },
+      ),
+    syncFileOpsDiscard: (id: number) => record('syncFileOpsDiscard', [id], { id }),
+    syncPendingChanges: () =>
+      record('syncPendingChanges', [], data.syncPending ?? { total: 0, unpublished_deletes: 0 }),
+    syncUnbind: (options) => record('syncUnbind', [options], data.syncUnbind as SyncUnbindData),
   };
 }
 

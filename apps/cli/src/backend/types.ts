@@ -25,6 +25,14 @@ import type {
   SongSortField,
   SortOrder,
   StatusData,
+  SyncFileOpRunData,
+  SyncFileOpState,
+  SyncFileOpsData,
+  SyncLoginRequest,
+  SyncLoginResultData,
+  SyncLogoutResultData,
+  SyncRunResultData,
+  SyncStatusData,
   UpdateSongRequest,
 } from '@lark/shared';
 
@@ -129,6 +137,53 @@ export interface Backend {
   exportPlaylist(id: string): Promise<ApiResponse<PlaylistExportData>>;
   importPreview(filePath: string): Promise<ApiResponse<PlaylistImportPreviewData>>;
   importPlaylist(request: ImportCommitRequest): Promise<ApiResponse<PlaylistImportData>>;
+
+  // ── Sync (v0.2 T5) ─────────────────────────────────
+  //
+  // The split here runs the other way from every family above: these six are
+  // DAEMON-ONLY (the session, the refresh timer and the round coalescer live
+  // there, and a second syncer in a CLI process would push the same changes
+  // twice), while `syncUnbind` is DIRECT-ONLY — it clears the outbox and the
+  // tombstones with the library to itself, which is exactly what a running
+  // daemon rules out. Each backend answers `USAGE_ERROR` for the other half.
+  syncStatus(): Promise<ApiResponse<SyncStatusData>>;
+  syncLogin(body: SyncLoginRequest): Promise<ApiResponse<SyncLoginResultData>>;
+  syncLogout(): Promise<ApiResponse<SyncLogoutResultData>>;
+  syncRun(): Promise<ApiResponse<SyncRunResultData>>;
+  syncFileOps(state?: SyncFileOpState): Promise<ApiResponse<SyncFileOpsData>>;
+  syncFileOpsRetry(id?: number): Promise<ApiResponse<SyncFileOpRunData>>;
+  syncFileOpsDiscard(id: number): Promise<ApiResponse<{ id: number }>>;
+  /**
+   * What an unbind would throw away. Read directly, like unbind itself: the
+   * confirmation has to name the number BEFORE the user answers (R5-P1-3).
+   */
+  syncPendingChanges(): Promise<ApiResponse<SyncPendingChangesData>>;
+  /** Detach this library from its workspace. Never crosses a daemon (§3.7). */
+  syncUnbind(options: { force: boolean }): Promise<ApiResponse<SyncUnbindData>>;
+}
+
+/**
+ * What an unbind gave up, as the command prints it.
+ *
+ * CLI-local rather than a shared wire type on purpose: unbind has no daemon
+ * route to carry it, and putting it in `@lark/shared` would suggest one exists.
+ */
+export interface SyncPendingChangesData {
+  total: number;
+  /** Deletions and lyric clears — the ones a backfill can never bring back. */
+  unpublished_deletes: number;
+}
+
+export interface SyncUnbindData {
+  changes: number;
+  tombstones: number;
+  dead_letters: number;
+  cursors: number;
+  /** Non-zero only under `--force`: what can never be republished. */
+  discarded_changes: number;
+  discarded_deletes: number;
+  had_credentials: boolean;
+  backfill_target: number;
 }
 
 /** `POST /playlists/import` body, as the command layer assembles it. */

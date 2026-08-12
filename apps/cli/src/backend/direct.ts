@@ -385,6 +385,48 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     playerStatus: () => Promise.reject(daemonOnly('查看播放状态')),
     playerCommand: () => Promise.reject(daemonOnly('播放控制')),
 
+    // ── Sync (v0.2 T5) ─────────────────────────────────
+    //
+    // The session, the token refresh and the round coalescer all live in the
+    // daemon; a second syncer in a CLI process would push the same changes
+    // under a second identity. Unbind is the one that goes the other way.
+    syncStatus: () => Promise.reject(daemonOnly('查看同步状态')),
+    syncLogin: () => Promise.reject(daemonOnly('登录同步')),
+    syncLogout: () => Promise.reject(daemonOnly('登出同步')),
+    syncRun: () => Promise.reject(daemonOnly('执行同步')),
+    syncFileOps: () => Promise.reject(daemonOnly('查看同步文件操作')),
+    syncFileOpsRetry: () => Promise.reject(daemonOnly('重试同步文件操作')),
+    syncFileOpsDiscard: () => Promise.reject(daemonOnly('放弃同步文件操作')),
+
+    syncPendingChanges: () => {
+      const pending = core.countUnpushedChanges(sqlite);
+      return Promise.resolve(
+        ok({ total: pending.total, unpublished_deletes: pending.unpublishedDeletes }),
+      );
+    },
+
+    syncUnbind: async ({ force }) => {
+      writable();
+      // The journal is drained with a runtime this process owns alone: R31
+      // guarantees no daemon, and the writer lock excludes the other three
+      // writers, so a fresh claim registry is the whole truth here.
+      const fileOps = new core.FileEffectRuntime({ sqlite });
+      const result = await attemptAsync(() => core.unbindLibrary({ sqlite, fileOps, force }));
+      return ok(
+        {
+          changes: result.changes,
+          tombstones: result.tombstones,
+          dead_letters: result.deadLetters,
+          cursors: result.cursors,
+          discarded_changes: result.discarded.total,
+          discarded_deletes: result.discarded.unpublishedDeletes,
+          had_credentials: result.hadCredentials,
+          backfill_target: result.backfillTarget,
+        },
+        { message: 'unbound from the workspace' },
+      );
+    },
+
     // ── Lyrics (local file) ────────────────────────────
     deleteLyrics: async (id) => {
       writable();

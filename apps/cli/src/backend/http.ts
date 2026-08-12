@@ -21,6 +21,14 @@ import {
   type RecognizeUrlData,
   type SongData,
   type StatusData,
+  type SyncFileOpRunData,
+  type SyncFileOpState,
+  type SyncFileOpsData,
+  type SyncLoginRequest,
+  type SyncLoginResultData,
+  type SyncLogoutResultData,
+  type SyncRunResultData,
+  type SyncStatusData,
   type UpdateSongRequest,
   apiPath,
   configureTransport,
@@ -29,7 +37,13 @@ import {
 } from '@lark/shared';
 import { daemonAuthHeaders } from '../lib/auth.js';
 import { CliError } from '../lib/errors.js';
-import type { Backend, ImportCommitRequest, SongListQuery } from './types.js';
+import type {
+  Backend,
+  ImportCommitRequest,
+  SongListQuery,
+  SyncPendingChangesData,
+  SyncUnbindData,
+} from './types.js';
 
 /**
  * Talk to a running daemon over HTTP — the default backend.
@@ -104,7 +118,40 @@ export function createHttpBackend(baseUrl: string = defaultDaemonBaseUrl()): Bac
       }),
     importPlaylist: (body: ImportCommitRequest) =>
       send<PlaylistImportData>('POST', API_PATHS.playlistImport, body),
+
+    syncStatus: () => get<SyncStatusData>(API_PATHS.syncStatus),
+    syncLogin: (body: SyncLoginRequest) =>
+      send<SyncLoginResultData>('POST', API_PATHS.syncLogin, body),
+    syncLogout: () => send<SyncLogoutResultData>('POST', API_PATHS.syncLogout),
+    // The route reads no body, so none is sent (M6: whether a POST may omit
+    // its body is decided by whether the handler reads it).
+    syncRun: () => send<SyncRunResultData>('POST', API_PATHS.syncRun),
+    syncFileOps: (state?: SyncFileOpState) =>
+      get<SyncFileOpsData>(
+        state === undefined ? API_PATHS.syncFileOps : `${API_PATHS.syncFileOps}?state=${state}`,
+      ),
+    syncFileOpsRetry: (id?: number) =>
+      send<SyncFileOpRunData>('POST', API_PATHS.syncFileOpsRetry, id === undefined ? {} : { id }),
+    syncFileOpsDiscard: (id: number) =>
+      send<{ id: number }>('POST', API_PATHS.syncFileOpsDiscard, { id }),
+
+    syncPendingChanges: (): Promise<ApiResponse<SyncPendingChangesData>> => {
+      throw unbindNeedsTheLibrary();
+    },
+
+    syncUnbind: (): Promise<ApiResponse<SyncUnbindData>> => {
+      // Never through a daemon: unbind needs the library to itself, and the
+      // mode matrix has already refused a direct write while ours is running.
+      throw unbindNeedsTheLibrary();
+    },
   };
+}
+
+function unbindNeedsTheLibrary(): CliError {
+  return new CliError(
+    'DAEMON_RUNNING_BLOCKED',
+    'unbind 需要独占这个曲库：先 `lark stop-daemon`，再重试。',
+  );
 }
 
 /** `?a=1&b=2`, or '' — absent fields are absent, never `?search=undefined`. */

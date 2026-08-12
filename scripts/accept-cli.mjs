@@ -195,6 +195,16 @@ try {
   console.log(`      ${nest}`);
   fresh = join(mkdtempSync(join(tmpdir(), 'lark-accept-fresh-')), 'nest');
 
+  // The copy comes from a library that may still be at schema v1, and from
+  // v0.2 a READ-ONLY open refuses to migrate — it writes nothing, by design.
+  // So the copy is brought to the current schema the same way a user does it:
+  // one daemon start. Without this the whole "no daemon" phase below fails
+  // with MIGRATION_PENDING and says nothing about the CLI.
+  console.log('      upgrading the copy to the current schema (one daemon start)…');
+  lark(['daemon'], nest);
+  lark(['stop-daemon'], nest);
+  await waitForDaemonGone();
+
   // ── 2 · no daemon: direct, refusals, and the zero-write promise ──
 
   console.log('[2/8] with no daemon…');

@@ -217,6 +217,63 @@ Eviction deletes least-recently-used DOWNLOADED audio only. Imported files and
 pinned songs are never touched, and a file whose source cannot be confirmed
 re-downloadable is kept.
 
+### lark sync status / login / logout / run
+
+\`\`\`bash
+lark sync status --json
+lark sync login --server https://sync.example.com --email me@example.com --password-stdin < pw.txt
+lark sync run --json
+lark sync logout
+\`\`\`
+
+Synchronises song / playlist metadata and lyrics with a skybridge server; audio
+files are NOT uploaded (other devices re-download them from the source link).
+The password is never a flag: it is typed at a muted prompt, or piped in with
+\`--password-stdin\`. A plaintext \`http://\` server needs
+\`--allow-insecure-http\` AND a confirmation (\`--yes\` in \`--json\` mode).
+
+\`status\` is the one to read first: \`state\` is \`idle\` / \`syncing\` /
+\`error\` / \`offline\` / \`auth_required\`, and \`auth_reason\` says why the
+last one. Conflicts are resolved in the GUI, not here.
+
+### lark sync file-ops
+
+\`\`\`bash
+lark sync file-ops --json                # what sync still owes the filesystem
+lark sync file-ops --retry               # retry every row that gave up
+lark sync file-ops --discard 7 --yes     # abandon one, permanently
+\`\`\`
+
+A sync can owe the filesystem a deletion, a quarantine or a lyrics write; a row
+that failed five times stops retrying and waits for a person. \`--discard\`
+means the file change will NEVER happen — ask the user before using it.
+
+### lark sync config-show / unbind
+
+\`\`\`bash
+lark sync config-show --json   # server, account, device — never the token
+lark sync unbind --yes         # detach this library from its workspace
+\`\`\`
+
+\`config-show\` reads the credential file directly, so it works when there is
+no daemon; \`has_token\` is a boolean and the token itself is never printed.
+
+\`unbind\` needs the library to itself: stop the daemon first (exit 5 says so).
+It clears the outbox, the tombstones and the binding — unpushed DELETIONS
+cannot be republished afterwards, so it refuses while any exist unless
+\`--force\` is added, and it names the count before asking.
+
+### lark songs list --duplicates
+
+\`\`\`bash
+lark songs list --duplicates --json
+\`\`\`
+
+When two devices add the same video while offline, sync keeps BOTH rather than
+guessing which to merge. This lists every song sharing a \`(provider, key)\`
+with another; deleting the extra one is the fix. It scans the whole library, so
+it cannot be combined with \`--search\` / \`--limit\` / \`--offset\`.
+
 ### lark gui
 
 Open the lark window (starting a daemon first if there is none). Already open
@@ -236,11 +293,15 @@ Rewrite this document. \`--output <path>\` overrides the default location
 - **Check before playing**: \`lark now-playing --json | jq .data.gui_online\`
 - **Work without a daemon**: any read plus \`--direct\`, e.g.
   \`lark songs list --direct --json\`
+- **Is sync healthy?**: \`lark sync status --json | jq '.data.state'\`, then
+  \`.data.file_op_failures\` and \`.data.duplicate_source_keys\` for the two
+  things only a person can clear
 
 ## Rules for the agent
 
 - Anything destructive (\`songs delete\`, \`playlist delete\`, \`lyrics delete\`,
-  \`cache evict\`, a batch download) needs \`--yes\` — in \`--json\` mode ALWAYS,
+  \`cache evict\`, \`sync file-ops --discard\`, \`sync unbind\`, a batch
+  download) needs \`--yes\` — in \`--json\` mode ALWAYS,
   because lark refuses to prompt into a stream somebody is parsing
 - Never guess between candidates on \`AMBIGUOUS_SONG\` / \`AMBIGUOUS_PLAYLIST\`:
   the ids are in \`details.candidates\`; ask the user which one

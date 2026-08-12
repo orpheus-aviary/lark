@@ -111,7 +111,15 @@
   - **冲突页只列有差异的字段**：差异本身就是被问的那个问题；`expected_current` 取记录里的 `remote_key`，409 `CONFLICT_VERSION_MISMATCH` → 提示「又被改过」并重拉列表，而不是报一句失败
   - **重复标记按「当前视图」算**（`lib/duplicates.ts`）：跨歌单的一对由 `/sync/status` 计数与 T5 的 `lark songs --duplicates` 负责，`all` 视图下必然同时可见
   - **CDP 冒烟 9/9**（全新空 nest + 真 daemon + build 产物）：未配置态徽章文案 → popover 说明与「去登录…」→ 打开设置 → 同步 tab 出登录表单 → 勾选明文 HTTP 后仍需二次确认 → 取消后零 `/sync/login` → 无 console error。**两处脚本坑**：Radix Tabs 的 trigger 不吃合成 `.click()`（激活在 `mousedown`，要补 mousedown/mouseup）· 按文本找按钮必须**精确匹配**——复选框 label 的文案里也有「登录」，`includes` 会点到 label，反而把刚勾上的跳闸开关又关掉（表现成「点了登录什么都没发生」）
-- [ ] T5 CLI（sync 七命令 + `songs --duplicates` + skill export）
+- [x] **T5 CLI**（2026-08-12）— `sync` 七命令（status / login / logout / run / file-ops / config-show / unbind）+ `songs list --duplicates` + skill 文档；cli 测试 **395**（371 → +24），全仓 **2094**，`just accept-cli` **27/27** 复跑通过
+  - **三条归属冻结**：login / logout / run / status / file-ops 走 **daemon**（会话、refresh 定时器、轮的合并都在那儿，CLI 里再来一个同步器就是第二个身份在推同一批变更）· `unbind` 走**独占本地库**（停 daemon + 写锁）· `config-show` 只读凭证文件，**没有 daemon、没有库也能用**——它正是「同步坏了」时要看的东西
+  - **`withExclusiveLibrary`**（index.ts）：不是把 `--direct` 当用户选项，而是当这条命令的事实。先自己判定身份（daemon 活着 → `DAEMON_RUNNING_BLOCKED` 并直说「先 stop-daemon」，而不是矩阵里那句「去掉 --direct 走 HTTP」），再按普通直连写路径走完写锁
+  - **密码没有 flag**：只有静音 prompt 或 `--password-stdin`（`--password` 会进 shell 历史与 `ps`）。muted readline 的做法是先 `question()`（提示词同步写出）**再**换掉 `_writeToOutput`——顺序反了提示词自己也会被吞
+  - **明文 HTTP 两道确认**与 GUI 同构：flag 说「我知道」，confirm 说「代价是什么」；`--json` 下没有 `--yes` 就不发请求
+  - **unbind 的丢弃数量在提问前给出**（R5-P1-3）：为此给 Backend 加了 `syncPendingChanges()`（直连读 `countUnpushedChanges`）——「确认框说不出丢多少」等于没确认。未绑定过的库 unbind 是幂等空操作，如实说明
+  - **`--duplicates` 拒绝一切收窄的 flag**（`--search` / `--limit` / `--offset`）：另一半在第二页或不匹配搜索时，重复对会看起来像单曲——正好是这个 flag 存在的理由。分页按 1000 扫全库，`--json` 出平铺列表（每行自带 key，调用方自己分组）
+  - **`accept-cli` 的夹具在 T0 就坏了（本批修）**：harness 复制的是真实 nest 的 **v1** 副本，而 v0.2 的只读打开拒绝迁移（零写入是设计），于是整个「无 daemon」阶段全是 `MIGRATION_PENDING`。修法是复制后按用户的做法升一次级（起一次 daemon 再停）。**这条同时是给用户的真实提醒**：v1 库在 v0.2 下，`--direct` 读也要先起一次 daemon
+  - **冒烟**（真 daemon × 全新 nest）：status/config-show/file-ops 空态 · 无会话 `run` → `SYNC_AUTH_REQUIRED`(3) · 明文 http 无 flag → `SYNC_INSECURE_URL`(2) · 有 flag 无 `--yes`（非 TTY）→ `USAGE_ERROR`(2) · 有 flag 有 `--yes` → 真去连（服务器不可达 → `SYNC_UNAVAILABLE`(1)）· daemon 活着 unbind → `DAEMON_RUNNING_BLOCKED`(5)，停机后 0 · 无 daemon 时 `status` → 4 而 `config-show` 照常 0
 - [ ] T6 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0
 
 ⚠️ **本机真实曲库一旦被 v0.2 的 daemon 打开就升到 v2，已发布的 0.1.0 将拒绝打开它**（`user_version > LATEST`）。开发期一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`。

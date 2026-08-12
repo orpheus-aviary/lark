@@ -21,6 +21,30 @@ export interface ListOptions {
   order?: string;
   limit?: string;
   offset?: string;
+  /** Audit mode (D8): every song that shares a source key with another. */
+  duplicates?: boolean;
+}
+
+/** One page of the whole-library scan `--duplicates` runs. */
+const SCAN_PAGE = 1000;
+
+/**
+ * `--duplicates` is an audit of the WHOLE library, so it refuses the flags
+ * that would narrow it: a pair whose other half is on page two, or does not
+ * match the search, would silently look like a single song — which is the
+ * opposite of what the flag is for.
+ */
+export function assertListShape(opts: ListOptions): void {
+  if (opts.duplicates !== true) return;
+  for (const [flag, value] of [
+    ['--search', opts.search],
+    ['--limit', opts.limit],
+    ['--offset', opts.offset],
+  ] as const) {
+    if (value !== undefined) {
+      throw usageError(`--duplicates 扫描整个曲库，不能和 ${flag} 一起用。`);
+    }
+  }
 }
 
 /** Validate here, so a typo is a usage error rather than a daemon 400. */
@@ -62,6 +86,8 @@ function positiveInt(raw: string | undefined, flag: string, min: number): number
 }
 
 export async function runSongsList(ctx: CommandContext, opts: ListOptions): Promise<void> {
+  if (opts.duplicates === true) return runSongsDuplicates(ctx, opts);
+
   const envelope = await ctx.backend.listSongs(listQuery(opts));
   if (ctx.flags.json) return emitEnvelope(ctx.streams, envelope);
 
@@ -71,6 +97,51 @@ export async function runSongsList(ctx: CommandContext, opts: ListOptions): Prom
   if (envelope.total !== undefined && envelope.total > songs.length) {
     ctx.streams.out(`—— 共 ${envelope.total} 首，本页 ${songs.length} 首`);
   }
+}
+
+/**
+ * Songs that share a `(provider, key)` with another song (D8, §3.4).
+ *
+ * Sync keeps both when two devices add the same video — a merge cannot be made
+ * order independent, coexistence can — so this is how a user finds the pairs
+ * to clean up. The scan pages through the whole library rather than trusting
+ * one page: a duplicate whose other half is on page two is exactly the case
+ * this command exists for.
+ */
+async function runSongsDuplicates(ctx: CommandContext, opts: ListOptions): Promise<void> {
+  const all: SongData[] = [];
+  const query = listQuery(opts);
+  for (let offset = 0; ; offset += SCAN_PAGE) {
+    const page = await ctx.backend.listSongs({ ...query, limit: SCAN_PAGE, offset });
+    const songs = page.data ?? [];
+    all.push(...songs);
+    if (songs.length < SCAN_PAGE) break;
+  }
+
+  const byKey = new Map<string, SongData[]>();
+  for (const song of all) {
+    // No source is not a duplicate of every other song with no source.
+    if (song.source_provider === null || song.source_key === null) continue;
+    const key = `${song.source_provider}:${song.source_key}`;
+    const group = byKey.get(key);
+    if (group) group.push(song);
+    else byKey.set(key, [song]);
+  }
+  const groups = [...byKey.entries()].filter(([, songs]) => songs.length > 1);
+
+  if (ctx.flags.json) {
+    // Flat, like every other list — the key is on each row, so a caller can
+    // regroup without a second shape to learn.
+    const flat = groups.flatMap(([, songs]) => songs);
+    return emitEnvelope(ctx.streams, successEnvelope(flat, { total: flat.length }));
+  }
+
+  if (groups.length === 0) return ctx.streams.out('（没有来源重复的歌曲）');
+  for (const [key, songs] of groups) {
+    ctx.streams.out(`${key}  ——  ${songs.length} 首`);
+    for (const song of songs) ctx.streams.out(`  ${songLine(song)}`);
+  }
+  ctx.streams.out(`—— 共 ${groups.length} 组重复，删掉多余的一首即可`);
 }
 
 export async function runSongsGet(ctx: CommandContext, ref: string): Promise<void> {

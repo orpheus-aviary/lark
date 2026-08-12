@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { CliError } from '../lib/errors.js';
 import { fakeContext, song } from '../testing/fake-backend.js';
-import { runSongsDelete, runSongsEdit, runSongsGet, runSongsList, runSongsPin } from './songs.js';
+import {
+  assertListShape,
+  runSongsDelete,
+  runSongsEdit,
+  runSongsGet,
+  runSongsList,
+  runSongsPin,
+} from './songs.js';
 
 const UUID_A = '11111111-2222-4333-8444-555555555555';
 const UUID_B = '22222222-3333-4444-8555-666666666666';
@@ -147,5 +154,50 @@ describe('songs pin', () => {
 
     expect(ctx.backend.argsOf('pinSong')).toEqual([UUID_A, pinned]);
     expect(ctx.streams.stdout.join('\n')).toContain(expected);
+  });
+});
+
+// D8: sync keeps both songs when two devices add the same video, so the CLI
+// needs a way to find the pairs that a person then deletes one of.
+describe('songs list --duplicates', () => {
+  const dup = (id: string, name: string, key: string | null) =>
+    song({ id, name, source_provider: key === null ? null : 'bilibili', source_key: key });
+
+  it('groups the songs that share a source key, and leaves the rest out', async () => {
+    const ctx = fakeContext({
+      songs: [
+        dup(UUID_A, '一份', 'BV1:1'),
+        dup(UUID_B, '另一份', 'BV1:1'),
+        dup('33333333-4444-4555-8666-777777777777', '独一份', 'BV2:1'),
+        dup('44444444-5555-4666-8777-888888888888', '没有来源', null),
+      ],
+    });
+
+    await runSongsList(ctx, { duplicates: true });
+
+    const text = ctx.streams.stdout.join('\n');
+    expect(text).toContain('bilibili:BV1:1');
+    expect(text).toContain('一份');
+    expect(text).toContain('另一份');
+    expect(text).not.toContain('独一份');
+    expect(text).not.toContain('没有来源');
+    expect(text).toContain('共 1 组重复');
+  });
+
+  it('says so plainly when there are none', async () => {
+    const ctx = fakeContext({ songs: [dup(UUID_A, '一份', 'BV1:1')] });
+
+    await runSongsList(ctx, { duplicates: true });
+
+    expect(ctx.streams.stdout.join('\n')).toContain('没有来源重复的歌曲');
+  });
+
+  // A pair whose other half is on page two, or does not match the search,
+  // would look like a single song — the opposite of what the flag is for.
+  it('refuses the flags that would narrow the scan', () => {
+    expect(() => assertListShape({ duplicates: true, search: 'x' })).toThrow(/--search/);
+    expect(() => assertListShape({ duplicates: true, limit: '10' })).toThrow(/--limit/);
+    expect(() => assertListShape({ duplicates: true, offset: '10' })).toThrow(/--offset/);
+    expect(() => assertListShape({ search: 'x' })).not.toThrow();
   });
 });

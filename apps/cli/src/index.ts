@@ -41,6 +41,7 @@ import {
 } from './commands/playlist.js';
 import { runSkillExport } from './commands/skill.js';
 import {
+  assertListShape,
   runSongsDelete,
   runSongsEdit,
   runSongsGet,
@@ -48,6 +49,19 @@ import {
   runSongsPin,
 } from './commands/songs.js';
 import { runStatus } from './commands/status.js';
+import {
+  type FileOpsOptions,
+  type LoginOptions,
+  assertFileOpsShape,
+  assertLoginShape,
+  runSyncConfigShow,
+  runSyncFileOps,
+  runSyncLogin,
+  runSyncLogout,
+  runSyncRun,
+  runSyncStatus,
+  runSyncUnbind,
+} from './commands/sync.js';
 import { runPlaylistExport, runPlaylistImport } from './commands/transfer.js';
 import { runUrlGet, runUrlRecognize, runUrlSet } from './commands/url.js';
 import { type CommandContext, type GlobalFlags, withContext } from './context.js';
@@ -133,6 +147,29 @@ function withLocal(
     const current = flags();
     if (current.direct) throw new CliError('USAGE_ERROR', refusal);
     await body({ streams: processStreams, json: current.json });
+  });
+}
+
+/**
+ * A command that needs the library to ITSELF (v0.2 T5: `sync unbind`).
+ *
+ * Not `--direct` as a user choice but as a fact about the command: unbind
+ * clears the outbox, the tombstones and the binding, which no daemon may be
+ * writing alongside. So the identity is checked first — a running daemon is
+ * refused with the instruction that actually helps — and the write then goes
+ * through the ordinary direct path, writer lock and all.
+ */
+function withExclusiveLibrary(body: (ctx: CommandContext) => Promise<void>): Promise<void> {
+  return run(async () => {
+    const identity = new IdentityHandle();
+    const state = (await identity.resolve()).state;
+    if (state === 'current') {
+      throw new CliError(
+        'DAEMON_RUNNING_BLOCKED',
+        'unbind 需要独占这个曲库：先 `lark stop-daemon`，再重试。',
+      );
+    }
+    await withContext('write', { flags: { ...flags(), direct: true }, identity }, body);
   });
 }
 
@@ -246,7 +283,12 @@ songs
   .option('--order <dir>', 'asc | desc')
   .option('--limit <n>', 'page size')
   .option('--offset <n>', 'page offset')
-  .action((opts) => withBackend('read', (ctx) => runSongsList(ctx, opts)));
+  .option('--duplicates', 'only songs sharing a source key with another (scans the whole library)')
+  .action((opts) =>
+    withBackend('read', (ctx) => runSongsList(ctx, opts), {
+      precheck: () => assertListShape(opts),
+    }),
+  );
 
 songs
   .command('search <keyword>')
@@ -417,6 +459,64 @@ cache
   .command('evict')
   .description('Delete least-recently-used downloaded audio down to the limit (asks first)')
   .action(() => withBackend('write', (ctx) => runCacheEvict(ctx)));
+
+// ─── sync ──────────────────────────────────────────────
+
+const sync = program.command('sync').description('skybridge synchronisation');
+
+sync
+  .command('status')
+  .description('What sync is doing, and what is waiting for a person')
+  .action(() => withBackend('daemon', (ctx) => runSyncStatus(ctx)));
+
+sync
+  .command('login')
+  .description('Log in to a skybridge server and bind this library to its workspace')
+  // Plain options, not `requiredOption`: commander's own refusal exits 1,
+  // and a missing argument is exit 2 by this CLI's contract (M6-6). The
+  // precheck below says the same thing with the right code.
+  .option('--server <url>', 'server base URL (HTTPS unless the breaker is set)')
+  .option('--email <email>', 'account email')
+  .option('--password-stdin', 'read the password from stdin instead of prompting')
+  .option('--allow-insecure-http', 'allow a plaintext http server URL (asks to confirm)')
+  .action((opts: LoginOptions) =>
+    withBackend('daemon', (ctx) => runSyncLogin(ctx, opts), {
+      precheck: () => assertLoginShape(opts),
+    }),
+  );
+
+sync
+  .command('logout')
+  .description('Clear the local session; the binding and unsynced changes survive')
+  .action(() => withBackend('daemon', (ctx) => runSyncLogout(ctx)));
+
+sync
+  .command('run')
+  .description('Run one sync round now')
+  .action(() => withBackend('daemon', (ctx) => runSyncRun(ctx)));
+
+sync
+  .command('file-ops')
+  .description('File operations sync still owes: list, retry, or give one up')
+  .option('--state <state>', 'pending | failed')
+  .option('--retry [id]', 'retry one row, or every failed row')
+  .option('--discard <id>', 'abandon one permanently-failed row (asks first)')
+  .action((opts: FileOpsOptions) =>
+    withBackend('daemon', (ctx) => runSyncFileOps(ctx, opts), {
+      precheck: () => assertFileOpsShape(opts),
+    }),
+  );
+
+sync
+  .command('config-show')
+  .description('Show the stored sync credentials, without the credentials')
+  .action(() => withLocal((deps) => runSyncConfigShow(deps)));
+
+sync
+  .command('unbind')
+  .description('Detach this library from its workspace (daemon must be stopped, asks first)')
+  .option('--force', 'proceed even though unpushed changes would be lost')
+  .action((opts: { force?: boolean }) => withExclusiveLibrary((ctx) => runSyncUnbind(ctx, opts)));
 
 // ─── skill ─────────────────────────────────────────────
 
