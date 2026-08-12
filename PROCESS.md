@@ -120,7 +120,7 @@
   - **`--duplicates` 拒绝一切收窄的 flag**（`--search` / `--limit` / `--offset`）：另一半在第二页或不匹配搜索时，重复对会看起来像单曲——正好是这个 flag 存在的理由。分页按 1000 扫全库，`--json` 出平铺列表（每行自带 key，调用方自己分组）
   - **`accept-cli` 的夹具在 T0 就坏了（本批修）**：harness 复制的是真实 nest 的 **v1** 副本，而 v0.2 的只读打开拒绝迁移（零写入是设计），于是整个「无 daemon」阶段全是 `MIGRATION_PENDING`。修法是复制后按用户的做法升一次级（起一次 daemon 再停）。**这条同时是给用户的真实提醒**：v1 库在 v0.2 下，`--direct` 读也要先起一次 daemon
   - **冒烟**（真 daemon × 全新 nest）：status/config-show/file-ops 空态 · 无会话 `run` → `SYNC_AUTH_REQUIRED`(3) · 明文 http 无 flag → `SYNC_INSECURE_URL`(2) · 有 flag 无 `--yes`（非 TTY）→ `USAGE_ERROR`(2) · 有 flag 有 `--yes` → 真去连（服务器不可达 → `SYNC_UNAVAILABLE`(1)）· daemon 活着 unbind → `DAEMON_RUNNING_BLOCKED`(5)，停机后 0 · 无 daemon 时 `status` → 4 而 `config-show` 照常 0
-- [ ] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套（**19 例**：dual 15 / files 4，`just test-sync-e2e`）与 `just accept-sync`（**34 条**）都已落地，只剩真实双机 soak 与发版
+- [ ] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套（**19 例**：dual 15 / files 4，`just test-sync-e2e`）、`just accept-sync`（**34 条**）与真机 soak（自动 **18/18**）都已做完，**只剩 T6d 发版**（soak 的 N1–N5 要等时间，用户决定暂缓）
   - [x] **T6a 进程内 dual e2e**（2026-08-12）— 三个 lark 库（A/B/C，各自 `:memory:` core + 独立注册设备）对一台**进程内真 skybridge server**；L1–L15 / L18 / L19 共 15 例。**元数据 only**：三个设备在一个进程里无法各占一个 nest（`LARK_NEST_DIR` 是进程全局的），所以文件效应只断言 journal 行，真文件归 T6b
     - **server 依赖形态（用户拍板，偏离计划 §4.1 的「devDependency + 动态 import」）**：`@orpheus-aviary/skybridge-server` 是 `private: true` 未发 npm，**不进依赖**，运行时按「已安装包 → `LARK_SKYBRIDGE_SERVER` → 兄弟仓构建产物」解析，找不到就 skip；`just test-sync-e2e` 置 `LARK_SYNC_E2E_REQUIRED=1` 把 skip 变成硬失败，保证 recipe 不会静默绿。lark 单独 clone 后 `pnpm install` 永远不坏
     - 🐛 **抓到真缺陷并修**：`applySongDelete` / `applyPlaylistDelete` 把入站墓碑与 `max(行, 墓碑)` 比较，于是**编辑晚一毫秒的设备能留住别人已经删掉的歌**——而对端的 `applySongPut` 一旦有墓碑就无条件拒绝后续 update，两边永远不再和解。§3.2 的「song/playlist delete 永久胜出」只实现了一半。改成**只与墓碑比较**（幂等仍在），membership 保持原样（复活是 D6 要的）。三条确定性回归进 `apply.test.ts`
@@ -140,9 +140,15 @@
       - **隔离目录是 `<song_id>-<op_uuid>`**（每 op 稳定，重放落同一处），不是 `<song_id>`
       - **夹具四首歌必须互不相同**：首跑把「被远端删除的那首」和「重复对的一半」选成了同一首，删除顺手把重复对拆了，F6 于是量到 0 个 `[重复]`——测出来的是夹具 bug 不是产品 bug
     - 判据 A2/A3 直接 import 三份 **dist**（shared 注册表 / daemon `statusForCode` / CLI `EXIT_MAP`）对账：11 个 sync 码全在，51 个信封码零孤儿
-  - [ ] T6d 发版 0.2.0（用户已表示先不着急）
+    - **真机 soak 已跑（2026-08-12，自动部分 18/18）**：真实云端 server（0.1.4，阿里云明文 HTTP + 公网 IP）× 一次性账号 × 设备 A（GUI + 真实曲库副本，人工走 S1–S3）+ 设备 B（第二 nest 的 daemon）。逐条记录与三条教训见 `docs/plans/2026-08-12-v0.2-soak-checklist.md` §7；N1–N5（断网 / 合盖 / refresh 轮换 / 长跑）与收尾未做
+      - **踩过一次真的**：起 GUI 时 `env LARK_NEST_DIR=…` 没生效，GUI 开了**真实曲库**并登录，真库因此升到 schema v2（单向，已发布的 0.1.0 从此拒绝打开）且绑到了 soak 账号、推了 1250 条。数据零损失（全是增量上行），`sync unbind --force` 清回未绑定态（54 条簿记行，`discarded_changes: 0`）。**checklist 因此加了硬前置：登录之前先用 `/api/instance` 验 `nest_dir`**
+      - **`resolve('local')` 会被同 key 守卫挡下**（可复现的真实边角）：冲突挂起期间别的设备把这首歌的 source key 给了另一首，恢复本机版本走的是普通写路径 `updateSongInTx` → `assertKeyFree` → `SOURCE_KEY_CONFLICT`。v0.2 不改——apply 允许共存、本地写不允许，两条各自都对；报错说得清是哪一首占了 key，清掉再恢复即可
+      - **soak 夹具的同一类错误又犯一次**：一首歌同时当「冲突方」和「重复 key 的一半」，于是 LWW 整行覆盖把 key 抹了（重复数 0）、恢复又撞守卫。换两首全新的歌重跑即 2/2
+  - [ ] **T6d 发版 0.2.0**（下一个会话的主题）——按 M7 的链路来：`just fetch-ffmpeg` 门禁 → `just package bundled` + `just pack-cli` → `just accept-pack bundled <dmg> <tgz>`（28 条，**必须在工作区之外跑 CLI**）→ npm granular token 发 `@orpheus-aviary/lark-cli` → GitHub release + tag。M7 的坑全在 `docs/plans/2026-08-08-m7-packaging.md` §8 与 CLAUDE.md 的 M7 段
+    - 发版前要决定的两件事：**版本号 0.2.0 的 breaking 提示**（schema v2 单向，装了 0.2 就回不去 0.1.0，release notes 要写明）· **soak 的 N1–N5 是否补跑**（断网 / 合盖 / refresh 轮换 / 24h，用户已表示暂缓）
+    - 发版时要跟着改的文档：`README.md` 的状态段与安装表（现在还写着 0.1.0）· `docs/DESIGN.md` · 跨仓 `../aviary/docs/{ROADMAP,DESIGN}.md` 与 `.github/profile/README.md`（0.1.0 那次是这么跟的）
 
-⚠️ **本机真实曲库一旦被 v0.2 的 daemon 打开就升到 v2，已发布的 0.1.0 将拒绝打开它**（`user_version > LATEST`）。开发期一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`。
+⚠️ **本机真实曲库已经是 v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次；用户拍板不还原）——已发布的 0.1.0 从此拒绝打开它（`user_version > LATEST`），0.2.0 发版前只能用仓库产物。库已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`，**起 GUI 后先验 `/api/instance` 的 `nest_dir` 再登录**。
 
 ## 后续
 - [ ] **v0.3+ 移动版设计 doc**

@@ -113,19 +113,9 @@ const codeOf = (res) =>
   res.errJson?.error_code ?? /\(([A-Z_]+)\)\s*$/.exec(res.err.trim())?.[1] ?? null;
 
 /** `lark sync login`, with the password on stdin — there is no flag for it. */
-function login(nest, extra = []) {
+function login(nest) {
   return lark(
-    [
-      '--json',
-      'sync',
-      'login',
-      '--server',
-      server.baseUrl,
-      '--email',
-      EMAIL,
-      '--password-stdin',
-      ...extra,
-    ],
+    ['--json', 'sync', 'login', '--server', server.baseUrl, '--email', EMAIL, '--password-stdin'],
     nest,
     { input: `${PASSWORD}\n` },
   );
@@ -427,6 +417,7 @@ function runRecipe(recipe) {
 let server = null;
 let copy = null;
 let nestB = null;
+let freshRoot = null;
 let daemonB = null;
 let daemonA = null;
 let gui = null;
@@ -514,7 +505,11 @@ try {
   lark(['stop-daemon'], nestA);
   await waitForDaemonGone(DAEMON_A);
 
-  const freshNest = join(mkdtempSync(join(tmpdir(), 'lark-accept-sync-fresh-')), 'nest');
+  // Both of these are `<mkdtemp>/nest`, and the FINALLY removes the mkdtemp
+  // parent — a harness that leaks one temp directory per run is the M5 lesson
+  // repeating itself (237 of them accumulated last time before anyone noticed).
+  freshRoot = mkdtempSync(join(tmpdir(), 'lark-accept-sync-fresh-'));
+  const freshNest = join(freshRoot, 'nest');
   nestB = join(mkdtempSync(join(tmpdir(), 'lark-accept-sync-b-')), 'nest');
   const larkB = join(nestB, 'lark');
 
@@ -1012,10 +1007,13 @@ try {
     }
   }
   if (keep) {
-    console.log(`\nkept: ${copy?.nestDir ?? '-'} · ${nestB ?? '-'} · ${server?.dir ?? '-'}`);
+    console.log(
+      `\nkept: ${copy?.nestDir ?? '-'} · ${nestB ?? '-'} · ${freshRoot ?? '-'} · ${server?.dir ?? '-'}`,
+    );
   } else {
     if (copy) rmSync(copy.nestDir, { recursive: true, force: true });
     if (nestB) rmSync(dirname(nestB), { recursive: true, force: true });
+    if (freshRoot) rmSync(freshRoot, { recursive: true, force: true });
     if (server) rmSync(server.dir, { recursive: true, force: true });
   }
 }

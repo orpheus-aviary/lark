@@ -33,11 +33,11 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 | T3 | daemon（凭证与 binding / login 序列 / epoch / runner 与三触发器 / 路由 / boot drain，四小批 a–d） | ✅ |
 | T4 | GUI（徽章 + popover + 设置页 Tabs + 冲突页 + 列表重复标记，三小批 a–c） | ✅ |
 | T5 | CLI（sync 七命令 + `songs list --duplicates` + skill export） | ✅ |
-| T6 | 双套 e2e ✅（19 例）+ `accept-sync` ✅（34/34）+ 真实双机 soak ⏳ + 发版 0.2.0 ⏳ | 🚧 |
+| T6 | 双套 e2e ✅（19 例）+ `accept-sync` ✅（34/34）+ 真机 soak ✅（自动 18/18，N 系列缓做）+ 发版 0.2.0 ⏳ | 🚧 |
 
 当前测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-⚠️ **真实曲库一旦被 v0.2 daemon 打开就升到 schema v2，已发布的 0.1.0 会拒绝打开它**（`user_version > LATEST`）。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。
+⚠️ **本机真实曲库已经是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——已发布的 **0.1.0 从此拒绝打开它**（`user_version > LATEST`），0.2.0 发版前只能用仓库产物。它已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -228,6 +228,7 @@ lark/
 - **GUI 的两条口径（T4）**：徽章的「注意力计数」只算冲突与永久失败的 file op（只有人能清的两样），隔离/重复/dead-letter 只在 popover 里列；列表的「重复」标记按**当前视图**算，跨歌单的一对由 `/sync/status` 与 `lark songs --duplicates` 负责
 - **CDP 驱动 Radix Tabs 要补 `mousedown`**（激活不在 click 上），且按文本找按钮必须精确匹配——明文 HTTP 复选框的 label 文案里也有「登录」，`includes` 会点到 label 把跳闸开关关掉
 - **`lifecycle` mutex 把函数排进微任务**：测「登出插在 refresh 中间」必须等被测函数**真的进去**再动手，否则测到的是排队而不是交错
+- **真机 soak 的两条（T6c，2026-08-12）**：**起 GUI 之后、登录之前必须用 `/api/instance` 验 `nest_dir`**——`env LARK_NEST_DIR=…` 一旦没生效，GUI 就会打开**真实曲库**，一次登录把它升到 schema v2（单向，0.1.0 从此打不开）并绑到测试账号；数据不会丢，`sync unbind --force` 能清回未绑定态 · **`resolve('local')` 会被 `SOURCE_KEY_CONFLICT` 挡下**：它走普通写路径 `updateSongInTx`，而冲突挂起期间别的设备可能把这首歌的 source key 给了另一首——apply 允许共存、本地写不允许，两条各自都对，清掉另一首的 key 再恢复即可
 - **`accept-sync` 的四条（T6c）**：`--yes` 是全局 flag、`--allow-insecure-http` 是子命令 flag，**位置放反 commander 自己退 1**，与被测的拒绝长得一样 · `--json` 下 `sync unbind` 先往 stderr 打「要丢多少」再打错误信封，**取 `error_code` 要从 stderr 最后一行往回找**，别 parse 整段 · 隔离目录是 **`<song_id>-<op_uuid>`** 不是 `<song_id>` · 制造冲突/重复靠 **`sync logout` 的离线窗口**（pending 门要未推送的本地改动；同 key 共存要两端各自 `assertKeyFree` 都过），且**夹具的四首歌必须互不相同**——把「被远端删的那首」和「重复对的一半」选成同一首，删除会顺手拆掉重复对
 
 ## Commit 规范
@@ -246,7 +247,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
-- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just test-sync-e2e`（v0.2 两套 e2e：三设备元数据 + 多进程文件）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（M7 判据 28 条，对着发布物本身跑）/ `just spike-media-*`）
+- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just test-sync-e2e`（v0.2 两套 e2e：三设备元数据 + 多进程文件）/ `just accept-sync`（v0.2 判据 34 条：真 skybridge server + 两台 daemon + 真 GUI，`--skip-e2e` 跳过前置套件）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（M7 判据 28 条，对着发布物本身跑）/ `just spike-media-*`）
 - Go 版（功能参照）：`../lark-go/`
 - 跨仓架构：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`
 - skybridge 架构：`../aviary/docs/SKYBRIDGE_ARCH.md`
