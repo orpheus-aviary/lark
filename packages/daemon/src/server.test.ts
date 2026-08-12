@@ -15,6 +15,7 @@ import {
   closeTestContext,
   createTestContext,
 } from './testing/build-test-server.js';
+import { DAEMON_VERSION } from './version.js';
 
 let app: TestApp;
 let ctx: TestContext;
@@ -60,7 +61,9 @@ describe('GET /status', () => {
     expect(body.message).toBe('daemon is running');
     expect(body.data?.status).toBe('ok');
     expect(body.data?.pid).toBe(process.pid);
-    expect(body.data?.version).toBe('0.1.0');
+    // The constant itself is pinned to the release version by accept-pack §9;
+    // here the point is that /status reports it rather than something else.
+    expect(body.data?.version).toBe(DAEMON_VERSION);
     expect(typeof body.data?.uptime).toBe('number');
   });
 

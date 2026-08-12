@@ -296,7 +296,7 @@ function judge9() {
     `${version}: manifests ${[...new Set(manifests)].join('/')}, constants ${[...new Set(constants)].join('/')}`,
   );
   check('§9 · root engines require Node 24', engines === '>=24', engines);
-  check('§9 · LOCAL_API_VERSION is 4', apiVersion === '4', apiVersion ?? '(not found)');
+  check('§9 · LOCAL_API_VERSION is 5', apiVersion === '5', apiVersion ?? '(not found)');
 }
 
 /** Criterion 8, which is also how criteria 6/7/10 get a CLI to drive. */
@@ -412,7 +412,7 @@ async function judge4(cli, app, nest) {
 
   check(
     '§4a · the daemon starts from inside the mounted app and answers /status',
-    start.code === 0 && status?.data?.local_api_version === 4 && fromBundle.includes(app),
+    start.code === 0 && status?.data?.local_api_version === 5 && fromBundle.includes(app),
     `pid=${envelope(start)?.data?.pid} api=${status?.data?.local_api_version}`,
   );
 

@@ -20,10 +20,32 @@ lark daemon                 # 起一个 daemon
 lark songs list             # 曲库
 lark download <链接或关键词> # 下载
 lark play <歌名>            # 播放（必要时拉起桌面端）
+lark sync status            # 同步状态
 lark skill export           # 导出给 agent 用的技能说明
 ```
 
 `lark --help` 是完整列表；每条命令都支持 `--json`（`--json` 下 exit 0 等价于 stdout 恰好一条成功信封）。
+
+## 多设备同步（0.2 起）
+
+歌曲与歌单的元数据、歌词可以经 [skybridge](https://github.com/orpheus-aviary) 在多台设备之间同步；
+mp3 本体不同步，每台设备凭来源信息按需下载。
+
+```sh
+lark sync config-show       # 连的是哪台服务器、绑没绑（不需要 daemon，也不需要曲库）
+lark sync login --server https://… --email you@example.com
+lark sync run               # 立刻跑一轮（平时由 daemon 自己定时跑）
+lark sync status            # 待推送、冲突、卡住的文件操作、重复的曲目
+lark sync file-ops          # 卡住的文件操作：重试或放弃
+lark sync unbind            # 解绑本机（要先 stop-daemon；会说明丢弃多少未推送变更）
+```
+
+密码只从静音输入或 `--password-stdin` 读，没有 `--password` 参数。服务器必须是 HTTPS；
+明文 HTTP 要同时给 `--allow-insecure-http` 和全局 `--yes`。
+
+> ⚠️ **0.2 会把曲库升到 schema v2，且不可逆**：升级后 0.1.x 将拒绝打开它。迁移只发生在 daemon
+> 启动时，所以 v1 曲库在 0.2 下即使只读 `--direct` 也会先报 `MIGRATION_PENDING`——起一次
+> `lark daemon` 即可。想留退路请先备份 `~/orpheus-aviary-nest/lark/`。
 
 ## 退出码
 

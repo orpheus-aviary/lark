@@ -6,14 +6,21 @@
 
 ## 状态
 
-当前版本 **0.1.0**（2026-08-10 首发）。
+当前版本 **0.2.0**（2026-08-12；首发 0.1.0 在 2026-08-10）。
 - 仅 macOS Apple Silicon（arm64）
 - GUI 为 ad-hoc 签名（未 notarize），首次运行需绕过 Gatekeeper
 - 无自动更新
 
-v0.1 是本地全功能版：曲库 / 播放器 / 下载管线 / 歌词 / 缓存模型 / 歌单导入导出 / CLI 全部就位，
-多设备同步（skybridge）留到 v0.2。整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，
-进度见 `PROCESS.md`。
+v0.1 是本地全功能版：曲库 / 播放器 / 下载管线 / 歌词 / 缓存模型 / 歌单导入导出 / CLI。
+v0.2 接入 **skybridge 多设备同步**：歌曲与歌单的元数据、歌词跨设备同步（mp3 本体不同步，
+各设备凭来源按需下载），冲突由你来判，GUI 状态栏与 `lark sync` 都能看到同步状态。
+
+> ⚠️ **0.2.0 会把曲库升到 schema v2，且不可逆**——升级后 0.1.0 将拒绝打开
+> `~/orpheus-aviary-nest/lark/songs.db`。想留退路就先 `just backup-nest <目录>`（或整目录复制）。
+> 不登录同步也会升级：迁移发生在 daemon 启动时，与是否使用同步无关。
+
+整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，同步的设计与决策见
+`docs/plans/2026-08-11-v0.2-skybridge-sync.md`，进度见 `PROCESS.md`。
 
 ## 下载安装（macOS arm64）
 
@@ -25,7 +32,7 @@ v0.1 是本地全功能版：曲库 / 播放器 / 下载管线 / 歌词 / 缓存
 
 | | 自带 ffmpeg | 你要做的 |
 |---|---|---|
-| `bundled`（0.1.0 发的是这种） | 是（自建 LGPL 构建，见 License） | 无 |
+| `bundled`（0.1.0 / 0.2.0 发的都是这种） | 是（自建 LGPL 构建，见 License） | 无 |
 | `system` | 否 | **下载前**先 `brew install ffmpeg`——没有它下载与导入都不可用 |
 
 装完在「设置 → 媒体工具」能看到当前用的是哪一份 ffmpeg。
@@ -43,6 +50,7 @@ lark status                 # daemon 在不在、是不是本数据目录的
 lark songs list --search 周杰伦
 lark download <链接或关键词>
 lark play <歌名>             # 必要时自动拉起桌面端
+lark sync status            # 同步：绑定、待推送、冲突、卡住的文件操作
 lark skill export           # 导出给 agent 看的说明书
 ```
 
@@ -84,6 +92,8 @@ just pack-cli        # 打 npm tarball
 just accept-gui      # 媒体协议六项判据：真 GUI × 真 daemon × nest 副本
 just accept-m5       # 缓存清理 / 按需下载 / 歌单导入导出（打真实 bilibili）
 just accept-cli      # 驱动真实 lark 二进制，双后端 + 身份五态
+just test-sync-e2e   # 同步的两套 e2e：三设备元数据 + 跨进程文件效应
+just accept-sync     # 真 skybridge server × 两台 daemon × 真 GUI
 just accept-pack <mode> <dmg> <tgz>   # 对着要发布的产物本身跑
 ```
 
