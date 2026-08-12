@@ -28,7 +28,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { MigrationResidueError } from '../errors.js';
 import { acquireMigrateLock } from './migrate-lock.js';
 import { LATEST_KNOWN_VERSION } from './migrate.js';
-import { assertSchemaV1 } from './schema-signature.js';
+import { assertSchemaV2 } from './schema-signature.js';
 
 export function migratingPath(dbPath: string): string {
   return `${dbPath}.migrating`;
@@ -70,7 +70,7 @@ function validateMainReadOnly(dbPath: string): string | null {
     if (v !== LATEST_KNOWN_VERSION) {
       return `main db user_version=${v}, expected ${LATEST_KNOWN_VERSION}`;
     }
-    assertSchemaV1(sqlite, dbPath);
+    assertSchemaV2(sqlite, dbPath);
     const integrity = sqlite.pragma('integrity_check') as { integrity_check: string }[];
     if (integrity.length !== 1 || integrity[0].integrity_check !== 'ok') {
       return `integrity_check failed: ${JSON.stringify(integrity)}`;

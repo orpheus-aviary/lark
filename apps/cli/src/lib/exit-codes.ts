@@ -132,6 +132,11 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   INTERNAL_ERROR: EXIT_FAILED,
   HTTP_ERROR: EXIT_FAILED,
   UNKNOWN: EXIT_FAILED,
+  // Sync outcomes nobody can fix from the command line: the server is down,
+  // or the row you named is gone.
+  SYNC_UNAVAILABLE: EXIT_FAILED,
+  CONFLICT_NOT_FOUND: EXIT_FAILED,
+  FILE_OP_NOT_FOUND: EXIT_FAILED,
 
   // ── 2: the command was wrong ─────────────────────────
   USAGE_ERROR: EXIT_USAGE,
@@ -147,6 +152,9 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   BAD_REQUEST: EXIT_USAGE,
   // Only a GUI can trigger this one; it is still a malformed request.
   GUI_REGISTRATION_REQUIRED: EXIT_USAGE,
+  // `lark sync login http://…` without `--allow-insecure-http`: the command
+  // was wrong, and retrying it unchanged cannot help.
+  SYNC_INSECURE_URL: EXIT_USAGE,
 
   // ── 3: the environment says no ───────────────────────
   UNAUTHORIZED: EXIT_ENVIRONMENT,
@@ -154,6 +162,8 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   // Same shape as LLM_NOT_CONFIGURED: the request was fine, this machine is
   // missing a dependency, and the fix is an install rather than a retry.
   MEDIA_TOOLS_UNAVAILABLE: EXIT_ENVIRONMENT,
+  // Literally the "no token" case in the list above: run `lark sync login`.
+  SYNC_AUTH_REQUIRED: EXIT_ENVIRONMENT,
   ABI_MISMATCH: EXIT_ENVIRONMENT,
   CONFIG_UNSAFE_PERMISSIONS: EXIT_ENVIRONMENT,
   DB_NOT_INITIALIZED: EXIT_ENVIRONMENT,
@@ -181,6 +191,14 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   SCHEMA_MISMATCH: EXIT_REFUSED,
   MIGRATION_RESIDUE: EXIT_REFUSED,
   MIGRATION_FAILED: EXIT_REFUSED,
+  // Sync's refusals, all of the same family: something is bound, in flight, or
+  // ambiguous, and answering would mean guessing on the user's behalf.
+  SYNC_BINDING_MISMATCH: EXIT_REFUSED,
+  SYNC_SCHEMA_VERSION_MISMATCH: EXIT_REFUSED,
+  SYNC_PENDING_CHANGES: EXIT_REFUSED,
+  CONFLICT_VERSION_MISMATCH: EXIT_REFUSED,
+  FILE_OP_BUSY: EXIT_REFUSED,
+  AMBIGUOUS_SOURCE_KEY: EXIT_REFUSED,
 
   // ── 130: interrupted ─────────────────────────────────
   INTERRUPTED: EXIT_INTERRUPTED,

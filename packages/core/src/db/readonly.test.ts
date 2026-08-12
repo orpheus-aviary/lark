@@ -18,7 +18,8 @@ import {
 } from '../errors.js';
 import { seedGoLegacyDb } from './fixture-go-db.js';
 import { createDatabase } from './index.js';
-import { LATEST_KNOWN_VERSION } from './migrate.js';
+import { LATEST_KNOWN_VERSION, applyForwardMigrations } from './migrate.js';
+import * as m0001 from './migrations/0001-init.js';
 import { openDatabaseReadonly } from './readonly.js';
 
 let dir: string;
@@ -32,7 +33,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-/** A current (v1) library with a probe row in it. */
+/** A library at the current schema version with a probe row in it. */
 function seedCurrent(): void {
   const { sqlite } = createDatabase({ dbPath: dbPath() });
   sqlite.prepare('INSERT INTO local_metadata (key, value) VALUES (?, ?)').run('probe', 'value');
@@ -124,13 +125,26 @@ describe('openDatabaseReadonly — dispatch', () => {
     expect((caught as NodeJS.ErrnoException).code).toBe('EACCES');
   });
 
-  it('has an answer for a version this build could migrate but may not', () => {
-    // `0 < v < LATEST` is unreachable while LATEST_KNOWN_VERSION is 1, so the
-    // class is asserted directly: the day a v2 lands, a read path must report
-    // the pending upgrade rather than perform it.
-    const err = new MigrationPendingError(dbPath(), 1, 2);
-    expect(err.dbVersion).toBe(1);
-    expect(err.message).toContain('lark daemon');
+  it('reports a migratable-but-not-migrated library instead of upgrading it', () => {
+    // Reachable for real since v0.2 raised LATEST to 2: a v0.1 library opened
+    // by a read command must be left exactly as it is — migrating it here
+    // would be a write from a path that holds no writer lock.
+    const sqlite = new BetterSqlite3(dbPath());
+    applyForwardMigrations(sqlite, 0, 1, [m0001]);
+    sqlite.close();
+    const before = readFileSync(dbPath());
+
+    let caught: unknown;
+    try {
+      openDatabaseReadonly({ dbPath: dbPath() });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(MigrationPendingError);
+    expect((caught as MigrationPendingError).dbVersion).toBe(1);
+    expect((caught as MigrationPendingError).message).toContain('lark daemon');
+    expect(readFileSync(dbPath()).equals(before)).toBe(true);
   });
 });
 

@@ -18,7 +18,12 @@ import {
   API_PATHS,
   type DownloadTaskAcceptedData,
   type RecognizeUrlData,
+  SONG_ARTIST_MAX,
+  SONG_NAME_MAX,
   SONG_SORT_FIELDS,
+  SONG_SOURCE_KEY_MAX,
+  SONG_SOURCE_PROVIDER_MAX,
+  SONG_SOURCE_URL_MAX,
   SORT_ORDERS,
   type SongData,
   apiPath,
@@ -40,11 +45,11 @@ import {
   requiredBoolean,
 } from '../validation.js';
 
-const NAME_MAX = 500;
-const ARTIST_MAX = 500;
-const SOURCE_URL_MAX = 2048;
-const SOURCE_KEY_MAX = 256;
-const SOURCE_PROVIDER_MAX = 64;
+// The entity string bounds now live in @lark/shared (SONG_NAME_MAX and
+// friends): the sync payload validator screens the same fields coming in from
+// another device and has to reject exactly what this route rejects. The
+// query-shape bounds stay here — nothing outside an HTTP request has a
+// `search` or a `limit`.
 const SEARCH_MAX = 200;
 const LIMIT_MAX = 1000;
 
@@ -118,9 +123,9 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     const body = requireFields(objectBody(req.body, SONG_UPDATE_FIELDS));
 
     const patch: UpdateSongInput = {};
-    const name = optionalString(body, 'name', { maxLength: NAME_MAX });
+    const name = optionalString(body, 'name', { maxLength: SONG_NAME_MAX });
     if (typeof name === 'string') patch.name = name;
-    const artist = optionalString(body, 'artist', { maxLength: ARTIST_MAX, allowEmpty: true });
+    const artist = optionalString(body, 'artist', { maxLength: SONG_ARTIST_MAX, allowEmpty: true });
     if (typeof artist === 'string') patch.artist = artist;
     const lyricsOffset = optionalNumber(body, 'lyrics_offset');
     if (lyricsOffset !== undefined) patch.lyrics_offset = lyricsOffset;
@@ -130,21 +135,21 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     // clear it): only core may judge the COMBINATION.
     if ('source_url' in body) {
       patch.source_url = optionalString(body, 'source_url', {
-        maxLength: SOURCE_URL_MAX,
+        maxLength: SONG_SOURCE_URL_MAX,
         allowEmpty: true,
         nullable: true,
       });
     }
     if ('source_provider' in body) {
       patch.source_provider = optionalString(body, 'source_provider', {
-        maxLength: SOURCE_PROVIDER_MAX,
+        maxLength: SONG_SOURCE_PROVIDER_MAX,
         allowEmpty: true,
         nullable: true,
       });
     }
     if ('source_key' in body) {
       patch.source_key = optionalString(body, 'source_key', {
-        maxLength: SOURCE_KEY_MAX,
+        maxLength: SONG_SOURCE_KEY_MAX,
         allowEmpty: true,
         nullable: true,
       });
@@ -269,7 +274,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     const id = idOf(req);
     const song = getSong(ctx.db, ctx.sqlite, id);
     const body = objectBody(req.body, ['url']);
-    const url = optionalString(body, 'url', { maxLength: SOURCE_URL_MAX }) ?? song.source_url;
+    const url = optionalString(body, 'url', { maxLength: SONG_SOURCE_URL_MAX }) ?? song.source_url;
     if (url === null || url === '') {
       throw new InvalidRequestError('INVALID_BODY', '这首歌没有链接，请在请求里给出 url');
     }

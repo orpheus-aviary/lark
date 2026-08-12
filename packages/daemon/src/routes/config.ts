@@ -101,6 +101,10 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
     max_backups: number({ min: 1, integer: true }),
   },
   storage: { cache_limit_mb: number({ min: 0 }) },
+  // Only the cadence is patchable. Server URL, session and device identity are
+  // credentials: they live in skybridge.toml and are written by `/sync/login`,
+  // never by a config patch (D1/D2).
+  sync: { interval_min: number({ min: 1, integer: true }) },
 };
 
 function asObject(value: unknown, path: string, detailPath?: string): Record<string, unknown> {

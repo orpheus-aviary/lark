@@ -51,6 +51,18 @@ export interface StorageConfig {
 }
 
 /**
+ * Sync preferences (v0.2). Only the periodic-sync cadence lives here: the
+ * server URL, the session and the device identity are credentials and belong
+ * to `skybridge.toml` (D1/D2), which never crosses the `/config` channel.
+ *
+ * The interval is a floor on background pulls, not the whole trigger story —
+ * SSE and push-on-mutation both fire sooner.
+ */
+export interface SyncConfig {
+  interval_min: number;
+}
+
+/**
  * Theme modes as a runtime constant, same two-consumer reason as
  * {@link LOG_LEVELS} (M5-2): core's `sanitize` converges an out-of-domain disk
  * value to `'system'`, the daemon's `PATCH /config` validator rejects it.
@@ -82,6 +94,7 @@ export interface LarkConfig {
   font: FontConfig;
   log: LogConfig;
   storage: StorageConfig;
+  sync: SyncConfig;
 }
 
 /**
@@ -97,6 +110,7 @@ export interface ConfigPatchRequest {
   font?: Partial<FontConfig>;
   log?: Partial<LogConfig>;
   storage?: Partial<StorageConfig>;
+  sync?: Partial<SyncConfig>;
 }
 
 /** `api_key` never crosses the wire — `has_api_key` flags presence (R14/M2). */
@@ -118,4 +132,5 @@ export interface PublicLarkConfig {
   font: FontConfig;
   log: LogConfig;
   storage: StorageConfig;
+  sync: SyncConfig;
 }

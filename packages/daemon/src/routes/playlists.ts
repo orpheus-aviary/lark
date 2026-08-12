@@ -29,6 +29,7 @@ import {
 } from '@lark/core';
 import {
   API_PATHS,
+  PLAYLIST_NAME_MAX,
   type PlaylistData,
   type PlaylistImportTarget,
   type SongData,
@@ -50,7 +51,8 @@ import {
   requiredUuidList,
 } from '../validation.js';
 
-const NAME_MAX = 500;
+// PLAYLIST_NAME_MAX is shared with the sync payload validator (v0.2); the
+// request-shape bound below stays local to the route.
 const SONG_IDS_MAX = 1000;
 
 /**
@@ -169,7 +171,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     const playlist = createPlaylist(
       ctx.db,
       ctx.sqlite,
-      requiredString(body, 'name', { maxLength: NAME_MAX }),
+      requiredString(body, 'name', { maxLength: PLAYLIST_NAME_MAX }),
     );
     changed();
     ok(reply, playlist);
@@ -188,7 +190,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
       ctx.db,
       ctx.sqlite,
       id,
-      requiredString(body, 'name', { maxLength: NAME_MAX }),
+      requiredString(body, 'name', { maxLength: PLAYLIST_NAME_MAX }),
     );
     changed();
     ok(reply, playlist);
@@ -277,7 +279,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     if (!DIGEST_RE.test(digest)) {
       throw new InvalidRequestError('INVALID_BODY', 'digest must be a hex SHA-256');
     }
-    const target = requiredTarget(body.target, NAME_MAX);
+    const target = requiredTarget(body.target, PLAYLIST_NAME_MAX);
     const reuse = readReuse(body.reuse);
 
     const file = parseAndValidate(await readImportFile(filePath));

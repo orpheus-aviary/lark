@@ -19,7 +19,7 @@ import {
   isSchemaEmpty,
 } from './migrate.js';
 import { recoverFromMigrationResidue } from './recovery.js';
-import { assertSchemaV1 } from './schema-signature.js';
+import { assertSchemaV2 } from './schema-signature.js';
 import * as schema from './schema.js';
 
 export type LarkDatabase = ReturnType<typeof drizzle<typeof schema>>;
@@ -44,7 +44,7 @@ export interface DatabaseHandles {
  *   v == 0 && Go legacy fingerprint           -> GoMigrationRequiredError
  *   v == 0 && anything else non-empty         -> IncompatibleDbError (refuse)
  *   0 < v < LATEST                            -> forward migrations
- *   v == LATEST                               -> assertSchemaV1, open
+ *   v == LATEST                               -> assertSchemaV2, open
  *
  * The `>LATEST` check must precede the v==0 handling, or a future db would be
  * misread as brand new. Any throw past the open closes the handle (no fd /
@@ -84,8 +84,9 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandles {
     if (v < LATEST_KNOWN_VERSION) {
       applyForwardMigrations(sqlite, v, LATEST_KNOWN_VERSION);
     } else {
-      // v == LATEST: don't trust the number alone (T3 — single definition of v1).
-      assertSchemaV1(sqlite, dbPath);
+      // v == LATEST: don't trust the number alone (T3 — one definition of the
+      // current schema, raised to v2 by the sync activation migration).
+      assertSchemaV2(sqlite, dbPath);
     }
 
     ensureDeviceUuid(sqlite, logger);

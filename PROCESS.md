@@ -74,9 +74,24 @@
   - **许可交付**：LICENSE = MIT；NOTICE 覆盖**全部生产依赖**（renderer 产物不保留 `@license` 文本、files 的 `!**/*.md` 又排掉 tailwind-merge/sonner 的 LICENSE.md——聚合进 NOTICE 是唯一交付面），FFmpeg/LAME 只是 bundled 的附加段；验收做覆盖检查防新依赖漏更新
   - [x] **T0 ffmpeg 供应链 + MediaToolsRegistry**（2026-08-10）— 首日 spike 定案**自建最小 LGPL profile**（FFmpeg 8.1.2 + LAME 3.100，`ffmpeg 2.3MB + ffprobe 2.2MB`，`License: LGPL version 2.1 or later`；甲 Riedl 构建虽无 nonfree 但是 GPLv3 + 30 个静态外部库，义务面太大）；`vendor/ffmpeg.lock.json` + `just fetch-ffmpeg`（源码 SHA → 构建 → configure 与锁值逐字节比对 + nonfree 门禁 → 能力清单 → **真实 M4A→MP3→ffprobe JSON 闭环**，stub 实测被拒）；core 删两个 static 包 + 四级 resolver（env / `LARK_MEDIA_TOOLS_DIR` 完整性判定 / Homebrew 惯例位 / PATH）；**MediaToolsRegistry 进 AppContext**（single-flight + 5s 节流 + 执行失败使 ready 失效 + 能力级 ready），engine / `ensureMp3` / `probeAudio` / import 全部同源；`MEDIA_TOOLS_UNAVAILABLE` 两注册表 + 503 + CLI exit 3；`media_tools` 进 capabilities，`LOCAL_API_VERSION` **3→4**；GUI 设置页「媒体工具」区块 + 下载栏空闲位提示；dev/test 链 vendor 优先（justfile 顶层 export）——**整套测试因此跑在最小构建上**。`just check` 绿，全仓测试 **1663**。子计划 §8.1–8.3
 
-## 后续
+## v0.2 skybridge 接入
 
-- [ ] **v0.2 skybridge 接入** — 开工前 design doc 冻结 sync v1 协议（payload/墓碑/LWW 三元组/全量 create-op 回填）。R32 三项必审：同 provider key 跨设备合并 · server-normalized HLC + v0.1 本地时间戳 rebase · 稀疏 rank 归一化的同步语义
+子计划 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`（六版终版，决策 D1–D8 全关闭，R32 三项已在 §3.3/§3.4/§3.5 落地）。批次 T0–T6 见 §7。
+
+- [x] **T0 地基**（2026-08-11）— skybridge client/proto 钉 0.1.4（零传递依赖）；migration `0002-sync-activation`（四新表 `sync_tombstones`/`sync_file_ops`/`sync_dead_letters`/`sync_binding` + `conflict_record` 补 owl 0011 四列 + `sync_cursor` 按 `(server_id, workspace_id)` 重建 + `idx_songs_source_key` 去 UNIQUE + 两个 generation 键，**零 SQL 回填**）；`assertSchemaV1` → `assertSchemaV2`（新表新列 + 索引反向断言：UNIQUE 混进来要拒）；实体字符串上限与 sync 协议数值下沉 `shared/limits.ts`；`shared/sync-types.ts`（entity/op/payload/status/请求形状）；11 个错误码进三处穷尽守卫；config `[sync] interval_min = 5`
+  - **`LOCAL_API_VERSION` 不在 T0 动**：接口面要到 T3 才变（路由 + capabilities 一起 bump）
+  - 冒烟：真实曲库副本（21/4/4，v1）经 daemon 启动就地升到 v2，行数不变、六张 sync 表就位、outbox 为 0、`GET /config` 出 `sync.interval_min`
+  - 全仓测试 **1713**（shared 79 / core 578 / daemon 339 / cli 371 / gui 346）
+- [ ] T1 core 基座（hlc/lww/tombstones/backfill/file-ops/emit 接线/payloads）
+- [ ] T2 core engine（runSync/apply/conflicts CAS/retry/retention）
+- [ ] T3 daemon（login 序列 + epoch + boot drain + 路由 + status + `LOCAL_API_VERSION` bump）
+- [ ] T4 GUI（徽章 + popover + 设置页 + 冲突页）
+- [ ] T5 CLI（sync 七命令 + `songs --duplicates` + skill export）
+- [ ] T6 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0
+
+⚠️ **本机真实曲库一旦被 v0.2 的 daemon 打开就升到 v2，已发布的 0.1.0 将拒绝打开它**（`user_version > LATEST`）。开发期一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`。
+
+## 后续
 - [ ] **v0.3+ 移动版设计 doc**
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已于 2026-08-10 跟进到 lark 0.1.0
 - 归用户手动、尚未做的：**skill 的「agent 实际可调用」验收**（M6 起挂着，M7 也没做——需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令）

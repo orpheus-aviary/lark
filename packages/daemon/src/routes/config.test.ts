@@ -92,6 +92,18 @@ describe('PATCH /config', () => {
     expect(loadConfig(configPath).theme.mode).toBe('dark');
   });
 
+  it('writes the sync interval, and nothing else about sync (v0.2)', async () => {
+    expect((await patch({ sync: { interval_min: 15 } })).statusCode).toBe(200);
+    expect((await getConfig()).sync.interval_min).toBe(15);
+    expect(loadConfig(configPath).sync.interval_min).toBe(15);
+
+    // Credentials are not config: they live in skybridge.toml and only
+    // `/sync/login` writes them (D1/D2).
+    const res = await patch({ sync: { server_url: 'https://elsewhere.example' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<ApiResponse>().details).toEqual({ path: 'sync.server_url' });
+  });
+
   it.each([
     ['an unknown section', { daemon: { port: 1 } }],
     ['an unknown field', { window: { depth: 3 } }],
@@ -137,6 +149,7 @@ describe('PATCH /config', () => {
     ['window.width', { window: { width: 0 } }, 'window', 'width'],
     ['font.global_font_size', { font: { global_font_size: 0 } }, 'font', 'global_font_size'],
     ['storage.cache_limit_mb', { storage: { cache_limit_mb: -1 } }, 'storage', 'cache_limit_mb'],
+    ['sync.interval_min', { sync: { interval_min: 0 } }, 'sync', 'interval_min'],
     ['theme.mode', { theme: { mode: 'sepia' } }, 'theme', 'mode'],
     ['llm.url', { llm: { url: 42 } }, 'llm', 'url'],
   ])('rejects a bad %s that the loader would silently converge', async (_l, payload, s, k) => {

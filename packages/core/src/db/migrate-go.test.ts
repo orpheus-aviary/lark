@@ -127,7 +127,7 @@ describe('T5.1 happy path reconciliation', () => {
     expect(existsSync(migratingPath(dbPath()))).toBe(false);
     expect(existsSync(oldSwapPath(dbPath()))).toBe(false);
 
-    // opens as a valid v1 db (createDatabase runs assertSchemaV1)
+    // opens as a valid v1 db (createDatabase runs assertSchemaV2)
     const { sqlite } = createDatabase({ dbPath: dbPath() });
     try {
       // field mapping on the real-sample song

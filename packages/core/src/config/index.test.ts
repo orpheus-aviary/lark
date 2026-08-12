@@ -134,7 +134,15 @@ describe('loadConfig', () => {
     expect((raw.log as Record<string, unknown>).max_age_days).toBe(30);
 
     const pub = redactConfig(cfg);
-    expect(Object.keys(pub).sort()).toEqual(['font', 'llm', 'log', 'storage', 'theme', 'window']);
+    expect(Object.keys(pub).sort()).toEqual([
+      'font',
+      'llm',
+      'log',
+      'storage',
+      'sync',
+      'theme',
+      'window',
+    ]);
     expect(Object.keys(pub.log).sort()).toEqual(['level', 'max_backups', 'max_size_mb']);
   });
 
@@ -164,6 +172,9 @@ max_backups = 2.5
 
 [storage]
 cache_limit_mb = -1
+
+[sync]
+interval_min = 0
 `,
       'utf-8',
     );
@@ -176,6 +187,17 @@ cache_limit_mb = -1
     expect(cfg.font).toEqual(DEFAULT_CONFIG.font);
     expect(cfg.log).toEqual(DEFAULT_CONFIG.log);
     expect(cfg.storage).toEqual(DEFAULT_CONFIG.storage);
+    // 0 would mean "sync every zero minutes" — there is no "off" value here,
+    // logging out is how you stop syncing.
+    expect(cfg.sync).toEqual(DEFAULT_CONFIG.sync);
+  });
+
+  it('keeps a valid sync interval and defaults to five minutes', () => {
+    expect(DEFAULT_CONFIG.sync.interval_min).toBe(5);
+
+    writeFileSync(cfgPath(), '[sync]\ninterval_min = 15\n', 'utf-8');
+    chmodSync(cfgPath(), 0o600);
+    expect(loadConfig(cfgPath()).sync.interval_min).toBe(15);
   });
 
   it('keeps a valid theme mode and defaults to following the OS (M5-2)', () => {

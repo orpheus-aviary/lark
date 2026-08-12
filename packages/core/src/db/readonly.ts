@@ -29,7 +29,7 @@ import {
 } from '../errors.js';
 import type { LarkDatabase } from './index.js';
 import { LATEST_KNOWN_VERSION, isGoLegacyDb, isSchemaEmpty } from './migrate.js';
-import { assertSchemaV1 } from './schema-signature.js';
+import { assertSchemaV2 } from './schema-signature.js';
 import * as schema from './schema.js';
 
 export interface ReadonlyDatabaseOptions {
@@ -55,7 +55,7 @@ export interface ReadonlyDatabaseHandles {
  *   v == 0 && Go legacy fingerprint           -> GoMigrationRequiredError
  *   v == 0 && anything else non-empty         -> IncompatibleDbError
  *   0 < v < LATEST                            -> MigrationPendingError
- *   v == LATEST                               -> assertSchemaV1, open
+ *   v == LATEST                               -> assertSchemaV2, open
  *
  * The caller owns the handle and must close it.
  */
@@ -89,7 +89,7 @@ export function openDatabaseReadonly(options: ReadonlyDatabaseOptions): Readonly
     }
 
     // v == LATEST: the number alone is not proof (T3 — single definition of v1).
-    assertSchemaV1(sqlite, dbPath);
+    assertSchemaV2(sqlite, dbPath);
     return { db: drizzle(sqlite, { schema }), sqlite };
   } catch (err) {
     sqlite.close();

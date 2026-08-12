@@ -4,6 +4,7 @@
 // compile against the same definitions.
 
 export * from './types.js';
+export * from './sync-types.js';
 export * from './config-types.js';
 export * from './error-codes.js';
 export * from './filename.js';

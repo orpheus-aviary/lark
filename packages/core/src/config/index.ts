@@ -41,6 +41,7 @@ export const DEFAULT_CONFIG: LarkConfig = {
   font: { global_font_size: 14, lyrics_font_size: 14 },
   log: { level: 'info', max_size_mb: 10, max_backups: 5 },
   storage: { cache_limit_mb: 0 },
+  sync: { interval_min: 5 },
 };
 
 /**
@@ -200,6 +201,7 @@ export function redactConfig(config: LarkConfig): PublicLarkConfig {
       max_backups: config.log.max_backups,
     },
     storage: { cache_limit_mb: config.storage.cache_limit_mb },
+    sync: { interval_min: config.sync.interval_min },
   };
 }
 
@@ -287,6 +289,10 @@ function sanitize(cfg: LarkConfig): LarkConfig {
   cfg.log.max_backups = num(cfg.log.max_backups, d.log.max_backups, { min: 1, integer: true });
   cfg.storage.cache_limit_mb = num(cfg.storage.cache_limit_mb, d.storage.cache_limit_mb, {
     min: 0,
+  });
+  cfg.sync.interval_min = num(cfg.sync.interval_min, d.sync.interval_min, {
+    min: 1,
+    integer: true,
   });
   return cfg;
 }

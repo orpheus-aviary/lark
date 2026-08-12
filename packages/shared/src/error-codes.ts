@@ -88,6 +88,23 @@ export const DAEMON_ENVELOPE_ERROR_CODES = [
   'SOURCE_GONE',
   'TASK_NOT_CANCELLABLE',
   'TASK_NOT_FOUND',
+
+  // skybridge sync (v0.2). Session and binding first, then the two surfaces a
+  // caller can act on directly — conflicts and the file-effect journal.
+  'SYNC_AUTH_REQUIRED',
+  'SYNC_BINDING_MISMATCH',
+  'SYNC_INSECURE_URL',
+  'SYNC_PENDING_CHANGES',
+  'SYNC_SCHEMA_VERSION_MISMATCH',
+  'SYNC_UNAVAILABLE',
+  'CONFLICT_NOT_FOUND',
+  'CONFLICT_VERSION_MISMATCH',
+  'FILE_OP_BUSY',
+  'FILE_OP_NOT_FOUND',
+  // Not a sync-only code despite arriving with sync: once the same
+  // (provider, key) can exist on two songs (D8), every by-key lookup either
+  // names the ambiguity or picks a song at random. It names it.
+  'AMBIGUOUS_SOURCE_KEY',
 ] as const;
 
 export type DaemonEnvelopeErrorCode = (typeof DAEMON_ENVELOPE_ERROR_CODES)[number];

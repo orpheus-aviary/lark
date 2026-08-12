@@ -93,6 +93,31 @@ const STATUS_BY_CODE: Record<DaemonEnvelopeErrorCode, number> = {
   SOURCE_GONE: 410,
   TASK_NOT_CANCELLABLE: 409,
   TASK_NOT_FOUND: 404,
+
+  // skybridge sync (v0.2).
+  //
+  // 503 for SYNC_AUTH_REQUIRED for the same reason MEDIA_TOOLS_UNAVAILABLE has
+  // it: the request was fine, the daemon is fine, and something this install
+  // needs is absent until the user acts. It must NOT be 401 — that status is
+  // spoken for by the daemon's own bearer token, and every client already
+  // reads it as "your daemon token is wrong".
+  SYNC_AUTH_REQUIRED: 503,
+  // The library is bound elsewhere / the workspace speaks another schema
+  // version / there are unsynced changes: state that exists and refuses.
+  SYNC_BINDING_MISMATCH: 409,
+  SYNC_SCHEMA_VERSION_MISMATCH: 409,
+  SYNC_PENDING_CHANGES: 409,
+  // The URL you asked us to trust is not https and you did not flip the
+  // breaker — the caller's to fix.
+  SYNC_INSECURE_URL: 400,
+  // Upstream is unreachable or answered 5xx, same shape as the other
+  // outbound-dependency failures.
+  SYNC_UNAVAILABLE: 502,
+  CONFLICT_NOT_FOUND: 404,
+  CONFLICT_VERSION_MISMATCH: 409,
+  FILE_OP_NOT_FOUND: 404,
+  FILE_OP_BUSY: 409,
+  AMBIGUOUS_SOURCE_KEY: 409,
 };
 
 /** The canonical status for a registered code. */

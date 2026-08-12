@@ -31,7 +31,7 @@ import { type MigrateLock, acquireMigrateLock } from './migrate-lock.js';
 import { LATEST_KNOWN_VERSION, applyForwardMigrations } from './migrate.js';
 import { probeGoDaemon, probeGoDaemonPid } from './probe-go.js';
 import { fsIsoTimestamp, migratingPath, oldSwapPath } from './recovery.js';
-import { assertSchemaV1 } from './schema-signature.js';
+import { assertSchemaV2 } from './schema-signature.js';
 import { acquireWriterLock } from './writer-lock.js';
 
 /** Minimal structural logger — pino's Logger satisfies this. */
@@ -135,7 +135,7 @@ function inspectSource(dbPath: string, startedAt: number): SourceVerdict {
     }
     if (v === LATEST_KNOWN_VERSION) {
       // The version number alone is not proof — the signature must hold too.
-      assertSchemaV1(peek, dbPath);
+      assertSchemaV2(peek, dbPath);
       const n = (table: string) =>
         (peek.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
       return {
@@ -437,7 +437,7 @@ export async function migrateFromGoDb(
         `row count reconciliation failed: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
       );
     }
-    assertSchemaV1(temp, migrating);
+    assertSchemaV2(temp, migrating);
     runChecks(temp, 'migrated database');
     const rankRows = temp
       .prepare('SELECT playlist_id, rank FROM playlist_songs ORDER BY playlist_id, rank')

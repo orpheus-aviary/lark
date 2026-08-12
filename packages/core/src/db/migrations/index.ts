@@ -4,10 +4,11 @@
 // line here; the runner validates the list is contiguous from v1.
 
 import * as m0001 from './0001-init.js';
+import * as m0002 from './0002-sync-activation.js';
 
 export interface Migration {
   readonly version: number;
   readonly sql: string;
 }
 
-export const MIGRATIONS: readonly Migration[] = [m0001];
+export const MIGRATIONS: readonly Migration[] = [m0001, m0002];

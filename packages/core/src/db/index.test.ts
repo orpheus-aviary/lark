@@ -34,8 +34,8 @@ afterEach(() => {
 
 const dbPath = () => join(dir, 'songs.db');
 
-/** Build a valid v1 db at `path` and close it. */
-function makeV1Db(path: string): void {
+/** Build a valid db at the current schema version at `path` and close it. */
+function makeCurrentDb(path: string): void {
   const { sqlite } = createDatabase({ dbPath: path });
   sqlite.close();
 }
@@ -88,7 +88,7 @@ function insertSong(sqlite: BetterSqlite3.Database, overrides: Record<string, un
 }
 
 describe('createDatabase — fresh databases', () => {
-  it('brings a new file db to user_version=1, WAL, with a valid device_uuid', () => {
+  it('brings a new file db to the latest user_version, WAL, with a valid device_uuid', () => {
     const { sqlite } = createDatabase({ dbPath: dbPath() });
     try {
       expect(sqlite.pragma('user_version', { simple: true })).toBe(LATEST_KNOWN_VERSION);
@@ -111,7 +111,7 @@ describe('createDatabase — fresh databases', () => {
     }
   });
 
-  it('reopening an existing v1 db keeps the same device_uuid', () => {
+  it('reopening an existing db keeps the same device_uuid', () => {
     const first = createDatabase({ dbPath: dbPath() });
     const uuid1 = ensureDeviceUuid(first.sqlite);
     first.sqlite.close();
@@ -124,7 +124,7 @@ describe('createDatabase — fresh databases', () => {
   });
 });
 
-describe('schema v1 constraints', () => {
+describe('schema v2 constraints', () => {
   it('enforces the file_origin, pinned, and source pair CHECKs', () => {
     const { sqlite } = createDatabase({ dbPath: ':memory:' });
     try {
@@ -141,16 +141,19 @@ describe('schema v1 constraints', () => {
     }
   });
 
-  it('enforces the partial unique index on (source_provider, source_key)', () => {
+  it('no longer refuses a duplicate (source_provider, source_key) at the db level (D8)', () => {
     const { sqlite } = createDatabase({ dbPath: ':memory:' });
     try {
+      // v2 dropped the UNIQUE index: two offline devices can each download the
+      // same video, and the merge has no order-independent answer, so the
+      // duplicate is allowed to land and is surfaced instead. The local write
+      // paths still refuse one — only sync can produce it.
       insertSong(sqlite, { source_provider: 'bilibili', source_key: 'BVx:1' });
-      expect(() =>
-        insertSong(sqlite, { source_provider: 'bilibili', source_key: 'BVx:1' }),
-      ).toThrow(/UNIQUE/);
-      // NULL provider rows are outside the partial index — unlimited
-      insertSong(sqlite);
-      insertSong(sqlite);
+      insertSong(sqlite, { source_provider: 'bilibili', source_key: 'BVx:1' });
+      const n = sqlite
+        .prepare("SELECT count(*) AS n FROM songs WHERE source_key='BVx:1'")
+        .get() as { n: number };
+      expect(n.n).toBe(2);
     } finally {
       sqlite.close();
     }
@@ -235,13 +238,16 @@ describe('forward migration runner', () => {
   });
 });
 
-describe('assertSchemaV1 via the ==LATEST open path', () => {
-  it('rejects a same-name plain index smuggled in for the unique one', () => {
-    makeV1Db(dbPath());
+describe('assertSchemaV2 via the ==LATEST open path', () => {
+  it('rejects a same-name UNIQUE index smuggled in for the plain one', () => {
+    // The inverse of the v1 check, and it matters more: a UNIQUE index here
+    // would make an inbound duplicate impossible to apply, which is a stuck
+    // sync rather than a visible duplicate (D8).
+    makeCurrentDb(dbPath());
     mutateRaw(dbPath(), (sqlite) => {
       sqlite.exec(`
         DROP INDEX idx_songs_source_key;
-        CREATE INDEX idx_songs_source_key ON songs(source_provider, source_key)
+        CREATE UNIQUE INDEX idx_songs_source_key ON songs(source_provider, source_key)
           WHERE source_provider IS NOT NULL;
       `);
     });
@@ -249,7 +255,7 @@ describe('assertSchemaV1 via the ==LATEST open path', () => {
   });
 
   it('rejects a missing index', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     mutateRaw(dbPath(), (sqlite) => {
       sqlite.exec('DROP INDEX idx_sync_changes_pending');
     });
@@ -257,7 +263,7 @@ describe('assertSchemaV1 via the ==LATEST open path', () => {
   });
 
   it('rejects a dropped sync table — v1 is all 7 tables, not 4', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     mutateRaw(dbPath(), (sqlite) => {
       sqlite.exec('DROP TABLE sync_cursor');
     });
@@ -270,7 +276,7 @@ describe('crash recovery state machine (M1-10)', () => {
   const oldSwap = () => `${dbPath()}.old-swap`;
 
   it('main + migrating: drops the orphan .migrating (source untouched)', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     writeFileSync(migrating(), 'junk');
     const { sqlite } = createDatabase({ dbPath: dbPath() });
     sqlite.close();
@@ -278,7 +284,7 @@ describe('crash recovery state machine (M1-10)', () => {
   });
 
   it('valid main + old-swap: archives old-swap as a recovery backup, never deletes', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     writeFileSync(oldSwap(), 'the old library bytes');
     const { sqlite } = createDatabase({ dbPath: dbPath() });
     sqlite.close();
@@ -300,7 +306,7 @@ describe('crash recovery state machine (M1-10)', () => {
   });
 
   it('old-swap only: restores it as main', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     const bytes = readFileSync(dbPath());
     rmSync(dbPath());
     writeFileSync(oldSwap(), bytes);
@@ -311,7 +317,7 @@ describe('crash recovery state machine (M1-10)', () => {
   });
 
   it('old-swap + migrating: restores old-swap, drops migrating', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     const bytes = readFileSync(dbPath());
     rmSync(dbPath());
     writeFileSync(oldSwap(), bytes);
@@ -330,7 +336,7 @@ describe('crash recovery state machine (M1-10)', () => {
   });
 
   it('all three present: fail-closed, nothing touched', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     writeFileSync(migrating(), 'a');
     writeFileSync(oldSwap(), 'b');
     expect(() => createDatabase({ dbPath: dbPath() })).toThrow(MigrationResidueError);
@@ -339,7 +345,7 @@ describe('crash recovery state machine (M1-10)', () => {
   });
 
   it('refuses to touch residue while the migration lock is held', () => {
-    makeV1Db(dbPath());
+    makeCurrentDb(dbPath());
     writeFileSync(migrating(), 'in-flight migration temp');
     const lock = acquireMigrateLock(dbPath());
     try {
