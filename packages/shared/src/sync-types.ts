@@ -126,6 +126,22 @@ export interface SetRankSyncPayload {
   rank: number;
 }
 
+/**
+ * Every shape a change may carry. Emit takes this union rather than a loose
+ * record: an interface does not satisfy `Record<string, unknown>` anyway (no
+ * index signature), and a closed union means a caller cannot invent a payload
+ * the apply side has no parser for.
+ */
+export type SyncChangePayload =
+  | SongSyncPayload
+  | PlaylistSyncPayload
+  | PlaylistSongSyncPayload
+  | TombstoneSyncPayload
+  | SetLyricsSyncPayload
+  | ClearLyricsSyncPayload
+  | ReorderSyncPayload
+  | SetRankSyncPayload;
+
 // ─── `GET /sync/status` ────────────────────────────────
 
 /**

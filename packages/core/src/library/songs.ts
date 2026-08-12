@@ -1,30 +1,38 @@
 // Songs CRUD (T4) — core's single write path (R18/R2). Business writes stamp
-// LWW via nextLwwStamp and keep device_id NULL (it belongs to the skybridge
-// registration domain); local-field paths (pin / touch / file origin) never
-// touch the LWW triple. Write functions come in two layers: `…InTx` assumes
-// the caller's transaction (M5 composes several into one all-or-nothing
-// import), the same-named wrapper opens `.immediate()`. `deleteSong` is the
-// deliberate exception — its trash-dir compensation must own its transaction,
-// so it offers NO composable variant (M1-8/T4).
+// the LWW key from the device-global hybrid clock and carry the skybridge
+// device id; local-field paths (pin / touch / file origin) never touch the LWW
+// triple, so device-local behavior cannot pollute a comparison another machine
+// makes. Write functions come in two layers: `…InTx` assumes the caller's
+// transaction (M5 composes several into one all-or-nothing import), the
+// same-named wrapper opens `.immediate()`.
+//
+// Since v0.2 every business write also appends to the outbox in that same
+// transaction, and `deleteSong` records a tombstone plus a file-effect journal
+// entry instead of doing its own trash-directory dance (§3.6).
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   type FileOrigin,
   type SongData,
   type SongSortField,
+  type SongSyncPayload,
   type SortOrder,
   isUuidV4,
 } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq, ne, sql } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
-import { nextLwwStamp } from '../db/lww.js';
+import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { type SongRow, songs } from '../db/schema.js';
 import { InvalidIdError, NotFoundError, SourceKeyConflictError } from '../errors.js';
-import { songsDir, trashDir } from '../paths.js';
+import { songsDir } from '../paths.js';
+import { emitSyncChange } from '../sync/changes.js';
+import { readSkybridgeDeviceId } from '../sync/device.js';
+import { FileEffectRuntime, enqueueLocalDelete } from '../sync/file-ops.js';
+import { nextSyncStamp } from '../sync/hlc.js';
+import { makeLwwTriple } from '../sync/lww.js';
+import { writeTombstone } from '../sync/tombstones.js';
 import { type SourceInput, normalizeSource } from './source.js';
 
 export interface CreateSongInput extends SourceInput {
@@ -88,7 +96,29 @@ function getSongRow(db: LarkDatabase, id: string): SongRow {
   return row;
 }
 
-/** Throw SourceKeyConflictError if (provider, key) belongs to another song. */
+/** The wire form of a song row — the payload of every `create` / `update`. */
+function songSyncPayload(row: SongRow): SongSyncPayload {
+  return {
+    name: row.name,
+    artist: row.artist,
+    source_url: row.source_url,
+    source_provider: row.source_provider,
+    source_key: row.source_key,
+    lyrics_offset: row.lyrics_offset,
+    duration: row.duration,
+    created_at_ms: row.created_at,
+    updated_at_ms: row.updated_at,
+    lww_counter: row.lww_counter,
+  };
+}
+
+/**
+ * Throw SourceKeyConflictError if (provider, key) belongs to another song.
+ *
+ * Local paths keep refusing duplicates even though the database no longer
+ * does (D8 dropped the UNIQUE index): sync may be forced to accept a duplicate
+ * two offline devices created, but nothing on THIS machine has to create one.
+ */
 function assertKeyFree(db: LarkDatabase, provider: string, key: string, excludeId?: string): void {
   const conditions = [eq(songs.source_provider, provider), eq(songs.source_key, key)];
   if (excludeId !== undefined) conditions.push(ne(songs.id, excludeId));
@@ -101,27 +131,55 @@ function assertKeyFree(db: LarkDatabase, provider: string, key: string, excludeI
 }
 
 export function createSongInTx(db: LarkDatabase, input: CreateSongInput): SongData {
-  const src = normalizeSource(input);
+  return insertSongRow(db, {
+    id: randomUUID(),
+    input,
+    fileOrigin: 'downloaded',
+  });
+}
+
+/**
+ * The one place a song row is born: stamp, insert, emit — in that order, in
+ * the caller's transaction.
+ *
+ * `created_at` takes the same hybrid-clock value as `updated_at` rather than a
+ * bare `Date.now()`, so the row and the `create` payload agree on the moment
+ * the song came into existence. `created_at_ms` is immutable across the
+ * workspace, and a value that disagreed with the key would be a permanent
+ * inconsistency nothing later can fix.
+ */
+function insertSongRow(
+  db: LarkDatabase,
+  args: { id: string; input: CreateSongInput; fileOrigin: FileOrigin },
+): SongData {
+  const sqlite = sqliteOf(db);
+  const src = normalizeSource(args.input);
   if (src.source_provider !== null && src.source_key !== null) {
     assertKeyFree(db, src.source_provider, src.source_key);
   }
-  const now = Date.now();
+  const stamp = nextSyncStamp(sqlite);
   const row: SongRow = {
-    id: randomUUID(),
-    name: input.name,
-    artist: input.artist ?? '',
+    id: args.id,
+    name: args.input.name,
+    artist: args.input.artist ?? '',
     ...src,
-    file_origin: 'downloaded',
-    lyrics_offset: input.lyrics_offset ?? 0,
-    duration: input.duration ?? 0,
+    file_origin: args.fileOrigin,
+    lyrics_offset: args.input.lyrics_offset ?? 0,
+    duration: args.input.duration ?? 0,
     pinned: false,
     last_accessed_at: null,
-    created_at: now,
-    updated_at: now,
-    device_id: null,
-    lww_counter: 0,
+    created_at: stamp.updated_at,
+    updated_at: stamp.updated_at,
+    device_id: readSkybridgeDeviceId(sqlite),
+    lww_counter: stamp.lww_counter,
   };
   db.insert(songs).values(row).run();
+  emitSyncChange(sqlite, {
+    entityType: 'song',
+    entityId: row.id,
+    op: 'create',
+    payload: songSyncPayload(row),
+  });
   return toSongData(row);
 }
 
@@ -149,28 +207,7 @@ export function createFileBackedSongInTx(
   input: CreateSongInput & { id: string; file_origin: FileOrigin },
 ): SongData {
   if (!isUuidV4(input.id)) throw new InvalidIdError(input.id);
-  const src = normalizeSource(input);
-  if (src.source_provider !== null && src.source_key !== null) {
-    assertKeyFree(db, src.source_provider, src.source_key);
-  }
-  const now = Date.now();
-  const row: SongRow = {
-    id: input.id,
-    name: input.name,
-    artist: input.artist ?? '',
-    ...src,
-    file_origin: input.file_origin,
-    lyrics_offset: input.lyrics_offset ?? 0,
-    duration: input.duration ?? 0,
-    pinned: false,
-    last_accessed_at: null,
-    created_at: now,
-    updated_at: now,
-    device_id: null,
-    lww_counter: 0,
-  };
-  db.insert(songs).values(row).run();
-  return toSongData(row);
+  return insertSongRow(db, { id: input.id, input, fileOrigin: input.file_origin });
 }
 
 export function getSong(db: LarkDatabase, _sqlite: BetterSqlite3.Database, id: string): SongData {
@@ -178,6 +215,7 @@ export function getSong(db: LarkDatabase, _sqlite: BetterSqlite3.Database, id: s
 }
 
 export function updateSongInTx(db: LarkDatabase, id: string, patch: UpdateSongInput): SongData {
+  const sqlite = sqliteOf(db);
   const prev = getSongRow(db, id);
   const src = normalizeSource({
     source_url: patch.source_url !== undefined ? patch.source_url : prev.source_url,
@@ -185,10 +223,16 @@ export function updateSongInTx(db: LarkDatabase, id: string, patch: UpdateSongIn
       patch.source_provider !== undefined ? patch.source_provider : prev.source_provider,
     source_key: patch.source_key !== undefined ? patch.source_key : prev.source_key,
   });
-  if (src.source_provider !== null && src.source_key !== null) {
+  // Only a CHANGED key is checked (D8). Sync can legitimately deliver a second
+  // song holding this one's key, and re-checking an unchanged key would make
+  // renaming such a song impossible — a conflict the user did not create and
+  // cannot fix from the edit dialog.
+  const keyChanged =
+    src.source_provider !== prev.source_provider || src.source_key !== prev.source_key;
+  if (keyChanged && src.source_provider !== null && src.source_key !== null) {
     assertKeyFree(db, src.source_provider, src.source_key, id);
   }
-  const stamp = nextLwwStamp(prev);
+  const stamp = nextSyncStamp(sqlite);
   const next: SongRow = {
     ...prev,
     name: patch.name ?? prev.name,
@@ -198,6 +242,7 @@ export function updateSongInTx(db: LarkDatabase, id: string, patch: UpdateSongIn
     ...src,
     updated_at: stamp.updated_at,
     lww_counter: stamp.lww_counter,
+    device_id: readSkybridgeDeviceId(sqlite),
   };
   db.update(songs)
     .set({
@@ -210,9 +255,16 @@ export function updateSongInTx(db: LarkDatabase, id: string, patch: UpdateSongIn
       source_key: next.source_key,
       updated_at: next.updated_at,
       lww_counter: next.lww_counter,
+      device_id: next.device_id,
     })
     .where(eq(songs.id, id))
     .run();
+  emitSyncChange(sqlite, {
+    entityType: 'song',
+    entityId: id,
+    op: 'update',
+    payload: songSyncPayload(next),
+  });
   return toSongData(next);
 }
 
@@ -268,43 +320,68 @@ export function listSongs(
   return { songs: page.map(toSongData), total };
 }
 
+export interface DeleteSongOptions {
+  /**
+   * The runtime that executes the queued file removal. A caller that already
+   * holds this song's claim passes ITS runtime (constructed with its own
+   * owner), so the drain reuses that claim instead of blocking on it.
+   */
+  fileOps?: FileEffectRuntime;
+}
+
 /**
- * Two-phase delete (R22): stage the song directory into trash/, commit the DB
- * delete (memberships cascade), then remove the staged directory best-effort
- * in the background. A DB failure renames the directory back in place. No
- * `…InTx` variant on purpose — an enclosing transaction's rollback would
- * orphan the compensation.
+ * Delete a song: one transaction for the row, the tombstone, the outbox entry
+ * and the file-effect journal — then execute the file removal.
+ *
+ * v0.1 staged the directory into `trash/` first and renamed it back if the
+ * database write failed. The journal replaces that compensation outright: the
+ * transaction is the commit point, and after it the files are owed rather than
+ * gone-and-maybe-restored. A crash between the two now resolves at boot, in
+ * one direction, instead of leaving a staged directory nobody will look at.
+ *
+ * The tombstone matters as much as the delete. Retention will eventually trim
+ * the outbox row, and after that the tombstone is the only evidence that a
+ * peer's older `create` for this id is a stale echo rather than a new song.
  */
-export function deleteSong(db: LarkDatabase, sqlite: BetterSqlite3.Database, id: string): void {
+export async function deleteSong(
+  db: LarkDatabase,
+  sqlite: BetterSqlite3.Database,
+  id: string,
+  options: DeleteSongOptions = {},
+): Promise<void> {
   if (!isUuidV4(id)) throw new InvalidIdError(id);
-  getSongRow(db, id);
 
-  const songDir = join(songsDir(), id);
-  let staged: string | null = null;
-  if (existsSync(songDir)) {
-    mkdirSync(trashDir(), { recursive: true });
-    staged = join(trashDir(), `${id}-${Date.now()}`);
-    renameSync(songDir, staged);
-  }
+  sqlite
+    .transaction(() => {
+      getSongRow(db, id); // 404 before anything is written
+      const stamp = nextSyncStamp(sqlite);
+      const deviceId = readSkybridgeDeviceId(sqlite);
 
-  try {
-    sqlite
-      .transaction(() => {
-        db.delete(songs).where(eq(songs.id, id)).run();
-      })
-      .immediate();
-  } catch (err) {
-    if (staged !== null) {
-      renameSync(staged, songDir);
-    }
-    throw err;
-  }
+      // Memberships cascade; they get no tombstones and emit nothing — a peer
+      // applying the song's delete cascades its own (§3.2).
+      db.delete(songs).where(eq(songs.id, id)).run();
 
-  if (staged !== null) {
-    void rm(staged, { recursive: true, force: true }).catch(() => {
-      /* best-effort: an undeleted trash entry is harmless and retried never */
-    });
-  }
+      writeTombstone(
+        sqlite,
+        'song',
+        id,
+        makeLwwTriple(stamp.updated_at, stamp.lww_counter, deviceId),
+        stamp.updated_at,
+      );
+      emitSyncChange(sqlite, {
+        entityType: 'song',
+        entityId: id,
+        op: 'delete',
+        payload: { updated_at_ms: stamp.updated_at, lww_counter: stamp.lww_counter },
+      });
+      // policy 'local': this device's own user asked for it, so nothing needs
+      // rescuing — unlike a delete that arrives from a peer (§3.6).
+      enqueueLocalDelete(sqlite, id, stamp.updated_at);
+    })
+    .immediate();
+
+  const runtime = options.fileOps ?? new FileEffectRuntime({ sqlite });
+  await runtime.drain();
 }
 
 // ─── Local-field paths (R18) ───────────────────────────

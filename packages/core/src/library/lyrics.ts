@@ -15,8 +15,10 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isUuidV4 } from '@lark/shared';
-import { InvalidIdError } from '../errors.js';
+import { type LarkDatabase, sqliteOf } from '../db/index.js';
+import { InvalidIdError, SyncChangeTooLargeError } from '../errors.js';
 import { songsDir } from '../paths.js';
+import { emitSyncChange, recordDeadLetter } from '../sync/changes.js';
 
 /** `songs/<id>/` — throws InvalidIdError before touching the filesystem. */
 export function songDirPath(id: string): string {
@@ -55,7 +57,7 @@ export async function readLyrics(id: string): Promise<string | null> {
  * what `readLyrics` reports as `null`; a zero-byte file would read as lyrics
  * that exist and say nothing.
  */
-export async function writeLyrics(id: string, lrc: string): Promise<void> {
+export async function writeLyricsFile(id: string, lrc: string): Promise<void> {
   const dir = songDirPath(id); // validates the id before any path is built
   if (lrc.trim() === '') {
     throw new Error(`refusing to write empty lyrics for song ${id}`);
@@ -75,7 +77,7 @@ export async function writeLyrics(id: string, lrc: string): Promise<void> {
 }
 
 /** Delete the lyrics file. `false` = there was nothing to delete. */
-export async function deleteLyrics(id: string): Promise<boolean> {
+export async function deleteLyricsFile(id: string): Promise<boolean> {
   try {
     await unlink(songLyricsPath(id));
     return true;
@@ -83,4 +85,56 @@ export async function deleteLyrics(id: string): Promise<boolean> {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
     throw err;
   }
+}
+
+// ─── The synced pair (v0.2) ────────────────────────────
+//
+// Lyrics travel as metadata ops carrying the document itself (D3): there is no
+// attachment channel, and an LRC is small. The file is written FIRST and the
+// change emitted after — a crash in between loses only the propagation, and
+// the next write re-emits, whereas the reverse order would tell the workspace
+// about lyrics this device does not have.
+//
+// The `…File` variants above stay for the apply path: landing a peer's lyrics
+// must not emit anything, or two devices would trade the same change forever.
+
+/** Write lyrics and tell the workspace. Local paths only — never apply. */
+export async function writeLyrics(db: LarkDatabase, id: string, lrc: string): Promise<void> {
+  await writeLyricsFile(id, lrc);
+  const sqlite = sqliteOf(db);
+  try {
+    emitSyncChange(sqlite, {
+      entityType: 'song',
+      entityId: id,
+      op: 'set_lyrics',
+      payload: { lrc },
+    });
+  } catch (err) {
+    if (!(err instanceof SyncChangeTooLargeError)) throw err;
+    // Explicitly NOT a convergence point (D3/§3.9): the lyrics are correct on
+    // this device and will never reach the others. Archived rather than
+    // silently dropped, and counted in `/sync/status`.
+    recordDeadLetter(sqlite, {
+      direction: 'out',
+      reason: 'change_too_large',
+      entityType: 'song',
+      entityId: id,
+      op: 'set_lyrics',
+      payload: JSON.stringify({ size: Buffer.byteLength(lrc, 'utf8'), limit: err.limit }),
+    });
+  }
+}
+
+/** Delete lyrics and tell the workspace. `false` = there was nothing to delete. */
+export async function deleteLyrics(db: LarkDatabase, id: string): Promise<boolean> {
+  const deleted = await deleteLyricsFile(id);
+  // Emitted even when there was no file: "this song has no lyrics" is the
+  // statement, and a peer that still has some must hear it.
+  emitSyncChange(sqliteOf(db), {
+    entityType: 'song',
+    entityId: id,
+    op: 'clear_lyrics',
+    payload: {},
+  });
+  return deleted;
 }

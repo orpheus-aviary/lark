@@ -139,4 +139,17 @@ export function ensureDeviceUuid(sqlite: BetterSqlite3.Database, logger?: Logger
   return persisted.value;
 }
 
+/**
+ * The raw handle drizzle is holding.
+ *
+ * v0.2 needs it inside the `…InTx` helpers: appending to the outbox is raw SQL
+ * and MUST land in the same transaction as the business write it describes.
+ * Taking it off the drizzle object rather than threading a second parameter
+ * through fifteen signatures is what guarantees that — there is only one
+ * connection here, so there is no way to pass the wrong one.
+ */
+export function sqliteOf(db: LarkDatabase): BetterSqlite3.Database {
+  return db.$client;
+}
+
 export { schema };

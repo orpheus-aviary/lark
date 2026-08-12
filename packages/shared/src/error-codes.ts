@@ -118,6 +118,9 @@ export type DaemonEnvelopeErrorCode = (typeof DAEMON_ENVELOPE_ERROR_CODES)[numbe
  * rather than by translating this code.
  */
 export const TASK_ERROR_CODES = [
+  // Reachable from a download that reuses a song by key, once a duplicate key
+  // can exist at all (D8).
+  'AMBIGUOUS_SOURCE_KEY',
   'BILIBILI_FAILED',
   'BILIBILI_RISK_CONTROL',
   'DOWNLOAD_COMMIT_FAILED',

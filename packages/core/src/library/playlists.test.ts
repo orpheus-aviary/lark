@@ -190,17 +190,28 @@ describe('reorderSong — anchor contract', () => {
     );
   });
 
-  it('midpoint path bumps only the moved row’s LWW', () => {
+  it('moves rank only, and publishes it as a set_rank (D7)', () => {
     const { pl, s } = setup();
-    const before = new Map(memberRows(pl).map((m) => [m.song_id, m.lww_counter]));
-    const beforeTs = new Map(memberRows(pl).map((m) => [m.song_id, m.updated_at]));
+    const keys = () =>
+      new Map(memberRows(pl).map((m) => [m.song_id, { at: m.updated_at, counter: m.lww_counter }]));
+    const before = keys();
+
     reorderSong(db(), sq(), pl, s[0], { after_song_id: s[1], before_song_id: s[2] });
-    for (const m of memberRows(pl)) {
-      const advanced =
-        m.updated_at > (beforeTs.get(m.song_id) as number) ||
-        m.lww_counter > (before.get(m.song_id) as number);
-      expect(advanced).toBe(m.song_id === s[0]);
-    }
+
+    // Nobody's LWW triple moved, including the dragged row: rank travels on
+    // its own channel, ordered by server_seq, and a value living in both
+    // channels would be settled by arrival order on one device and by server
+    // order on another.
+    expect(keys()).toEqual(before);
+
+    const emitted = sq()
+      .prepare("SELECT entity_id, payload FROM sync_changes WHERE op='set_rank' ORDER BY local_seq")
+      .all() as { entity_id: string; payload: string }[];
+    const last = emitted[emitted.length - 1];
+    expect(last.entity_id).toBe(`${pl}:${s[0]}`);
+    expect(JSON.parse(last.payload).rank).toBe(
+      memberRows(pl).find((m) => m.song_id === s[0])?.rank,
+    );
   });
 });
 
@@ -249,18 +260,39 @@ describe('rank midpoint exhaustion → in-tx normalization', () => {
     expect(normalized).toBe(true);
     expect(rounds).toBeLessThan(120);
 
-    // Normalization bumped the rows whose rank changed (B moved from 2048 to
-    // the far tail) and left untouched rows alone (A kept rank 1024).
+    // Normalization is rank-only (D7): A keeps rank 1024 and its stamp, and B
+    // moved to the far tail WITHOUT its stamp moving — the order it produced
+    // travels as one `reorder` instead.
     const aAfter = anchorARow();
     expect(aAfter?.rank).toBe(RANK_STEP);
     expect({ updated_at: aAfter?.updated_at, lww_counter: aAfter?.lww_counter }).toEqual(
       aStampBefore,
     );
     const bAfter = memberRows(pl).find((m) => m.song_id === anchorB);
-    const bAdvanced =
-      (bAfter?.updated_at as number) > (bRowBefore?.updated_at as number) ||
-      (bAfter?.lww_counter as number) > (bRowBefore?.lww_counter as number);
-    expect(bAdvanced).toBe(true);
+    expect(bAfter?.rank).not.toBe(2 * RANK_STEP);
+    expect({ updated_at: bAfter?.updated_at, lww_counter: bAfter?.lww_counter }).toEqual({
+      updated_at: bRowBefore?.updated_at,
+      lww_counter: bRowBefore?.lww_counter,
+    });
+
+    const emitted = sq()
+      .prepare(
+        "SELECT op, payload FROM sync_changes WHERE op IN ('reorder','set_rank') ORDER BY local_seq",
+      )
+      .all() as { op: string; payload: string }[];
+    const reorders = emitted.filter((c) => c.op === 'reorder');
+    expect(reorders.length).toBeGreaterThan(0);
+    // One change carries the whole renormalized order — N per-row changes
+    // would let a peer apply half of one. It is a permutation of the
+    // membership, not the final order: the drag that triggered the
+    // normalization then lands its own `set_rank` on top, which is why the
+    // LAST change here is that set_rank.
+    expect([...JSON.parse(reorders[reorders.length - 1].payload).song_ids].sort()).toEqual(
+      memberRows(pl)
+        .map((m) => m.song_id)
+        .sort(),
+    );
+    expect(emitted[emitted.length - 1].op).toBe('set_rank');
   });
 });
 
@@ -279,5 +311,81 @@ describe('…InTx composition across songs and playlists', () => {
     ).toThrow(/failed at song 3/);
     expect(memberRows(pl)).toHaveLength(0);
     expect(getPlaylistSongs(db(), sq(), pl)).toHaveLength(0);
+  });
+});
+
+describe('the outbox (v0.2)', () => {
+  const changes = () =>
+    sq()
+      .prepare('SELECT entity_type, entity_id, op, payload FROM sync_changes ORDER BY local_seq')
+      .all() as { entity_type: string; entity_id: string; op: string; payload: string }[];
+
+  const tombstone = (entityType: string, entityId: string) =>
+    sq()
+      .prepare('SELECT 1 FROM sync_tombstones WHERE entity_type=? AND entity_id=?')
+      .get(entityType, entityId);
+
+  it('emits create and update for the playlist itself', () => {
+    const pl = createPlaylist(db(), sq(), '我的最爱');
+    renamePlaylist(db(), sq(), pl.id, '收藏');
+    expect(changes().map((c) => `${c.entity_type}.${c.op}`)).toEqual([
+      'playlist.create',
+      'playlist.update',
+    ]);
+  });
+
+  it('emits create AND set_rank for every add, in that order (R4-2)', () => {
+    const pl = createPlaylist(db(), sq(), 'p').id;
+    const [a, b] = makeSongs(['A', 'B']);
+    addSongsToPlaylist(db(), sq(), pl, [a, b]);
+
+    const membership = changes().filter((c) => c.entity_type === 'playlist_song');
+    expect(membership.map((c) => `${c.op}:${c.entity_id}`)).toEqual([
+      `create:${pl}:${a}`,
+      `set_rank:${pl}:${a}`,
+      `create:${pl}:${b}`,
+      `set_rank:${pl}:${b}`,
+    ]);
+    // The put carries existence and `added_at`, never the rank: a rank in the
+    // LWW channel is not replayed by the device that emitted it, so its peers
+    // would adopt a position it never applies itself.
+    expect(JSON.parse(membership[0].payload)).not.toHaveProperty('rank');
+    expect(JSON.parse(membership[1].payload)).toEqual({ rank: RANK_STEP });
+  });
+
+  it('adding an existing member emits nothing', () => {
+    const pl = createPlaylist(db(), sq(), 'p').id;
+    const [a] = makeSongs(['A']);
+    addSongsToPlaylist(db(), sq(), pl, [a]);
+    const before = changes().length;
+    expect(addSongsToPlaylist(db(), sq(), pl, [a])).toBe(0);
+    expect(changes()).toHaveLength(before);
+  });
+
+  it('leaves a revivable tombstone when a member is removed', () => {
+    const pl = createPlaylist(db(), sq(), 'p').id;
+    const [a] = makeSongs(['A']);
+    addSongsToPlaylist(db(), sq(), pl, [a]);
+    removeSongFromPlaylist(db(), sq(), pl, a);
+
+    const last = changes().at(-1);
+    expect(`${last?.entity_type}.${last?.op}`).toBe('playlist_song.delete');
+    // Re-adding a song later is ordinary, so this tombstone is the thing an
+    // incoming older `create` must beat before it may revive the row.
+    expect(tombstone('playlist_song', `${pl}:${a}`)).toBeDefined();
+  });
+
+  it('says nothing about the memberships a playlist delete cascades', () => {
+    const pl = createPlaylist(db(), sq(), 'p').id;
+    const [a, b] = makeSongs(['A', 'B']);
+    addSongsToPlaylist(db(), sq(), pl, [a, b]);
+    deletePlaylist(db(), sq(), pl);
+
+    const after = changes().filter((c) => c.entity_type === 'playlist_song' && c.op === 'delete');
+    // A peer applying the playlist's delete cascades its own copies; a
+    // per-member change would be about an entity whose parent is already gone.
+    expect(after).toHaveLength(0);
+    expect(tombstone('playlist', pl)).toBeDefined();
+    expect(tombstone('playlist_song', `${pl}:${a}`)).toBeUndefined();
   });
 });

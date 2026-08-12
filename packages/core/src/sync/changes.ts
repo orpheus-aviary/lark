@@ -10,7 +10,12 @@
 // (§3.8). Neither belongs to a single entity, and neither is worth a module.
 
 import { randomUUID } from 'node:crypto';
-import { SYNC_CHANGE_BYTES_MAX, type SyncEntityType, type SyncOp } from '@lark/shared';
+import {
+  SYNC_CHANGE_BYTES_MAX,
+  type SyncChangePayload,
+  type SyncEntityType,
+  type SyncOp,
+} from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { SyncChangeTooLargeError } from '../errors.js';
 
@@ -18,8 +23,8 @@ export interface EmitChangeArgs {
   entityType: SyncEntityType;
   entityId: string;
   op: SyncOp;
-  /** Plain object, serialized to JSON. Shape is fixed by (entityType, op). */
-  payload: Record<string, unknown>;
+  /** Serialized to JSON. Which shape is legal is fixed by (entityType, op). */
+  payload: SyncChangePayload;
   /** Override the row's `created_at` (unix ms). Tests pass a fixed value. */
   nowMs?: number;
 }

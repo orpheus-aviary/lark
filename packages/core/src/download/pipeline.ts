@@ -23,7 +23,12 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
 import { songs } from '../db/schema.js';
-import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
+import {
+  AmbiguousSourceKeyError,
+  BilibiliApiError,
+  LlmNotConfiguredError,
+  SourceGoneError,
+} from '../errors.js';
 import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
@@ -337,17 +342,45 @@ export async function fetchAudio(
 
 // ─── Reuse ─────────────────────────────────────────────
 
-/** The song already holding this source key, if any (M3-7 key pre-check). */
+/**
+ * Every song holding this source key, oldest id first (D8).
+ *
+ * There can be more than one since v0.2: two offline devices downloading the
+ * same video both create a song, and no merge of the two is safe regardless of
+ * arrival order, so both land. The list is what the duplicate report counts.
+ */
+export function findSongsByKey(db: LarkDatabase, provider: string, key: string): { id: string }[] {
+  return db
+    .select({ id: songs.id })
+    .from(songs)
+    .where(and(eq(songs.source_provider, provider), eq(songs.source_key, key)))
+    .orderBy(songs.id)
+    .all();
+}
+
+/**
+ * The song holding this source key (M3-7 key pre-check), or undefined.
+ *
+ * Throws `AmbiguousSourceKeyError` when two songs hold it. The alternative —
+ * `.get()` returning whichever row SQLite hands back first — silently attaches
+ * a download, or an import match, to an arbitrary one of two songs the user
+ * can see are different. Naming the ambiguity is the only honest answer; the
+ * user deletes one duplicate and everything downstream works again.
+ */
 export function findSongByKey(
   db: LarkDatabase,
   provider: string,
   key: string,
 ): { id: string } | undefined {
-  return db
-    .select({ id: songs.id })
-    .from(songs)
-    .where(and(eq(songs.source_provider, provider), eq(songs.source_key, key)))
-    .get();
+  const hits = findSongsByKey(db, provider, key);
+  if (hits.length > 1) {
+    throw new AmbiguousSourceKeyError(
+      provider,
+      key,
+      hits.map((h) => h.id),
+    );
+  }
+  return hits[0];
 }
 
 // ─── Lyrics ────────────────────────────────────────────
@@ -389,7 +422,7 @@ export async function runLyrics(
     };
   }
 
-  await writeLyrics(song.id, best.lrc);
+  await writeLyrics(deps.db, song.id, best.lrc);
   return { written: true, platform: best.platform, reason: null };
 }
 

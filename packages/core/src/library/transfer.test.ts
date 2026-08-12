@@ -414,3 +414,34 @@ describe('importPlaylist', () => {
     expect(row.last_accessed_at).toBeNull();
   });
 });
+
+describe('import feeds the outbox through the same write paths (v0.2)', () => {
+  it('publishes the new playlist, its new songs, and its memberships', () => {
+    const file = parseAndValidate(fileOf([entry('丙', 'BV1ccc:3'), entry('丁', 'BV1ddd:4')]));
+    sq().prepare('DELETE FROM sync_changes').run(); // ignore the fixture's own writes
+
+    importPlaylist(db(), sq(), {
+      entries: file.entries,
+      target: { kind: 'new', name: '导入的歌单' },
+    });
+
+    const ops = (
+      sq().prepare('SELECT entity_type, op FROM sync_changes ORDER BY local_seq').all() as {
+        entity_type: string;
+        op: string;
+      }[]
+    ).map((c) => `${c.entity_type}.${c.op}`);
+    // Import composes the ordinary `…InTx` writers rather than reaching for
+    // the tables, so it inherits their emits — including the create/set_rank
+    // pair per membership — instead of needing its own.
+    expect(ops).toEqual([
+      'playlist.create',
+      'song.create',
+      'song.create',
+      'playlist_song.create',
+      'playlist_song.set_rank',
+      'playlist_song.create',
+      'playlist_song.set_rank',
+    ]);
+  });
+});

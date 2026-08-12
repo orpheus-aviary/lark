@@ -215,7 +215,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
     const token = ctx.downloads.claims.acquire(id, 'lyrics', `route:${randomUUID()}`);
     let deleted: boolean;
     try {
-      deleted = await deleteLyrics(id);
+      deleted = await deleteLyrics(ctx.db, id);
     } finally {
       ctx.downloads.claims.release(token);
     }

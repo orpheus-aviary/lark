@@ -203,10 +203,13 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       const updated = attempt(() => core.updateSong(db, sqlite, validId(id), patch));
       return Promise.resolve(ok(enrich(updated)));
     },
-    deleteSong: (id) => {
+    deleteSong: async (id) => {
       writable();
-      attempt(() => core.deleteSong(db, sqlite, validId(id)));
-      return Promise.resolve(ok({ id }, { message: 'song deleted' }));
+      // Async since v0.2: the row and the file removal are two steps now (a
+      // journal entry between them), and the command must not exit before the
+      // files it promised to delete are gone.
+      await attemptAsync(() => core.deleteSong(db, sqlite, validId(id)));
+      return ok({ id }, { message: 'song deleted' });
     },
     pinSong: (id, pinned) => {
       writable();
@@ -390,7 +393,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // this process: R31 guarantees no daemon, and the writer lock excludes
       // every other writer, so this process is the only one that could be
       // writing that file.
-      const deleted = await attemptAsync(() => core.deleteLyrics(validId(id)));
+      const deleted = await attemptAsync(() => core.deleteLyrics(db, validId(id)));
       if (!deleted) throw new CliError('LYRICS_NOT_FOUND', '这首歌没有歌词文件。');
       return ok({ id }, { message: 'lyrics deleted' });
     },

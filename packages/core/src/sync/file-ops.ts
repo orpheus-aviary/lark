@@ -29,7 +29,7 @@ import {
 import type BetterSqlite3 from 'better-sqlite3';
 import { ClaimRegistry } from '../download/claims.js';
 import { FileOpBusyError, FileOpNotFoundError, SongBusyError } from '../errors.js';
-import { songAudioPath, songDirPath, songLyricsPath, writeLyrics } from '../library/lyrics.js';
+import { songAudioPath, songDirPath, songLyricsPath, writeLyricsFile } from '../library/lyrics.js';
 import type { Logger } from '../logger/index.js';
 import { recoveredSongsDir } from '../paths.js';
 import { recordDeadLetter } from './changes.js';
@@ -657,7 +657,7 @@ async function landLyrics(songId: string, lrc: string): Promise<void> {
     await unlink(songLyricsPath(songId)).catch(ignoreMissing);
     return;
   }
-  await writeLyrics(songId, lrc);
+  await writeLyricsFile(songId, lrc);
 }
 
 /**

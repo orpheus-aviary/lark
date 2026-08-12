@@ -4,11 +4,10 @@
 // playlist row's LWW (cross-entity decoupling, M1-5).
 
 import { randomUUID } from 'node:crypto';
-import type { PlaylistData, SongData } from '@lark/shared';
+import { type PlaylistData, type SongData, membershipEntityId } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, count, eq } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
-import { nextLwwStamp } from '../db/lww.js';
+import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import {
   type PlaylistRow,
   type PlaylistSongRow,
@@ -17,7 +16,12 @@ import {
   songs,
 } from '../db/schema.js';
 import { InvalidReorderError, NotFoundError } from '../errors.js';
-import { RANK_STEP, midpointRank, normalizeRanksInTx } from './rank.js';
+import { emitSyncChange } from '../sync/changes.js';
+import { readSkybridgeDeviceId } from '../sync/device.js';
+import { nextSyncStamp } from '../sync/hlc.js';
+import { makeLwwTriple } from '../sync/lww.js';
+import { writeTombstone } from '../sync/tombstones.js';
+import { RANK_STEP, midpointRank, normalizeRanksInTx, setRankInTx } from './rank.js';
 
 export interface ReorderAnchors {
   /** The moved song lands immediately BEFORE this member. */
@@ -44,35 +48,66 @@ function getPlaylistRow(db: LarkDatabase, id: string): PlaylistRow {
 }
 
 export function createPlaylistInTx(db: LarkDatabase, name: string): PlaylistData {
-  const now = Date.now();
+  const sqlite = sqliteOf(db);
+  const stamp = nextSyncStamp(sqlite);
   const row: PlaylistRow = {
     id: randomUUID(),
     name,
-    created_at: now,
-    updated_at: now,
-    device_id: null,
-    lww_counter: 0,
+    created_at: stamp.updated_at,
+    updated_at: stamp.updated_at,
+    device_id: readSkybridgeDeviceId(sqlite),
+    lww_counter: stamp.lww_counter,
   };
   db.insert(playlists).values(row).run();
+  emitSyncChange(sqlite, {
+    entityType: 'playlist',
+    entityId: row.id,
+    op: 'create',
+    payload: {
+      name: row.name,
+      created_at_ms: row.created_at,
+      updated_at_ms: row.updated_at,
+      lww_counter: row.lww_counter,
+    },
+  });
   return toPlaylistData(row, 0);
 }
 
 export function createPlaylist(
   db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  sqlite: BetterSqlite3.Database,
   name: string,
 ): PlaylistData {
-  return createPlaylistInTx(db, name);
+  // Transactional since v0.2 — the row and its change row are one write now.
+  return sqlite.transaction(() => createPlaylistInTx(db, name)).immediate();
 }
 
 export function renamePlaylistInTx(db: LarkDatabase, id: string, name: string): PlaylistData {
+  const sqlite = sqliteOf(db);
   const prev = getPlaylistRow(db, id);
-  const stamp = nextLwwStamp(prev);
+  const stamp = nextSyncStamp(sqlite);
+  const deviceId = readSkybridgeDeviceId(sqlite);
   db.update(playlists)
-    .set({ name, updated_at: stamp.updated_at, lww_counter: stamp.lww_counter })
+    .set({
+      name,
+      updated_at: stamp.updated_at,
+      lww_counter: stamp.lww_counter,
+      device_id: deviceId,
+    })
     .where(eq(playlists.id, id))
     .run();
-  return toPlaylistData({ ...prev, name, ...stamp });
+  emitSyncChange(sqlite, {
+    entityType: 'playlist',
+    entityId: id,
+    op: 'update',
+    payload: {
+      name,
+      created_at_ms: prev.created_at,
+      updated_at_ms: stamp.updated_at,
+      lww_counter: stamp.lww_counter,
+    },
+  });
+  return toPlaylistData({ ...prev, name, ...stamp, device_id: deviceId });
 }
 
 export function renamePlaylist(
@@ -85,9 +120,30 @@ export function renamePlaylist(
 }
 
 export function deletePlaylistInTx(db: LarkDatabase, id: string): void {
+  const sqlite = sqliteOf(db);
   getPlaylistRow(db, id);
-  // FK ON DELETE CASCADE prunes playlist_songs.
+  const stamp = nextSyncStamp(sqlite);
+  const deviceId = readSkybridgeDeviceId(sqlite);
+
+  // FK ON DELETE CASCADE prunes playlist_songs. Those memberships get no
+  // tombstones and emit nothing: a peer applying the playlist's delete
+  // cascades its own copies, and a per-member delete would then be a change
+  // about an entity whose parent is already gone (§3.2).
   db.delete(playlists).where(eq(playlists.id, id)).run();
+
+  writeTombstone(
+    sqlite,
+    'playlist',
+    id,
+    makeLwwTriple(stamp.updated_at, stamp.lww_counter, deviceId),
+    stamp.updated_at,
+  );
+  emitSyncChange(sqlite, {
+    entityType: 'playlist',
+    entityId: id,
+    op: 'delete',
+    payload: { updated_at_ms: stamp.updated_at, lww_counter: stamp.lww_counter },
+  });
 }
 
 export function deletePlaylist(db: LarkDatabase, sqlite: BetterSqlite3.Database, id: string): void {
@@ -164,8 +220,8 @@ export function addSongsToPlaylistInTx(
   playlistId: string,
   songIds: readonly string[],
 ): number {
+  const sqlite = sqliteOf(db);
   getPlaylistRow(db, playlistId);
-  const now = Date.now();
 
   const members = db
     .select({ song_id: playlist_songs.song_id, rank: playlist_songs.rank })
@@ -181,17 +237,42 @@ export function addSongsToPlaylistInTx(
     if (!song) throw new NotFoundError('song', songId);
     if (existing.has(songId)) continue;
     tail += RANK_STEP;
+    const stamp = nextSyncStamp(sqlite);
     db.insert(playlist_songs)
       .values({
         playlist_id: playlistId,
         song_id: songId,
         rank: tail,
-        added_at: now,
-        updated_at: now,
-        device_id: null,
-        lww_counter: 0,
+        added_at: stamp.updated_at,
+        updated_at: stamp.updated_at,
+        device_id: readSkybridgeDeviceId(sqlite),
+        lww_counter: stamp.lww_counter,
       })
       .run();
+    // A PAIR, in this order, with consecutive local_seq (R4-2): `create` says
+    // the membership exists and carries no rank at all, `set_rank` decides
+    // where it sits. One change carrying both would put rank in the LWW
+    // channel, which the emitting device never replays — so its peers would
+    // adopt the rank in the payload and it would not, and the two orders drift
+    // apart from a single add.
+    emitSyncChange(sqlite, {
+      entityType: 'playlist_song',
+      entityId: membershipEntityId(playlistId, songId),
+      op: 'create',
+      payload: {
+        playlist_id: playlistId,
+        song_id: songId,
+        added_at_ms: stamp.updated_at,
+        updated_at_ms: stamp.updated_at,
+        lww_counter: stamp.lww_counter,
+      },
+    });
+    emitSyncChange(sqlite, {
+      entityType: 'playlist_song',
+      entityId: membershipEntityId(playlistId, songId),
+      op: 'set_rank',
+      payload: { rank: tail },
+    });
     existing.add(songId);
     added++;
   }
@@ -207,17 +288,46 @@ export function addSongsToPlaylist(
   return sqlite.transaction(() => addSongsToPlaylistInTx(db, playlistId, songIds)).immediate();
 }
 
-export function removeSongFromPlaylist(
+export function removeSongFromPlaylistInTx(
   db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
   playlistId: string,
   songId: string,
 ): void {
+  const sqlite = sqliteOf(db);
   const res = db
     .delete(playlist_songs)
     .where(and(eq(playlist_songs.playlist_id, playlistId), eq(playlist_songs.song_id, songId)))
     .run();
   if (res.changes === 0) throw new NotFoundError('playlist_song', songId);
+
+  const stamp = nextSyncStamp(sqlite);
+  const entityId = membershipEntityId(playlistId, songId);
+  // Unlike a cascade, this membership gets a tombstone: re-adding the song
+  // later is an ordinary thing to do, and the tombstone is what an incoming
+  // older `create` has to beat before it may revive the row (§3.2).
+  writeTombstone(
+    sqlite,
+    'playlist_song',
+    entityId,
+    makeLwwTriple(stamp.updated_at, stamp.lww_counter, readSkybridgeDeviceId(sqlite)),
+    stamp.updated_at,
+  );
+  emitSyncChange(sqlite, {
+    entityType: 'playlist_song',
+    entityId,
+    op: 'delete',
+    payload: { updated_at_ms: stamp.updated_at, lww_counter: stamp.lww_counter },
+  });
+}
+
+export function removeSongFromPlaylist(
+  db: LarkDatabase,
+  sqlite: BetterSqlite3.Database,
+  playlistId: string,
+  songId: string,
+): void {
+  // Transactional since v0.2 — row, tombstone and change commit together.
+  sqlite.transaction(() => removeSongFromPlaylistInTx(db, playlistId, songId)).immediate();
 }
 
 function orderedMembers(db: LarkDatabase, playlistId: string): PlaylistSongRow[] {
@@ -257,13 +367,13 @@ export function reorderSongInTx(
     throw new InvalidReorderError('reorder needs before_song_id and/or after_song_id');
   }
 
-  const locate = (): {
-    movedRank: { updated_at: number; lww_counter: number };
-    target: number | null;
-  } => {
+  // The moved row's own LWW stamp is no longer part of the answer — rank is a
+  // metadata op now — so this only computes where the song lands.
+  const locate = (): { target: number | null } => {
     const members = orderedMembers(db, playlistId);
-    const moved = members.find((m) => m.song_id === songId);
-    if (!moved) throw new NotFoundError('playlist_song', songId);
+    if (!members.some((m) => m.song_id === songId)) {
+      throw new NotFoundError('playlist_song', songId);
+    }
     const rest = members.filter((m) => m.song_id !== songId);
 
     let lower: PlaylistSongRow | null;
@@ -304,25 +414,24 @@ export function reorderSongInTx(
     } else {
       target = midpointRank(lower.rank, upper.rank);
     }
-    return { movedRank: moved, target };
+    return { target };
   };
 
-  let { movedRank, target } = locate();
+  let { target } = locate();
   if (target === null) {
-    // Float gap exhausted: renormalize (bumps changed rows), then recompute —
-    // adjacent ranks are RANK_STEP apart now, the midpoint cannot collide.
+    // Float gap exhausted: renormalize (which publishes its own reorder), then
+    // recompute — adjacent ranks are RANK_STEP apart now, the midpoint cannot
+    // collide.
     normalizeRanksInTx(db, playlistId);
-    ({ movedRank, target } = locate());
+    ({ target } = locate());
     if (target === null) {
       throw new InvalidReorderError('rank collision persisted after normalization');
     }
   }
 
-  const stamp = nextLwwStamp(movedRank);
-  db.update(playlist_songs)
-    .set({ rank: target, updated_at: stamp.updated_at, lww_counter: stamp.lww_counter })
-    .where(and(eq(playlist_songs.playlist_id, playlistId), eq(playlist_songs.song_id, songId)))
-    .run();
+  // Rank-only: dragging a song does not touch the membership's LWW triple,
+  // because rank is decided by server order alone now (§3.5).
+  setRankInTx(db, playlistId, songId, target);
 }
 
 export function reorderSong(

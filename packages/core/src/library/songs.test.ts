@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
-import { nextLwwStamp } from '../db/lww.js';
 import { songs } from '../db/schema.js';
 import {
   InvalidIdError,
@@ -12,6 +11,8 @@ import {
   NotFoundError,
   SourceKeyConflictError,
 } from '../errors.js';
+import { setSkybridgeDeviceId } from '../sync/device.js';
+import { readTombstone } from '../sync/tombstones.js';
 import {
   createSong,
   createSongInTx,
@@ -49,25 +50,11 @@ function lwwOf(id: string): { updated_at: number; lww_counter: number } {
   return { updated_at: row.updated_at, lww_counter: row.lww_counter };
 }
 
-describe('nextLwwStamp', () => {
-  it('advances to (now, 0) when the clock moved', () => {
-    expect(nextLwwStamp({ updated_at: 100, lww_counter: 7 }, 200)).toEqual({
-      updated_at: 200,
-      lww_counter: 0,
-    });
-  });
-
-  it('same-ms (and clock-rewind) writes keep the timestamp and bump the counter', () => {
-    expect(nextLwwStamp({ updated_at: 100, lww_counter: 0 }, 100)).toEqual({
-      updated_at: 100,
-      lww_counter: 1,
-    });
-    expect(nextLwwStamp({ updated_at: 100, lww_counter: 1 }, 50)).toEqual({
-      updated_at: 100,
-      lww_counter: 2,
-    });
-  });
-});
+function deviceIdOf(id: string): string | null {
+  const row = db().select().from(songs).where(eq(songs.id, id)).get();
+  if (!row) throw new Error('row gone');
+  return row.device_id;
+}
 
 describe('createSong / getSong — source quadrants', () => {
   it('creates with all source fields NULL', () => {
@@ -314,36 +301,160 @@ describe('deleteSong — trash protocol (R22)', () => {
     return dir;
   }
 
-  it('removes the row and stages the directory out of songs/', () => {
+  it('removes the row and the files, and leaves a tombstone behind', async () => {
     const song = createSong(db(), sq(), { name: 's' });
     const dir = makeSongDir(song.id);
-    deleteSong(db(), sq(), song.id);
+
+    await deleteSong(db(), sq(), song.id);
+
     expect(existsSync(dir)).toBe(false);
     expect(() => getSong(db(), sq(), song.id)).toThrow(NotFoundError);
+    // Retention will trim the outbox row eventually; after that the tombstone
+    // is the only thing that stops a peer's older `create` from resurrecting
+    // this song.
+    expect(readTombstone(sq(), 'song', song.id)).not.toBeNull();
+    expect(
+      sq()
+        .prepare("SELECT count(*) AS n FROM sync_changes WHERE op='delete' AND entity_id=?")
+        .get(song.id),
+    ).toEqual({ n: 1 });
+    // Drained: nothing owed.
+    expect(sq().prepare('SELECT count(*) AS n FROM sync_file_ops').get()).toEqual({ n: 0 });
   });
 
-  it('restores the directory in place when the DB delete fails', () => {
+  it('touches no file when the transaction fails', async () => {
     const song = createSong(db(), sq(), { name: 's' });
     const dir = makeSongDir(song.id);
     sq().pragma('query_only = 1'); // inject a write failure
     try {
-      expect(() => deleteSong(db(), sq(), song.id)).toThrow();
+      await expect(deleteSong(db(), sq(), song.id)).rejects.toThrow();
     } finally {
       sq().pragma('query_only = 0');
     }
+    // v0.1 staged the directory into trash/ FIRST and renamed it back on
+    // failure. The journal removes that window entirely: the commit happens
+    // before any file is touched, so there is nothing to compensate.
     expect(existsSync(join(dir, 'song.mp3'))).toBe(true);
     expect(getSong(db(), sq(), song.id).id).toBe(song.id); // row survived
+    expect(readTombstone(sq(), 'song', song.id)).toBeNull();
   });
 
-  it('works when no directory exists (metadata-only song)', () => {
+  it('works when no directory exists (metadata-only song)', async () => {
     const song = createSong(db(), sq(), { name: 's' });
-    deleteSong(db(), sq(), song.id);
+    await deleteSong(db(), sq(), song.id);
     expect(() => getSong(db(), sq(), song.id)).toThrow(NotFoundError);
   });
 
-  it('rejects non-UUID ids before touching any path (R10)', () => {
-    expect(() => deleteSong(db(), sq(), '../etc/passwd')).toThrow(InvalidIdError);
-    expect(() => deleteSong(db(), sq(), 'not-a-uuid')).toThrow(InvalidIdError);
+  it('rejects non-UUID ids before touching any path (R10)', async () => {
+    await expect(deleteSong(db(), sq(), '../etc/passwd')).rejects.toThrow(InvalidIdError);
+    await expect(deleteSong(db(), sq(), 'not-a-uuid')).rejects.toThrow(InvalidIdError);
+  });
+});
+
+describe('the outbox (v0.2)', () => {
+  const changes = (id: string) =>
+    sq()
+      .prepare('SELECT op, payload FROM sync_changes WHERE entity_id = ? ORDER BY local_seq')
+      .all(id) as { op: string; payload: string }[];
+
+  it('emits a full create, in the same transaction as the row', () => {
+    const song = createSong(db(), sq(), {
+      name: '晴天',
+      artist: '周杰伦',
+      source_provider: 'bilibili',
+      source_key: 'BVaa:1',
+      duration: 269.5,
+    });
+    const emitted = changes(song.id);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].op).toBe('create');
+    expect(JSON.parse(emitted[0].payload)).toEqual({
+      name: '晴天',
+      artist: '周杰伦',
+      source_url: null,
+      source_provider: 'bilibili',
+      source_key: 'BVaa:1',
+      lyrics_offset: 0,
+      duration: 269.5,
+      // The row and the payload agree on when the song was born; created_at_ms
+      // is immutable across the workspace, so a disagreement would be forever.
+      created_at_ms: song.created_at,
+      updated_at_ms: song.updated_at,
+      lww_counter: lwwOf(song.id).lww_counter,
+    });
+  });
+
+  it('rolls the change back with the write it describes', () => {
+    expect(() =>
+      sq()
+        .transaction(() => {
+          createSongInTx(db(), { name: 'one' });
+          throw new Error('boom');
+        })
+        .immediate(),
+    ).toThrow();
+    expect(sq().prepare('SELECT count(*) AS n FROM sync_changes').get()).toEqual({ n: 0 });
+  });
+
+  it('emits an update, and nothing at all for local fields (R18)', () => {
+    const song = createSong(db(), sq(), { name: 'old' });
+    updateSong(db(), sq(), song.id, { name: 'new' });
+    setPinned(db(), sq(), song.id, true);
+    touchLastAccessed(db(), sq(), song.id, 123456);
+    setFileOrigin(db(), sq(), song.id, 'imported');
+
+    // Pinning a song on this laptop says nothing to any other device.
+    expect(changes(song.id).map((c) => c.op)).toEqual(['create', 'update']);
+  });
+
+  it('stamps the registered device id once this library is bound', () => {
+    const before = createSong(db(), sq(), { name: 'unbound' });
+    expect(deviceIdOf(before.id)).toBeNull();
+
+    setSkybridgeDeviceId(sq(), 'device-7');
+    const after = createSong(db(), sq(), { name: 'bound' });
+    expect(deviceIdOf(after.id)).toBe('device-7');
+
+    updateSong(db(), sq(), before.id, { name: 'now bound' });
+    // The third element of the LWW key is the SERVER's id for this device —
+    // the local device_uuid would mean nothing to a peer comparing keys.
+    expect(deviceIdOf(before.id)).toBe('device-7');
+  });
+});
+
+describe('a duplicate source key (D8)', () => {
+  /** A duplicate only sync can produce: insert the second row underneath core. */
+  function insertDuplicate(key: string): string {
+    const id = '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a0ff';
+    sq()
+      .prepare(
+        `INSERT INTO songs (id, name, artist, source_provider, source_key, file_origin,
+           created_at, updated_at)
+         VALUES (?, 'from a peer', '', 'bilibili', ?, 'downloaded', 1000, 1000)`,
+      )
+      .run(id, key);
+    return id;
+  }
+
+  it('does not block editing either song', () => {
+    const mine = createSong(db(), sq(), {
+      name: 'mine',
+      source_provider: 'bilibili',
+      source_key: 'BVdup:1',
+    });
+    insertDuplicate('BVdup:1');
+
+    // The key did not change, so it is not re-checked — otherwise a duplicate
+    // the user never created would make its own song unrenameable.
+    expect(updateSong(db(), sq(), mine.id, { name: 'renamed' }).name).toBe('renamed');
+  });
+
+  it('still refuses to move a key onto a song that already holds one', () => {
+    createSong(db(), sq(), { name: 'a', source_provider: 'bilibili', source_key: 'BVaa:1' });
+    const b = createSong(db(), sq(), { name: 'b' });
+    expect(() =>
+      updateSong(db(), sq(), b.id, { source_provider: 'bilibili', source_key: 'BVaa:1' }),
+    ).toThrow(SourceKeyConflictError);
   });
 });
 

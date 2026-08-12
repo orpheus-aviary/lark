@@ -509,3 +509,30 @@ export class FileOpBusyError extends CodedError {
     this.name = 'FileOpBusyError';
   }
 }
+
+/**
+ * Two songs hold the same `(source_provider, source_key)` (D8).
+ *
+ * Only sync can produce this: local paths still refuse to create a duplicate,
+ * but two offline devices can each download the same video, and no merge of
+ * the pair is safe regardless of which arrives first. So both are kept, made
+ * visible, and every by-key lookup says so rather than picking one — the user
+ * deletes one and everything downstream resolves again.
+ */
+export class AmbiguousSourceKeyError extends CodedError {
+  readonly code = 'AMBIGUOUS_SOURCE_KEY';
+  readonly provider: string;
+  readonly key: string;
+  readonly songIds: readonly string[];
+  // `songIds` defaults so the class survives the registry test's two-spare-
+  // strings probe, like every other coded error.
+  constructor(provider: string, key: string, songIds: readonly string[] = []) {
+    super(
+      `(${provider}, ${key}) belongs to ${songIds.length} songs (${songIds.join(', ')}) — delete the duplicate you do not want to keep`,
+    );
+    this.name = 'AmbiguousSourceKeyError';
+    this.provider = provider;
+    this.key = key;
+    this.songIds = songIds;
+  }
+}
