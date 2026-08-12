@@ -25,10 +25,6 @@
 //      skip into a failure, so the recipe cannot be quietly green.
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   type LarkDatabase,
   type LyricsSnapshot,
@@ -64,89 +60,14 @@ import { SYNC_WORKSPACE_NAME, SYNC_WORKSPACE_TOOL, type SongData } from '@lark/s
 import { CLIENT_VERSION, createSkybridgeClient, login } from '@orpheus-aviary/skybridge-client';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import {
+  type RunningSkybridgeServer,
+  type SkybridgeServerModule,
+  resolveSkybridgeServer,
+  startSkybridgeServer,
+} from '../testing/skybridge-server.js';
 
-// ─── Resolving the server ──────────────────────────────
-
-/** Only what this suite calls — the package is never named in an import. */
-interface SkybridgeServerModule {
-  defaultConfig(dir: string): {
-    server: { host: string; port: number };
-    storage: { dbPath: string; attachmentRoot: string };
-    logging: { level: string; file: string | null };
-  };
-  openDb(opts: { path: string; requireMigrationsApplied: boolean }): { close(): void };
-  applyMigrations(db: unknown): void;
-  buildApp(opts: { config: unknown; logger: false }): Promise<{
-    app: {
-      listen(opts: { host: string; port: number }): Promise<void>;
-      close(): Promise<void>;
-      server: { address(): { port: number } | string | null };
-    };
-    db: unknown;
-  }>;
-  createUser(db: unknown, input: { email: string; password: string }): Promise<{ id: string }>;
-}
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-
-/** Where the sibling checkout keeps its built server, when there is one. */
-const SIBLING_SERVER = join(HERE, '../../../../../skybridge/packages/server/dist/src/index.js');
-
-async function resolveServerModule(): Promise<SkybridgeServerModule | null> {
-  const candidates = [
-    '@orpheus-aviary/skybridge-server',
-    process.env.LARK_SKYBRIDGE_SERVER,
-    existsSync(SIBLING_SERVER) ? SIBLING_SERVER : undefined,
-  ].filter((spec): spec is string => spec !== undefined && spec !== '');
-
-  for (const spec of candidates) {
-    try {
-      return (await import(spec)) as SkybridgeServerModule;
-    } catch {
-      // Next candidate. A missing private package is the normal case.
-    }
-  }
-  return null;
-}
-
-const serverModule = await resolveServerModule();
-if (serverModule === null && process.env.LARK_SYNC_E2E_REQUIRED === '1') {
-  throw new Error(
-    'the skybridge server could not be resolved — install @orpheus-aviary/skybridge-server, ' +
-      'point LARK_SKYBRIDGE_SERVER at its built entry, or check out the sibling repo and build it',
-  );
-}
-
-interface RunningServer {
-  baseUrl: string;
-  db: unknown;
-  close: () => Promise<void>;
-}
-
-async function startServer(sb: SkybridgeServerModule): Promise<RunningServer> {
-  const dir = mkdtempSync(join(tmpdir(), 'lark-sync-e2e-server-'));
-  const config = sb.defaultConfig(dir);
-  config.logging.file = null;
-  config.logging.level = 'error';
-
-  const initDb = sb.openDb({ path: config.storage.dbPath, requireMigrationsApplied: false });
-  sb.applyMigrations(initDb);
-  initDb.close();
-
-  const built = await sb.buildApp({ config, logger: false });
-  await built.app.listen({ host: '127.0.0.1', port: 0 });
-  const address = built.app.server.address();
-  if (address === null || typeof address !== 'object') throw new Error('server did not listen');
-
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    db: built.db,
-    close: async () => {
-      await built.app.close();
-      rmSync(dir, { recursive: true, force: true });
-    },
-  };
-}
+const serverModule = await resolveSkybridgeServer();
 
 // ─── Devices ───────────────────────────────────────────
 
@@ -174,7 +95,7 @@ const APP_VERSION = 'lark 0.2.0';
  */
 async function createDevice(
   label: string,
-  server: RunningServer,
+  server: RunningSkybridgeServer,
   email: string,
   password: string,
   lyrics: LyricsSnapshot = new Map(),
@@ -265,7 +186,7 @@ function pendingOps(device: Device): { op: string; entity_type: string; entity_i
 // ─── The journey ───────────────────────────────────────
 
 describe.skipIf(serverModule === null)('sync against a real skybridge server', () => {
-  let server: RunningServer;
+  let server: RunningSkybridgeServer;
   let a: Device;
   let b: Device;
   let c: Device;
@@ -275,7 +196,7 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
 
   beforeAll(async () => {
     const sb = serverModule as SkybridgeServerModule;
-    server = await startServer(sb);
+    server = await startSkybridgeServer(sb);
     await sb.createUser(server.db, { email, password });
 
     // A is the device with a library: two songs and a playlist that predate
