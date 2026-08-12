@@ -3,6 +3,8 @@
 // interface names are PascalCase. Kept free of any Node / Electron / DOM-host
 // concept so the same definitions compile everywhere.
 
+import type { SyncState } from './sync-types.js';
+
 /**
  * The uniform response envelope. Exceptions (documented in the master plan
  * §R15): `GET /audio/:id` (binary + Range), `GET /lyrics/:id` (text/plain),
@@ -716,4 +718,17 @@ export type LarkEvent =
   | { type: 'download:error'; task_id: string; error_code: string; message: string }
   | { type: 'download:cancelled'; task_id: string }
   | { type: 'download:batches-changed'; batch_id: string }
-  | { type: 'cache:evicted'; song_id: string };
+  | { type: 'cache:evicted'; song_id: string }
+  // ── skybridge sync (v0.2, §4.4) ──
+  //
+  // `sync:status_changed` carries the state and nothing else. The badge needs
+  // exactly that to render, and everything the popover shows (counts, seqs,
+  // last error) is a `GET /sync/status` away — duplicating those fields here
+  // would give a client two sources for the same numbers and no rule for
+  // which one is newer.
+  | { type: 'sync:status_changed'; state: SyncState }
+  | { type: 'conflicts:changed'; count: number }
+  // A remote delete moved files into `recovered-songs/` instead of removing
+  // them: irreplaceable audio, or lyrics this device never published. Nothing
+  // is lost, but nobody would ever look without being told.
+  | { type: 'sync:file_quarantined'; song_id: string };

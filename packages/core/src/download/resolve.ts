@@ -238,7 +238,21 @@ export interface RecoveryReport {
   orphansQuarantined: number;
   /** Log rows with no manifest — cleanup that did not finish. */
   danglingLogRowsRemoved: number;
+  /** Directories left alone because a sync file op still refers to them (v0.2). */
+  skippedForFileOps: number;
   notes: string[];
+}
+
+export interface RecoveryOptions {
+  /**
+   * Song directories the file-effect journal still owns (§3.6).
+   *
+   * Boot drains the journal BEFORE calling this, so what is left is an op that
+   * failed or is backing off — and its row is a decision that has already been
+   * committed to the database. Recovery must not act on such a directory: it
+   * would see the half-state the op is going to finish and read it as residue.
+   */
+  skipSongIds?: ReadonlySet<string>;
 }
 
 /**
@@ -258,6 +272,7 @@ export interface RecoveryReport {
 export function recoverSongsStore(
   db: LarkDatabase,
   _sqlite: BetterSqlite3.Database,
+  options: RecoveryOptions = {},
 ): RecoveryReport {
   const report: RecoveryReport = {
     tempFilesRemoved: 0,
@@ -266,8 +281,10 @@ export function recoverSongsStore(
     oldFileKept: 0,
     orphansQuarantined: 0,
     danglingLogRowsRemoved: 0,
+    skippedForFileOps: 0,
     notes: [],
   };
+  const skip = options.skipSongIds ?? new Set<string>();
 
   const logRows = new Map(
     db
@@ -285,6 +302,10 @@ export function recoverSongsStore(
   for (const entry of existsSync(root) ? readdirSync(root, { withFileTypes: true }) : []) {
     if (!entry.isDirectory() || !isUuidV4(entry.name)) continue;
     const songId = entry.name;
+    if (skip.has(songId)) {
+      report.skippedForFileOps++;
+      continue;
+    }
     const dir = join(root, songId);
     const hasRow =
       db.select({ id: songs.id }).from(songs).where(eq(songs.id, songId)).get() !== undefined;

@@ -16,19 +16,25 @@
 // triggers and the runner through `attachHandles`, and everything here needs
 // from them is "stop, and tell me when the in-flight round has unwound".
 
+import type { RunSyncResult } from '@lark/core';
 import type { SyncAuthReason, SyncState } from '@lark/shared';
 import type { AppContext } from '../context.js';
 import { type SkybridgeApi, realSkybridgeApi } from './client.js';
+import type { SyncTrigger } from './runner.js';
 import type { SyncSession } from './session.js';
 
 /**
- * The background half, plugged in by T3c.
+ * The background half: the timers, the server subscription and the round.
  *
- * `stop` must be synchronous and idempotent: it is called on paths that cannot
- * afford to await before shutting the taps (a fatal teardown, an epoch bump),
- * and the awaiting happens in `abortAndDrain`.
+ * Attached ONCE per daemon, not per session — every trigger gates on "is there
+ * a session right now", so they survive a logout and pick up the next login
+ * without being rebuilt. `stop` ends them for good (daemon teardown);
+ * `abortAndDrain` only ends the round in flight, which is what a lifecycle
+ * change needs.
  */
 export interface SyncBackgroundHandles {
+  /** Ask for a round through the coalescer. Every caller goes through this. */
+  run(trigger: SyncTrigger): Promise<RunSyncResult | null>;
   stop(): void;
   abortAndDrain(): Promise<void>;
 }
@@ -36,6 +42,8 @@ export interface SyncBackgroundHandles {
 export interface SyncRuntimeOptions {
   /** The SDK surface. Tests pass a fake; boot passes the real one. */
   api?: SkybridgeApi;
+  /** Run the background triggers (timers + server subscription). Default true. */
+  triggers?: boolean;
 }
 
 export class SyncRuntime {
@@ -52,9 +60,19 @@ export class SyncRuntime {
   authReason: SyncAuthReason | null = 'missing_session';
   lastError: string | null = null;
   lastSyncAt: number | null = null;
+  /** When the outbox was last trimmed — retention is hourly, not per round. */
+  lastRetentionAt: number | null = null;
+  /**
+   * Whether this context runs background triggers at all.
+   *
+   * Off in tests by default: a unit test that logs in must not acquire a 1s
+   * interval timer and a server subscription as a side effect.
+   */
+  readonly triggersEnabled: boolean;
 
   constructor(options: SyncRuntimeOptions = {}) {
     this.api = options.api ?? realSkybridgeApi;
+    this.triggersEnabled = options.triggers ?? true;
   }
 
   get session(): SyncSession | null {
@@ -76,6 +94,17 @@ export class SyncRuntime {
   }
 
   /**
+   * Ask for a round. Every caller — the timers, the server stream, the route —
+   * goes through the one coalescer, so two rounds never run at once.
+   */
+  run(trigger: SyncTrigger): Promise<RunSyncResult | null> {
+    if (this.#handles === null) {
+      throw new Error('sync handles are not attached to this context');
+    }
+    return this.#handles.run(trigger);
+  }
+
+  /**
    * Serialize a lifecycle operation.
    *
    * The chain absorbs rejections (`#lifecycle` is only ever a resolved
@@ -92,20 +121,36 @@ export class SyncRuntime {
   }
 
   /**
-   * End the current session: number the next one, stop the triggers, and wait
-   * for the round in flight to unwind.
+   * End the current session and wait for the round in flight to unwind.
    *
    * The epoch bump comes FIRST, before any await. Everything that resumes
    * after this point can then tell that it belongs to a session that is gone,
    * including the very round we are about to wait for.
+   *
+   * The handles stay attached: they are the daemon's, not the session's, and
+   * every one of them already gates on "is there a session".
    */
   async teardownSession(): Promise<void> {
     this.#epoch += 1;
-    const handles = this.#handles;
-    this.#handles = null;
     this.#session = null;
-    handles?.stop();
-    await handles?.abortAndDrain();
+    await this.#handles?.abortAndDrain();
+  }
+
+  /**
+   * Drop the session WITHOUT waiting for anything.
+   *
+   * For the one caller that cannot await a drain: a round that just learned
+   * its token is rejected is itself the round a drain would wait for.
+   */
+  dropSession(reason: SyncAuthReason): void {
+    this.#epoch += 1;
+    this.#session = null;
+    this.noteAuthRequired(reason);
+  }
+
+  /** Daemon teardown: the triggers end for good. */
+  stopHandles(): void {
+    this.#handles?.stop();
   }
 
   installSession(session: SyncSession): void {
@@ -125,6 +170,22 @@ export class SyncRuntime {
   noteError(message: string): void {
     this.state = 'error';
     this.lastError = message;
+  }
+
+  /** The server could not be reached — distinct from "it said no". */
+  noteOffline(message: string): void {
+    this.state = 'offline';
+    this.lastError = message;
+  }
+
+  noteSyncing(): void {
+    this.state = 'syncing';
+  }
+
+  noteSuccess(atMs: number): void {
+    this.state = 'idle';
+    this.lastError = null;
+    this.lastSyncAt = atMs;
   }
 }
 

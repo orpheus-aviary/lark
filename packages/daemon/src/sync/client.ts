@@ -70,6 +70,26 @@ export function skybridgeErrorCode(err: unknown): string | null {
 }
 
 /**
+ * Verdicts that mean the stored refresh token is dead: unknown, expired,
+ * revoked, or presented after it was rotated (which nukes the whole family).
+ */
+const DEAD_REFRESH_CODES: ReadonlySet<string> = new Set(['REFRESH_INVALID', 'REFRESH_REPLAYED']);
+
+/**
+ * Is this refresh failure permanent?
+ *
+ * Fails SAFE toward "no": only an explicit server verdict counts. Treating a
+ * network blip as a dead token would log the user out for a lost packet, and
+ * the cost of being wrong the other way is one more failed refresh in a
+ * minute's time.
+ */
+export function isRefreshTokenDead(err: unknown): boolean {
+  return (
+    isAuthFailure(err) || (err instanceof ApiError && DEAD_REFRESH_CODES.has(String(err.code)))
+  );
+}
+
+/**
  * Translate an SDK failure into lark's vocabulary.
  *
  * `what` names the call, because the message reaches a human: "login failed"

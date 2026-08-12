@@ -12,6 +12,7 @@ import type { BilibiliClient, MediaToolsProvider } from '@lark/core';
 import {
   DEFAULT_CONFIG,
   DownloadEngine,
+  FileEffectRuntime,
   MediaToolsRegistry,
   createBilibiliClient,
   createDatabase,
@@ -37,6 +38,7 @@ import { PlayerRuntime } from '../player-runtime.js';
 import { buildServer } from '../server.js';
 import type { SkybridgeApi } from '../sync/client.js';
 import { withSyncRuntime } from '../sync/runtime.js';
+import { type SyncHandlesOptions, attachSyncHandles } from '../sync/triggers.js';
 
 /** Fixed token used by harness-built servers. */
 export const TEST_LOCAL_TOKEN = 'test-local-token-0123456789abcdef';
@@ -104,6 +106,15 @@ export interface TestContextOptions {
    * login passes a fake here.
    */
   skybridge?: SkybridgeApi;
+  /**
+   * Run the background sync triggers. OFF by default: a unit test that logs in
+   * must not acquire a one-second interval timer and a server subscription as
+   * a side effect. The coalescer is attached either way, so `POST /sync/run`
+   * behaves the same.
+   */
+  syncTriggers?: boolean;
+  /** Clock and jitter for the trigger tests. */
+  syncHandles?: SyncHandlesOptions;
 }
 
 export interface TestContext extends AppContext {
@@ -205,13 +216,23 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
       downloads,
       bilibili,
       mediaTools,
+      fileOps: new FileEffectRuntime({
+        sqlite,
+        claims: downloads.claims,
+        onQuarantine: (songId) =>
+          eventsBus.emit({ type: 'sync:file_quarantined', song_id: songId }),
+      }),
       shutdownSignal: shutdownController.signal,
       ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
       fatals,
       shutdownController,
     }),
-    options.skybridge === undefined ? {} : { api: options.skybridge },
+    {
+      ...(options.skybridge === undefined ? {} : { api: options.skybridge }),
+      triggers: options.syncTriggers === true,
+    },
   );
+  attachSyncHandles(ctx, options.syncHandles ?? {});
   return ctx;
 }
 
@@ -224,6 +245,10 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
  */
 export async function closeTestContext(ctx: TestContext): Promise<void> {
   ctx.player.failAll({ kind: 'shutting-down' });
+  // Mirrors boot's teardown: the sync timers and any round in flight go before
+  // the database they hold a handle to (§3.11).
+  ctx.sync.stopHandles();
+  await ctx.sync.teardownSession();
   await ctx.downloads.close();
   // Same reason as boot's teardown: a drain in flight would otherwise wake up
   // on a closed events bus and a closed database (M5-6).

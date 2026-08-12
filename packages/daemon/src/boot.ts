@@ -44,6 +44,7 @@ import { mkdirSync } from 'node:fs';
 import {
   DestructiveForwardMigrationError,
   DownloadEngine,
+  FileEffectRuntime,
   ForwardMigrationError,
   GoMigrationRequiredError,
   IncompatibleDbError,
@@ -61,6 +62,8 @@ import {
   createLogger,
   loadConfig,
   paths,
+  pendingFileOpSongIds,
+  pruneEmptyQuarantines,
   recoverSongsStore,
   resolveLlmConfig,
 } from '@lark/core';
@@ -77,6 +80,7 @@ import { PlayerRuntime } from './player-runtime.js';
 import { buildServer } from './server.js';
 import { withSyncRuntime } from './sync/runtime.js';
 import { restoreSession } from './sync/session.js';
+import { attachSyncHandles } from './sync/triggers.js';
 
 export interface BootOptions {
   /** Resolve the daemon config. Defaults to core's `loadConfig()`. */
@@ -241,6 +245,12 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       // does not wait for it. It has to finish before the bus and the database
       // go away, or its continuation wakes up holding both (M5-6).
       await ctx?.cacheScheduler.close();
+      // Same shape as the eviction scheduler: the sync timers and the server
+      // subscription are nobody's HTTP request, so `server.close()` does not
+      // wait for them, and a round that woke up after the database closed
+      // would be holding a handle to nothing (§3.11).
+      ctx?.sync.stopHandles();
+      await ctx?.sync.teardownSession();
       ctx?.guiChannel.close(); // registry timers + connection refs
       ctx?.eventsBus.close();
       ctx?.sqlite.close();
@@ -335,10 +345,33 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   try {
     const { db, sqlite } = createDatabase({ dbPath: paths.dbPath(), logger });
 
+    // ── The file-effect journal comes FIRST (v0.2 §3.6) ─────────────────────
+    //
+    // Its rows are decisions the database already committed whose file half
+    // has not happened yet: a song deleted by a peer, lyrics that arrived, a
+    // directory to move aside. Recovery looks at the same directories and
+    // judges them against the database — so running it first would meet a
+    // half-finished effect and read it as residue from a crash.
+    //
+    // This runtime has a claim registry of its own on purpose: the download
+    // engine does not exist yet, and nothing else in the process can be
+    // touching a song directory at this point in boot. The long-lived one on
+    // the context shares the ENGINE's registry (see below).
+    const bootFileOps = new FileEffectRuntime({ sqlite, logger });
+    const drained = await bootFileOps.drain();
+    logger.info(drained, 'sync file journal drained');
+    const quarantinesPruned = await pruneEmptyQuarantines();
+
     // BEFORE the engine exists, so no task can be racing the reconciliation
-    // (M3-7). Anything it finds is residue from a previous process's death.
-    const recovery = recoverSongsStore(db, sqlite);
-    logger.info({ ...recovery, notes: undefined }, 'songs store recovered');
+    // (M3-7). Anything it finds is residue from a previous process's death —
+    // except the directories the journal still owns, which are skipped.
+    const recovery = recoverSongsStore(db, sqlite, {
+      skipSongIds: pendingFileOpSongIds(sqlite),
+    });
+    logger.info(
+      { ...recovery, notes: undefined, quarantines_pruned: quarantinesPruned },
+      'songs store recovered',
+    );
     for (const note of recovery.notes) logger.warn({ note }, 'recovery note');
 
     // Probed once here and shared by every consumer (M7-18). Note where this
@@ -456,6 +489,16 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         downloads,
         bilibili,
         mediaTools,
+        // Shares the ENGINE's claim registry: a drain that removes a song's
+        // directory and a download replacing that song's audio are exactly the
+        // pair the registry exists to keep apart.
+        fileOps: new FileEffectRuntime({
+          sqlite,
+          claims: downloads.claims,
+          logger,
+          onQuarantine: (songId) =>
+            eventsBus.emit({ type: 'sync:file_quarantined', song_id: songId }),
+        }),
         shutdownSignal: shutdownController.signal,
         ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
       }),
@@ -473,6 +516,9 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       },
       'sync session restored',
     );
+    // Timers and the server subscription. They gate on "is there a session",
+    // so this is right whether the restore installed one or not.
+    attachSyncHandles(ctx);
 
     server = buildServer(ctx);
   } catch (err) {

@@ -6,8 +6,15 @@
 // the contract is about calls that must NOT happen: no revoke of a device we
 // merely reused, no second registration on an ordinary re-login.
 
-import { ApiError } from '@orpheus-aviary/skybridge-client';
-import type { ApiDevice, ApiRefreshResult, ApiWorkspace } from '@orpheus-aviary/skybridge-proto';
+import { randomUUID } from 'node:crypto';
+import { ApiError, type SubscribeHandlers } from '@orpheus-aviary/skybridge-client';
+import type {
+  ApiDevice,
+  ApiRefreshResult,
+  ApiWorkspace,
+  LocalChange,
+  ServerChange,
+} from '@orpheus-aviary/skybridge-proto';
 import type { AuthContext, SkybridgeApi, SkybridgeClient } from '../sync/client.js';
 
 /** Every call the daemon makes, in the order it makes them. */
@@ -54,6 +61,14 @@ export interface FakeSkybridge {
   clearFailures(): void;
   /** How many times a stage was called. */
   count(call: FakeSkybridgeCall): number;
+  /** Hand the next pull (and only that one) this batch. */
+  queuePull(changes: ServerChange[]): void;
+  /** Everything the daemon has pushed, in order. */
+  readonly pushed: LocalChange[];
+  /** The last handler set installed by `subscribeEvents`, if any. */
+  readonly stream: { handlers: SubscribeHandlers; closed: boolean } | null;
+  /** Pretend the server pushed: fires the stream's `onChange`. */
+  emitRemoteChange(latestSeq: number): void;
 }
 
 export function makeDevice(id: string, overrides: Partial<ApiDevice> = {}): ApiDevice {
@@ -76,6 +91,9 @@ export function createFakeSkybridge(options: FakeSkybridgeOptions = {}): FakeSky
     (options.devices ?? []).map((device) => [device.id, device]),
   );
   const failures = new Map<FakeSkybridgeCall, unknown>();
+  const pushed: LocalChange[] = [];
+  const pullQueue: ServerChange[][] = [];
+  let stream: { handlers: SubscribeHandlers; closed: boolean } | null = null;
   let createClientCalls = 0;
   let failCreateClientAt: number | null = null;
   let nextDeviceId = 1;
@@ -93,6 +111,7 @@ export function createFakeSkybridge(options: FakeSkybridgeOptions = {}): FakeSky
       updatedAt: 1_700_000_000_000,
     } satisfies ApiWorkspace,
     serverTimeMs: options.serverTimeMs ?? 1_700_000_000_000,
+    latestSeq: 0,
   };
 
   function record(call: FakeSkybridgeCall, detail?: string): void {
@@ -124,16 +143,36 @@ export function createFakeSkybridge(options: FakeSkybridgeOptions = {}): FakeSky
     async logout() {
       record('logout');
     },
-    async pushChanges() {
+    async pushChanges(_workspaceId, changes) {
       record('push', deviceId ?? '');
-      return { accepted: [], duplicates: [], latestSeq: 0, serverTime: state.serverTimeMs };
+      const accepted = changes.map((change) => {
+        pushed.push(change);
+        state.latestSeq += 1;
+        return { clientChangeId: change.clientChangeId, serverSeq: state.latestSeq };
+      });
+      return {
+        accepted,
+        duplicates: [],
+        latestSeq: state.latestSeq,
+        serverTime: state.serverTimeMs,
+      };
     },
     async pullChanges() {
       record('pull', deviceId ?? '');
-      return { changes: [], hasMore: false, latestSeq: 0, serverTime: state.serverTimeMs };
+      const batch = pullQueue.shift() ?? [];
+      for (const change of batch) state.latestSeq = Math.max(state.latestSeq, change.serverSeq);
+      return {
+        changes: batch,
+        hasMore: pullQueue.length > 0,
+        latestSeq: state.latestSeq,
+        serverTime: state.serverTimeMs,
+      };
     },
-    subscribeEvents() {
-      return () => {};
+    subscribeEvents(_workspaceId, handlers) {
+      stream = { handlers, closed: false };
+      return () => {
+        if (stream !== null) stream.closed = true;
+      };
     },
   });
 
@@ -204,5 +243,50 @@ export function createFakeSkybridge(options: FakeSkybridgeOptions = {}): FakeSky
     count(call) {
       return calls.filter((entry) => entry === call || entry.startsWith(`${call}:`)).length;
     },
+    queuePull(changes) {
+      pullQueue.push(changes);
+    },
+    pushed,
+    get stream() {
+      return stream;
+    },
+    emitRemoteChange(latestSeq) {
+      stream?.handlers.onChange(latestSeq);
+    },
+  };
+}
+
+/** A minimal inbound song `create`, ready to hand to `queuePull`. */
+export function remoteSongCreate(options: {
+  serverSeq: number;
+  songId: string;
+  deviceId?: string;
+  name?: string;
+  updatedAtMs?: number;
+}): ServerChange {
+  const updatedAt = options.updatedAtMs ?? 1_700_000_000_000;
+  return {
+    serverSeq: options.serverSeq,
+    deviceId: options.deviceId ?? 'device-peer',
+    clientChangeId: randomUUID(),
+    entityType: 'song',
+    entityId: options.songId,
+    op: 'create',
+    payload: {
+      name: options.name ?? '远端的歌',
+      artist: '远端',
+      source_url: null,
+      source_provider: null,
+      source_key: null,
+      lyrics_offset: 0,
+      duration: 0,
+      created_at_ms: updatedAt,
+      updated_at_ms: updatedAt,
+      lww_counter: 0,
+    },
+    clientLocalSeq: 1,
+    clientCreatedAt: updatedAt,
+    serverReceivedAt: updatedAt,
+    attachmentRefs: null,
   };
 }

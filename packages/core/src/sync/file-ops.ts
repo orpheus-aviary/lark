@@ -355,6 +355,12 @@ export interface FileEffectRuntimeOptions {
   owner?: string;
   logger?: Logger;
   nowMs?: () => number;
+  /**
+   * Called after an op that MOVED files into `recovered-songs/` instead of
+   * deleting them. The daemon turns it into an SSE event: nothing was lost,
+   * but a directory nobody is told about is a directory nobody looks in.
+   */
+  onQuarantine?: (songId: string) => void;
 }
 
 export interface DrainResult {
@@ -373,6 +379,7 @@ export class FileEffectRuntime {
   readonly #owner: string;
   readonly #logger?: Logger;
   readonly #now: () => number;
+  readonly #onQuarantine?: (songId: string) => void;
   #running: Promise<DrainResult> | null = null;
 
   constructor(options: FileEffectRuntimeOptions) {
@@ -381,6 +388,7 @@ export class FileEffectRuntime {
     this.#owner = options.owner ?? `file-ops:${randomUUID()}`;
     this.#logger = options.logger;
     this.#now = options.nowMs ?? Date.now;
+    this.#onQuarantine = options.onQuarantine;
   }
 
   /** True while a drain is in flight — retry and discard refuse during one. */
@@ -523,9 +531,10 @@ export class FileEffectRuntime {
       }
 
       try {
-        await executeFileOp(row);
+        const outcome = await executeFileOp(row);
         this.#sqlite.prepare('DELETE FROM sync_file_ops WHERE id = ?').run(row.id);
         result.executed += 1;
+        if (outcome.quarantined) this.#onQuarantine?.(row.song_id);
       } catch (err) {
         this.#recordFailure(row, err);
         stalled.add(row.song_id);
@@ -569,22 +578,32 @@ export class FileEffectRuntime {
 
 // ─── Execution (idempotent by construction) ────────────
 
-async function executeFileOp(row: FileOpRow): Promise<void> {
+/** What the executor did that a caller might want to know about. */
+interface FileOpOutcome {
+  /** Files were moved into `recovered-songs/` rather than removed. */
+  quarantined: boolean;
+}
+
+async function executeFileOp(row: FileOpRow): Promise<FileOpOutcome> {
   const arg = parseArg(row.arg);
   if (arg === null) throw new Error(`file op ${row.id} has an unreadable arg`);
 
   switch (row.kind) {
-    case 'delete_song_files':
-      return arg.policy === 'remote'
-        ? deleteRemote(row.song_id, arg as unknown as DeleteRemoteArg)
-        : rm(songDirPath(row.song_id), { recursive: true, force: true });
+    case 'delete_song_files': {
+      if (arg.policy !== 'remote') {
+        await rm(songDirPath(row.song_id), { recursive: true, force: true });
+        return { quarantined: false };
+      }
+      return deleteRemote(row.song_id, arg as unknown as DeleteRemoteArg);
+    }
     case 'quarantine_song_files':
       return quarantineDir(row.song_id, String(arg.quarantine_target));
     case 'write_lyrics':
-      return landLyrics(row.song_id, typeof arg.inline === 'string' ? arg.inline : '');
+      await landLyrics(row.song_id, typeof arg.inline === 'string' ? arg.inline : '');
+      return { quarantined: false };
     case 'delete_lyrics':
       await unlink(songLyricsPath(row.song_id)).catch(ignoreMissing);
-      return;
+      return { quarantined: false };
     default:
       throw new Error(`file op ${row.id} has kind '${row.kind}', which this build cannot execute`);
   }
@@ -603,27 +622,31 @@ function ignoreMissing(err: NodeJS.ErrnoException): void {
  * to do rather than a half-state, because every step tolerates having already
  * happened.
  */
-async function deleteRemote(songId: string, arg: DeleteRemoteArg): Promise<void> {
+async function deleteRemote(songId: string, arg: DeleteRemoteArg): Promise<FileOpOutcome> {
   const dir = songDirPath(songId);
-  if (!existsSync(dir)) return;
+  if (!existsSync(dir)) return { quarantined: false };
 
   const keepAudio = arg.audio_origin !== 'downloaded';
   const keepLyrics = arg.lyrics_disposition === 'quarantine';
+  let quarantined = false;
 
   if (keepAudio && existsSync(songAudioPath(songId))) {
     await moveInto(songAudioPath(songId), arg.quarantine_target, 'song.mp3');
+    quarantined = true;
   } else {
     await unlink(songAudioPath(songId)).catch(ignoreMissing);
   }
 
   if (keepLyrics && existsSync(songLyricsPath(songId))) {
     await moveInto(songLyricsPath(songId), arg.quarantine_target, 'lyrics.lrc');
+    quarantined = true;
   } else {
     await unlink(songLyricsPath(songId)).catch(ignoreMissing);
   }
 
   // Anything else in there (a stray temp file) is ours and unreferenced.
   await rm(dir, { recursive: true, force: true });
+  return { quarantined };
 }
 
 async function moveInto(from: string, targetName: string, fileName: string): Promise<void> {
@@ -633,18 +656,19 @@ async function moveInto(from: string, targetName: string, fileName: string): Pro
 }
 
 /** Move the whole directory aside. A target that already exists means a rerun. */
-async function quarantineDir(songId: string, targetName: string): Promise<void> {
+async function quarantineDir(songId: string, targetName: string): Promise<FileOpOutcome> {
   const dir = songDirPath(songId);
   const target = join(recoveredSongsDir(), targetName);
-  if (!existsSync(dir)) return;
+  if (!existsSync(dir)) return { quarantined: false };
   if (existsSync(target)) {
     // The move already happened and the crash was after it; drop whatever is
     // left behind rather than merging two directories.
     await rm(dir, { recursive: true, force: true });
-    return;
+    return { quarantined: false };
   }
   await mkdir(recoveredSongsDir(), { recursive: true });
   await rename(dir, target);
+  return { quarantined: true };
 }
 
 /**

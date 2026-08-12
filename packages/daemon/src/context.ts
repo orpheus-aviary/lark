@@ -1,4 +1,10 @@
-import type { BilibiliClient, DownloadEngine, LarkDatabase, MediaToolsProvider } from '@lark/core';
+import type {
+  BilibiliClient,
+  DownloadEngine,
+  FileEffectRuntime,
+  LarkDatabase,
+  MediaToolsProvider,
+} from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { AudioStreamRegistry } from './audio-streams.js';
@@ -104,6 +110,15 @@ export interface AppContext {
    * token refresh and unbind cannot interleave.
    */
   sync: SyncRuntime;
+  /**
+   * The file-effect journal's executor (§3.6).
+   *
+   * Shares the download engine's claim registry, which is the whole point of
+   * there being ONE per daemon: a drain that deletes a song's directory must
+   * not run while a download is replacing that song's audio, and two registries
+   * would arbitrate two different sets of claims over the same files.
+   */
+  fileOps: FileEffectRuntime;
   /**
    * Aborted when the daemon starts stopping (M3-13).
    *

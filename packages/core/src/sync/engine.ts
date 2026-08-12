@@ -18,7 +18,6 @@ import {
   type SyncOp,
 } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
-import type { Logger } from '../logger/index.js';
 import { type ApplyResult, type InboundChange, applyChangesInTx } from './apply.js';
 import type { FileEffectRuntime } from './file-ops.js';
 import { setServerTimeOffset } from './hlc.js';
@@ -132,6 +131,18 @@ export function writeCursor(
 
 // ─── A round ───────────────────────────────────────────
 
+/**
+ * The one thing this module logs with.
+ *
+ * Declared structurally rather than as core's pino `Logger` so the daemon can
+ * pass the four-method logger its context carries — a round is driven from a
+ * context, and requiring the concrete pino type there would mean either a cast
+ * or no log line at all.
+ */
+export interface SyncRoundLogger {
+  warn(fields: Record<string, unknown>, msg: string): void;
+}
+
 export interface RunSyncOptions {
   sqlite: BetterSqlite3.Database;
   client: SkybridgeClientLike;
@@ -139,7 +150,7 @@ export interface RunSyncOptions {
   workspaceId: string;
   /** Executes the file effects an applied batch queued. */
   fileOps?: FileEffectRuntime;
-  logger?: Logger;
+  logger?: SyncRoundLogger;
   signal?: AbortSignal;
   nowMs?: () => number;
   /** Pull page size. Lower only in tests — the server caps it at 1000. */
