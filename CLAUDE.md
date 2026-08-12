@@ -33,9 +33,9 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 | T3 | daemon（凭证与 binding / login 序列 / epoch / runner 与三触发器 / 路由 / boot drain，四小批 a–d） | ✅ |
 | T4 | GUI（徽章 + popover + 设置页 Tabs + 冲突页 + 列表重复标记，三小批 a–c） | ✅ |
 | T5 | CLI（sync 七命令 + `songs list --duplicates` + skill export） | ✅ |
-| T6 | 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0 | ⏳ 下一批 |
+| T6 | 双套 e2e ✅（19 例，`just test-sync-e2e`）+ `accept-sync` ⏳ + 发版 0.2.0 ⏳ | 🚧 |
 
-当前测试 **2094**（shared 79 / core 809 / cli 395 / daemon 433 / gui 378）。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段。
+当前测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`，需要 skybridge server）。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段。
 
 ⚠️ **真实曲库一旦被 v0.2 daemon 打开就升到 schema v2，已发布的 0.1.0 会拒绝打开它**（`user_version > LATEST`）。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。
 
@@ -219,6 +219,10 @@ lark/
 - **旧 session 在 install 事务之前拆**：回填与 rebase 重写未推送变更的 key，在途的一轮会推旧 key 而本地留新 key
 - **一轮里吃了 401 只能 `dropSession`**，不能 `teardownSession`——后者要等在途的轮，而在途的就是自己
 - **push-on-mutation 走轮询不走事件**：`emitSyncChange` 在调用方事务内（事件可能早于 COMMIT 或在回滚后存活），而挂事件总线又漏掉 backfill 与 conflict resolve 这两条只 emit 不发曲库事件的路径
+- **e2e 的 server 不进依赖（T6）**：`@orpheus-aviary/skybridge-server` 是私有包，运行时按「已安装 → `LARK_SKYBRIDGE_SERVER` → 兄弟仓 `packages/server/dist/src/index.js`」解析，缺了就 skip；`just test-sync-e2e` 用 `LARK_SYNC_E2E_REQUIRED=1` 把 skip 变硬失败
+- **song / playlist 的删除只与墓碑比较**（T6a 修，§3.2）：与 `max(行, 墓碑)` 比会让「编辑晚一毫秒」的设备留住别人删掉的歌，且对端有墓碑后拒绝一切 update，永久分叉；membership 仍是 LWW 可复活
+- **⚡ op 在自己的回声回来之前不算稳**：一轮先拉后推，拖拽后的第一轮会重放更早的 `reorder` 把顺序拨回去，等自己的 `set_rank` 以更高 `server_seq` 回来才定；测试要跑够轮次
+- **源码里别放字面 NUL**：`rebase.ts` 曾用裸 `\0` 当复合 key 分隔符，grep / rg 直接把文件当二进制**静默跳过**（本仓守卫全是 rg 写的），改用 `\u0000`
 - **CLI 的归属（T5）**：`sync` 的 login/logout/run/status/file-ops 走 daemon，`unbind` 独占本地库（停 daemon + 写锁），`config-show` 只读凭证文件（无 daemon 无库也能用）；密码只有静音 prompt 或 `--password-stdin`，没有 `--password` flag
 - **v1 库在 v0.2 下 `--direct` 读也要先起一次 daemon**：只读打开拒绝迁移（零写入是设计），报 `MIGRATION_PENDING`——`accept-cli` 的夹具因此在 T0 就坏了，T5 已给 harness 补上「复制后升一次级」
 - **GUI 的两条口径（T4）**：徽章的「注意力计数」只算冲突与永久失败的 file op（只有人能清的两样），隔离/重复/dead-letter 只在 popover 里列；列表的「重复」标记按**当前视图**算，跨歌单的一对由 `/sync/status` 与 `lark songs --duplicates` 负责
@@ -241,7 +245,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `player` / `download` / `
 - M0 子计划 + spike 实测结论：`docs/plans/2026-07-31-m0-scaffold-media-spike.md`（§6 是 M4 移植清单）
 - 本仓设计：`docs/DESIGN.md`
 - 进度：`PROCESS.md`
-- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（M7 判据 28 条，对着发布物本身跑）/ `just spike-media-*`）
+- 常用命令：`justfile`（`just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（M4 判据 15 条）/ `just accept-m5`（M5 判据 22 条，跑真实 bilibili）/ `just accept-cli`（M6 判据 27 条，驱动真实 `lark` 二进制）/ `just test-sync-e2e`（v0.2 两套 e2e：三设备元数据 + 多进程文件）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（M7 判据 28 条，对着发布物本身跑）/ `just spike-media-*`）
 - Go 版（功能参照）：`../lark-go/`
 - 跨仓架构：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`
 - skybridge 架构：`../aviary/docs/SKYBRIDGE_ARCH.md`

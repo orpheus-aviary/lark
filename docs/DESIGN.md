@@ -105,19 +105,21 @@ CLI 是 daemon 的第二个前端，也是**唯一可以在没有 daemon 时读�
 |---|---|---|
 | 歌单（playlist）+ 成员关系 | 是 | 走 `sync_changes`（all 已虚拟化，不产生同步实体） |
 | 歌曲元数据（name / artist / **source_url/provider/key** / lyrics_offset / duration） | 是 | 走 `sync_changes`；链接同步后其它设备可凭 key 自取文件 |
-| 歌词文本 | 待定 | 文件小，倾向 change log，v0.2 design doc 定 |
+| 歌词文本 | 是 | **v0.2 定案（D3）**：走 change log 的 ⚡ 元数据 op（`set_lyrics` / `clear_lyrics`），单条 change 240KB 护栏，超限本地保留 + dead-letter |
 | `pinned` / `last_accessed_at` / `file_origin` | 否 | 设备本地偏好与行为数据（各设备存储条件不同） |
 | `lark_config.toml` 本地偏好 | 否 | 本地设备相关 |
 | 歌曲本体 mp3 | **否** | 不进 change log 也不走 attachment；靠 source_key + 按需下载在各设备自行取流 |
 | 播放记录（play history） | 否（无此模型） | v0.1/v0.2 无播放历史功能，仅本地 last_accessed_at |
 
-**预留策略**：v0.1 只建 sync 三表并维护 `updated_at`/`lww_counter`/`created_at`（事后无法回补的字段）；实体 `device_id` 仅存 skybridge **注册 ID**（注册前 NULL，本地安装身份在 `local_metadata.device_uuid`，两域不混用——owl `0006` 教训）；**不写事件、不冻结 payload**。v0.2 开工 design doc 冻结协议（payload schema / 墓碑 / LWW 三元组）后，注册回填 device_id 并对全量既有实体做 create-op 回填（owl `0008` 模式）。账户模型已定：**单账户单资料库**，不做 owl 式 per-profile。
+**预留策略（v0.1）**：只建 sync 三表并维护 `updated_at`/`lww_counter`/`created_at`（事后无法回补的字段）；实体 `device_id` 仅存 skybridge **注册 ID**（注册前 NULL，本地安装身份在 `local_metadata.device_uuid`，两域不混用——owl `0006` 教训）；不写事件、不冻结 payload。账户模型已定：**单账户单资料库**，不做 owl 式 per-profile。
 
-mp3 / 大文件策略已定（2026-07-16）：不同步、不走 attachment，各设备凭 `source_key` 按需下载；歌词文本等剩余细节在 v0.2 design doc 定。
+mp3 / 大文件策略已定（2026-07-16）：不同步、不走 attachment，各设备凭 `source_key` 按需下载。
+
+**协议已冻结（v0.2）**：payload schema / 墓碑 / LWW 三元组 / rank 通道 / 冲突与 file-effect journal 全部写在 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`（§3 协议、§5 不变量 ㉑–㉚、§8 决策 D1–D8），实现进度见 `PROCESS.md`。三条与本节相关的定案：**歌词进 change log**（上表）、**同 `(provider,key)` 允许共存不自动合并**（D8）、**rank 全部走 `server_seq` 定序的 ⚡ 通道**（D7）。
 
 ### 时序
 - lark v0.1 就建好 `sync_changes` 等三表（不写事件），业务写入收敛 core 单一路径，v0.2 补 emit 是机械改动
-- 首次真正联动 skybridge 的版本：lark v0.2 起（owl Phase 3+4 已跑通，前置条件满足）
+- 首次真正联动 skybridge 的版本：lark v0.2 起（owl Phase 3+4 已跑通，前置条件满足）——v0.2 的 core / daemon / GUI / CLI 与两套 e2e 已落地，见 `PROCESS.md`
 
 ## 5. 非目标
 

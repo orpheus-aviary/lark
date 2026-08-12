@@ -120,7 +120,18 @@
   - **`--duplicates` 拒绝一切收窄的 flag**（`--search` / `--limit` / `--offset`）：另一半在第二页或不匹配搜索时，重复对会看起来像单曲——正好是这个 flag 存在的理由。分页按 1000 扫全库，`--json` 出平铺列表（每行自带 key，调用方自己分组）
   - **`accept-cli` 的夹具在 T0 就坏了（本批修）**：harness 复制的是真实 nest 的 **v1** 副本，而 v0.2 的只读打开拒绝迁移（零写入是设计），于是整个「无 daemon」阶段全是 `MIGRATION_PENDING`。修法是复制后按用户的做法升一次级（起一次 daemon 再停）。**这条同时是给用户的真实提醒**：v1 库在 v0.2 下，`--direct` 读也要先起一次 daemon
   - **冒烟**（真 daemon × 全新 nest）：status/config-show/file-ops 空态 · 无会话 `run` → `SYNC_AUTH_REQUIRED`(3) · 明文 http 无 flag → `SYNC_INSECURE_URL`(2) · 有 flag 无 `--yes`（非 TTY）→ `USAGE_ERROR`(2) · 有 flag 有 `--yes` → 真去连（服务器不可达 → `SYNC_UNAVAILABLE`(1)）· daemon 活着 unbind → `DAEMON_RUNNING_BLOCKED`(5)，停机后 0 · 无 daemon 时 `status` → 4 而 `config-show` 照常 0
-- [ ] T6 双套 e2e + `accept-sync` + backup 规则 + 发版 0.2.0
+- [ ] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套已落地（**19 例**：dual 15 / files 4，`just test-sync-e2e`），accept-sync 与发版未做
+  - [x] **T6a 进程内 dual e2e**（2026-08-12）— 三个 lark 库（A/B/C，各自 `:memory:` core + 独立注册设备）对一台**进程内真 skybridge server**；L1–L15 / L18 / L19 共 15 例。**元数据 only**：三个设备在一个进程里无法各占一个 nest（`LARK_NEST_DIR` 是进程全局的），所以文件效应只断言 journal 行，真文件归 T6b
+    - **server 依赖形态（用户拍板，偏离计划 §4.1 的「devDependency + 动态 import」）**：`@orpheus-aviary/skybridge-server` 是 `private: true` 未发 npm，**不进依赖**，运行时按「已安装包 → `LARK_SKYBRIDGE_SERVER` → 兄弟仓构建产物」解析，找不到就 skip；`just test-sync-e2e` 置 `LARK_SYNC_E2E_REQUIRED=1` 把 skip 变成硬失败，保证 recipe 不会静默绿。lark 单独 clone 后 `pnpm install` 永远不坏
+    - 🐛 **抓到真缺陷并修**：`applySongDelete` / `applyPlaylistDelete` 把入站墓碑与 `max(行, 墓碑)` 比较，于是**编辑晚一毫秒的设备能留住别人已经删掉的歌**——而对端的 `applySongPut` 一旦有墓碑就无条件拒绝后续 update，两边永远不再和解。§3.2 的「song/playlist delete 永久胜出」只实现了一半。改成**只与墓碑比较**（幂等仍在），membership 保持原样（复活是 D6 要的）。三条确定性回归进 `apply.test.ts`
+    - **两条被测出来的语义**（现已写进用例注释）：① 两端各自复活的成员可能带着**相同的 rank** 落地，拖拽在等值 rank 之间无处可插——先归一化才有意义；② **⚡ op 在自己的回声回来之前不算尘埃落定**：一轮是先拉后推，所以拖拽后的第一轮会重放更早的 `reorder` 把顺序拨回去，等自己的 `set_rank` 以更高 `server_seq` 回来才稳（本地 rank 始终没丢，只是顺序抖一轮）
+    - `rebase.ts` 里两个**字面 NUL 字节**（复合 map key 的分隔符）改成 `\u0000`：它让 grep / rg 把整个文件判为二进制**静默跳过**，而本仓的守卫脚本全是 rg 写的
+  - [x] **T6b 多进程文件 e2e**（2026-08-12）— A = 本进程（core，内存库），B = **真 daemon 子进程 + 独立 nest**，中间一台进程内 server；4 例：跨设备歌词落成真文件 · 远端删除把 imported 音频移进 `recovered-songs/` 且**重启后计数仍在** · 崩溃残留的 journal 行在 **boot 时先于 recovery** 被 drain（顺序从**日志文件**读，daemon 只往 stdout 打 listen 行） · 失败 file-op 的两条出口
+    - **一条断言被产品纠正**：`retry` 会重置 attempts，于是该行不再是「永久失败」，`discard` 按 R5-P1-1 答 **409 `FILE_OP_BUSY`**——测试改成把这条规则本身测出来
+    - **夹具坑**：`write_lyrics` 的 `staging` 分支 v0.2 无生产者、被忽略，planted staging 路径**失败不了**；能真失败的是「歌曲目录是个普通文件」（ENOTDIR）
+    - 计划 §6 的「pending 歌词 + 远端删除 → 隔离不删」没在这里重做：`file-ops.test.ts` 已确定性覆盖那个 arg 快照判定，跨进程重来一遍更慢更脆且无新信息
+  - [ ] T6c `just accept-sync`（两套 e2e + CLI 八命令 + CDP 徽章 + token/密码不落日志 + 0600 + HTTPS 跳闸 + 三处守卫一致 + backup 排除凭证）+ 真实双机 soak checklist
+  - [ ] T6d 发版 0.2.0（用户已表示先不着急）
 
 ⚠️ **本机真实曲库一旦被 v0.2 的 daemon 打开就升到 v2，已发布的 0.1.0 将拒绝打开它**（`user_version > LATEST`）。开发期一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`。
 
