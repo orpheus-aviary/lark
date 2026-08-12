@@ -82,7 +82,14 @@
   - **`LOCAL_API_VERSION` 不在 T0 动**：接口面要到 T3 才变（路由 + capabilities 一起 bump）
   - 冒烟：真实曲库副本（21/4/4，v1）经 daemon 启动就地升到 v2，行数不变、六张 sync 表就位、outbox 为 0、`GET /config` 出 `sync.interval_min`
   - 全仓测试 **1713**（shared 79 / core 578 / daemon 339 / cli 371 / gui 346）
-- [ ] T1 core 基座（hlc/lww/tombstones/backfill/file-ops/emit 接线/payloads）
+- [x] **T1 core 基座**（2026-08-12）— 四批：**T1a** 纯底座（`changes`/`lww`/`hlc`/`tombstones`/`payloads`，零改既有代码）· **T1b** file-effect journal + `FileEffectRuntime`（FIFO/退避/retry/discard/脱敏列表） · **T1c** emit 接线与五处重构（songs / playlists / rank / lyrics / transfer） · **T1d** backfill 三径 + 注册 rebase。core 测试 **690**
+  - **批内重排**：rebase 从 T1a 挪到 T1d 与 backfill 同批——两者只在登录安装事务里跑，共享「扫 pending LWW op」的查询与夹具
+  - **emit 落事务的方式**：`sqliteOf(db)`（drizzle `$client`）而不是给 15 个 `…InTx` 加形参——只有一条连接，取自 db 对象就不可能落错事务
+  - **`deleteSong` 改异步**：事务 {删行 + 级联 + 墓碑 + emit + journal} 后 drain，删掉 v0.1 的 trash 两阶段补偿（提交点在文件动之前，崩了只往一个方向恢复）
+  - **rank 全部离开 LWW 通道**（D7）：拖拽 = rank-only + `set_rank`；归一化 = rank-only + 一条 `reorder`（超 4000 退化逐行）；add = **成对 emit**（create 不带 rank）
+  - **D8 四处审计结果**：`assertKeyFree` 改「key 变了才查」· `findSongByKey` 两条命中 → `AMBIGUOUS_SOURCE_KEY` · 导入走同一函数 · **缓存探活不用改**（从自己那一行读 key，探活后复查同一行）
+  - **实测锁定**：SQLite `json_set(payload,'$.x',?)` 把绑定数字写成 `1800000000000.0`（`json_type` = **real**）——rebase 自己的产物会被 `='integer'` 的门挡住，看不见也改不动。改成 `CAST(? AS INTEGER)` 写、门放宽到 `IN ('integer','real')`，并加了「二次 rebase 能看见首次结果」的回归测试
+  - **staging 分支未实现**（`write_lyrics` 只做 inline）：校验器对 `lrc` 的上限 256KB = inline 上限，而 emit 护栏是整条 change 240KB，合规 peer 发来的歌词必然装得下——v0.2 没有 staging 的生产者
 - [ ] T2 core engine（runSync/apply/conflicts CAS/retry/retention）
 - [ ] T3 daemon（login 序列 + epoch + boot drain + 路由 + status + `LOCAL_API_VERSION` bump）
 - [ ] T4 GUI（徽章 + popover + 设置页 + 冲突页）
