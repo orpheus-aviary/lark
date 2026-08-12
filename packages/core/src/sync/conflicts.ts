@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import type { LwwKey, SongSyncPayload } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { LarkDatabase } from '../db/index.js';
-import { ConflictVersionMismatchError, NotFoundError } from '../errors.js';
+import { ConflictNotFoundError, ConflictVersionMismatchError } from '../errors.js';
 import { updateSongInTx } from '../library/songs.js';
 import { readSongLww } from './lww.js';
 
@@ -101,7 +101,11 @@ export function getConflict(sqlite: BetterSqlite3.Database, id: string): Conflic
   const row = sqlite.prepare('SELECT * FROM conflict_record WHERE id = ?').get(id) as
     | ConflictRow
     | undefined;
-  if (row === undefined) throw new NotFoundError('song', id);
+  // Its own code, not the library's NOT_FOUND: a caller answering a conflict
+  // needs to tell "that conflict is gone" (someone else resolved it, or
+  // retention swept it) from "that song is gone", and the two lead to different
+  // next moves.
+  if (row === undefined) throw new ConflictNotFoundError(id);
   return row;
 }
 

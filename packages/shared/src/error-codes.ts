@@ -123,7 +123,9 @@ export const TASK_ERROR_CODES = [
   'AMBIGUOUS_SOURCE_KEY',
   'BILIBILI_FAILED',
   'BILIBILI_RISK_CONTROL',
-  // Raised when a conflict resolve loses its race, which no task calls today.
+  // Raised when a conflict is answered against a record that moved on, or one
+  // that is not there at all — neither of which a task calls today.
+  'CONFLICT_NOT_FOUND',
   'CONFLICT_VERSION_MISMATCH',
   'DOWNLOAD_COMMIT_FAILED',
   'DOWNLOAD_QUEUE_FULL',
@@ -146,6 +148,16 @@ export const TASK_ERROR_CODES = [
   'SONG_BUSY',
   'SOURCE_GONE',
   'SOURCE_KEY_CONFLICT',
+  // Session and binding failures, here for the same reason as the two above:
+  // `describeTaskError` passes ANY CodedError through verbatim, so the registry
+  // has to close over the CLASSES rather than over today's callers. No download
+  // task talks to skybridge.
+  'SYNC_AUTH_REQUIRED',
+  'SYNC_BINDING_MISMATCH',
+  'SYNC_INSECURE_URL',
+  'SYNC_PENDING_CHANGES',
+  'SYNC_SCHEMA_VERSION_MISMATCH',
+  'SYNC_UNAVAILABLE',
   'TASK_NOT_CANCELLABLE',
   'TASK_NOT_FOUND',
   'UNSUPPORTED_FORMAT_VERSION',

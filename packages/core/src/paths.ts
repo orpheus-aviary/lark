@@ -87,6 +87,24 @@ export function aviaryConfigPath(): string {
 }
 
 /**
+ * skybridge credentials (v0.2, D1/D2): `lark/skybridge.toml`, mode 0600.
+ *
+ * Deliberately NOT part of `lark_config.toml`: that file goes through
+ * `GET /config` and `PATCH /config`, and a bearer token has no business on a
+ * channel whose whole job is to be read and edited. It also has to be
+ * excluded from a nest backup — a backup is disaster recovery, not a clone,
+ * and a second machine restoring one would come up holding this machine's
+ * device identity (§4.5). The temp prefix is named here for the same reason
+ * the skill one is: the backup has to recognise a file caught mid-rename.
+ */
+export const SKYBRIDGE_FILE_NAME = 'skybridge.toml';
+export const SKYBRIDGE_TEMP_PREFIX = '.skybridge.toml.tmp-';
+
+export function skybridgeConfigPath(): string {
+  return join(larkDir(), SKYBRIDGE_FILE_NAME);
+}
+
+/**
  * `lark skill export`'s default output and the fixed prefix of its
  * same-directory temp files (M6-14).
  *

@@ -18,7 +18,8 @@
 //     `lark_config.toml` and therefore the LLM api key.
 //  3. Failure cleans up only what this run created.
 //  4. Runtime state is never copied: the token, the pid file, the logs and the
-//     migration lock belong to the process that made them.
+//     migration lock belong to the process that made them — and since v0.2 the
+//     skybridge credentials belong to the INSTALL that made them (§4.5).
 
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,6 +63,31 @@ function isLockArtifact(name: string): boolean {
 function isSkillArtifact(path: string): boolean {
   const name = basename(path);
   return name === paths.SKILL_FILE_NAME || name.startsWith(paths.SKILL_TEMP_PREFIX);
+}
+
+/**
+ * The skybridge credentials, excluded at every depth (v0.2 §4.5).
+ *
+ * A backup is DISASTER RECOVERY, not a clone. Restoring one on a second
+ * machine while the first still runs would give two installs the same device
+ * identity and the same bearer token: both would push under one device id, and
+ * the LWW key's third element — the tie-breaker that says WHO wrote something —
+ * would stop distinguishing them. The supported way to make a second install is
+ * to restore, then `lark sync unbind` and log in again, which mints a device of
+ * its own.
+ *
+ * The temp prefix is here for the same reason as the skill one: `unbind` and
+ * the login installer both move this file aside by rename, so a copy taken at
+ * the wrong moment would otherwise pick up the stash instead of the file.
+ */
+function isSkybridgeArtifact(path: string): boolean {
+  const name = basename(path);
+  return name === paths.SKYBRIDGE_FILE_NAME || name.startsWith(paths.SKYBRIDGE_TEMP_PREFIX);
+}
+
+/** Everything generated or private that a copy must skip, at any depth. */
+function isExcludedArtifact(path: string): boolean {
+  return isSkillArtifact(path) || isSkybridgeArtifact(path);
 }
 
 const STATUS_TIMEOUT_MS = 1000;
@@ -178,11 +204,11 @@ async function copyUnderLock(
     const skip = new Set<string>([...RUNTIME_ENTRIES, ...DB_ENTRIES]);
     const copied: string[] = [];
     for (const entry of await readdir(sourceLark)) {
-      if (skip.has(entry) || isLockArtifact(entry) || isSkillArtifact(entry)) continue;
+      if (skip.has(entry) || isLockArtifact(entry) || isExcludedArtifact(entry)) continue;
       await cp(join(sourceLark, entry), join(targetLark, entry), {
         recursive: true,
         preserveTimestamps: true,
-        filter: (source) => !isSkillArtifact(source),
+        filter: (source) => !isExcludedArtifact(source),
       });
       copied.push(entry);
     }

@@ -552,3 +552,114 @@ export class ConflictVersionMismatchError extends CodedError {
     this.name = 'ConflictVersionMismatchError';
   }
 }
+
+/** The conflict id in the request does not name a record. */
+export class ConflictNotFoundError extends CodedError {
+  readonly code = 'CONFLICT_NOT_FOUND';
+  constructor(id: string) {
+    super(`conflict ${id} not found`);
+    this.name = 'ConflictNotFoundError';
+  }
+}
+
+// ─── skybridge session and binding (v0.2 §3.7 / §3.11) ──
+
+/**
+ * Sync was asked to do something that needs a session, and there is none.
+ *
+ * A STATE, not a fault: the daemon keeps serving the library, and the only
+ * thing that changes is that nothing syncs until the user logs in. Which is
+ * also why it must never surface as HTTP 401 — that status already means "your
+ * daemon token is wrong" to every client lark ships.
+ */
+export class SyncAuthRequiredError extends CodedError {
+  readonly code = 'SYNC_AUTH_REQUIRED';
+  constructor(message = 'sync is not logged in — run `lark sync login` first') {
+    super(message);
+    this.name = 'SyncAuthRequiredError';
+  }
+}
+
+/**
+ * This library is already bound to a different server / user / workspace.
+ *
+ * The binding row is written once and never updated (§3.7). Letting a second
+ * workspace adopt a bound library would mix two change histories under one set
+ * of entity ids, and no amount of later cleanup can separate them again — so
+ * the answer is to refuse, and `lark sync unbind` is the deliberate way out.
+ */
+export class SyncBindingMismatchError extends CodedError {
+  readonly code = 'SYNC_BINDING_MISMATCH';
+  readonly field: string;
+  constructor(field: string, expected: string, actual: string) {
+    super(
+      `this library is bound to a different workspace (${field}: bound to ${expected}, asked for ${actual}) — run \`lark sync unbind\` if you really mean to move it`,
+    );
+    this.name = 'SyncBindingMismatchError';
+    this.field = field;
+  }
+}
+
+/** The workspace speaks a protocol version this build does not (§3.7 schema gate). */
+export class SyncSchemaVersionMismatchError extends CodedError {
+  readonly code = 'SYNC_SCHEMA_VERSION_MISMATCH';
+  readonly expected: number;
+  readonly actual: number;
+  constructor(expected = 0, actual = 0) {
+    super(
+      `the workspace speaks sync schema v${actual}, this build speaks v${expected} — upgrade the older side before syncing`,
+    );
+    this.name = 'SyncSchemaVersionMismatchError';
+    this.expected = expected;
+    this.actual = actual;
+  }
+}
+
+/**
+ * The server URL is plaintext http and nobody flipped the breaker.
+ *
+ * A login sends a password, so the default is closed. Loopback is exempt (it
+ * never leaves the machine); anything else needs `allow_insecure_http`, which
+ * both front-ends confirm twice before it gets here.
+ */
+export class SyncInsecureUrlError extends CodedError {
+  readonly code = 'SYNC_INSECURE_URL';
+  constructor(message: string) {
+    super(message);
+    this.name = 'SyncInsecureUrlError';
+  }
+}
+
+/** The sync server could not be reached, or answered in a way retrying might fix. */
+export class SyncUnavailableError extends CodedError {
+  readonly code = 'SYNC_UNAVAILABLE';
+  readonly status: number | null;
+  constructor(message: string, status: number | null = null, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'SyncUnavailableError';
+    this.status = status;
+  }
+}
+
+/**
+ * `unbind` refused because this device still holds unsynced work (R5-P1-3).
+ *
+ * The dangerous rows are the ones that express themselves by ABSENCE — an
+ * unpushed song/membership delete, a `clear_lyrics`. Unbind drops the outbox
+ * and the tombstones, and the full backfill that runs on the next login can
+ * only republish what still exists; the workspace's old `create` would then
+ * bring the deleted thing back. Push first, or say `--force` and accept it.
+ */
+export class SyncPendingChangesError extends CodedError {
+  readonly code = 'SYNC_PENDING_CHANGES';
+  readonly pending: number;
+  readonly unpublishedDeletes: number;
+  constructor(pending = 0, unpublishedDeletes = 0) {
+    super(
+      `${pending} local changes have not been pushed yet (${unpublishedDeletes} of them are deletions that cannot be republished) — run \`lark sync run\` first, or pass --force to discard them`,
+    );
+    this.name = 'SyncPendingChangesError';
+    this.pending = pending;
+    this.unpublishedDeletes = unpublishedDeletes;
+  }
+}

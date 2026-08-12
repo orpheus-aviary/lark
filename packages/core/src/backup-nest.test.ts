@@ -96,6 +96,22 @@ describe('what lands in the copy', () => {
     expect(readdirSync(join(result.larkDir, 'exports'))).toEqual(['keep-me.json']);
   });
 
+  it('never copies the skybridge credentials or a stashed copy of them', async () => {
+    // A backup is disaster recovery, not a clone (§4.5): a restore that carried
+    // the device identity would give two installs the same device id, and the
+    // LWW key's third element would stop telling them apart.
+    const lark = join(nest, 'lark');
+    writeFileSync(join(lark, 'skybridge.toml'), '[server]\nurl = "https://sync.test"\n');
+    writeFileSync(
+      join(lark, '.skybridge.toml.tmp-abc123'),
+      '[server]\nurl = "https://sync.test"\n',
+    );
+
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    expect(readdirSync(result.larkDir).sort()).toEqual(['lark_config.toml', 'songs', 'songs.db']);
+  });
+
   it('produces a database with the same rows and no wal sidecar', async () => {
     const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
 

@@ -31,6 +31,11 @@ import { parse, stringify } from 'smol-toml';
 import { ConfigUnsafePermissionsError } from '../errors.js';
 import { aviaryConfigPath, configPath } from '../paths.js';
 
+// The skybridge credential file rides on this subpath too: it is config, it is
+// TOML, and it must stay reachable from `@lark/core/config` so the CLI can
+// read it without linking anything native (M6-21).
+export * from './skybridge.js';
+
 export const DEFAULT_CONFIG: LarkConfig = {
   // Every llm field defaults to '' — including api_format. A concrete default
   // ('openai') would make deepMerge mask "absent on disk", so the aviary value
