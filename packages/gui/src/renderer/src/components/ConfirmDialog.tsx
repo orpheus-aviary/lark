@@ -1,6 +1,7 @@
 // Confirmation for destructive actions (D9). The Go version deleted songs and
-// playlists on a single click: deleting a song sends its file to the trash and
-// deleting a playlist is not undoable, so one misplaced click costs too much.
+// playlists on a single click: deleting a song unlinks its files outright —
+// there is no trash to fish them back out of — and deleting a playlist is not
+// undoable, so one misplaced click costs too much.
 
 import { Button } from './ui/button.js';
 import {

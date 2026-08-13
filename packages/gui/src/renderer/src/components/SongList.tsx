@@ -363,7 +363,7 @@ export function SongList({ onPlay, currentSongId }: SongListProps): React.JSX.El
       <ConfirmDialog
         open={pendingDelete !== null}
         title="删除歌曲"
-        description={`确定删除「${pendingDelete?.name ?? ''}」吗？音频与歌词文件会一并移入废纸篓。`}
+        description={`确定删除「${pendingDelete?.name ?? ''}」吗？音频与歌词文件会一并永久删除，不进废纸篓。`}
         confirmLabel="删除"
         destructive
         onConfirm={() => void confirmDelete()}

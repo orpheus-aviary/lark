@@ -154,6 +154,17 @@
 
 ⚠️ **本机真实曲库是 v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次；用户拍板不还原）——0.1.0 从此拒绝打开它（`user_version > LATEST`），0.2.0 发版后这已经不再是限制。库已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`，**起 GUI 后先验 `/api/instance` 的 `nest_dir` 再登录**。
 
+## v0.2.1（开发中，**先攒不发**）
+
+0.2.0 发布后发现的小问题，本地修完攒着，凑够一批再走 M7 §3.5 的九步（内容变了就不能复用版本号，M7-11）。
+
+- [x] **删除文案在撒谎**（2026-08-13）—— GUI 三处确认框写着「音频与歌词文件会一并移入废纸篓」，实际是 `rm(songDirPath, {recursive:true, force:true})`（`packages/core/src/sync/file-ops.ts:594`，policy `local`）：**既不进 macOS 废纸篓，也不进 nest 的 `trash/`**。v0.1 的两阶段是搬进 `~/orpheus-aviary-nest/lark/trash/`，跟用户理解的「废纸篓」本来就不是一回事，T1c 删掉那套补偿之后连它也没了——这句文案从 M5 写下起就没准过。改成「会一并永久删除，不进废纸篓」（`SongList.tsx:366` / `SongRow.tsx:269` / `BatchActionBar.tsx:96`），`ConfirmDialog.tsx` 的注释与 `skill-template.ts` 给 agent 的说明一并更正；CLI 那句「删除 N 首歌（连同音频与歌词文件）」本来就准确。gui 378 / cli 395 复跑绿
+  - `docs/plans/2026-08-06-m5-followup-batch-actions.md` 的判据 B-8 仍写着旧文案——那是当时的计划记录，不改；`accept-m5` 没有断言这句话，所以不存在判据与实现脱钩
+- [ ] **图标那圈灰是 macOS 垫的底板，不是我们的图**（2026-08-13 实测定位，改法待定）—— 用户的实机截图显示 lark 图标外有一圈灰框而 owl 没有。用 `NSWorkspace.icon(forFile:)` 现场渲染复现：两者系统 tile 都是 412/512，**lark 中线每边 50px 灰**（`rgb(193,193,194)`→`rgb(145,145,145)`），owl 0px。而 `icon.icns` 里根本没有灰（外圈 alpha = 0，十档尺寸边距 4.3–4.9%，与 owl 同构）——**是新系统把 app 图标合成进标准 tile 时垫的默认浅灰底**：icns 的 alpha 不像一块实心圆角方块，系统就缩小你的图并垫底。lark 的插画顶部是藤蔓花枝、枝叶之间有**透明缺口**，于是不被当作 tile；owl 内部是整片实心天空，直接铺满
+  - **A/B 已证**：同一份 app 复制两份、**改成不同 bundle id**（关键：LaunchServices 按 id 缓存图标，不改 id 的话换了 icns 也渲染出旧图，第一次实验就这么假绿过），A 用现状 icns、B 用「超椭圆蒙版 + 不透明底色 + 插画铺到边」的候选 → A 仍 50px 灰、**B 归零**，与 owl 一致。实验产物已从 LaunchServices 注销并删除
+  - 候选的做法：`contentBox` 裁到内容 → 铺满 1024 → 叠一层 n=5 超椭圆蒙版（Apple 连续圆角的近似）→ 藤蔓缺口后面填插画边缘的中位色 `rgb(71,96,56)`。脚本是会话临时产物，落地时要写进 `build-icons.mjs`（现在的配方注释写的是「缩到画布 90%」，届时一并改）
+  - **三条已排除的死路**，别再走：清缓存（只对灰光晕那种陈旧渲染有效）· 拉大到 97.5%/100%（owl 自己也只有 91%，尺寸从来不是原因）· 腐蚀 alpha 抹掉深绿描边（露出插画浅色底与裁断的枝叶，更丑）
+
 ## 后续
 - [ ] **v0.3+ 移动版设计 doc**
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）

@@ -145,7 +145,8 @@ lark songs pin 晴天        # protect it from cache eviction
 lark songs redownload 晴天 # fetch the audio again
 \`\`\`
 
-\`edit\` covers local fields only. \`delete\` asks first (files included).
+\`edit\` covers local fields only. \`delete\` asks first, then removes the audio
+and the lyrics for good — there is no trash to recover them from.
 
 ### lark songs url get / set / recognize
 

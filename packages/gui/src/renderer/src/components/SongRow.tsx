@@ -266,7 +266,7 @@ function SongContextMenu({
       <ConfirmDialog
         open={confirmBatchDelete}
         title="删除歌曲"
-        description={`确定删除选中的 ${batch.count} 首吗？音频与歌词文件会一并移入废纸篓。`}
+        description={`确定删除选中的 ${batch.count} 首吗？音频与歌词文件会一并永久删除，不进废纸篓。`}
         confirmLabel="删除"
         destructive
         onConfirm={() => {
