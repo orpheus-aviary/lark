@@ -1,6 +1,6 @@
 # m4a 统一 + 移动版主计划（阶段总纲）
 
-> 2026-08-13 v8（清稿）。经七轮逐条评审收敛；修订历史见 git，本文只保留当前有效内容。
+> 2026-08-13 v11（九轮评审定稿）。v9 增 §3.6-4 修复批；v10 并入第八轮（fresh/upgrade 闭环、三层 boot、reconcile 自动清障、孤儿规则、探测契约、安全参数、Go 停支持）；v11 并入第九轮（pending 与 0003 同事务 fail-closed、批次防断链 T0a/T1b、协议 v6 定稿批、blocked_environment 恢复入口、ledger 主键 object_key、D16 收敛）。修订历史见 git。
 >
 > 两个 Phase：**A = 桌面 m4a 统一 + 一次性迁移 + 三项 PC 改进，发 0.3.0**；**B = Android 移动版（apps/mobile）**。每个里程碑开工前出子计划过目；标注**（锁定）**的章节子计划只能补细节、不得改语义；D4/D5 为**方向锁定**，实现细节经 N0 判定后冻结。
 
@@ -20,18 +20,18 @@
 | D2 | 技术栈 | Expo SDK 57（RN 0.86 + React 19.2）+ CNG + dev client。nodejs-mobile / Capacitor 出局（§7.2）。 |
 | D3 | 移动端无 daemon | core 经宿主无关应用服务层进程内调用。 |
 | D4 | SQLite（方向锁定） | expo-sqlite 同步 API + 单一连接（drizzle 官方 Expo driver 与 raw shim 包装同一 client，禁第二连接）；raw shim 只适配现用面；迁移单一真相源 = 现有手写 registry，不引入 drizzle-kit。**statement 生命周期是 N0b 判定项**：锁定版 drizzle 0.38.4 的 Expo driver `prepareSync()` 后不 finalize（Expo 官方要求及时 finalize）——N0b 三选一出口：升级到已修复版本 / 维护小补丁或 fork / 移动端弃用 drizzle 查询层只走 raw shim。N0b 另设 **JS 线程卡顿 gate**（大库迁移 + 批量同步 apply 的同步重活在真机测卡顿，阈值子计划定）。 |
-| D5 | 复用架构（方向锁定） | N1 提取应用服务层（library / download 编排 / SyncCoordinator）+ 端口：Database / FileSystem / **Crypto（UUID/MD5/SHA-256）/ Base64+TextEncoding** / CredentialStore / Clock / Logger（wbi 用 node crypto、歌词用 Buffer base64——都要过端口）。CLI direct Backend 是 facade，方法面仅作功能清单参照。GUI stores 复用形状与逻辑、注入数据源端口。**portable 落点：workspace 阶段用 `@lark/core/portable` 子路径**——subpath 属于 `@lark/core` 包、不隔离安装依赖（core 直接依赖 better-sqlite3/pino），workspace 内靠 Metro 按需打包 + N1 双守卫拦误引；将来需要独立发包时拆成新包，原 subpath 以 re-export 兼容过渡。 |
+| D5 | 复用架构（方向锁定） | N1 提取应用服务层（library / download 编排 / SyncCoordinator）+ 端口：Database / FileSystem / **Crypto（UUID/MD5/SHA-256）/ Base64+TextEncoding** / **AudioLanding（音频落盘策略：桌面 = ffmpeg remux/转码落 canonical，移动 = raw fMP4 直存或 JS remux——单靠 FileSystem 表达不了这项宿主差异）** / CredentialStore / Clock / Logger。**N1 起 CLI direct 后端也改为消费服务层（薄壳），daemon / direct / mobile 三方共享 contract tests**——否则形成第三套语义（F13 的校验漂移已证明这种漂移真实存在）。GUI stores 复用形状与逻辑、注入数据源端口。**portable 落点：workspace 阶段用 `@lark/core/portable` 子路径**——subpath 属于 `@lark/core` 包、不隔离安装依赖（core 直接依赖 better-sqlite3/pino），workspace 内靠 Metro 按需打包 + N1 双守卫拦误引；将来需要独立发包时拆成新包，原 subpath 以 re-export 兼容过渡。 |
 | D6 | 音频格式 | 单一格式态：0.3.0 一次性迁移（§3.2 锁定，**按 `file_origin × source_key` 分流，imported 用户资产永不删除**）；新下载 remux 落 m4a；导入归一 m4a。canonical `songs/<uuid>/song.m4a`；served 库恒单格式（迁移期间不服务音频）。音频不参与同步。 |
 | D7 | 版本 | Phase A 发 **0.3.0**。 |
-| D8 | 协议版本 | `LOCAL_API_VERSION` → **6**。capabilities 新增 `audio_format`、`import_formats`、`llm_available`（经 aviary 回退后的有效状态）。CLI 随发 0.3.0。 |
+| D8 | 协议版本 | `LOCAL_API_VERSION` → **6**。capabilities 新增 `audio_format`、`import_formats`、`llm_available`、**`llm_effective_format`**（后两者 = 经 aviary 回退后的有效状态——public config 只回本地保存值，F5 的「跟随 aviary（当前：X）」的 X 由此而来）。CLI 随发 0.3.0。**升 6 的时点 = T5 末的「协议定稿批」**：v6 的字段与路由分散在 T1–T5 落地，期间 `LOCAL_API_VERSION` 保持 5（同仓开发两端永远同代码无混用面；要避免的是中间版本自称 v6 却缺字段/路由）；定稿批一次性升 6 + accept 字面量同批改，T6 只复核。 |
 | D9 | 移动导航 | 四 tab：歌曲｜歌单｜添加｜设置；顶栏搜索 + 同步徽章。 |
 | D10 | minibar / 播放页 | minibar 两行（歌名 + 当前歌词行）+ 播放/暂停 + 下一曲；上拉队列；点击进全屏大字歌词页（滚动同步 + 点行 seek）。 |
 | D11 | 行交互 | ⋮ → bottom sheet 菜单；长按 → 多选。 |
 | D12 | 移动端导入 | v1 不做本地文件导入（服务层留能力位、「添加」页留入口）。私有目录卸载即删——开放本地导入前必须先有导出/备份故事。 |
 | D13 | 分享 intent | bilibili app 分享 → lark「添加」页。 |
-| D14 | 分发与身份 | 侧载 APK，target 36。N0b 定死：applicationId `com.orpheusaviary.lark`；APK 版本线 0.1.0、versionCode=1；keystore 主副本入加密凭证库 + 独立加密备份（alias / 证书 SHA-256 / 密码 + 恢复演练），不进仓库与 CI artifact。developer verification：**N6 设正式 go/no-go**。 |
+| D14 | 分发与身份 | 侧载 APK，target 36。N0b 定死：applicationId `com.orpheusaviary.lark`；APK 版本线 0.1.0、versionCode=1；keystore 主副本入加密凭证库 + 独立加密备份（alias / 证书 SHA-256 / 密码 + 恢复演练），不进仓库与 CI artifact。developer verification：截至 2026-08，9 月底的要求只覆盖特定参与商店与地区，**直接侧载暂不受影响**，全球扩大在 2027——**N6 设正式 go/no-go** 复查当时政策。 |
 | D15 | 传输安全 | 移动端 v1 只支持 https。TLS：负责人 = 用户，AI 协助实施；与 N1 并行、最迟 N4 结束前完成、N5 前置验证。验收：域名 + DNS · 证书 + 自动续期（告警 + 演练）· 反代 · 两端 `server_url` 迁移 · 真机连通。 |
-| D16 | Android 备份/迁移 | `allowBackup=false` + `dataExtractionRules`（12+）与 `fullBackupContent`（11-）显式排除 database/files/sharedprefs/音频/SecureStore 存储（处理 expo-secure-store 插件自动配置冲突）。恢复检测：启动服务/migration/凭证之前，**只读隔离最小打开** DB 读 `install_id` 与 no-backup/Keystore 侧比较后立即关闭；DB 不存在 → 全新库生成双侧；两侧相等 → 正常；任一缺失或不等 → fail closed（不启 sync、不碰凭证，清 binding 重新绑定，曲库数据保留）。N2 gate 含 D2D restore 测试。 |
+| D16 | Android 备份/迁移 | `allowBackup=false` + `dataExtractionRules`（12+）与 `fullBackupContent`（11-）显式排除 database/files/sharedprefs/音频/SecureStore 存储（处理 expo-secure-store 插件自动配置冲突）。恢复检测：启动服务/migration/凭证之前，**只读隔离最小打开** DB 读 `install_id` 与 no-backup/Keystore 侧比较后立即关闭；DB 不存在 → 全新库生成双侧；两侧相等 → 正常；任一缺失或不等 → fail closed（不启 sync，清 binding 走重新绑定，曲库数据保留）。**凭证生命周期**：fail closed 时同步清除 SecureStore 旧凭证条目（与 binding 一起）。**收敛（防死循环）**：清理完成后**生成新 install ID 写入两侧**（先写 no-backup 侧意图记录 → 写 DB → 确认；可重入，写一半崩溃重启续写）——否则「检测不一致 → 清理 → 下次 ID 仍不一致 → 再 fail closed」永不收敛；ID 收敛后本地曲库正常可用，sync 保持未绑定等待重新登录。N2 gate 含 D2D restore 测试。 |
 | D17 | 音频 canonical 与 bilibili codec | canonical = AAC in ISO-BMFF、ExoPlayer 可播可 seek。codec 选择在候选列表阶段：解析 `codecs`（`mp4a.40.*`），AAC 候选内按目标带宽取流；无 AAC：桌面转码、移动端拒绝并报错；codecs 缺失视为非 AAC。raw fMP4 直存达标与否 N0b 实测；JS remux 是须过大文件内存测试的候选。 |
 
 ## §2 调查结论摘要
@@ -64,13 +64,13 @@
 - `migration-backup/` 在 nest 的 lark 目录下、`songs/` 树之外：不参与缓存清理/同步/recovery，`backup-nest` 包含它；占用字节数、打开目录、显式一键清空入口进设置页——**不允许不可见的永久磁盘占用**。
 - **R 类默认策略已定（原 §5-1 关闭）**：转码为默认；迁移报告提供一键批量重下入口，**走 forced redownload 而非 ensure-file**（ensure-file 对已有文件会短路）。
 
-**2. pending 门与白名单**。migration `0003`：升 `user_version=3`（单向）、建 ledger 表、置 pending 标记；不标 `requires_confirmation`。**秒过仅限 0003 时全新创建的库**；所有从 v2 升级的库，无论初始是否见到 mp3，都必须先 drain journal → 完整 legacy recovery（旧 manifest / `.replace` backup 可能恢复出 mp3）→ 再扫描 → 决定是否清 pending（fixture：初始无 mp3 但旧 manifest 恢复出 mp3）。白名单：`GET /status`、`GET /api/instance`、`GET /api/capabilities`、`GET /api/audio-migration`（认证，新增）、`/events`，**外加 `GET /sync/file-ops` + `POST /sync/file-ops/retry` + `POST /sync/file-ops/discard`（见 10）**；其余路由回 `AUDIO_MIGRATION_PENDING`。GUI 进入独立 migration boot state：只轮询白名单接口渲染进度屏。
+**2. pending 门与白名单**。migration `0003`：升 `user_version=3`（单向）、建 ledger 表；不标 `requires_confirmation`。**pending 与 `user_version=3` 在 0003 同一事务内原子置（fail-closed）**——若 pending 在事务外另写，存在「commit 后进程退出 → 下次按正常 v3 启动、mp3 漏迁」的窗口。fresh 库（v0 全新建库一路跑到 v3）由 `createDatabase` 在迁移成功后**随即清 pending**：崩在「0003 commit 后、fresh clear 前」只是 fresh 库下次多走一次空迁移（扫描无 mp3 → 秒清），**方向永远是多迁不漏迁**（补该 kill 窗口测试）。fresh daemon、**fresh `--direct` 首次写**因此即刻可用。所有 v2 升级库，无论初始是否见到 mp3，都必须先 drain journal → 完整 legacy recovery（旧 manifest / `.replace` backup 可能恢复出 mp3）→ 再扫描 → 决定是否清 pending。**schema 契约**：`assertSchemaV2` 升级为 current-schema 契约（v3），覆盖 create / readonly / recovery 三个调用点。**Go 迁移自 0.3.0 停止支持且直接删除不可达实现**（用户拍板，不留高复杂度死模块）：migrate-go/probe-go/fixture-go-db 代码与测试、justfile recipe，连同 `errors.ts` 与 daemon boot 里引导「运行 just migrate-go」的文案一并处理——Go 旧库的拒绝路径保留，文案改指「用 0.2.x 完成迁移后再升级」。测试三组：fresh daemon / fresh direct / v2 upgrade（fixture 含「初始无 mp3 但旧 manifest 恢复出 mp3」）。白名单：`GET /status`、`GET /api/instance`、`GET /api/capabilities`、`GET /api/audio-migration`（认证，新增）、`/events`，**外加 `GET /sync/file-ops` + `POST /sync/file-ops/retry` + `POST /sync/file-ops/discard`（见 10）**；其余路由回 `AUDIO_MIGRATION_PENDING`。GUI 进入独立 migration boot state：只轮询白名单接口渲染进度屏。
 
-**3. 两阶段 boot（架构锁定）**。**全部路由在 listen 之前一次性注册**（Fastify 5 listen 后加路由抛 `FST_ERR_INSTANCE_ALREADY_LISTENING`，现实现也是 build 时全量注册）；pending 与否由**全局 migration gate**（onRequest 层）按白名单判定；业务 handler 经 **late-bound `normalRuntime` 引用**取服务——激活前该引用为空，但 gate 已把请求挡在 handler 之外。**minimal pending context** = DB + ledger + migration runner + **迁移专用 FileEffectRuntime**（供 file-op 列表/retry/discard，见 10）+ `/events`；不构建下载/缓存/同步运行时，不 restore/mount sync session。file-op 处理与 migration runner **共享 mutex**，处理完触发 ledger 重扫。迁移完成 → **`activateNormalMode()`**：关闭 pending runtime → **原子安装 normal runtime（swap 引用）**，不动路由表；单次所有权（幂等 guard）；激活失败 = fatal（复用 requestFatal 模式）；teardown 覆盖两阶段——pending 阶段停机顺序 = 停 runner（中止/等待 ffmpeg）→ 关 DB。
+**3. 三层 boot 上下文与状态机（架构锁定）**。上下文拆三层：**BaseContext**（DB、config、logger、**mediaTools**、token/auth、事件总线、**guiChannel 与 version/host/port/requestFatal/shutdown 信号**——`/api/capabilities` 要 `mediaTools.refresh()`、`/events` handler 要 guiChannel：**白名单 handler 所需字段必须全部入 Base**，pending 期存在）+ **PendingRuntime**（ledger、migration runner、迁移专用 FileEffectRuntime——供 file-op 列表/retry/discard，见 10）+ **NormalRuntime**（下载/缓存/同步等，late-bound 引用）。**全部路由在 listen 之前一次性注册**（Fastify 5 listen 后加路由抛 `FST_ERR_INSTANCE_ALREADY_LISTENING`）。时序锁定：**listen + 发布 token 之后才后台启动 runner**（否则 GUI 无法观察迁移）。gate 读**内存状态机 `pending → activating → normal | fatal`**，不逐请求读持久标记；`activating` 期间业务仍拒——**NormalRuntime 完整构建成功并原子 swap 之后才置 `normal` 开放业务 handler**，消灭「pending 已清、runtime 仍为空」的窗口。file-op 处理与 runner 共享 mutex，处理完触发 ledger 重扫。激活单次所有权（幂等 guard）；构建失败 = `fatal`（复用 requestFatal 模式）；teardown 覆盖全部状态——pending 阶段停机顺序 = 停 runner（中止/等待 ffmpeg）→ 关 DB。
 
 **4. 进度双通道**。免认证 `/status` 只带 `audio_migration` **计数与非敏感状态分类**（state/done/total/lost/kept/blocked/blocked_file_op 计数）；认证 `GET /api/audio-migration` 给逐条明细（song id、相对文件名、class、原因、建议；不返回绝对路径），**且在 pending 清除后继续可访问**（历史报告；ledger 永久保留）。
 
-**5. 预检（第一首之前）**：ffmpeg 能力清单 · 目标目录可写 · 最低磁盘空间（阈值子计划定）。任一不过 → pass 不启动，`blocked_environment`，零文件触碰。
+**5. 预检（第一首之前）**：ffmpeg 能力清单 · 目标目录可写 · 最低磁盘空间 **`free ≥ max(500MB, 最大单曲 mp3 × 3)`（已冻结）**。任一不过 → pass 不启动，`blocked_environment`，零文件触碰。**ENOSPC 语义澄清（已冻结）**：「停 pass 零删除」指**错误发生时刻起**当前歌与之后零删除；**已达终态（done/lost）的歌不回滚**——write-ahead ledger 保证已完成项一致。不做「为整批预留空间」（预估不可靠）。**恢复入口（锁定）**：认证 `POST /api/audio-migration/retry` = 重新预检并继续，GUI 配「重新检测并继续」按钮——否则用户释放磁盘/装好 ffmpeg 后，当前 daemon 会永久停在 `blocked_environment`。
 
 **6. 错误分类（冻结；分不清一律按环境类，默认不动文件）**：
 
@@ -81,7 +81,7 @@
 | 内容（单文件级） | ffmpeg 解码/格式错误、验证不过 | 按 class：R → 弃置；A → 移入 backup，`kept_unconverted` |
 | 文件操作失败 | unlink/move EACCES 等 | 该歌 `blocked`（记 `blocked_action`），人工处理后续跑 |
 
-错误码 → 类别映射表进子计划；「输出验证失败」不自动等于「输入损坏」——验证失败先查环境类征兆（tmp 写入量、磁盘），仍不明则按环境停 pass。
+**分型机制（已冻结）**：现有 ffmpeg 层把一切包成 `FfmpegError`，仅靠 message 分类不安全——converter 层按**四路信号**分型：AbortSignal 状态（→ 中止）· spawn/fs 的 errno（ENOENT/EACCES/ENOSPC → 环境）· ffmpeg 退出码 + stderr 模式（解码/格式类 pattern → 内容）· **无法归类默认环境**。具体 pattern 清单在 T2 实现时冻结成映射表（子计划附表），原则本条锁定。
 
 **7. 单曲顺序（终态只在源文件达到终态后写入；`backing_up` 必带 intent ∈ {done, kept}，落 `resume_state`）**：
 - R 成功：`converting` → 转码 tmp → ffprobe 验证 → rename canonical → unlink mp3 → `done`。
@@ -90,7 +90,7 @@
 - A 内容失败：`backing_up(kept)` → move 入 backup → 验证存在 → `kept_unconverted`。
 - 任何 unlink/move 失败 → `blocked`（记录 action）。
 
-**8. ledger 字段（0003 建表）**：`song_id / class(R|A) / file_origin / source_key_present / status(pending|converting|discarding|backing_up|done|lost|kept_unconverted|asset_missing|blocked|blocked_file_op) / blocked_action + resume_state（含 backing_up 的 intent） / error_class + last_error / backup_path / at`；total 首启冻结；**不参与扫描的对象也入表并记原因**。`done/lost/kept_unconverted/asset_missing` 是真终态——终态后再发现 mp3（如用户手工放回）进 reconcile 报告，不自动删；`asset_missing`（A 类源文件与 backup 双缺）与 reconcile 记录不阻塞完成，但永久保留在报告中。
+**8. ledger 字段（0003 建表）**：**主键 = `object_key`（相对目录名——孤儿目录可能不是 UUID，song_id 做主键会把它们误当合法歌曲）**；`song_id`（nullable）/ class(R|A|orphan) / file_origin / source_key_present / status(pending|converting|discarding|backing_up|done|lost|kept_unconverted|asset_missing|blocked|blocked_file_op) / blocked_action + resume_state（含 backing_up 的 intent） / error_class + last_error / backup_path（**相对 lark nest 根，绝不存绝对路径**——nest 可经 backup-nest + `LARK_NEST_DIR` 整体搬移，沿 file-op 相对目录先例） / reconcile_action（nullable：被移入碰撞安全 backup 的文件与原因） / at`；**`song_id` 不强制对应现存 songs 行**（file-op 快照可指向已删的歌）；total 首启冻结；不参与扫描的对象也入表并记原因。`done/lost/kept_unconverted/asset_missing` 是真终态；终态后意外出现的 mp3 按协调表**自动移入碰撞安全 backup**（保文件、清 `songs/`、不阻塞完成），`reconcile_action` 与 `asset_missing` 永久保留在报告中。
 
 **9. 重启协调表**（维度 = ledger × mp3 × m4a × **backup**；tmp 残留任何状态按 `TEMP_PREFIXES` 清扫；「验证 m4a」= ffprobe 全套判据；**backup 一律禁止覆盖**——目标已存在时比较 size/hash，一致视为 move 已完成，不一致 → reconcile 报告）：
 
@@ -103,12 +103,12 @@
 | discarding（仅 R，探活已在进入前完成） | mp3 在 | unlink → lost；失败 → blocked | — |
 | backing_up(intent) | mp3 在、backup 无 | — | 执行 move → 验证 → 按 intent 收尾（done/kept） |
 | backing_up(intent) | mp3 无、backup 在 | — | 验证 backup 存在（intent=done 时另验 m4a）→ 按 intent 收尾 |
-| backing_up(intent) | mp3 在、backup 在 | — | 比较 size/hash：一致 → unlink 源 → 按 intent；不一致 → reconcile 报告（不覆盖、不删） |
+| backing_up(intent) | mp3 在、backup 在 | — | 比较 size/hash：一致 → unlink 源 → 按 intent；不一致 → **源移入碰撞后缀名 `<song_id>.reconcile-N.mp3`（禁覆盖，自动递增后缀）→ 记 `reconcile_action` → 按 intent 收尾** |
 | backing_up(intent) | mp3 无、backup 无 | — | `asset_missing` |
-| done / lost / kept | mp3 在 | reconcile 报告，不删 | 同左 |
+| done / lost / kept | mp3 在 | **移入碰撞安全 backup（`<song_id>.reconcile-N.mp3`）、记 `reconcile_action`，不删不覆盖**——文件保住、`songs/` 清空、完成不被阻塞 | 同左 |
 | blocked | 任意 | 重试一次 `blocked_action`，成功按 `resume_state` 推进，失败保持 | 同左 |
 
-**10. 旧 file-op 死锁解法**。永久失败/退避中的旧 journal op 会占住歌曲目录（recovery 与转换 pass 都必须跳过这些目录）。对应歌曲 ledger 状态 = `blocked_file_op`；pending 白名单开放 file-ops 只读列表 + 受控 retry/discard（见 2），GUI 迁移页列出并可处理；处理完 runner 对这些行重扫。**没有这三个口子，用户将无法自救。**
+**10. 旧 file-op 死锁与孤儿目录**。永久失败/退避中的旧 journal op 会占住歌曲目录（recovery 与转换 pass 都必须跳过）。对应对象 ledger 状态 = `blocked_file_op`；pending 白名单开放 file-ops 只读列表 + 受控 retry/discard（见 2），GUI 迁移页列出并可处理；处理完 runner 对这些行重扫。**没有这三个口子，用户将无法自救。** 补充规则：**scanner 以 `songs/` 目录树为扫描对象，不只 DB 行**——旧 op 可能指向已删除的歌（快照写在 journal 里，行早没了）：① journal-owned 目录按 op 快照分类，retry 成功由 op 快照自带的处置收尾；② **discard 后的残留目录整体移入 `migration-backup/orphans/`（保守，不删）**，记 `reconcile_action`；③ 非 journal-owned 的孤儿目录先交 legacy recovery 既有规则处理，仍残留者同 ②。
 
 **11. legacy 消化（转换 pass 之前完成；覆盖完整 recovery 决策表，不止两类对象）**：
 - file-op journal：`FileOpArg` 增版本化音频文件字段；无字段的旧 op 由显式 v2 legacy 分支按 song.mp3 世界执行。
@@ -117,7 +117,7 @@
 
 **12. CLI 口径**。direct 写在 pending 拒绝；direct 读仅对已升 v3 的库可用（v2 库只读打开抛 `MIGRATION_PENDING`）。**pending 窗口内 `has_file` 探测 legacy-aware（m4a || mp3）**——否则未迁移的歌被谎报成「需要下载」；迁移完成后回到单名探测。管理命令不受影响。
 
-**13. 完成条件**。ledger 无 pending/converting/discarding/backing_up 且无 blocked/blocked_file_op（`asset_missing` 与 reconcile 记录不阻塞）、**`songs/` 目录树内无 mp3**（`migration-backup/` 不计）→ 清 pending → `activateNormalMode()`。终态不变量：served 库（`songs/` 树）永远单格式 m4a。
+**13. 完成条件**。ledger 无 pending/converting/discarding/backing_up 且无 blocked/blocked_file_op（`asset_missing` 与 `reconcile_action` 记录不阻塞——reconcile 场景已由协调表**自动把冲突源移入碰撞安全 backup**，故与「`songs/` 树内无 mp3」不再矛盾）、**`songs/` 目录树内无 mp3**（`migration-backup/` 不计）→ 清 pending → 状态机进 `activating` → NormalRuntime 构建 + swap → `normal`。终态不变量：served 库（`songs/` 树）永远单格式 m4a。
 
 **14. 验收判据族**：预检三项各自拦截 · 中止不落 lost 且续跑 · ENOSPC 停 pass 零删除 · **弃置前探活（可重下 → lost；无网/探活失败 → 入 backup，不删）** · R 类坏 mp3 → lost、A 类坏 mp3 → backup + kept（**imported 永不消失**）· A 类成功后原件在 backup 且终态前验证存在 · **backing_up 双崩溃窗口（move 前 / move 后未写终态）恢复正确** · **backup 已存在不覆盖（hash 一致/不一致两分支）** · **asset_missing 绝不落 done** · unlink/move 失败 → blocked 且 `blocked_action` 恢复正确 · 协调表逐行夹具 · 终态后手工放回 mp3 → reconcile 不删 · blocked_file_op 经 retry/discard 解锁后续跑 · kill -9 · 进度跨重启守恒 · **仅全新库秒过；v2 升级库先 legacy recovery 再扫描（含「初始无 mp3 但 manifest 恢复出 mp3」夹具）** · CLI direct 写拒绝 / v2 库 direct 读报 MIGRATION_PENDING / pending 窗口 has_file 不谎报 · GUI 进度屏（含复用 CLI 先起的 daemon）· legacy 全表夹具（journal/manifest/orphan/replace-backup/不可读 manifest/dangling log）· 迁移后旧版拒开。
 
@@ -131,24 +131,24 @@
 ### 3.4 导入矩阵（多格式 → 一律 m4a）
 
 - `probeAudio` 扩 `-show_streams`（音频 codec + 全部 stream 类型 + disposition）。
-- **流选择规则（锁定）**：取第一条音频轨（`-map 0:a:0`），其余流丢弃（`-vn -sn -dn` 语义）；**`attached_pic`（封面图流，mp3/m4a 普遍携带）不算视频流**——「含视频流拒绝」只针对非 attached_pic 的真视频轨，否则会误拒大量正常音频文件。
-- 决策表（子计划逐格补全 + 测试）：MP4 族+AAC → remux copy；MP4 族+ALAC → 转码；裸 `.aac` → remux + `aac_adtstoasc`；mp3/flac/wav(支持的 PCM 子集)/ogg → 转码 aac 192k（有损化 UI 明示）；含真视频轨 → 拒绝；无音频流/未知 codec → 拒绝；多音轨 → 取 `0:a:0` 并在结果里注明。
+- **流选择规则（锁定）**：探测选定音频轨后按**全局 stream.index** 映射（`-map 0:<index>`，显式 -map 后其余流天然排除；不许用 `-map 0:a:<n>` 序数语义——封面/视频流排在音频前会选错）；**`attached_pic`（封面图流，mp3/m4a 普遍携带）不算视频流**——「含视频流拒绝」只针对非 attached_pic 的真视频轨，否则会误拒大量正常音频文件。
+- 决策表（子计划逐格补全 + 测试）：MP4 族+AAC → remux copy；MP4 族+ALAC → 转码；裸 `.aac` → remux + `aac_adtstoasc`；mp3/flac/wav(支持的 PCM 子集)/ogg → 转码 aac 192k（有损化 UI 明示）；含真视频轨 → 拒绝；无音频流/未知 codec → 拒绝；多音轨 → 取第一条音频轨（按全局 index 定位）并在结果 warnings 注明。
 - GUI `pickMp3` → `pickAudio` 全链。**CLI 不新增音频导入命令（已决：记录为 backlog，后续有需要再完善）**，只更新门禁与文案。
 
 ### 3.5 协议与下载链路
 
-- `LOCAL_API_VERSION` → 6；`/audio` `Content-Type: audio/mp4`；`lark-media://` MIME 同步；capabilities 三字段（D8）。
+- `LOCAL_API_VERSION` → 6（**时点 = T5 协议定稿批，见 D8**）；`/audio` `Content-Type: audio/mp4`；`lark-media://` MIME 同步；capabilities 四字段（D8）。
 - bilibili：候选阶段解析 `codecs` 按 D17 选流；remux 前断言 AAC。
 - 字节进度 wire contract：snapshot 与 `download:status` 事件同增 `received_bytes: number`、`total_bytes: number | null`；仅 `downloading` 阶段有意义；**同一次 downloading 阶段内单调**，任务/阶段切换归零；`revision` 随进度更新递增；事件节流（时间 + 变化双阈值，数值子计划定）且阶段结束强制发终值。CLI：TTY 同行覆盖刷新；非 TTY 按百分比阈值打点，**`total_bytes=null` 时退化为字节量/时间阈值**。
 - transfer 导出只含元数据。
 
-### 3.6 PC 改进三项（0.3.0 随发）
+### 3.6 PC 改进（0.3.0 随发：三项功能 + 一批「已实现未实装」修复）
 
 **1. 命名清洗（批量修复 + 单链接弹框 + 规则冻结）**
 
 - 现状（bug，代码级确诊）：video 类命名是 `target.title ?? view.title`，批量勾「原标题」= 列表标题、不勾 = 视频自身标题，收藏夹场景两者恒同，勾选框实际无效；「fall back to LLM」只存在于 GUI 注释，管线里 LLM 仅服务 keyword 路径。
 - 语义：批量导入不勾 = 清洗、勾 = 原标题；单/多链接粘贴提交时弹一次询问框「原标题 / 清洗命名」，本次提交全部链接项统一生效。
-- **wire 落点（锁定，覆盖两条通道）**：batch 通道——命名模式字段放 **video item 级**（`'original' | 'clean'`，必填）；keyword item 无此字段。**单曲通道——`DownloadSongRequest` 增条件必填 `naming_mode`**：路由解析 input 为 video 时必填，为 keyword 时禁止/忽略（路由校验）——GUI 弹框与 CLI `--clean-name` 均经此通道（GUI 的多选单项也走 `/download/song` 循环）。弹框/group 勾选把同一值刷到所辖 item。
+- **wire 落点（锁定，覆盖两条通道）**：batch 通道——命名模式字段放 **video item 级**（`'original' | 'clean'`，必填）；keyword item 无此字段。**单曲通道——`DownloadSongRequest` 增条件必填 `naming_mode`**：路由解析 input 为 video 时必填，为 keyword 时**拒绝（400）**——GUI 弹框与 CLI `--clean-name` 均经此通道（GUI 的多选单项也走 `/download/song` 循环）。弹框/group 勾选把同一值刷到所辖 item。
 - 清洗规则（冻结）：LLM 从标题提取歌名 + 歌手；歌手提取不到 → UP 主名；歌名提取不到 → 原标题。复用 `inferSongInfo`。
 - LLM 分工：创建时 `capabilities.llm_available=false` → 清洗选项禁用（GUI 灰显、CLI `--clean-name` 报错）；运行时失败 → 回退原题 + UP 主名不失败；**取消/停机异常必须重抛**（现实现捕获所有异常，要区分 abort）。
 - **与去重的交互（锁定）**：dedupe key 保持 `bvid+page`；同一 source/page 在途任务策略唯一；策略不同的提交返回冲突错误。**预检时点（锁定）：对「在途任务 + 请求内部重复项」的全量 naming-mode 预检必须在容量检查与歌单事务之前完成**——现实现先提交歌单事务再逐项 merge，冲突若在 merge 层才发现会破坏「所有 group 成功或都不写」的批量原子性。title 快照不参与冲突判定（同策略合并到先到者）。
@@ -159,7 +159,9 @@
 
 **3. 下载进度面板**：当前任务阶段 + 字节进度、排队列表、终态记录。操作术语（锁定）：**取消任务**（queued/running）· **清除记录**（terminal 移出面板）· 删除歌曲不进面板。全部取消 = snapshot 活跃 ID → best-effort 逐项 → 返回逐项结果（saving 阶段如实报「已完成」）。信息结构与移动端「添加」页对齐。
 
-### 3.7 明确不做 / 验收要点
+**4. 「已实现未实装」一致性修复批（2026-08-13 全仓双向审计产出，清单与判据见子计划 §7）**
+
+「原标题」暴露的坑型做了一次全仓双向清查（GUI 控件 → wire → core 正向 41 个控件；config/CLI/wire 字段反向全量），全部发现随 0.3.0 一次性修复。最重者：**`sync.interval_min` 只在 daemon 启动时读一次**——设置页改了、落盘了、回读也对，timer 纹丝不动且零提示（修法 = PATCH 后重建 scheduler + 测试断言周期）；其余含冲突差异表漏 `source_provider/source_key`（可渲染出零差异空表）、null payload 时「保留本机」是真 no-op 还推空更新、「去登录」落错 tab、LLM `api_format` 的 `''`（继承 aviary）被伪装成 openai 且单向不可逆、缓存上限调小不触发清理、`--allow-partial` 在 `--batch`/单输入形态完全不读、`--json` 成功路径三处 stderr 泄漏、`--direct` 与 HTTP 的四处校验差（空歌名/空歌单名/不 trim）等。结构性好消息：daemon 的 `objectBody` 未知字段一律 400，字面 dead wire 不可能静默存在——问题全部集中在 semantic no-op、boot-only 与呈现错配三类。
 
 - 不做：格式可配置、mp3 产出路径、回滚、CLI 音频导入命令（backlog 记录）。
 - 验收：fetch-ffmpeg 门禁 → 真实下载 m4a → 迁移判据族（§3.2-14）→ 导入矩阵逐格（含 attached_pic 不误拒）→ 命名判据（两分支可区分 · 弹框生效 · 歌手回退 UP 主 · 策略冲突在事务前报错）→ 阶段细化 → 下载面板 → v6 门禁拒旧 daemon → 全量测试 + accept 系列更新 → 九步发版 0.3.0。
@@ -173,10 +175,11 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 ├── db:       单一 expo-sqlite client（drizzle Expo driver + raw shim 共用；statement
 │             生命周期策略 = N0b 三选一，D4）
 ├── services: N1 产物（library / download 编排 / SyncCoordinator）+ 全套端口（D5，
-│             含 Crypto/Base64/TextEncoding），经 @lark/core/portable 边界消费
-├── 下载:     core bilibili/歌词 client（fetchImpl 注入）+ RN 落盘（AAC 流直存，D17）
-├── 播放:     PlayerDriver（expo-audio：状态订阅/ended/error/音频焦点/becoming-noisy/
-│             锁屏元数据/teardown）→ 复用队列/恢复逻辑
+│             含 Crypto/Base64/TextEncoding/AudioLanding），经 @lark/core/portable 消费
+├── 下载:     core bilibili/歌词 client（fetchImpl 注入）+ AudioLanding 的 RN 实现
+│             （AAC 流直存，D17）
+├── 播放:     PlayerDriver（expo-audio：状态订阅/ended/error/音频焦点与中断的行为处理/
+│             锁屏元数据/teardown；耳机断开=行为验收不锁 API）→ 复用队列/恢复逻辑
 └── UI:       RN 重写（四 tab + minibar + bottom sheets）；stores 复用形状、注入端口
 ```
 
@@ -206,9 +209,9 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 |---|---|---|
 | **N0a** | 最小可移植边界（桌面仓内）：migration SQL registry + schema 切面进 `@lark/core/portable` + DatabaseContract harness（prepare/get/all/run · `transaction().immediate()` · rollback/savepoint 嵌套 · FK · `PRAGMA user_version` · JSON1 含 CAST · 返回值字段差异） | 桌面全测试 + 守卫绿 |
 | **N0b** | 真机 spike：Expo 57 进 workspace；expo-sqlite shim 跑 harness + migrations（op-sqlite 对照）；**drizzle statement 生命周期三选一定案 + JS 卡顿 gate（D4）**；expo-audio 播真实 bilibili AAC 流（raw fMP4 判定，D17）+ 后台/锁屏/音频焦点（单 player vs playlist）；分享 intent；skybridge SDK RN 判定（`expo/fetch` 下 bundle/import · login/pull/push · SSE 流读 · abort/重连 · 离线恢复）；落定 D14 | 全判据过 → GO/NO-GO，**D4/D5 细节冻结** |
-| N1 | core 端口化 + 应用服务层 + SyncCoordinator 提取（冻结不变量原样保留；daemon 改消费提取物 + 桌面 contract tests；桌面行为零变化）。gate 另加三守卫：portable 面 Node builtin/原生依赖 rg 守卫 + Expo/Metro bundle smoke + **pnpm install + `expo prebuild`/原生构建 smoke**（Metro bundle 通过不证明原生依赖在安装/构建阶段安全），进 `just check` 或独立 recipe | 桌面全测试 + 三守卫绿 |
+| N1 | core 端口化 + 应用服务层 + SyncCoordinator 提取（冻结不变量原样保留；daemon 改消费提取物、**CLI direct 改薄壳消费服务层，daemon/direct/mobile 三方 contract tests**；桌面行为零变化）。gate 另加三守卫：portable 面 Node builtin/原生依赖 rg 守卫 + Expo/Metro bundle smoke（进 `just check`）+ **pnpm install + `expo prebuild`/原生构建 smoke（独立必跑 recipe，不进默认 `just check`——太重）** | 桌面全测试 + 三守卫绿 |
 | N2 | 移动数据层 + 服务层接线 + 曲库/歌单读写 + 四 tab 骨架 + D16 落定（backup 排除 + install_id 检测 + D2D restore 测试） | 真库副本可读写 |
-| N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点 | 真机整晚播放不掉 |
+| N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点。**耳机断开自动暂停等写成行为验收判据，不锁定回调接口**（expo-audio 由库层自动停止，官方无 becoming-noisy 事件 API） | 真机整晚播放不掉 + 行为判据 |
 | N4 | 下载：AAC 选流 + RN 落盘 + 添加页 + 分享 intent + ensure-file + 缓存管理。TLS 完成死线 | 真实 bilibili 闭环 |
 | N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI。前置：TLS 验收全过 | 与桌面双端真机 soak |
 | N6 | 多选批量 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go | 验收 harness |
@@ -263,7 +266,7 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 - ffmpeg-kit：2025-01 退役、2025-04 下架、2026-07 归档。
 - @rntp/player v5 商业授权；expo-audio SDK 57 后台 + 锁屏（需显式启用）。
 - drizzle driver（本仓 node_modules 核实）：expo-sqlite 同步但 `prepareSync` 后不 finalize（0.38.4）；op-sqlite 异步；better-sqlite3 driver 顶层 import 原生模块。
-- Android：mediaPlayback FGS 无时长上限；侧载 developer verification 2026-09 起分阶段、2027 扩大（N6 go/no-go）；私有目录零权限但卸载即删；Auto Backup 含 DB、Keystore 不跨卸载、部分 OEM D2D 无视 allowBackup。
+- Android：mediaPlayback FGS 无时长上限；developer verification 2026-09 底只覆盖特定参与商店/地区、**直接侧载暂不受影响**、2027 全球扩大（D14，N6 go/no-go）；私有目录零权限但卸载即删；Auto Backup 含 DB、Keystore 不跨卸载、部分 OEM D2D 无视 allowBackup。
 
 ### 7.3 UI 惯例（11 项目调研）
 
