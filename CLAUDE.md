@@ -185,7 +185,7 @@ lark/
 - **`/usr/bin/open` 正常退出不是崩溃**：`LaunchCommand.expectsImmediateExit` + `LaunchedChild.state.exitCode`——按 dev 的「退出即崩溃」判，每一次打包态 `lark gui` 都会在窗口出现前失败
 - **验收脚本必须从工作区之外跑 CLI**：仓库内跑时 `isDevCheckout()` 一路走到 `pnpm-workspace.yaml`，`LARK_APP_PATH` 被完全忽略——判据 10 会静默测成 dev 分支（踩过）
 - **renderer 不能 `fetch('lark-media://…')`**：CSP 的 `connect-src` 没这个 scheme（媒体走 `media-src`）。观测 206 要么经 daemon 的 player 命令驱动 + 读日志的 `audio range` 行，要么用媒体元素
-- **图标**：源图的灰光晕**不透明**，量边界要用饱和度不是 alpha；图标本该是四周有真透明留白的方块（owl 外 40px 全透明、占 90%）。`build-icons.mjs` 只做缩放，用备好的 `lark-icon-source.png`，配方写在注释里。判据：产物最外圈不透明像素 = 0
+- **图标**：源图的灰光晕**不透明**，量边界要用饱和度不是 alpha；`lark-icon-source.png`（已去光晕的方块）是唯一 tracked 的图标资产，配方写在 `build-icons.mjs` 注释里。**判据在 0.2.1 改了**：不再是「最外圈不透明像素 = 0」——那条只防得住光晕，防不住 macOS 给「不像 tile 的 icns」垫默认灰底板（0.2.0 就是这么带着一圈灰发出去的，详见下方 0.2.1 段）。现在 `build-icons.mjs` 自己造 tile（铺满 → n=5 超椭圆蒙版 → 缺口填边缘中位色），判据改成**用 `NSWorkspace.icon(forFile:)` 渲染出来的图在系统 tile 内没有灰边**
 - **发版**：npm 拒绝 `npm login` 的会话凭据（要 2FA），必须用带 bypass 的 granular token；发布成功后 CDN 还会缓存 404 约 40 秒（`npm access get status` 走 API，那时已经对）。github 在本机三通其一，且 **`git push … | tail` 会吞掉退出码**（管道返回 tail 的）
 
 ### M3 实测锁定（详见 `docs/plans/2026-08-04-m3-download-pipeline.md` §7）
@@ -230,7 +230,14 @@ lark/
 - **`lifecycle` mutex 把函数排进微任务**：测「登出插在 refresh 中间」必须等被测函数**真的进去**再动手，否则测到的是排队而不是交错
 - **真机 soak 的两条（T6c，2026-08-12）**：**起 GUI 之后、登录之前必须用 `/api/instance` 验 `nest_dir`**——`env LARK_NEST_DIR=…` 一旦没生效，GUI 就会打开**真实曲库**，一次登录把它升到 schema v2（单向，0.1.0 从此打不开）并绑到测试账号；数据不会丢，`sync unbind --force` 能清回未绑定态 · **`resolve('local')` 会被 `SOURCE_KEY_CONFLICT` 挡下**：它走普通写路径 `updateSongInTx`，而冲突挂起期间别的设备可能把这首歌的 source key 给了另一首——apply 允许共存、本地写不允许，两条各自都对，清掉另一首的 key 再恢复即可
 - **`accept-sync` 的四条（T6c）**：`--yes` 是全局 flag、`--allow-insecure-http` 是子命令 flag，**位置放反 commander 自己退 1**，与被测的拒绝长得一样 · `--json` 下 `sync unbind` 先往 stderr 打「要丢多少」再打错误信封，**取 `error_code` 要从 stderr 最后一行往回找**，别 parse 整段 · 隔离目录是 **`<song_id>-<op_uuid>`** 不是 `<song_id>` · 制造冲突/重复靠 **`sync logout` 的离线窗口**（pending 门要未推送的本地改动；同 key 共存要两端各自 `assertKeyFree` 都过），且**夹具的四首歌必须互不相同**——把「被远端删的那首」和「重复对的一半」选成同一首，删除会顺手拆掉重复对
-- **发版 0.2.0 的四条（T6d）**：**验收判据要随协议走**——`accept-pack` 的 §9 与 §4a 把 `LOCAL_API_VERSION` 写死成 4，T3d 升到 5 之后它们只会在发版当天红（`server.test.ts` 里字面 `'0.1.0'` 的 version 断言同理，已改成读 `DAEMON_VERSION`）· **`accept-pack` 要 `ensure-node-abi`**：它前一步 `just package` 必然把 workspace 留在 Electron ABI 148，而 harness 自己要 import core 跑 `backupNest`——「每个被测运行时自带 binding」对被测对象成立、对 harness 不成立 · **147MB 的 dmg 上传超过工具 10 分钟上限**，`gh release upload` 必须放后台，前台重试循环会被半路杀掉并留下空资产 · **图标看着不对先怀疑缓存**：icns 是确定性产物（重建后逐字节相同），装出来的 app 里 SHA 也一样，剩下的只有 macOS 图标缓存——删 `~/Library/Caches/com.apple.iconservices.store` + 本用户的 `com.apple.dock.iconcache` + `lsregister -f <app>` + `killall Dock Finder`，都不用 sudo
+- **发版 0.2.0 的四条（T6d）**：**验收判据要随协议走**——`accept-pack` 的 §9 与 §4a 把 `LOCAL_API_VERSION` 写死成 4，T3d 升到 5 之后它们只会在发版当天红（`server.test.ts` 里字面 `'0.1.0'` 的 version 断言同理，已改成读 `DAEMON_VERSION`）· **`accept-pack` 要 `ensure-node-abi`**：它前一步 `just package` 必然把 workspace 留在 Electron ABI 148，而 harness 自己要 import core 跑 `backupNest`——「每个被测运行时自带 binding」对被测对象成立、对 harness 不成立 · **147MB 的 dmg 上传超过工具 10 分钟上限**，`gh release upload` 必须放后台，前台重试循环会被半路杀掉并留下空资产 · **图标看着不对，缓存只是嫌疑之一**：清缓存（删 `~/Library/Caches/com.apple.iconservices.store` + 本用户的 `com.apple.dock.iconcache` + `lsregister -f <app>` + `killall Dock Finder`，都不用 sudo）只治陈旧渲染；0.2.0 那圈灰清完还在，真凶是系统垫的底板——见 0.2.1 段
+
+### v0.2.1 实测锁定
+
+- **macOS 会给「不像 tile」的 app 图标垫一层默认浅灰底板**：系统把图标合成进标准圆角方块 tile，icns 的 alpha 不构成实心圆角方块时，就缩小你的图并垫底。lark 的插画顶部是藤蔓花枝、枝叶间有透明缺口，于是中招；owl 内部是整片实心天空，铺满。量法是 `NSWorkspace.icon(forFile:)` 现场渲染：0.2.0 在 412px 的系统 tile 上每边 50px 灰（`rgb(193)`→`rgb(145)`），owl 0px，而两份 icns 结构同构（最外圈 alpha 全 0、十档边距 4.3–4.9%）——**文件本身没有任何问题，它只是不是一块 tile**
+- **比对图标必须改 bundle id**：LaunchServices 按 `CFBundleIdentifier` 缓存图标，复制一份 app 换掉 icns 再渲染，出来的还是旧图（第一次实验就这么假绿过）。改 id + `lsregister -f`，验完 `lsregister -u` 注销、删副本
+- **已排除的三条**：清图标缓存 · 把内容拉到 97.5%/100%（owl 自己也只有 91%，尺寸从来不是原因）· 腐蚀 alpha 抹掉深绿描边（露出插画浅色底与裁断的枝叶，更丑）
+- **删除文案曾经在撒谎**：`deleteSong` 走 file-effect journal 的 policy `local`，执行器是 `rm(songDirPath, {recursive:true, force:true})`——不进 macOS 废纸篓，T1c 之后也不进 nest 自己的 `trash/`。写用户可见文案前先跟到执行器那一层
 
 ## Commit 规范
 
