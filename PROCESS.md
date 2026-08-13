@@ -156,7 +156,7 @@
 
 ## 后续
 - [ ] **v0.3+ 移动版设计 doc**
-- [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已于 2026-08-10 跟进到 lark 0.1.0
+- [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
 - 归用户手动、尚未做的：**skill 的「agent 实际可调用」验收**（M6 起挂着，M7 也没做——需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令）
 
 ## 决策记录
