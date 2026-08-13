@@ -544,13 +544,16 @@ reinstall: clean-all install
 # the app is even supposed to contain, and the two paths are the exact files
 # the release gate will upload and publish.
 #
-#   just accept-pack bundled packages/gui/release/bundled/Lark-0.1.0-arm64.dmg \
-#                            apps/cli/orpheus-aviary-lark-cli-0.1.0.tgz
+#   just accept-pack bundled packages/gui/release/bundled/Lark-0.2.0-arm64.dmg \
+#                            apps/cli/orpheus-aviary-lark-cli-0.2.0.tgz
 #
 # The dmg is mounted READ-ONLY and everything app-shaped is checked inside that
 # mount — never `release/<mode>/mac-arm64/Lark.app`. Its sha256 is taken before
 # and after, so "we verified the thing we are shipping" is a fact rather than a
-# habit. No ABI juggling: every runtime under test brings its own binding.
+# habit. Every runtime UNDER TEST brings its own binding, but the harness is not
+# under test: it imports core to copy the nest, and it runs on Node — while the
+# step right before it (`just package`) leaves the workspace on the Electron
+# ABI. Hence `ensure-node-abi`, which is a no-op whenever it is already right.
 [group('accept')]
-accept-pack mode dmg tgz *args: build-shared build-core
+accept-pack mode dmg tgz *args: ensure-node-abi build-shared build-core
     node scripts/accept-pack.mjs {{mode}} {{dmg}} {{tgz}} {{args}}
