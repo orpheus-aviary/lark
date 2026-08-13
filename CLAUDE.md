@@ -6,9 +6,9 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 ## 状态
 
-🚀 **v0.1.0 已发布**（2026-08-10）—— [Release](https://github.com/orpheus-aviary/lark/releases/tag/v0.1.0)（`Lark-0.1.0-arm64.dmg`，bundled 模式）+ [`@orpheus-aviary/lark-cli@0.1.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)，tag → `9581bbc`。
+🚀 **v0.2.0 已发布**（2026-08-13）—— [Release](https://github.com/orpheus-aviary/lark/releases/tag/v0.2.0)（`Lark-0.2.0-arm64.dmg`，bundled 模式）+ [`@orpheus-aviary/lark-cli@0.2.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)，tag → `4eadb85`。**schema v2 单向**：0.2 开过的库，0.1.x 不再打开。
 
-M0–M7 全部完成，每个里程碑的子计划、决策与实测记录见 `docs/plans/` 与 `PROCESS.md`：
+v0.1.0 首发于 2026-08-10（tag → `9581bbc`），M0–M7 全部完成，每个里程碑的子计划、决策与实测记录见 `docs/plans/` 与 `PROCESS.md`：
 
 | | 内容 | 验收 |
 |---|---|---|
@@ -23,7 +23,7 @@ M0–M7 全部完成，每个里程碑的子计划、决策与实测记录见 `d
 
 v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346）。
 
-🚧 **v0.2 skybridge 同步开发中**——子计划 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`（六版终版，决策 D1–D8 全关闭）。批次 T0–T6：
+✅ **v0.2 skybridge 同步已交付**——子计划 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`（六版终版，决策 D1–D8 全关闭）。批次 T0–T6：
 
 | 批 | 内容 | 状态 |
 |---|---|---|
@@ -33,11 +33,11 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 | T3 | daemon（凭证与 binding / login 序列 / epoch / runner 与三触发器 / 路由 / boot drain，四小批 a–d） | ✅ |
 | T4 | GUI（徽章 + popover + 设置页 Tabs + 冲突页 + 列表重复标记，三小批 a–c） | ✅ |
 | T5 | CLI（sync 七命令 + `songs list --duplicates` + skill export） | ✅ |
-| T6 | 双套 e2e ✅（19 例）+ `accept-sync` ✅（34/34）+ 真机 soak ✅（自动 18/18，N 系列缓做）+ 发版 0.2.0 ⏳ | 🚧 |
+| T6 | 双套 e2e（19 例）+ `accept-sync`（34/34）+ 真机 soak（自动 18/18，N 系列缓做）+ 发版 0.2.0 | ✅ |
 
 当前测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-⚠️ **本机真实曲库已经是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——已发布的 **0.1.0 从此拒绝打开它**（`user_version > LATEST`），0.2.0 发版前只能用仓库产物。它已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
+⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它（`user_version > LATEST`），0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。库已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 
@@ -230,6 +230,7 @@ lark/
 - **`lifecycle` mutex 把函数排进微任务**：测「登出插在 refresh 中间」必须等被测函数**真的进去**再动手，否则测到的是排队而不是交错
 - **真机 soak 的两条（T6c，2026-08-12）**：**起 GUI 之后、登录之前必须用 `/api/instance` 验 `nest_dir`**——`env LARK_NEST_DIR=…` 一旦没生效，GUI 就会打开**真实曲库**，一次登录把它升到 schema v2（单向，0.1.0 从此打不开）并绑到测试账号；数据不会丢，`sync unbind --force` 能清回未绑定态 · **`resolve('local')` 会被 `SOURCE_KEY_CONFLICT` 挡下**：它走普通写路径 `updateSongInTx`，而冲突挂起期间别的设备可能把这首歌的 source key 给了另一首——apply 允许共存、本地写不允许，两条各自都对，清掉另一首的 key 再恢复即可
 - **`accept-sync` 的四条（T6c）**：`--yes` 是全局 flag、`--allow-insecure-http` 是子命令 flag，**位置放反 commander 自己退 1**，与被测的拒绝长得一样 · `--json` 下 `sync unbind` 先往 stderr 打「要丢多少」再打错误信封，**取 `error_code` 要从 stderr 最后一行往回找**，别 parse 整段 · 隔离目录是 **`<song_id>-<op_uuid>`** 不是 `<song_id>` · 制造冲突/重复靠 **`sync logout` 的离线窗口**（pending 门要未推送的本地改动；同 key 共存要两端各自 `assertKeyFree` 都过），且**夹具的四首歌必须互不相同**——把「被远端删的那首」和「重复对的一半」选成同一首，删除会顺手拆掉重复对
+- **发版 0.2.0 的四条（T6d）**：**验收判据要随协议走**——`accept-pack` 的 §9 与 §4a 把 `LOCAL_API_VERSION` 写死成 4，T3d 升到 5 之后它们只会在发版当天红（`server.test.ts` 里字面 `'0.1.0'` 的 version 断言同理，已改成读 `DAEMON_VERSION`）· **`accept-pack` 要 `ensure-node-abi`**：它前一步 `just package` 必然把 workspace 留在 Electron ABI 148，而 harness 自己要 import core 跑 `backupNest`——「每个被测运行时自带 binding」对被测对象成立、对 harness 不成立 · **147MB 的 dmg 上传超过工具 10 分钟上限**，`gh release upload` 必须放后台，前台重试循环会被半路杀掉并留下空资产 · **图标看着不对先怀疑缓存**：icns 是确定性产物（重建后逐字节相同），装出来的 app 里 SHA 也一样，剩下的只有 macOS 图标缓存——删 `~/Library/Caches/com.apple.iconservices.store` + 本用户的 `com.apple.dock.iconcache` + `lsregister -f <app>` + `killall Dock Finder`，都不用 sudo
 
 ## Commit 规范
 

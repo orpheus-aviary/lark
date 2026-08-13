@@ -120,7 +120,7 @@
   - **`--duplicates` 拒绝一切收窄的 flag**（`--search` / `--limit` / `--offset`）：另一半在第二页或不匹配搜索时，重复对会看起来像单曲——正好是这个 flag 存在的理由。分页按 1000 扫全库，`--json` 出平铺列表（每行自带 key，调用方自己分组）
   - **`accept-cli` 的夹具在 T0 就坏了（本批修）**：harness 复制的是真实 nest 的 **v1** 副本，而 v0.2 的只读打开拒绝迁移（零写入是设计），于是整个「无 daemon」阶段全是 `MIGRATION_PENDING`。修法是复制后按用户的做法升一次级（起一次 daemon 再停）。**这条同时是给用户的真实提醒**：v1 库在 v0.2 下，`--direct` 读也要先起一次 daemon
   - **冒烟**（真 daemon × 全新 nest）：status/config-show/file-ops 空态 · 无会话 `run` → `SYNC_AUTH_REQUIRED`(3) · 明文 http 无 flag → `SYNC_INSECURE_URL`(2) · 有 flag 无 `--yes`（非 TTY）→ `USAGE_ERROR`(2) · 有 flag 有 `--yes` → 真去连（服务器不可达 → `SYNC_UNAVAILABLE`(1)）· daemon 活着 unbind → `DAEMON_RUNNING_BLOCKED`(5)，停机后 0 · 无 daemon 时 `status` → 4 而 `config-show` 照常 0
-- [ ] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套（**19 例**：dual 15 / files 4，`just test-sync-e2e`）、`just accept-sync`（**34 条**）与真机 soak（自动 **18/18**）都已做完，**只剩 T6d 发版**（soak 的 N1–N5 要等时间，用户决定暂缓）
+- [x] **T6 双套 e2e + `accept-sync` + 发版 0.2.0** — e2e 两套（**19 例**：dual 15 / files 4，`just test-sync-e2e`）、`just accept-sync`（**34 条**）、真机 soak（自动 **18/18**，N1–N5 用户决定暂缓）与 **0.2.0 发版**全部完成
   - [x] **T6a 进程内 dual e2e**（2026-08-12）— 三个 lark 库（A/B/C，各自 `:memory:` core + 独立注册设备）对一台**进程内真 skybridge server**；L1–L15 / L18 / L19 共 15 例。**元数据 only**：三个设备在一个进程里无法各占一个 nest（`LARK_NEST_DIR` 是进程全局的），所以文件效应只断言 journal 行，真文件归 T6b
     - **server 依赖形态（用户拍板，偏离计划 §4.1 的「devDependency + 动态 import」）**：`@orpheus-aviary/skybridge-server` 是 `private: true` 未发 npm，**不进依赖**，运行时按「已安装包 → `LARK_SKYBRIDGE_SERVER` → 兄弟仓构建产物」解析，找不到就 skip；`just test-sync-e2e` 置 `LARK_SYNC_E2E_REQUIRED=1` 把 skip 变成硬失败，保证 recipe 不会静默绿。lark 单独 clone 后 `pnpm install` 永远不坏
     - 🐛 **抓到真缺陷并修**：`applySongDelete` / `applyPlaylistDelete` 把入站墓碑与 `max(行, 墓碑)` 比较，于是**编辑晚一毫秒的设备能留住别人已经删掉的歌**——而对端的 `applySongPut` 一旦有墓碑就无条件拒绝后续 update，两边永远不再和解。§3.2 的「song/playlist delete 永久胜出」只实现了一半。改成**只与墓碑比较**（幂等仍在），membership 保持原样（复活是 D6 要的）。三条确定性回归进 `apply.test.ts`
@@ -144,11 +144,15 @@
       - **踩过一次真的**：起 GUI 时 `env LARK_NEST_DIR=…` 没生效，GUI 开了**真实曲库**并登录，真库因此升到 schema v2（单向，已发布的 0.1.0 从此拒绝打开）且绑到了 soak 账号、推了 1250 条。数据零损失（全是增量上行），`sync unbind --force` 清回未绑定态（54 条簿记行，`discarded_changes: 0`）。**checklist 因此加了硬前置：登录之前先用 `/api/instance` 验 `nest_dir`**
       - **`resolve('local')` 会被同 key 守卫挡下**（可复现的真实边角）：冲突挂起期间别的设备把这首歌的 source key 给了另一首，恢复本机版本走的是普通写路径 `updateSongInTx` → `assertKeyFree` → `SOURCE_KEY_CONFLICT`。v0.2 不改——apply 允许共存、本地写不允许，两条各自都对；报错说得清是哪一首占了 key，清掉再恢复即可
       - **soak 夹具的同一类错误又犯一次**：一首歌同时当「冲突方」和「重复 key 的一半」，于是 LWW 整行覆盖把 key 抹了（重复数 0）、恢复又撞守卫。换两首全新的歌重跑即 2/2
-  - [ ] **T6d 发版 0.2.0**（下一个会话的主题）——按 M7 的链路来：`just fetch-ffmpeg` 门禁 → `just package bundled` + `just pack-cli` → `just accept-pack bundled <dmg> <tgz>`（28 条，**必须在工作区之外跑 CLI**）→ npm granular token 发 `@orpheus-aviary/lark-cli` → GitHub release + tag。M7 的坑全在 `docs/plans/2026-08-08-m7-packaging.md` §8 与 CLAUDE.md 的 M7 段
-    - 发版前要决定的两件事：**版本号 0.2.0 的 breaking 提示**（schema v2 单向，装了 0.2 就回不去 0.1.0，release notes 要写明）· **soak 的 N1–N5 是否补跑**（断网 / 合盖 / refresh 轮换 / 24h，用户已表示暂缓）
-    - 发版时要跟着改的文档：`README.md` 的状态段与安装表（现在还写着 0.1.0）· `docs/DESIGN.md` · 跨仓 `../aviary/docs/{ROADMAP,DESIGN}.md` 与 `.github/profile/README.md`（0.1.0 那次是这么跟的）
+  - [x] **T6d 发版 0.2.0**（2026-08-13）—— [Release v0.2.0](https://github.com/orpheus-aviary/lark/releases/tag/v0.2.0)（bundled，`Lark-0.2.0-arm64.dmg`）+ [`@orpheus-aviary/lark-cli@0.2.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。绑定：tag `v0.2.0` → **`4eadb85`**；dmg `fa734c6844fd0926…`（147,392,633 字节，验收前后一致）；tgz `a147329cdb159871…`，registry 回读的 `dist.shasum` = 本地 `npm pack` 的 `65037920…`。门禁：`just check` · `just test` **2098** · `just test-sync-e2e` **19/19** · `just accept-pack bundled` **28/28**（`accept-sync` 34/34 已在 T6c 的同一份代码上跑过，本次未复跑，用户拍板）
+    - **发版链路完全照 M7 §3.5 的九步**（每步用户确认），无偏离；`accept-sync` 与 soak N1–N5 未复跑是显式决定，不是遗漏
+    - 🐛 **两处「发版才会红」的东西**（都在本批修）：`accept-pack` 的 §9 与 §4a 把 `LOCAL_API_VERSION` 写死成 4，而 T3d 已升到 5 —— 判据本身随协议走，不然每次协议升级都要靠人记得改 · `server.test.ts` 把 `/status` 的 version 断言写成字面 `'0.1.0'`，改成读 `DAEMON_VERSION`（常量是不是发版号由 accept-pack §9 管，这里要证的是「/status 报的是那个常量」）
+    - 🐛 **`accept-pack` 少一条 `ensure-node-abi`**：它的前一步 `just package` 必然把 workspace 的 better-sqlite3 留在 **Electron ABI 148**，而 harness 自己要 import core 跑 `backupNest`（判据 5 的 nest 副本）——「每个被测运行时自带 binding」这句话对**被测对象**成立，对 harness 不成立。本次是手工 `just ensure-node-abi` 顶过去的，recipe 已补
+    - **图标不是产物问题**：`icon.icns` 重新生成后与库里那份**逐字节相同**（`d57be67b…`），128px 最外圈 0/508、透明边距 4.7%，装出来的 0.1.0 里也是同一个 SHA——§8.10 那次修在产物上是成立的，还看得见灰圈是 **macOS 的图标缓存**。清法：删 `~/Library/Caches/com.apple.iconservices.store` + 删本用户 `/private/var/folders/**/com.apple.dock.iconcache` + `lsregister -f <app>` + `killall Dock Finder`（都不需要 sudo，比 `lsregister -kill -r` 全库重建轻）
+    - **147MB 的 dmg 上传会超过工具 10 分钟上限**：`gh release upload` 要放后台跑，前台重试循环会在半路被杀掉且留下空资产。M7 §8.9 那条「`git push | tail` 吞退出码」的同类问题——发版链路上每一条网络命令都要能自己报成败
+    - 记录同步：`README.md`（状态段 + 安装表 + sync 命令 + 验收矩阵）· `apps/cli/README.md`（npm 页面：sync 七命令 + 不可逆升级警告）· `docs/DESIGN.md`；跨仓 `../aviary/docs/{ROADMAP,DESIGN}.md` 与 `../.github/profile/README.md` 另仓单独提交
 
-⚠️ **本机真实曲库已经是 v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次；用户拍板不还原）——已发布的 0.1.0 从此拒绝打开它（`user_version > LATEST`），0.2.0 发版前只能用仓库产物。库已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`，**起 GUI 后先验 `/api/instance` 的 `nest_dir` 再登录**。
+⚠️ **本机真实曲库是 v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次；用户拍板不还原）——0.1.0 从此拒绝打开它（`user_version > LATEST`），0.2.0 发版后这已经不再是限制。库已 `sync unbind --force` 清回未绑定态，21 首 / 4 歌单完好。开发期仍一律用 `just backup-nest <目录>` 的副本 + `LARK_NEST_DIR`，**起 GUI 后先验 `/api/instance` 的 `nest_dir` 再登录**。
 
 ## 后续
 - [ ] **v0.3+ 移动版设计 doc**
