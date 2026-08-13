@@ -158,6 +158,8 @@
 
 0.2.0 发布后发现的小问题，本地修完攒着，凑够一批再走 M7 §3.5 的九步（内容变了就不能复用版本号，M7-11）。
 
+**当前状态**：版本号九处已升 **0.2.1**，本地 alpha 已打（`packages/gui/release/bundled/Lark-0.2.1-arm64.dmg`，SHA-256 `cbfa38f04e5140ada…`，包内 icns `a41c7d1b…` 与仓库产物逐字节相同），用户自用中。**未 tag、未发 Release、未 npm publish**；`README.md` 与跨仓文档仍写 0.2.0——那是**已发布**的版本，发版当天才跟着改。发版前要补跑的：`accept-pack bundled <dmg> <tgz>`（28 条）与至少一遍 `just test-sync-e2e`。
+
 - [x] **删除文案在撒谎**（2026-08-13）—— GUI 三处确认框写着「音频与歌词文件会一并移入废纸篓」，实际是 `rm(songDirPath, {recursive:true, force:true})`（`packages/core/src/sync/file-ops.ts:594`，policy `local`）：**既不进 macOS 废纸篓，也不进 nest 的 `trash/`**。v0.1 的两阶段是搬进 `~/orpheus-aviary-nest/lark/trash/`，跟用户理解的「废纸篓」本来就不是一回事，T1c 删掉那套补偿之后连它也没了——这句文案从 M5 写下起就没准过。改成「会一并永久删除，不进废纸篓」（`SongList.tsx:366` / `SongRow.tsx:269` / `BatchActionBar.tsx:96`），`ConfirmDialog.tsx` 的注释与 `skill-template.ts` 给 agent 的说明一并更正；CLI 那句「删除 N 首歌（连同音频与歌词文件）」本来就准确。gui 378 / cli 395 复跑绿
   - `docs/plans/2026-08-06-m5-followup-batch-actions.md` 的判据 B-8 仍写着旧文案——那是当时的计划记录，不改；`accept-m5` 没有断言这句话，所以不存在判据与实现脱钩
 - [x] **图标那圈灰是 macOS 垫的底板，不是我们的图**（2026-08-13 定位并修复）—— 用户的实机截图显示 lark 图标外有一圈灰框而 owl 没有。用 `NSWorkspace.icon(forFile:)` 现场渲染复现：两者系统 tile 都是 412/512，**lark 中线每边 50px 灰**（`rgb(193,193,194)`→`rgb(145,145,145)`），owl 0px。而 `icon.icns` 里根本没有灰（外圈 alpha = 0，十档尺寸边距 4.3–4.9%，与 owl 同构）——**是新系统把 app 图标合成进标准 tile 时垫的默认浅灰底**：icns 的 alpha 不像一块实心圆角方块，系统就缩小你的图并垫底。lark 的插画顶部是藤蔓花枝、枝叶之间有**透明缺口**，于是不被当作 tile；owl 内部是整片实心天空，直接铺满
