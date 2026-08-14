@@ -173,11 +173,13 @@
 
 主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
 
-**当前状态（2026-08-14）**：**T0a / T1 / T1b / T2 / T3 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）。测试 **2293**（shared 79 / core 937 / cli 401 / daemon 475 / gui 401）。下一批 **T4 导入矩阵**。
+**当前状态（2026-08-14）**：**T0a / T1 / T1b / T2 / T3 / T4 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）；导入不再只收 mp3，**shipped profile 读得开的都收**，扩展名降级成文件对话框的过滤器。测试 **2318**（shared 79 / core 961 / cli 401 / daemon 475 / gui 402）。下一批 **T5 PC 三项 + 协议定稿**。
 
 **T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。
 
 **T3（daemon / GUI / CLI 接线）已完成**：T3a 三层 context + 阶段机 + runner → T3b 迁移三路由 + file-ops 白名单 → T3c GUI 迁移屏 + 设置页备份区块 → T3d CLI 口径。判据 15–22、51、59、61 已落测试；**判据 54 不在 T3**（它是 §7 的 F3，属 T5b，子计划 §3 的 gate 列错了批次）。
+
+**T4（导入矩阵）已完成**：T4a 九个真容器夹具 + `toneWav` 扩 PCM 形态 → T4b 矩阵本体（shared 格式清单 + core 判定 + `warnings`/`error_code` + daemon/GUI 接线）。判据 31、53 已落测试。
 
 **开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
 
@@ -276,6 +278,19 @@
   - **安全闸是「先起 daemon 再开 GUI」**：daemon 由我带着 `LARK_NEST_DIR` 起在副本上并用 `/api/instance` 验过 `nest_dir`；GUI 若环境变量没生效，它比对 nest 不一致会**弹框中止**（不 spawn、不碰真库）。真库复验：`user_version` 仍是 **2**，七首歌仍是 `song.mp3`
   - 用户实测五步全过：环境暂停屏 → chmod 后点「重新检测并继续」→ 进度跑 → 卡在 file op 的列表 → 处理完**窗口自己切回曲库** → 设置页备份区块的数字与按钮都对
   - 🐛 **顺手抓到一个与迁移无关的老缺陷**（本次修复）：`mainWindow` 只按 `!== null` 判活，而**被销毁的 BrowserWindow 仍是一个正常 JS 对象**——窗口被销毁（渲染进程被杀、teardown 里挨了 SIGTERM）之后，下一次点 dock 触发 `activate` → 对尸体调 `show()` → 未捕获异常打死整个 app，**留下一个关不掉的错误弹框**（关它的那个进程刚死）。收敛成 `window-ref.ts` 的 `WindowRef`：**每次用的时候问，不记**（`isDestroyed()`），`closed` 事件只是顺带清引用，且旧窗口的事件不许把新窗口清掉
+- [x] **T4a 导入矩阵的夹具**（2026-08-14，`fe93897`）— 矩阵要覆盖 ALAC / ADTS / FLAC / Vorbis / Opus / 封面 / 双音轨 / 真视频 / 无音频，而 vendored profile 这九种**解得开、一个也编不出**。所以它们和 `tone-1s.mp3` 同源同理由：外部 ffmpeg（Homebrew 8.1）造一次、按 sha256 冻结、配方与来历写进 `scripts/fixtures/README.md`；取用走 `fixturePath(name)`，名字是联合类型（拼错是类型错误，不是几层之后的一句 ffprobe 抱怨）
+  - **ipod muxer 会把音频挪到 stream 0**，`-map` 先给封面也没用（实测）：所以「音频不在 0 号」的真文件只有 `tone-1s-video.mp4`（h264 在 0、AAC 在 1）——它顺带成了**判据 60 的真文件证据**，序数 `0:a:0` 与全局 `0:1` 在这个文件上选出不同的流
+  - **双音轨文件的容器时长是更长的那条**（2.0s），被选中的第 0 条只有 1.0s。夹具建好就把一个既有缺陷照出来了，见 T4b
+  - **PCM 形态归 `toneWav()` 现造**（`pcm_u8/s16le/s24le/s32le/f32le` + **`pcm_f64le` 当被拒样本**）：这些纯 Node 写得出，没有理由入库
+- [x] **T4b 导入矩阵**（2026-08-14，`5bd2096`）— 曲库只有一种格式，导入本来就是转换，所以问题从「这是不是 mp3」变成「这文件里有什么」。探测回答，`planAudioConversion` 决定 copy / copy-adts / transcode；这一批只做决策表表达不了的两件事：**哪些回答是拒绝**，以及**成功了还欠用户哪句话**
+  - **三条拒绝，严格在前**：真视频轨（封面不算——mp3 与 m4a 普遍带封面）→ 完全没有音频流 → codec 不在白名单。顺序有实义：音乐视频两条都命中，而「这是视频文件」才是有用的那半句
+  - **codec 白名单列的是「到得了的」，不是 profile 解码器全表**：`aac_fixed`/`mp3float` 从不作为 `codec_name` 出现，`aac_latm` 需要 profile 没建的 LOAS/TS demuxer。**`pcm_f64le` 是这条白名单唯一真正在拦的东西**——ffprobe 认得出它，ffmpeg 到了才说 `no decoder found`，拦在 spawn 之前才换得到一句关于格式的话
+  - **扩展名不再判定**，降级成与文件对话框共用的一份清单（`IMPORT_AUDIO_EXTENSIONS`，两边不同步就等于对话框给的文件 daemon 不收）。所以**装着 AAC-in-MP4 的 `.mp3` 现在正常导入**并走 copy——daemon 那条「伪装成 .mp3 就拒绝」的老判据因此反了过来，现在它证明的是「按文件是什么收，不按它叫什么」
+  - **`ImportResultData` 两臂各长一个字段**：`imported[].warnings`（丢了第二条音轨 / 无损源已变 AAC——**导入成功了，只是要说清副本不带什么**）、`failed[].error_code`。三个 `IMPORT_*` 码**单开一个 registry**：它们坐在 200 里，既到不了信封也到不了任务，塞进那两个既有闭集等于让 daemon 的状态表和 CLI 的 exit map 认领自己产不出的码
+  - 🐛 **多音轨的时长记错了**（夹具照出来的）：容器时长是**最长**那条轨，而我们只留第 0 条——`probeAudio` 现在在「音轨 >1 且流自己报了时长」时用流的
+  - **矩阵测试必须显式指向 vendored 构建**：`resolveMediaTools()` 默认挑 Homebrew，而这套判据的全部内容就是「我们要发的那个 profile 读不读得开」——在开发机上它会全绿地放走一个缺解码器的构建。`vendoredToolsDir()` 有就用它（`LARK_MEDIA_TOOLS_DIR`），没有再回落
+  - **profile 守卫进了单测**（`media-tools/profile.test.ts`）：读 `vendor/ffmpeg.lock.json` 的 configure，断言白名单里每个 codec 有解码器、每个扩展名有 demuxer、`REQUIRED_CAPABILITIES` 全在、encoder 恰好只有 aac。T1b 已经裁过一次这个 profile，下一次裁不能把导入对话框还在提供的解码器裁掉——那种失败会以「某个用户的 flac 导不进来」的形式，在造成它的那次提交很久之后才出现
+  - gate：`just check` · `just test` **2318**（core 937→961 / gui 401→402）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

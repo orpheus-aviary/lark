@@ -37,7 +37,7 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）。当前测试 **2293**（shared 79 / core 937 / cli 401 / daemon 475 / gui 401）。下一批 **T4 导入矩阵**。
+🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 ✅ → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器。当前测试 **2318**（shared 79 / core 961 / cli 401 / daemon 475 / gui 402）。下一批 **T5 PC 三项 + 协议定稿（`LOCAL_API_VERSION` → 6）**。
 
 ### v0.3.0 实测锁定（随批次追加）
 
@@ -55,6 +55,11 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **清空迁移备份的四道锁**（判据 51/61）：不在白名单（迁移期直接 503）· 要 `confirm: true` · 走迁移 mutex · **core 删的是目录本身而不是 ledger 里的路径**——逃逸因此结构上不可能。顺序上 **ledger 先忘记备份、文件后删**：崩溃留下的两种谎里，「没有备份」而文件还在只值一次重跑，「原件安全地躺在备份里」而它已经没了要赔一个文件
 - **GUI 在挂载 App 之前就得知道 daemon 服不服务**：迁移期业务路由全 503，而 `App` 一挂载就有五个 store 去 fetch，所以门开在 `App` 外面（`BootGate` 探 `/status`）。**探不到的 daemon 不是正在迁移的 daemon**——落回正常 app，卡在探测上只会把「daemon 正在启动」变成一个空窗口
 - **被销毁的 BrowserWindow 仍是一个正常 JS 对象**（T3 演练时抓到的老缺陷）：`!== null` 判活会在窗口被销毁后（渲染进程被杀、teardown 挨 SIGTERM）让下一次 dock 点击对尸体调 `show()`，未捕获异常打死 app 并**留下一个关不掉的错误弹框**。收敛成 `main/window-ref.ts` 的 `WindowRef`：**每次用的时候问 `isDestroyed()`，不记**；`closed` 只是顺带清引用，且旧窗口的事件不许清掉新窗口
+- **导入的扩展名不再判定任何事**（T4）：它是与文件对话框共用的一份清单（`@lark/shared` 的 `IMPORT_AUDIO_EXTENSIONS`，两边不同步 = 对话框给的文件 daemon 不收），真正判定的是探测。**装着 AAC-in-MP4 的 `.mp3` 现在正常导入并走 copy**。拒绝三条严格在前：真视频轨（**封面不算**）→ 无音频流 → codec 不在白名单
+- **导入的 codec 白名单列「到得了的」，不是 profile 解码器全表**（T4）：`aac_fixed`/`mp3float` 从不作为 `codec_name` 出现，`aac_latm` 需要没建的 LOAS/TS demuxer。这条白名单真正在拦的是 **`pcm_f64le`**——ffprobe 认得出、ffmpeg 到了才说 `no decoder found`，拦在 spawn 之前才换得到一句关于格式的话。它**不进 `REQUIRED_CAPABILITIES`**：一个解不了 flac 的 ffmpeg 照样能下载、转换、播放 lark 产出的一切
+- **凡是「shipped profile 能不能做到」的测试都要显式指向 vendored 构建**（T4）：`resolveMediaTools()` 默认挑 Homebrew，那份什么都解得开——在开发机上它会全绿地放走一个缺解码器的构建。用 `@lark/core/testing` 的 `vendoredToolsDir()` 塞 `LARK_MEDIA_TOOLS_DIR`。同源的静态守卫是 `media-tools/profile.test.ts`（读 `vendor/ffmpeg.lock.json` 的 configure 比对三份清单）
+- **多音轨文件的容器时长是最长那条轨**（T4 夹具照出来的旧缺陷）：只留第 0 条却记容器时长，曲库行就会宣称一个它的文件没有的长度。`probeAudio` 在「音轨 >1 且流自报时长」时改用流的
+- **ipod muxer 会把音频挪到 stream 0**，`-map` 先给封面也没用：所以本仓「音频不在 0 号」的真文件只有 `scripts/fixtures/tone-1s-video.mp4`（h264 在 0、AAC 在 1）——判据 60 的真文件证据只能是它
 
 🚨 **T2c 起开发版会把曲库升到 schema v3（单向），T3 起还会当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它，0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。
