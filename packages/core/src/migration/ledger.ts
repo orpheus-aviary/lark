@@ -88,6 +88,51 @@ export function listLedger(sqlite: BetterSqlite3.Database): LedgerRow[] {
   return sqlite.prepare('SELECT * FROM audio_migration ORDER BY object_key').all() as LedgerRow[];
 }
 
+/** How many objects sit in each status. Absent statuses count zero. */
+export function countLedgerByStatus(
+  sqlite: BetterSqlite3.Database,
+): Partial<Record<MigrationStatus, number>> {
+  const rows = sqlite
+    .prepare('SELECT status, count(*) AS n FROM audio_migration GROUP BY status')
+    .all() as { status: MigrationStatus; n: number }[];
+  return Object.fromEntries(rows.map((row) => [row.status, row.n]));
+}
+
+/**
+ * Objects a pass may act on.
+ *
+ * `blocked` is in the list: a blocked row is re-judged from the disk once per
+ * pass (附表 A.4b), which is how a permission fixed between two boots resumes
+ * on its own. `blocked_file_op` is not: a sync file op owns that directory, and
+ * nothing here may touch it until the op is retried or discarded.
+ */
+export function listActionableLedgerRows(sqlite: BetterSqlite3.Database): LedgerRow[] {
+  return sqlite
+    .prepare(
+      `SELECT * FROM audio_migration
+        WHERE status IN ('pending', 'converting', 'discarding', 'backing_up', 'blocked')
+        ORDER BY object_key`,
+    )
+    .all() as LedgerRow[];
+}
+
+/**
+ * Terminal rows whose mp3 came back (§3.2-9, last row of the table).
+ *
+ * They are re-stepped once per pass so the reconciliation can move the stray
+ * file somewhere safe — otherwise "no mp3 under songs/" could never become
+ * true again and the migration would never finish.
+ */
+export function listTerminalLedgerRows(sqlite: BetterSqlite3.Database): LedgerRow[] {
+  return sqlite
+    .prepare(
+      `SELECT * FROM audio_migration
+        WHERE status IN (${TERMINAL_STATUSES.map(() => '?').join(', ')})
+        ORDER BY object_key`,
+    )
+    .all(...TERMINAL_STATUSES) as LedgerRow[];
+}
+
 export interface LedgerUpdate {
   status?: MigrationStatus;
   blocked_action?: string | null;

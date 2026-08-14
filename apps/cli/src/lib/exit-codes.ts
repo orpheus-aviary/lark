@@ -186,6 +186,10 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   AMBIGUOUS_SONG: EXIT_REFUSED,
   MIGRATION_REQUIRED: EXIT_REFUSED,
   MIGRATION_PENDING: EXIT_REFUSED,
+  // The one-time mp3 → m4a conversion is still running (0.3.0). Same family:
+  // something is there and refuses — and unlike the environment codes, waiting
+  // is the fix.
+  AUDIO_MIGRATION_PENDING: EXIT_REFUSED,
   MIGRATION_BUSY: EXIT_REFUSED,
   INCOMPATIBLE_DB: EXIT_REFUSED,
   SCHEMA_MISMATCH: EXIT_REFUSED,

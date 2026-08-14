@@ -48,6 +48,11 @@ export const DAEMON_ENVELOPE_ERROR_CODES = [
   'INVALID_SOURCE',
   'VIRTUAL_PLAYLIST',
 
+  // The one-time mp3 → m4a migration (0.3.0). Not a failure of the request:
+  // it says the library is mid-conversion and this route will exist again in
+  // a moment, which is why it is a 503 and not a 4xx.
+  'AUDIO_MIGRATION_PENDING',
+
   // Library, media and config persistence.
   'FILE_NOT_FOUND',
   'LYRICS_NOT_FOUND',

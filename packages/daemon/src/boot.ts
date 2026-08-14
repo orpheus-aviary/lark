@@ -57,9 +57,11 @@ import {
   type WriterLock,
   WriterLockBusyError,
   acquireWriterLock,
+  countLedgerByStatus,
   createBilibiliClient,
   createDatabase,
   createLogger,
+  isAudioMigrationPending,
   loadConfig,
   paths,
   pendingFileOpSongIds,
@@ -70,15 +72,25 @@ import {
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import { AudioStreamRegistry } from './audio-streams.js';
-import { SongLeaseRegistry, scheduleEvictionInBackground, withEvictionScheduler } from './cache.js';
-import { type AcceptanceOptions, type AppContext, CONTEXT_DEFAULTS } from './context.js';
+import { EvictionScheduler, SongLeaseRegistry, scheduleEvictionInBackground } from './cache.js';
+import {
+  type AcceptanceOptions,
+  type AppContext,
+  CONTEXT_DEFAULTS,
+  type NormalRuntime,
+  createAppContext,
+  installNormalRuntime,
+  peekNormalRuntime,
+} from './context.js';
 import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
+import { DaemonLifecycle } from './lifecycle.js';
 import { generateLocalToken, publishLocalToken } from './local-token.js';
+import { MigrationRunner } from './migration/runner.js';
 import { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 import { PlayerRuntime } from './player-runtime.js';
 import { buildServer } from './server.js';
-import { withSyncRuntime } from './sync/runtime.js';
+import { SyncRuntime } from './sync/runtime.js';
 import { restoreSession } from './sync/session.js';
 import { attachSyncHandles } from './sync/triggers.js';
 
@@ -188,6 +200,10 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   // Null until the config it is configured from has been read.
   let logger: ReturnType<typeof createLogger> | null = null;
   let ctx: AppContext | null = null;
+  /** Build and swap in the runtime that serves the library (0.3.0 T3). */
+  let activate: (() => Promise<void>) | null = null;
+  /** The migration pass, on a library that still owes the conversion. */
+  let migration: MigrationRunner | null = null;
   let server: FastifyInstance | null = null;
   let teardownPromise: Promise<void> | null = null;
   const shutdownController = new AbortController();
@@ -235,22 +251,32 @@ export async function boot(options: BootOptions = {}): Promise<void> {
    */
   const teardown = (): Promise<void> => {
     teardownPromise ??= (async () => {
+      // Only what was actually built: a daemon stopped during the audio
+      // migration never had a download engine or a sync runtime, and reaching
+      // for one through the context would throw its way out of the release
+      // sequence (0.3.0 T3).
+      const runtime = ctx === null ? null : peekNormalRuntime(ctx);
       // In-flight player commands first: they are HTTP requests parked on a
       // GUI ack, and `server.close()` waits for in-flight requests to finish.
-      ctx?.player.failAll({ kind: 'shutting-down' });
+      runtime?.player.failAll({ kind: 'shutting-down' });
       shutdownController.abort(new Error('daemon shutting down'));
+      // The migration pass owns an ffmpeg child and writes to the library's
+      // directories. It goes first, and it is awaited: closing the database
+      // under a running conversion is how a half-written ledger happens
+      // (§3.2-3, pending-phase stop order).
+      await ctx?.lifecycle.migration?.stop();
       if (server) await server.close(); // preClose ends the SSE streams
-      await ctx?.downloads.close(); // worker exit + ffmpeg children reaped
+      await runtime?.downloads.close(); // worker exit + ffmpeg children reaped
       // An automatic eviction is nobody's HTTP request, so `server.close()`
       // does not wait for it. It has to finish before the bus and the database
       // go away, or its continuation wakes up holding both (M5-6).
-      await ctx?.cacheScheduler.close();
+      await runtime?.cacheScheduler.close();
       // Same shape as the eviction scheduler: the sync timers and the server
       // subscription are nobody's HTTP request, so `server.close()` does not
       // wait for them, and a round that woke up after the database closed
       // would be holding a handle to nothing (§3.11).
-      ctx?.sync.stopHandles();
-      await ctx?.sync.teardownSession();
+      runtime?.sync.stopHandles();
+      await runtime?.sync.teardownSession();
       ctx?.guiChannel.close(); // registry timers + connection refs
       ctx?.eventsBus.close();
       ctx?.sqlite.close();
@@ -394,101 +420,123 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       'media tools resolved',
     );
 
-    // Built before the context so the engine's callbacks can close over it:
-    // the async side of the download pipeline has no route to emit from, so
-    // engine lifecycle callbacks ARE the event source (M3-6).
     const eventsBus = new EventsBus();
     const bilibili = createBilibiliClient();
-    const downloads = new DownloadEngine({
+
+    // Does this library still owe the mp3 → m4a conversion? Read once, here:
+    // from now on the phase machine in memory is what the request gate reads,
+    // because the flag is cleared inside activation and a per-request read of
+    // it would open the business routes before the runtime exists (§3.2-3).
+    const migrationPending = isAudioMigrationPending(sqlite);
+    const lifecycle = new DaemonLifecycle(migrationPending ? 'pending' : 'normal');
+
+    ctx = createAppContext({
+      ...CONTEXT_DEFAULTS,
+      config,
+      port,
+      configPath: paths.configPath(),
+      requestFatal: (err: unknown) => {
+        // Idempotent AND non-waiting (M2-1 ①): the caller is usually a route
+        // that still has to send its 500. Teardown closes the server, which
+        // waits for that request — so it must not start until the caller has
+        // returned. Hence `setImmediate`, and never `await`.
+        if (!beginStop('fatal')) return;
+        logger.error({ err }, 'fatal daemon error — shutting down');
+        setImmediate(() => void finishStop());
+      },
+      logger,
       db,
       sqlite,
-      bilibili,
+      localToken: generateLocalToken(), // memory only until listen() succeeds
+      eventsBus,
+      guiChannel: new GuiChannel(),
       mediaTools,
-      // Read fresh, so a PATCH /config is picked up by the next task — and
-      // snapshotted per task, so it cannot change mid-download.
-      getLlmConfig: () => resolveLlmConfig(ctx?.config ?? config),
-      logger,
+      bilibili,
       shutdownSignal: shutdownController.signal,
-      callbacks: {
-        onStatus: (task) =>
-          eventsBus.emit({
-            type: 'download:status',
-            task_id: task.id,
-            state: task.state,
-            stage: task.stage,
-            revision: task.revision,
-          }),
-        onSucceeded: (task) => {
-          if (task.result !== null) {
-            eventsBus.emit({
-              type: 'download:complete',
-              task_id: task.id,
-              song_id: task.result.song_id,
-            });
-          }
-          // What changed depends on the kind: a lyrics task never touches the
-          // library, and a download only touches playlists if it joined one.
-          if (task.kind === 'lyrics') {
-            if (task.result !== null) {
-              eventsBus.emit({ type: 'lyrics:changed', song_id: task.result.song_id });
-            }
-            return;
-          }
-          eventsBus.emit({ type: 'songs:changed' });
-          if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
-          // The file was fetched so the GUI can play it. Nothing protects it
-          // yet — the completion event has not arrived and no /audio request
-          // has been made — so give it a short lease (M5-6).
-          if (task.kind === 'ensure-file' && task.result !== null) {
-            ctx?.cacheLeases.grant(task.result.song_id);
-          }
-          // A new file just landed, so the cache may be over its limit. This
-          // callback runs INSIDE the engine's `#finish`, past the point of no
-          // return: scheduling must not throw and must not be awaited — the
-          // scheduler defers the drain to a macrotask so the task's own claim
-          // is gone by the time it looks (M5-6).
-          if (ctx !== null) scheduleEvictionInBackground(ctx, 'download-succeeded');
-        },
-        onFailed: (task) =>
-          eventsBus.emit({
-            type: 'download:error',
-            task_id: task.id,
-            error_code: task.error_code ?? 'INTERNAL_ERROR',
-            message: task.error_message ?? 'download failed',
-          }),
-        onCancelled: (task) => eventsBus.emit({ type: 'download:cancelled', task_id: task.id }),
-        onBatchesChanged: (batchId) =>
-          eventsBus.emit({ type: 'download:batches-changed', batch_id: batchId }),
-      },
+      lifecycle,
+      ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
     });
 
-    ctx = withSyncRuntime(
-      withEvictionScheduler({
-        ...CONTEXT_DEFAULTS,
-        config,
-        port,
-        configPath: paths.configPath(),
-        requestFatal: (err: unknown) => {
-          // Idempotent AND non-waiting (M2-1 ①): the caller is usually a route
-          // that still has to send its 500. Teardown closes the server, which
-          // waits for that request — so it must not start until the caller has
-          // returned. Hence `setImmediate`, and never `await`.
-          if (!beginStop('fatal')) return;
-          logger.error({ err }, 'fatal daemon error — shutting down');
-          setImmediate(() => void finishStop());
-        },
-        logger,
+    // Everything that serves the LIBRARY, in one object so the phase machine
+    // can swap it in as a unit. Built INSIDE activation, not before it: a
+    // daemon that is still migrating has no queue, no eviction driver and no
+    // sync runtime — which is also why teardown in that phase has nothing of
+    // theirs to close (§3.2-3).
+    //
+    // The engine's callbacks close over the context rather than the runtime:
+    // the async half of the download pipeline has no route to emit from, so
+    // engine lifecycle callbacks ARE the event source (M3-6).
+    const buildRuntime = (active: AppContext): NormalRuntime => {
+      const downloads = new DownloadEngine({
         db,
         sqlite,
-        localToken: generateLocalToken(), // memory only until listen() succeeds
-        eventsBus,
-        guiChannel: new GuiChannel(),
+        bilibili,
+        mediaTools,
+        // Read fresh, so a PATCH /config is picked up by the next task — and
+        // snapshotted per task, so it cannot change mid-download.
+        getLlmConfig: () => resolveLlmConfig(ctx?.config ?? config),
+        logger,
+        shutdownSignal: shutdownController.signal,
+        callbacks: {
+          onStatus: (task) =>
+            eventsBus.emit({
+              type: 'download:status',
+              task_id: task.id,
+              state: task.state,
+              stage: task.stage,
+              revision: task.revision,
+            }),
+          onSucceeded: (task) => {
+            if (task.result !== null) {
+              eventsBus.emit({
+                type: 'download:complete',
+                task_id: task.id,
+                song_id: task.result.song_id,
+              });
+            }
+            // What changed depends on the kind: a lyrics task never touches the
+            // library, and a download only touches playlists if it joined one.
+            if (task.kind === 'lyrics') {
+              if (task.result !== null) {
+                eventsBus.emit({ type: 'lyrics:changed', song_id: task.result.song_id });
+              }
+              return;
+            }
+            eventsBus.emit({ type: 'songs:changed' });
+            if (task.playlist_ids.length > 0) eventsBus.emit({ type: 'playlists:changed' });
+            // The file was fetched so the GUI can play it. Nothing protects it
+            // yet — the completion event has not arrived and no /audio request
+            // has been made — so give it a short lease (M5-6).
+            if (task.kind === 'ensure-file' && task.result !== null) {
+              ctx?.cacheLeases.grant(task.result.song_id);
+            }
+            // A new file just landed, so the cache may be over its limit. This
+            // callback runs INSIDE the engine's `#finish`, past the point of no
+            // return: scheduling must not throw and must not be awaited — the
+            // scheduler defers the drain to a macrotask so the task's own claim
+            // is gone by the time it looks (M5-6).
+            if (ctx !== null) scheduleEvictionInBackground(ctx, 'download-succeeded');
+          },
+          onFailed: (task) =>
+            eventsBus.emit({
+              type: 'download:error',
+              task_id: task.id,
+              error_code: task.error_code ?? 'INTERNAL_ERROR',
+              message: task.error_message ?? 'download failed',
+            }),
+          onCancelled: (task) => eventsBus.emit({ type: 'download:cancelled', task_id: task.id }),
+          onBatchesChanged: (batchId) =>
+            eventsBus.emit({ type: 'download:batches-changed', batch_id: batchId }),
+        },
+      });
+
+      return {
         player: new PlayerRuntime(),
         audioStreams: new AudioStreamRegistry(),
         cacheLeases: new SongLeaseRegistry(),
+        cacheScheduler: new EvictionScheduler(active),
         downloads,
-        bilibili,
-        mediaTools,
+        sync: new SyncRuntime(),
         // Shares the ENGINE's claim registry: a drain that removes a song's
         // directory and a download replacing that song's audio are exactly the
         // pair the registry exists to keep apart.
@@ -499,26 +547,60 @@ export async function boot(options: BootOptions = {}): Promise<void> {
           onQuarantine: (songId) =>
             eventsBus.emit({ type: 'sync:file_quarantined', song_id: songId }),
         }),
-        shutdownSignal: shutdownController.signal,
-        ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
-      }),
-    );
+      };
+    };
 
-    // Offline by construction: it reads the credential file and the binding
-    // row, and makes no request. A daemon must come up in the same state with
-    // or without a network, and it is the first ROUND that discovers a token
-    // the server no longer honours.
-    const restored = restoreSession(ctx);
-    logger.info(
-      {
-        installed: restored.installed,
-        reason: restored.installed ? null : restored.reason,
-      },
-      'sync session restored',
-    );
-    // Timers and the server subscription. They gate on "is there a session",
-    // so this is right whether the restore installed one or not.
-    attachSyncHandles(ctx);
+    activate = async (): Promise<void> => {
+      const active = ctx;
+      // `beginActivation` is the single-ownership guard: the boot pass and a
+      // retry that finishes the migration can both arrive here.
+      if (active === null || !lifecycle.beginActivation()) return;
+      try {
+        installNormalRuntime(active, buildRuntime(active));
+        // Offline by construction: it reads the credential file and the
+        // binding row, and makes no request. A daemon must come up in the same
+        // state with or without a network, and it is the first ROUND that
+        // discovers a token the server no longer honours.
+        const restored = restoreSession(active);
+        logger.info(
+          {
+            installed: restored.installed,
+            reason: restored.installed ? null : restored.reason,
+          },
+          'sync session restored',
+        );
+        // Timers and the server subscription. They gate on "is there a
+        // session", so this is right whether the restore installed one or not.
+        attachSyncHandles(active);
+        // LAST: business handlers open the moment this returns, so everything
+        // they can reach has to already be in place (§3.2-3).
+        lifecycle.finishActivation();
+      } catch (err) {
+        // Half a runtime is not a daemon. Nothing is served from `fatal`, and
+        // `requestFatal` takes the process out through the one exit path.
+        lifecycle.fail();
+        active.requestFatal(err);
+      }
+    };
+
+    if (migrationPending) {
+      // Attached now, served later: the pass may not start before `listen()`,
+      // or a migration nobody can watch is indistinguishable from a daemon
+      // that hung on boot (§3.2-3).
+      migration = new MigrationRunner(ctx, {
+        onFinished: async () => {
+          await activate?.();
+          if (ctx !== null) scheduleEvictionInBackground(ctx, 'audio-migration-finished');
+        },
+      });
+      lifecycle.attachMigration(migration);
+      logger.warn(
+        countLedgerByStatus(sqlite),
+        'audio migration pending — the library is not served until it finishes',
+      );
+    } else {
+      await activate();
+    }
 
     server = buildServer(ctx);
   } catch (err) {
@@ -555,10 +637,21 @@ export async function boot(options: BootOptions = {}): Promise<void> {
 
   state = 'running';
   bootDriving = false;
-  // Boot trigger (M5-6): the library may have grown past the limit while the
-  // daemon was down, or a previous run may have been killed mid-drain. Not
-  // awaited — nothing about listening depends on it.
-  scheduleEvictionInBackground(ctx, 'boot');
+  if (migration === null) {
+    // Boot trigger (M5-6): the library may have grown past the limit while the
+    // daemon was down, or a previous run may have been killed mid-drain. Not
+    // awaited — nothing about listening depends on it.
+    scheduleEvictionInBackground(ctx, 'boot');
+  } else {
+    // HERE, not before `listen()` (§3.2-3): the socket and the token are up, so
+    // the GUI can watch the pass it is waiting on. Not awaited — the daemon is
+    // already answering the whitelist, and a failed pass reports itself through
+    // `/status` rather than through this promise.
+    const pass = migration;
+    void pass.run().catch((err: unknown) => {
+      logger.error({ err }, 'audio migration pass failed');
+    });
+  }
   logger.info({ host: ctx.host, port: ctx.port, pid: process.pid }, 'daemon listening');
   // The one terminal line a foreground daemon owes its operator — pino writes
   // to a file, and a mute foreground process looks hung. Tests parse the port

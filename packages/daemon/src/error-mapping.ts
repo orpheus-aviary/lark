@@ -62,6 +62,11 @@ const STATUS_BY_CODE: Record<DaemonEnvelopeErrorCode, number> = {
   SONG_BUSY: 409,
   SOURCE_KEY_CONFLICT: 409,
 
+  // The one-time mp3 → m4a conversion (0.3.0). 503 like SHUTTING_DOWN and for
+  // the same reason: the request is fine and this route will exist again in a
+  // moment — nothing about it is the caller's to fix.
+  AUDIO_MIGRATION_PENDING: 503,
+
   // Playlist transfer (M5-13): every one of these is "the file or the request
   // you sent cannot be imported", which is the caller's to fix.
   IMPORT_SOURCE_CHANGED: 409,

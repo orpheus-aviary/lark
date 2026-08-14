@@ -151,6 +151,65 @@ export interface StatusData {
   nest_fingerprint: string;
   /** Local HTTP protocol gate — same value `GET /api/instance` reports. */
   local_api_version: number;
+  /**
+   * The one-time mp3 → m4a migration (0.3.0, master plan §3.2-4).
+   *
+   * On the UNAUTHENTICATED probe, so a GUI that cannot reach any business
+   * route yet can still say why. Counts and a state word only — the per-object
+   * detail, including anything a file path could leak, is behind
+   * `GET /api/audio-migration`.
+   *
+   * OPTIONAL on the wire, and it is not the usual "we might add it later":
+   * `/status` is the one response any lark can answer, including a 0.2.x daemon
+   * that occupies the port. A client that read this as always-present would
+   * crash on the very probe whose job is to identify a stranger.
+   */
+  audio_migration?: AudioMigrationCounts;
+}
+
+/**
+ * How far the daemon has come up (master plan §3.2-3).
+ *
+ * `pending` and `activating` both refuse business routes; they are separate
+ * because only the first has a migration to watch, and the second is the window
+ * where the normal runtime is being built — a request answered there would find
+ * half a daemon.
+ */
+export type DaemonPhase = 'pending' | 'activating' | 'normal' | 'fatal';
+
+/**
+ * What the migration pass is doing.
+ *
+ * `idle` means this boot never had one to run — the library was already single-
+ * format. The counts can still be non-zero there: the ledger is kept as the
+ * report of the run that did happen (§3.2-8).
+ */
+export type AudioMigrationState =
+  | 'idle'
+  | 'running'
+  /** Preflight failed or the machine broke mid-pass; nothing was deleted. */
+  | 'blocked_environment'
+  /** The pass has nothing left it can do on its own. */
+  | 'needs_attention'
+  | 'finished';
+
+/** `GET /status`'s migration summary — counts, never paths. */
+export interface AudioMigrationCounts {
+  phase: DaemonPhase;
+  state: AudioMigrationState;
+  /** Objects the scan found holding an mp3. Work, not library size. */
+  total: number;
+  done: number;
+  /** R-class: the mp3 was unreadable and the source answered. */
+  lost: number;
+  /** A-class: kept as-is in `migration-backup/`. */
+  kept_unconverted: number;
+  /** The mp3 vanished with no backup holding it. Never reported as done. */
+  asset_missing: number;
+  /** A file action failed; a person has to look. */
+  blocked: number;
+  /** A sync file op still owns the directory. */
+  blocked_file_op: number;
 }
 
 /**

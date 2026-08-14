@@ -11,6 +11,7 @@ import type { AudioStreamRegistry } from './audio-streams.js';
 import type { EvictionScheduler, SongLeaseRegistry } from './cache.js';
 import type { EventsBus } from './events/bus.js';
 import type { GuiChannel } from './events/gui-channel.js';
+import type { DaemonLifecycle } from './lifecycle.js';
 import type { PlayerRuntime } from './player-runtime.js';
 import type { SyncRuntime } from './sync/runtime.js';
 import { DAEMON_VERSION } from './version.js';
@@ -37,13 +38,21 @@ export interface Logger {
 }
 
 /**
- * Shared application context passed to every route handler.
+ * Everything that exists from the daemon's first tick (0.3.0 T3, §3.2-3).
  *
- * Mutable handles (`config`, `player`) live here rather than in module state so
- * a `PATCH /config` swap or a player report is visible to every subsequent
- * request without re-building the server.
+ * The dividing line is not "cheap to build" but "what a WHITELISTED handler
+ * needs": during the audio migration the socket is open, `/status`,
+ * `/api/capabilities`, `/events` and the file-op trio answer, and every one of
+ * those reaches into this object. Anything they touch has to be here, or the
+ * migration screen would be talking to a daemon that cannot describe itself.
+ *
+ * `bilibili` is here for a second reason: the migration's discard step probes
+ * the source before deleting an mp3, and that probe is the cache eviction's own
+ * (R26 — one implementation, not two). A second client would present a second
+ * identity to risk control from the same process, so the one client predates
+ * the runtime that usually owns it.
  */
-export interface AppContext {
+export interface BaseContext {
   /** The in-memory config. Replaced wholesale by a successful PATCH (M2-12). */
   config: LarkConfig;
   host: string;
@@ -67,6 +76,54 @@ export interface AppContext {
   localToken: string;
   eventsBus: EventsBus;
   guiChannel: GuiChannel;
+  /**
+   * ONE media toolchain for the whole daemon (M7-18): before this,
+   * `GET /api/capabilities` and the download engine resolved ffmpeg
+   * independently, so the daemon could report "no ffmpeg" in one breath and
+   * transcode through Homebrew in the next. Everything that spawns ffmpeg or
+   * ffprobe goes through this — the migration pass included.
+   */
+  mediaTools: MediaToolsProvider;
+  /**
+   * ONE bilibili client for the whole daemon, shared by the routes' preflight,
+   * the engine's worker and the migration probe. Sharing it is not just
+   * tidiness: the client caches the WBI keys and the anonymous buvid, and a
+   * second client would be a second identity to risk control.
+   */
+  bilibili: BilibiliClient;
+  /**
+   * Aborted when the daemon starts stopping (M3-13).
+   *
+   * Every long-running operation a HANDLER performs — a preflight fetch, a
+   * fetch-list walk, an import's ffprobe — must compose this into its signal.
+   * Those are not engine work, so `downloads.close()` cannot cancel them, and
+   * `server.close()` waits for in-flight requests: without this a Ctrl-C waits
+   * out the longest timeout in the matrix.
+   */
+  shutdownSignal: AbortSignal;
+  ackTimeoutMs: number;
+  version: string;
+  /** Boot phase machine, and the migration pass while there is one (§3.2-3). */
+  lifecycle: DaemonLifecycle;
+  /**
+   * ACCEPTANCE-ONLY seams (M4 T6). Undefined in every normal boot: the shipped
+   * CLI has no switch for them and only `testing/boot-child.ts` reads the env
+   * that turns them on — the same containment M2 used for its test knobs.
+   */
+  acceptance?: AcceptanceOptions;
+}
+
+/**
+ * The half that only exists once the library is served (0.3.0 T3).
+ *
+ * Late-bound: during the audio migration none of this is built, because none of
+ * it would be allowed to run. Reading one of these fields before activation
+ * throws `RuntimeNotReadyError` rather than yielding `undefined` — the request
+ * gate makes that unreachable, and a loud failure is how a hole in the gate
+ * announces itself instead of turning into "cannot read property of undefined"
+ * three frames deeper.
+ */
+export interface NormalRuntime {
   player: PlayerRuntime;
   /**
    * Open `GET /audio` streams per song (M5-5). Context-level rather than a
@@ -87,21 +144,6 @@ export interface AppContext {
    * narrows what it can do, it never makes the engine unavailable. */
   downloads: DownloadEngine;
   /**
-   * ONE bilibili client for the whole daemon, shared by the routes' preflight
-   * and the engine's worker. Sharing it is not just tidiness: the client caches
-   * the WBI keys and the anonymous buvid, and a second client would present a
-   * second identity to risk control from the same process.
-   */
-  bilibili: BilibiliClient;
-  /**
-   * ONE media toolchain for the whole daemon (M7-18), for the same reason as
-   * `bilibili` and then some: before this, `GET /api/capabilities` and the
-   * download engine resolved ffmpeg independently, so the daemon could report
-   * "no ffmpeg" in one breath and transcode through Homebrew in the next.
-   * Everything that spawns ffmpeg or ffprobe goes through this.
-   */
-  mediaTools: MediaToolsProvider;
-  /**
    * The skybridge session and everything serialized around it (v0.2 §3.11).
    *
    * Always present, even on an install that has never logged in: "there is no
@@ -119,25 +161,16 @@ export interface AppContext {
    * would arbitrate two different sets of claims over the same files.
    */
   fileOps: FileEffectRuntime;
-  /**
-   * Aborted when the daemon starts stopping (M3-13).
-   *
-   * Every long-running operation a HANDLER performs — a preflight fetch, a
-   * fetch-list walk, an import's ffprobe — must compose this into its signal.
-   * Those are not engine work, so `downloads.close()` cannot cancel them, and
-   * `server.close()` waits for in-flight requests: without this a Ctrl-C waits
-   * out the longest timeout in the matrix.
-   */
-  shutdownSignal: AbortSignal;
-  ackTimeoutMs: number;
-  version: string;
-  /**
-   * ACCEPTANCE-ONLY seams (M4 T6). Undefined in every normal boot: the shipped
-   * CLI has no switch for them and only `testing/boot-child.ts` reads the env
-   * that turns them on — the same containment M2 used for its test knobs.
-   */
-  acceptance?: AcceptanceOptions;
 }
+
+/**
+ * Shared application context passed to every route handler.
+ *
+ * Mutable handles (`config`, `player`) live here rather than in module state so
+ * a `PATCH /config` swap or a player report is visible to every subsequent
+ * request without re-building the server.
+ */
+export type AppContext = BaseContext & NormalRuntime;
 
 export interface AcceptanceOptions {
   /**
@@ -154,6 +187,24 @@ export interface AcceptanceOptions {
   debugRoutes?: boolean;
 }
 
+/** Reading a late-bound runtime handle before it exists (0.3.0 T3). */
+export class RuntimeNotReadyError extends Error {
+  override readonly name = 'RuntimeNotReadyError';
+  constructor(field: string) {
+    super(`daemon runtime is not active yet (asked for "${field}")`);
+  }
+}
+
+const NORMAL_RUNTIME_KEYS = [
+  'player',
+  'audioStreams',
+  'cacheLeases',
+  'cacheScheduler',
+  'downloads',
+  'sync',
+  'fileOps',
+] as const satisfies readonly (keyof NormalRuntime)[];
+
 /** Defaults every context shares; boot and the test harness both start here. */
 export const CONTEXT_DEFAULTS = {
   host: DAEMON_HOST,
@@ -161,3 +212,50 @@ export const CONTEXT_DEFAULTS = {
   ackTimeoutMs: DEFAULT_ACK_TIMEOUT_MS,
   version: DAEMON_VERSION,
 } as const;
+
+/**
+ * Which context has which runtime. Off the object on purpose: everything on a
+ * context is enumerable and gets spread, logged and shallow-copied, and this is
+ * a handle to the daemon's engines — not data.
+ */
+const RUNTIMES = new WeakMap<BaseContext, NormalRuntime>();
+
+/**
+ * Build the object every handler is given.
+ *
+ * The identity is fixed here and never replaced: Fastify handlers close over it
+ * at registration, and registration happens before `listen()` (Fastify 5 throws
+ * on a route added afterwards). So the normal runtime is swapped INTO this
+ * object rather than the object being rebuilt around it.
+ */
+export function createAppContext<T extends BaseContext>(base: T): T & NormalRuntime {
+  const ctx = { ...base } as T & NormalRuntime;
+  for (const key of NORMAL_RUNTIME_KEYS) {
+    Object.defineProperty(ctx, key, {
+      enumerable: true,
+      configurable: false,
+      get() {
+        const runtime = RUNTIMES.get(ctx);
+        if (runtime === undefined) throw new RuntimeNotReadyError(key);
+        return runtime[key];
+      },
+    });
+  }
+  return ctx;
+}
+
+/** Swap the built runtime in. One call — `beginActivation` guards the rest. */
+export function installNormalRuntime(ctx: AppContext, runtime: NormalRuntime): void {
+  RUNTIMES.set(ctx, runtime);
+}
+
+/**
+ * The runtime if it is there, null otherwise.
+ *
+ * For teardown and for the handful of places that legitimately run in both
+ * phases: stopping a daemon that never activated must not throw its way out of
+ * the release sequence.
+ */
+export function peekNormalRuntime(ctx: BaseContext): NormalRuntime | null {
+  return RUNTIMES.get(ctx) ?? null;
+}

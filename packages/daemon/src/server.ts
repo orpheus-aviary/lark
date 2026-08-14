@@ -5,6 +5,7 @@ import { corsOriginDelegate, isHostAllowed } from './access-guard.js';
 import { checkLocalToken } from './auth.js';
 import type { AppContext } from './context.js';
 import { mapCoreError } from './error-mapping.js';
+import { isMigrationWhitelisted } from './migration/whitelist.js';
 import { fail } from './response.js';
 import { registerCacheRoutes } from './routes/cache.js';
 import { registerConfigRoutes } from './routes/config.js';
@@ -75,6 +76,25 @@ export function buildServer(ctx: AppContext): FastifyInstance {
   app.addHook('preHandler', async (req, reply) =>
     checkLocalToken(ctx, req, reply) ? reply : undefined,
   );
+
+  // The audio-migration gate (0.3.0 T3, §3.2-2). Third, after authentication:
+  // an unauthenticated caller must not be able to tell a migrating daemon from
+  // any other, and the answer below names what the library is doing.
+  //
+  // It reads the in-memory phase, never the database flag. The flag is cleared
+  // in the middle of activation, and a per-request read of it would open the
+  // business routes in the window before their runtime exists.
+  app.addHook('preHandler', async (req, reply) => {
+    if (ctx.lifecycle.phase === 'normal') return;
+    if (isMigrationWhitelisted(req.method, req.url)) return;
+    fail(
+      reply,
+      503,
+      '曲库正在做一次性音频迁移（mp3 → m4a），完成后即可使用',
+      'AUDIO_MIGRATION_PENDING',
+    );
+    return reply;
+  });
 
   // Three-way error mapping (M2-8):
   //   ① core business errors     → their 4xx envelope, no error log

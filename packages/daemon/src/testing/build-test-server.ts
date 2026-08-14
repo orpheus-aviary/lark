@@ -21,23 +21,26 @@ import {
 import type { LarkConfig } from '@lark/shared';
 import { AudioStreamRegistry } from '../audio-streams.js';
 import {
+  EvictionScheduler,
   type SongLeaseOptions,
   SongLeaseRegistry,
   scheduleEvictionInBackground,
-  withEvictionScheduler,
 } from '../cache.js';
 import {
   type AcceptanceOptions,
   type AppContext,
   CONTEXT_DEFAULTS,
   type Logger,
+  createAppContext,
+  installNormalRuntime,
 } from '../context.js';
 import { EventsBus } from '../events/bus.js';
 import { GuiChannel, type GuiChannelOptions } from '../events/gui-channel.js';
+import { DaemonLifecycle } from '../lifecycle.js';
 import { PlayerRuntime } from '../player-runtime.js';
 import { buildServer } from '../server.js';
 import type { SkybridgeApi } from '../sync/client.js';
-import { withSyncRuntime } from '../sync/runtime.js';
+import { SyncRuntime } from '../sync/runtime.js';
 import { type SyncHandlesOptions, attachSyncHandles } from '../sync/triggers.js';
 
 /** Fixed token used by harness-built servers. */
@@ -115,6 +118,12 @@ export interface TestContextOptions {
   syncTriggers?: boolean;
   /** Clock and jitter for the trigger tests. */
   syncHandles?: SyncHandlesOptions;
+  /**
+   * Boot phase to start in (0.3.0 T3). `normal` unless a test is exercising the
+   * audio-migration gate — the runtime is installed either way, so a `pending`
+   * context is a real daemon with the business routes closed.
+   */
+  lifecyclePhase?: 'pending' | 'normal';
 }
 
 export interface TestContext extends AppContext {
@@ -194,44 +203,49 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     ...options.engine,
   });
 
-  const ctx: TestContext = withSyncRuntime(
-    withEvictionScheduler({
-      ...CONTEXT_DEFAULTS,
-      config,
-      configPath: options.configPath,
-      saveConfigImpl: options.saveConfigImpl,
-      ackTimeoutMs: options.ackTimeoutMs ?? CONTEXT_DEFAULTS.ackTimeoutMs,
-      requestFatal: (err: unknown) => {
-        fatals.push(err);
-      },
-      logger: createRecordingLogger(),
-      db,
-      sqlite,
-      localToken: TEST_LOCAL_TOKEN,
-      eventsBus,
-      guiChannel: new GuiChannel(options.guiChannel),
-      player: new PlayerRuntime(),
-      audioStreams: new AudioStreamRegistry(),
-      cacheLeases: new SongLeaseRegistry(options.cacheLeases),
-      downloads,
-      bilibili,
-      mediaTools,
-      fileOps: new FileEffectRuntime({
-        sqlite,
-        claims: downloads.claims,
-        onQuarantine: (songId) =>
-          eventsBus.emit({ type: 'sync:file_quarantined', song_id: songId }),
-      }),
-      shutdownSignal: shutdownController.signal,
-      ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
-      fatals,
-      shutdownController,
-    }),
-    {
+  const ctx = createAppContext({
+    ...CONTEXT_DEFAULTS,
+    config,
+    configPath: options.configPath,
+    saveConfigImpl: options.saveConfigImpl,
+    ackTimeoutMs: options.ackTimeoutMs ?? CONTEXT_DEFAULTS.ackTimeoutMs,
+    requestFatal: (err: unknown) => {
+      fatals.push(err);
+    },
+    logger: createRecordingLogger(),
+    db,
+    sqlite,
+    localToken: TEST_LOCAL_TOKEN,
+    eventsBus,
+    guiChannel: new GuiChannel(options.guiChannel),
+    mediaTools,
+    bilibili,
+    shutdownSignal: shutdownController.signal,
+    // Default `normal`: an in-memory library owes no conversion, and every
+    // pre-0.3 test would otherwise be talking to a gated daemon. The migration
+    // tests pass 'pending' and drive the phase themselves.
+    lifecycle: new DaemonLifecycle(options.lifecyclePhase ?? 'normal'),
+    ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),
+    fatals,
+    shutdownController,
+  }) as TestContext;
+
+  installNormalRuntime(ctx, {
+    player: new PlayerRuntime(),
+    audioStreams: new AudioStreamRegistry(),
+    cacheLeases: new SongLeaseRegistry(options.cacheLeases),
+    cacheScheduler: new EvictionScheduler(ctx),
+    downloads,
+    sync: new SyncRuntime({
       ...(options.skybridge === undefined ? {} : { api: options.skybridge }),
       triggers: options.syncTriggers === true,
-    },
-  );
+    }),
+    fileOps: new FileEffectRuntime({
+      sqlite,
+      claims: downloads.claims,
+      onQuarantine: (songId) => eventsBus.emit({ type: 'sync:file_quarantined', song_id: songId }),
+    }),
+  });
   attachSyncHandles(ctx, options.syncHandles ?? {});
   return ctx;
 }

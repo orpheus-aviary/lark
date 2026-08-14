@@ -12,6 +12,7 @@ import {
 } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
+import { audioMigrationCounts } from '../migration/report.js';
 import { ok } from '../response.js';
 
 const PLAYER_COMMAND_DESCRIPTIONS: Record<(typeof PLAYER_COMMANDS)[number], string> = {
@@ -258,6 +259,7 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
         version: ctx.version,
         nest_fingerprint: nestFingerprint(realpathMissingOk(paths.larkDir())),
         local_api_version: LOCAL_API_VERSION,
+        audio_migration: audioMigrationCounts(ctx),
       } satisfies StatusData,
       'daemon is running',
     );

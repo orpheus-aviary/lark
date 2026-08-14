@@ -57,9 +57,8 @@ export function scanAudioMigration(
   sqlite: BetterSqlite3.Database,
   nowMs: number = Date.now(),
 ): ScanReport {
-  const root = songsDir();
   const owned = pendingFileOpSongIds(sqlite);
-  const entries = existsSync(root) ? readdirSync(root, { withFileTypes: true }) : [];
+  const objectKeys = mp3ObjectKeys();
   const report: ScanReport = { total: 0, inserted: 0, unblocked: 0, vanished: 0 };
 
   const readSong = sqlite.prepare(
@@ -80,14 +79,9 @@ export function scanAudioMigration(
 
   sqlite
     .transaction(() => {
-      const seen = new Set<string>();
+      const seen = new Set<string>(objectKeys);
 
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const objectKey = entry.name;
-        if (!existsSync(join(root, objectKey, LEGACY_AUDIO_FILE))) continue;
-        seen.add(objectKey);
-
+      for (const objectKey of objectKeys) {
         const decision = decide(readSong.get(objectKey) as SongFacts | undefined, objectKey);
         const existing = getLedgerRow(sqlite, objectKey);
 
@@ -114,6 +108,22 @@ export function scanAudioMigration(
     .immediate();
 
   return report;
+}
+
+/**
+ * Directory names under `songs/` that still hold a `song.mp3`.
+ *
+ * Also the completion test (§3.2-13): "no mp3 anywhere under the served tree"
+ * is half of what says the migration is over, and asking the disk is the only
+ * honest way to know it — the ledger can only say what it was told.
+ */
+export function mp3ObjectKeys(): string[] {
+  const root = songsDir();
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => existsSync(join(root, name, LEGACY_AUDIO_FILE)));
 }
 
 /** Everything about an object that comes from the library, as bind values. */

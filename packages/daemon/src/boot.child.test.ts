@@ -8,6 +8,7 @@
 // and an ephemeral port.
 
 import { type ChildProcess, execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -22,7 +23,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type WriterLock, WriterLockBusyError, acquireWriterLock } from '@lark/core';
-import { seedGoLegacyDb } from '@lark/core/testing';
+import { readToneMp3, seedGoLegacyDb } from '@lark/core/testing';
+import { SYNC_FILE_OP_MAX_ATTEMPTS, type StatusData } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CHILD_ENTRY = fileURLToPath(new URL('../dist/testing/boot-child.js', import.meta.url));
@@ -208,6 +210,120 @@ describe('boot', () => {
     expect(existsSync(pidPath())).toBe(false);
     expect(existsSync(tokenPath())).toBe(true); // published before the fatal
   });
+});
+
+// The whole 0.3.0 boot, end to end (§3.2-3; 判据 15, 18): a library that still
+// owes the mp3 → m4a conversion comes up REACHABLE, refuses the library, runs
+// the pass, and only then serves. Only a child process can show this — the
+// phases are ordered around `listen()`, and from inside the process they are
+// just function calls in the order the source already claims.
+describe('boot — the audio migration', () => {
+  /** Build the state 0003 leaves behind: schema v3, flag set, an mp3 on disk. */
+  async function seedPendingLibrary(): Promise<string> {
+    const core = await import('@lark/core');
+    vi.stubEnv('LARK_NEST_DIR', nest);
+    const { db, sqlite } = core.createDatabase({ dbPath: dbPath() });
+    const id = randomUUID();
+    try {
+      sqlite
+        .transaction(() => {
+          core.createFileBackedSongInTx(db, {
+            id,
+            name: '迁移前的歌',
+            file_origin: 'downloaded',
+            source_provider: 'bilibili',
+            source_key: `BV1x${id.slice(0, 4)}:9`,
+          });
+        })
+        .immediate();
+      sqlite
+        .prepare("UPDATE local_metadata SET value = '1' WHERE key = 'audio_migration_pending'")
+        .run();
+    } finally {
+      sqlite.close();
+      vi.unstubAllEnvs();
+    }
+    const dir = join(larkDir(), 'songs', id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'song.mp3'), await readToneMp3());
+    return id;
+  }
+
+  it('converts the library, then opens the business routes', async () => {
+    const id = await seedPendingLibrary();
+
+    const child = spawnDaemon();
+    const port = await child.waitForPort();
+    const base = `http://127.0.0.1:${port}`;
+    const token = readFileSync(tokenPath(), 'utf-8');
+    const auth = { authorization: `Bearer ${token}` };
+
+    // The pass ends by activating, so the observation point is the phase
+    // `/status` reports — reachable the whole time, which is the point.
+    await vi.waitFor(
+      async () => {
+        const res = await fetch(`${base}/status`);
+        const body = (await res.json()) as { data: StatusData };
+        expect(body.data.audio_migration?.phase).toBe('normal');
+        expect(body.data.audio_migration?.done).toBe(1);
+      },
+      { timeout: 60_000, interval: 100 },
+    );
+
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.m4a'))).toBe(true);
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.mp3'))).toBe(false);
+
+    const songs = await fetch(`${base}/songs`, { headers: auth });
+    expect(songs.status).toBe(200);
+
+    child.proc.kill('SIGTERM');
+    expect(await child.waitForExit()).toMatchObject({ code: 0 });
+  }, 90_000);
+
+  it('serves nothing but the whitelist while a stuck file op holds the pass', async () => {
+    const id = await seedPendingLibrary();
+    // A file op that has given up owning the directory. It has to be a FAILED
+    // one: boot drains the journal before the pass, so a merely queued op
+    // would run — and take the song with it — instead of blocking anything.
+    const core = await import('@lark/core');
+    vi.stubEnv('LARK_NEST_DIR', nest);
+    const { sqlite } = core.createDatabase({ dbPath: dbPath() });
+    core.enqueueLocalDelete(sqlite, id);
+    sqlite
+      .prepare('UPDATE sync_file_ops SET attempts = ?, last_error = ?')
+      .run(SYNC_FILE_OP_MAX_ATTEMPTS, 'seeded as permanently failed');
+    sqlite.close();
+    vi.unstubAllEnvs();
+
+    const child = spawnDaemon();
+    const port = await child.waitForPort();
+    const base = `http://127.0.0.1:${port}`;
+    const token = readFileSync(tokenPath(), 'utf-8');
+
+    await vi.waitFor(
+      async () => {
+        const res = await fetch(`${base}/status`);
+        const body = (await res.json()) as { data: StatusData };
+        expect(body.data.audio_migration?.state).toBe('needs_attention');
+      },
+      { timeout: 60_000, interval: 100 },
+    );
+
+    const status = (await (await fetch(`${base}/status`)).json()) as { data: StatusData };
+    expect(status.data.audio_migration?.phase).toBe('pending');
+    expect(status.data.audio_migration?.blocked_file_op).toBe(1);
+
+    const songs = await fetch(`${base}/songs`, { headers: { authorization: `Bearer ${token}` } });
+    expect(songs.status).toBe(503);
+    expect(((await songs.json()) as { error_code: string }).error_code).toBe(
+      'AUDIO_MIGRATION_PENDING',
+    );
+    // The mp3 the op owns is exactly where it was.
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.mp3'))).toBe(true);
+
+    child.proc.kill('SIGTERM');
+    expect(await child.waitForExit()).toMatchObject({ code: 0 });
+  }, 90_000);
 });
 
 // The acquisition order is only observable from outside: what exists on disk

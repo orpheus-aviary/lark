@@ -18,7 +18,6 @@
 
 import type { RunSyncResult } from '@lark/core';
 import type { SyncAuthReason, SyncState } from '@lark/shared';
-import type { AppContext } from '../context.js';
 import { type SkybridgeApi, realSkybridgeApi } from './client.js';
 import type { SyncTrigger } from './runner.js';
 import type { SyncSession } from './session.js';
@@ -187,20 +186,4 @@ export class SyncRuntime {
     this.lastError = null;
     this.lastSyncAt = atMs;
   }
-}
-
-/**
- * Complete a context with its sync runtime, the way `withEvictionScheduler`
- * completes it with the eviction driver: the two are mutually dependent (the
- * runtime reads the context on every round, the routes reach the runtime
- * through the context), so one of them is filled in after the fact and the
- * cast lives in exactly one documented place.
- */
-export function withSyncRuntime<T extends Omit<AppContext, 'sync'>>(
-  ctx: T,
-  options: SyncRuntimeOptions = {},
-): T & { sync: SyncRuntime } {
-  const full = ctx as T & { sync: SyncRuntime };
-  full.sync = new SyncRuntime(options);
-  return full;
 }

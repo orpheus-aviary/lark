@@ -16,7 +16,7 @@ import {
   withTimeout,
 } from '@lark/core';
 import type { CacheEvictResultData, CacheStatusData } from '@lark/shared';
-import type { AppContext } from './context.js';
+import type { AppContext, BaseContext } from './context.js';
 
 /**
  * How long a freshly ensured file is protected from eviction (M5-6).
@@ -102,8 +102,20 @@ export function readCacheStatus(ctx: AppContext): CacheStatusData {
   };
 }
 
-/** Is this stored key still downloadable? Anything but a clean yes is a no. */
-async function probe(ctx: AppContext, sourceKey: string): Promise<boolean> {
+/**
+ * Is this stored key still downloadable? Anything but a clean yes is a no.
+ *
+ * Exported because the audio migration asks the same question before it
+ * discards an mp3 it could not read (§4-h / R26): there is ONE answer to "can
+ * we get this back", and a second implementation would eventually disagree with
+ * this one about a file that is about to be deleted. Takes a `BaseContext` for
+ * the same reason — the migration runs before the normal runtime exists.
+ */
+export async function canRedownload(
+  ctx: BaseContext,
+  sourceKey: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
   const deps: PipelineDeps = {
     db: ctx.db,
     sqlite: ctx.sqlite,
@@ -114,9 +126,8 @@ async function probe(ctx: AppContext, sourceKey: string): Promise<boolean> {
     mediaTools: ctx.mediaTools,
     timeouts: DEFAULT_TIMEOUTS,
   };
-  const signal = withTimeout(DEFAULT_TIMEOUTS.bilibiliMeta, ctx.shutdownSignal);
   const resolved = await probeSourceKey(deps, sourceKey, {
-    signal,
+    signal: withTimeout(DEFAULT_TIMEOUTS.bilibiliMeta, ctx.shutdownSignal, signal),
     reportStage: () => {},
   });
   return resolved !== null;
@@ -241,7 +252,7 @@ export class EvictionScheduler {
             return null; // SongBusyError: someone else is writing this song
           }
         },
-        probe: (sourceKey) => probe(this.#ctx, sourceKey),
+        probe: (sourceKey) => canRedownload(this.#ctx, sourceKey),
         onEvicted: ({ song_id }) => this.#ctx.eventsBus.emit({ type: 'cache:evicted', song_id }),
         signal: this.#ctx.shutdownSignal,
       });
@@ -277,25 +288,6 @@ export class EvictionScheduler {
       skipped_unverified_bytes: sum(skipped),
     };
   }
-}
-
-/**
- * Complete a context with its scheduler. The two are mutually dependent — the
- * scheduler reads the whole context on every drain, and the routes reach the
- * scheduler through the context — so one of them has to be filled in after the
- * fact. Doing it here keeps the cast in one documented place instead of at
- * every construction site.
- *
- * `sync` is excluded from the input for the same reason `cacheScheduler` is:
- * it is filled in by `withSyncRuntime` around this call, and neither completion
- * helper can demand the other's field without making the pair uncallable.
- */
-export function withEvictionScheduler<T extends Omit<AppContext, 'cacheScheduler' | 'sync'>>(
-  ctx: T,
-): T & { cacheScheduler: EvictionScheduler } {
-  const full = ctx as unknown as T & { cacheScheduler: EvictionScheduler };
-  full.cacheScheduler = new EvictionScheduler(full as unknown as AppContext);
-  return full;
 }
 
 /** Fire-and-observe: for the triggers that are not an HTTP request (M5-6). */

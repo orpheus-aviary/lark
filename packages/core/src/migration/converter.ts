@@ -22,7 +22,6 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { type AudioProbe, probeAudio, processAudio } from '../download/ffmpeg.js';
 import type { DownloadTimeouts } from '../download/timeouts.js';
 import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE } from '../library/lyrics.js';
-import type { Logger } from '../logger/index.js';
 import type { ResolvedMediaTools } from '../media-tools/resolve.js';
 import { songsDir } from '../paths.js';
 import { backupPathFor, moveWithoutOverwrite } from './backup.js';
@@ -38,6 +37,18 @@ import { assessCanonicalAudio } from './verify.js';
 /** Temp names the pass writes, and sweeps before it starts over. */
 const TMP_PREFIX = '.song.migration';
 
+/**
+ * The one call this file makes on a logger.
+ *
+ * Narrower than core's pino `Logger` on purpose: the runner lives in the
+ * daemon, whose context carries a four-method structural logger, and asking for
+ * pino's full surface here would force a cast at the one call site that has an
+ * honest logger to give.
+ */
+export interface MigrationLogger {
+  warn(fields: Record<string, unknown>, msg: string): void;
+}
+
 export interface ConverterContext {
   sqlite: BetterSqlite3.Database;
   tools: ResolvedMediaTools;
@@ -50,7 +61,7 @@ export interface ConverterContext {
    */
   canRedownload: (sourceKey: string, signal?: AbortSignal) => Promise<boolean>;
   signal?: AbortSignal;
-  logger?: Logger;
+  logger?: MigrationLogger;
   timeouts?: DownloadTimeouts;
   nowMs?: () => number;
 }
