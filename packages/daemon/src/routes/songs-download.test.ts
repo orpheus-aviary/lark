@@ -2,16 +2,19 @@
 // the four-branch source edit, and the claim guards that keep a delete from
 // racing a download.
 
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  MediaToolsRegistry,
-  MediaToolsUnavailableError,
-  createSong,
-  ensureMp3,
-  paths,
-} from '@lark/core';
+import { fileURLToPath } from 'node:url';
+import { MediaToolsUnavailableError, createSong, paths } from '@lark/core';
 import { type FakeUpstream, fakeMediaTools, startFakeUpstream, toneWav } from '@lark/core/testing';
 import { API_PATHS, type SongData, apiPath } from '@lark/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,6 +25,9 @@ import {
   closeTestContext,
   createTestContext,
 } from '../testing/build-test-server.js';
+
+/** Relative to this file: `lark/scripts/fixtures/`, the one home for real containers. */
+const MP3_FIXTURE = '../../../../scripts/fixtures/tone-1s.mp3';
 
 const BVID = 'BV1Ki4y1y7HC';
 const VIDEO_URL = `https://www.bilibili.com/video/${BVID}`;
@@ -39,12 +45,10 @@ beforeAll(async () => {
   mp3Path = join(fixtures, '稻香.mp3');
   fakeMp3Path = join(fixtures, 'actually-wav.mp3');
 
-  // The real mp3 is transcoded from a hand-written WAV rather than synthesised
-  // with `-f lavfi`: the vendored build carries no lavfi demuxer (M7 T0).
-  const tools = await new MediaToolsRegistry().acquire();
-  const wavPath = join(fixtures, 'tone.wav');
-  writeFileSync(wavPath, toneWav(1));
-  await ensureMp3(tools.ffmpeg.path, wavPath, mp3Path);
+  // The real mp3 is the checked-in fixture, copied — not encoded here. From
+  // T1b the vendored build has no mp3 encoder at all (canonical audio is m4a),
+  // and an import test needs an input the importer will still accept.
+  copyFileSync(fileURLToPath(new URL(MP3_FIXTURE, import.meta.url)), mp3Path);
 
   // Not an mp3, wearing a .mp3 extension — the case only the container check
   // catches (fifth review ⑨). It used to be AAC-in-MP4; a WAV proves the same
@@ -118,7 +122,7 @@ describe('POST /songs/import', () => {
     // `imported`, never `downloaded`: cache eviction must not reclaim it (R1).
     expect(listed.json().data).toMatchObject({ file_origin: 'imported', artist: '' });
     expect(listed.json().data.duration).toBeGreaterThan(0.9);
-    expect(readdirSync(join(paths.songsDir(), songId))).toEqual(['song.mp3']);
+    expect(readdirSync(join(paths.songsDir(), songId))).toEqual(['song.m4a']);
   }, 60_000);
 
   // Extension checks cannot see this; only the container can.
@@ -355,7 +359,7 @@ describe('POST /songs/:id/ensure-file', () => {
   it('accepts a song with a file but no key, with no LLM configured', async () => {
     const song = seed('s');
     mkdirSync(join(paths.songsDir(), song.id), { recursive: true });
-    writeFileSync(join(paths.songsDir(), song.id, 'song.mp3'), 'AUDIO');
+    writeFileSync(join(paths.songsDir(), song.id, 'song.m4a'), 'AUDIO');
 
     expect((await post(apiPath.songEnsureFile(song.id), {})).statusCode).toBe(200);
   });
@@ -441,10 +445,10 @@ describe('GET /audio/:id after an import', () => {
   it('serves the imported file', async () => {
     const imported = bodyOf(await post(API_PATHS.songImport, { file_paths: [mp3Path] })).data;
     const songId = imported.imported[0].song_id;
-    expect(existsSync(join(paths.songsDir(), songId, 'song.mp3'))).toBe(true);
+    expect(existsSync(join(paths.songsDir(), songId, 'song.m4a'))).toBe(true);
 
     const res = await app.inject({ method: 'GET', url: apiPath.audio(songId) });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toBe('audio/mpeg');
+    expect(res.headers['content-type']).toBe('audio/mp4');
   }, 60_000);
 });

@@ -37,7 +37,7 @@ function seedLyrics(text: string): void {
 
 describe('paths', () => {
   it('builds the payload paths under the song directory', () => {
-    expect(songAudioPath(ID)).toBe(join(songsDir(), ID, 'song.mp3'));
+    expect(songAudioPath(ID)).toBe(join(songsDir(), ID, 'song.m4a'));
     expect(songLyricsPath(ID)).toBe(join(songsDir(), ID, 'lyrics.lrc'));
   });
 

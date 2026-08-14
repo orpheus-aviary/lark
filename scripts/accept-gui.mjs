@@ -30,8 +30,18 @@ const require = createRequire(import.meta.url);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const DAEMON_URL = 'http://127.0.0.1:47100';
 const CDP_PORT = 9333;
-/** ~48 KiB/s: a 30-minute 320kbps file can never buffer ahead of a seek. */
-const AUDIO_THROTTLE_BPS = 48 * 1024;
+/**
+ * ~192 KiB/s: fast enough to read an MP4's index, slow enough that a
+ * 30-minute file can never buffer ahead of a seek (it would need six minutes
+ * of transfer to reach the 90% mark this suite seeks to).
+ *
+ * It was 48 KiB/s while the library held mp3, which has no index at all and
+ * starts playing on the first frames. Canonical m4a (0.3.0) must read `moov`
+ * before it can report a duration, and for half an hour of AAC that is a few
+ * hundred KB — at 48 KiB/s every load took ten seconds and the suite was
+ * measuring dial-up, not the product.
+ */
+const AUDIO_THROTTLE_BPS = 192 * 1024;
 const FIXTURE = join(ROOT, 'spikes/media-protocol/fixtures/fixture.mp3');
 
 const keep = process.argv.includes('--keep');

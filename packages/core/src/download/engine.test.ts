@@ -152,12 +152,12 @@ describe('single-part URL with no LLM', () => {
     expect(song.file_origin).toBe('downloaded');
     expect(song.duration).toBeGreaterThan(0.9);
 
-    // song.mp3 is there and nothing the LANDING staged is left beside it. The
+    // song.m4a is there and nothing the LANDING staged is left beside it. The
     // lyrics continuation is a different task on its own clock: it may still
     // be writing `.lyrics.<uuid>.tmp` right now, so the filter names the
     // download's own prefixes instead of "anything hidden".
     const files = readdirSync(join(songsDir(), songId));
-    expect(files).toContain('song.mp3');
+    expect(files).toContain('song.m4a');
     const staged = files.filter((f) =>
       ['.download.', '.song.', '.pending.', '.replace.'].some((p) => f.startsWith(p)),
     );
@@ -416,7 +416,7 @@ describe('cancel', () => {
     await settle(e, again.id);
 
     // The song has a row, so its directory is not the cleanup's business.
-    expect(existsSync(join(songsDir(), songId, 'song.mp3'))).toBe(true);
+    expect(existsSync(join(songsDir(), songId, 'song.m4a'))).toBe(true);
   }, 60_000);
 
   it('is idempotent once terminal', async () => {
@@ -591,7 +591,7 @@ describe('redownload', () => {
     const songId = taskOf(e, first.id).result?.song_id as string;
     await settleAll(e);
 
-    const before = readFileSync(join(songsDir(), songId, 'song.mp3'));
+    const before = readFileSync(join(songsDir(), songId, 'song.m4a'));
     const again = e.enqueueRedownload(songId);
     await settle(e, again.id);
     // The redownload spawns its own lyrics continuation, which is still
@@ -600,8 +600,8 @@ describe('redownload', () => {
     await settleAll(e);
 
     expect(taskOf(e, again.id).state).toBe('succeeded');
-    expect(readdirSync(join(songsDir(), songId)).sort()).toEqual(['lyrics.lrc', 'song.mp3']);
-    expect(readFileSync(join(songsDir(), songId, 'song.mp3')).length).toBe(before.length);
+    expect(readdirSync(join(songsDir(), songId)).sort()).toEqual(['lyrics.lrc', 'song.m4a']);
+    expect(readFileSync(join(songsDir(), songId, 'song.m4a')).length).toBe(before.length);
   }, 60_000);
 
   it('404s an unknown song before queuing anything', () => {
@@ -627,7 +627,7 @@ describe('redownload', () => {
     expect(task.error_code).toBe('SOURCE_GONE');
     expect(task.error_message).toContain('LLM');
     // The existing file is untouched.
-    expect(existsSync(join(songsDir(), songId, 'song.mp3'))).toBe(true);
+    expect(existsSync(join(songsDir(), songId, 'song.m4a'))).toBe(true);
   }, 60_000);
 });
 
@@ -671,7 +671,7 @@ describe('ensure-file', () => {
     // The hardest case, and the common one for a Go-era import: a file on
     // disk and no source key at all, so nothing COULD be resolved.
     db.update(songs).set({ source_key: null, source_provider: null }).run();
-    const before = readFileSync(join(songsDir(), songId, 'song.mp3'));
+    const before = readFileSync(join(songsDir(), songId, 'song.m4a'));
     upstream.requests.length = 0;
 
     const ensure = e.enqueueEnsureFile(songId);
@@ -681,7 +681,7 @@ describe('ensure-file', () => {
     expect(taskOf(e, ensure.id).state).toBe('succeeded');
     expect(taskOf(e, ensure.id).result).toEqual({ song_id: songId });
     expect(upstream.requests).toEqual([]); // no probe, no lyrics, nothing
-    expect(readFileSync(join(songsDir(), songId, 'song.mp3')).equals(before)).toBe(true);
+    expect(readFileSync(join(songsDir(), songId, 'song.m4a')).equals(before)).toBe(true);
   }, 60_000);
 
   it('downloads the file when it is missing', async () => {
@@ -690,13 +690,13 @@ describe('ensure-file', () => {
     await settle(e, first.id);
     const songId = taskOf(e, first.id).result?.song_id as string;
     await settleAll(e);
-    rmSync(join(songsDir(), songId, 'song.mp3'));
+    rmSync(join(songsDir(), songId, 'song.m4a'));
 
     const ensure = e.enqueueEnsureFile(songId);
     await settle(e, ensure.id);
 
     expect(taskOf(e, ensure.id).state).toBe('succeeded');
-    expect(existsSync(join(songsDir(), songId, 'song.mp3'))).toBe(true);
+    expect(existsSync(join(songsDir(), songId, 'song.m4a'))).toBe(true);
   }, 60_000);
 
   it('keeps its own dedupe key — it must never absorb a forced redownload', async () => {

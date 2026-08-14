@@ -248,13 +248,20 @@ export type ImportMatch =
 
 /** Library songs with this exact name+artist, oldest first, ties broken by id. */
 function candidatesFor(db: LarkDatabase, entry: ImportEntry): ImportCandidate[] {
-  return db
-    .select({ id: songs.id, name: songs.name, artist: songs.artist })
-    .from(songs)
-    .where(and(eq(songs.name, entry.name), eq(songs.artist, entry.artist)))
-    .orderBy(songs.created_at, songs.id)
-    .all()
-    .map((row) => ({ ...row, has_file: songFileInfo(row.id).has_file }));
+  return (
+    db
+      .select({ id: songs.id, name: songs.name, artist: songs.artist })
+      .from(songs)
+      .where(and(eq(songs.name, entry.name), eq(songs.artist, entry.artist)))
+      .orderBy(songs.created_at, songs.id)
+      .all()
+      // `canonical`: an import preview cannot run while a migration is pending
+      // — the daemon's routes are shut and the CLI refuses direct writes.
+      .map((row) => ({
+        ...row,
+        has_file: songFileInfo(row.id, { audioMode: 'canonical' }).has_file,
+      }))
+  );
 }
 
 export function computeMatches(db: LarkDatabase, entries: readonly ImportEntry[]): ImportMatch[] {

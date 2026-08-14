@@ -136,7 +136,13 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
   const { db, sqlite } = handles;
 
   /** `has_file` / `file_size` are a live disk probe, exactly as the daemon does. */
-  const enrich = (song: SongData): SongData => ({ ...song, ...core.songFileInfo(song.id) });
+  // T3 derives this from the library's migration flag: a direct READ is
+  // allowed while the conversion pass is still running, and a song waiting
+  // its turn must not be reported as missing its file.
+  const enrich = (song: SongData): SongData => ({
+    ...song,
+    ...core.songFileInfo(song.id, { audioMode: 'canonical' }),
+  });
 
   const ok = <T>(data: T, extra: { message?: string; total?: number } = {}): ApiResponse<T> => {
     const envelope: ApiResponse<T> = { success: true, data };

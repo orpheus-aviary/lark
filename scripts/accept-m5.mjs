@@ -133,7 +133,7 @@ try {
     }
   })();
 
-  const songFile = (id) => join(copy.larkDir, 'songs', id, 'song.mp3');
+  const songFile = (id) => join(copy.larkDir, 'songs', id, 'song.m4a');
   const lyricsFile = (id) => join(copy.larkDir, 'songs', id, 'lyrics.lrc');
   const songById = async (id) => await data('GET', `/songs/${id}`);
 

@@ -145,7 +145,10 @@ function writableId(raw: string): string {
 const rawId = (req: { params: unknown }): string => (req.params as { id: string }).id;
 
 export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const enrich = (song: SongData): SongData => ({ ...song, ...songFileInfo(song.id) });
+  const enrich = (song: SongData): SongData => ({
+    ...song,
+    ...songFileInfo(song.id, { audioMode: 'canonical' }),
+  });
   const changed = (): void => {
     ctx.eventsBus.emit({ type: 'playlists:changed' });
   };

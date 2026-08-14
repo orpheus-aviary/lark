@@ -36,7 +36,7 @@ function audioFixture(size = AUDIO_BYTES): Buffer {
 
 function writeAudio(id: string, body: Buffer): void {
   mkdirSync(songDirPath(id), { recursive: true });
-  writeFileSync(join(songDirPath(id), 'song.mp3'), body);
+  writeFileSync(join(songDirPath(id), 'song.m4a'), body);
 }
 
 beforeEach(async () => {
@@ -83,7 +83,7 @@ describe('GET /audio/:id', () => {
 
     const res = await fetch(`${base}/audio/${song.id}`, { headers: auth });
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('audio/mpeg');
+    expect(res.headers.get('content-type')).toBe('audio/mp4');
     expect(res.headers.get('accept-ranges')).toBe('bytes');
     expect(res.headers.get('content-length')).toBe(String(AUDIO_BYTES));
     expect(res.headers.get('cache-control')).toBe('no-store');

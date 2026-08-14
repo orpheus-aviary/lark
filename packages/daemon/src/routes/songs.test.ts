@@ -43,7 +43,7 @@ describe('GET /songs', () => {
     const first = seed('青花瓷', '周杰伦');
     seed('稻香', '周杰伦');
     mkdirSync(join(paths.songsDir(), first.id), { recursive: true });
-    writeFileSync(join(paths.songsDir(), first.id, 'song.mp3'), 'x'.repeat(64));
+    writeFileSync(join(paths.songsDir(), first.id, 'song.m4a'), 'x'.repeat(64));
 
     const res = await app.inject({ method: 'GET', url: '/songs' });
     expect(res.statusCode).toBe(200);

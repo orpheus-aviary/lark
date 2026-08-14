@@ -31,7 +31,7 @@ function audioFixture(size = AUDIO_BYTES): Buffer {
 
 function writeAudio(id: string, body: Buffer): void {
   mkdirSync(songDirPath(id), { recursive: true });
-  writeFileSync(join(songDirPath(id), 'song.mp3'), body);
+  writeFileSync(join(songDirPath(id), 'song.m4a'), body);
 }
 
 beforeEach(() => {

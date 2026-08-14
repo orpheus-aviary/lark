@@ -787,7 +787,7 @@ try {
           (entry) => entry.isDirectory() && entry.name.startsWith(quarantineTarget.id),
         )
       : [];
-    const gone = !existsSync(join(larkA, 'songs', quarantineTarget.id, 'song.mp3'));
+    const gone = !existsSync(join(larkA, 'songs', quarantineTarget.id, 'song.m4a'));
     const bytes =
       parked.length === 1 && walk(join(larkA, 'recovered-songs', parked[0].name)).length > 0;
     quarantineOk = statusQ?.quarantined_count >= 1 && bytes && gone;

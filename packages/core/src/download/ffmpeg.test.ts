@@ -18,7 +18,7 @@
 // function of the probe precisely so that branch is still covered by argument
 // assertions; T4's import matrix adds a checked-in .aac fixture.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -198,7 +198,16 @@ describe('planAudioConversion', () => {
   it('copies AAC that is already in an MP4', () => {
     const plan = planAudioConversion(base);
     expect(plan.mode).toBe('copy');
-    expect(plan.args).toEqual(['-map', '0:0', '-c', 'copy', '-f', 'ipod']);
+    expect(plan.args).toEqual([
+      '-map',
+      '0:0',
+      '-c',
+      'copy',
+      '-movflags',
+      '+faststart',
+      '-f',
+      'ipod',
+    ]);
   });
 
   it('copies raw ADTS with the bitstream filter MP4 requires', () => {
@@ -211,6 +220,8 @@ describe('planAudioConversion', () => {
       'copy',
       '-bsf:a',
       'aac_adtstoasc',
+      '-movflags',
+      '+faststart',
       '-f',
       'ipod',
     ]);
@@ -219,7 +230,18 @@ describe('planAudioConversion', () => {
   it('encodes anything else at 192k, leaving a sane rate and layout alone', () => {
     const plan = planAudioConversion({ ...base, container: 'mp3', codec: 'mp3' });
     expect(plan.mode).toBe('transcode');
-    expect(plan.args).toEqual(['-map', '0:0', '-c:a', 'aac', '-b:a', '192k', '-f', 'ipod']);
+    expect(plan.args).toEqual([
+      '-map',
+      '0:0',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '192k',
+      '-movflags',
+      '+faststart',
+      '-f',
+      'ipod',
+    ]);
   });
 
   it('resamples above 48kHz and downmixes above stereo', () => {
@@ -275,6 +297,19 @@ describe('processAudio', () => {
     expect(info.codec).toBe('aac');
     expect(info.sample_rate).toBe(sourceProbe.sample_rate);
     expect(info.duration).toBeCloseTo(sourceProbe.duration, 1);
+  }, 60_000);
+
+  // The defect accept-gui caught: MP4 writes its index (`moov`) after the
+  // audio by default, and a media element served such a file over HTTP cannot
+  // report so much as a duration until it has range-requested the tail. Only a
+  // real run proves the flag did anything.
+  it('writes the index before the audio, so a player can start at byte 0', async () => {
+    const out = join(dir, 'faststart.m4a');
+    await processAudio(tools.ffmpeg.path, shortWav, out, wavProbe);
+
+    const bytes = (await readFile(out)).toString('latin1');
+    expect(bytes.indexOf('moov')).toBeGreaterThan(-1);
+    expect(bytes.indexOf('moov')).toBeLessThan(bytes.indexOf('mdat'));
   }, 60_000);
 
   it('reports a non-audio input as FfmpegError', async () => {

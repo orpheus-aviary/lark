@@ -75,7 +75,12 @@ const idOf = (req: { params: unknown }): string => pathUuid((req.params as { id:
 
 export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void {
   /** has_file / file_size are disk probes, not columns — added at the wire edge. */
-  const enrich = (song: SongData): SongData => ({ ...song, ...songFileInfo(song.id) });
+  // Always canonical: business routes do not serve while a migration is
+  // pending, so the daemon never reads a library that still holds mp3s.
+  const enrich = (song: SongData): SongData => ({
+    ...song,
+    ...songFileInfo(song.id, { audioMode: 'canonical' }),
+  });
 
   const bilibili = ctx.bilibili;
   const netSignal = (): AbortSignal =>
@@ -330,7 +335,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post(apiPath.songEnsureFile(':id'), async (req, reply) => {
     const id = idOf(req);
     const song = getSong(ctx.db, ctx.sqlite, id);
-    const missing = !songFileInfo(id).has_file;
+    const missing = !songFileInfo(id, { audioMode: 'canonical' }).has_file;
     if (missing && song.source_key === null && !isLlmConfigured(resolveLlmConfig(ctx.config))) {
       throw new InvalidRequestError(
         'LLM_NOT_CONFIGURED',

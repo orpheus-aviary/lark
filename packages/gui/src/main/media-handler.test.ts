@@ -109,7 +109,7 @@ describe('createMediaRequestHandler', () => {
 
   it('forwards exactly the five passthrough headers and drops everything else', async () => {
     const upstreamHeaders: Record<string, string> = {
-      'content-type': 'audio/mpeg',
+      'content-type': 'audio/mp4',
       'content-length': '4',
       'content-range': 'bytes 0-3/100',
       'accept-ranges': 'bytes',

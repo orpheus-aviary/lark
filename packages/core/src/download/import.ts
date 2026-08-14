@@ -1,4 +1,4 @@
-// Importing local mp3 files (M3-11, R22).
+// Importing local audio files (M3-11, R22).
 //
 // Two things the Go version got wrong, both fixed by construction:
 //
@@ -13,15 +13,16 @@
 // touch them (R1/R26).
 
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, rm } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { mkdir, rm } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import type { ImportResultData } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { LarkDatabase } from '../db/index.js';
 import { songDirPath } from '../library/lyrics.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
-import { isMp3Format, probeAudio } from './ffmpeg.js';
+import type { ResolvedMediaTools } from '../media-tools/resolve.js';
+import { isMp3Format, probeAudio, processAudio } from './ffmpeg.js';
 import { landSongFile, stagePaths } from './resolve.js';
 import type { DownloadTimeouts } from './timeouts.js';
 
@@ -31,7 +32,7 @@ export interface ImportOptions {
 }
 
 /**
- * Copy each file into the library. One bad file never fails the batch.
+ * Convert each file into the library. One bad file never fails the batch.
  *
  * The extension gate is a cheap filter, not the check: `probeAudio` decides
  * whether a `.mp3` is really an mp3, because an AAC renamed to `.mp3` would
@@ -58,7 +59,7 @@ export async function importSongs(
   for (const filePath of filePaths) {
     options.signal?.throwIfAborted();
     try {
-      imported.push(await importOne(db, sqlite, tools.ffprobe.path, filePath, options));
+      imported.push(await importOne(db, sqlite, tools, filePath, options));
     } catch (err) {
       mediaTools.noteExecutionFailure(err);
       failed.push({ path: filePath, reason: err instanceof Error ? err.message : String(err) });
@@ -70,7 +71,7 @@ export async function importSongs(
 async function importOne(
   db: LarkDatabase,
   sqlite: BetterSqlite3.Database,
-  ffprobePath: string,
+  tools: ResolvedMediaTools,
   filePath: string,
   options: ImportOptions,
 ): Promise<{ song_id: string; name: string }> {
@@ -79,39 +80,36 @@ async function importOne(
   }
 
   // The id comes first: the file lands at songs/<id>/, so it has to exist
-  // before the copy, let alone before the row (R22).
+  // before the conversion, let alone before the row (R22).
   const songId = randomUUID();
   const taskId = randomUUID();
   const paths = stagePaths(songId, taskId);
   const name = basename(filePath, extname(filePath));
+  const run = {
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.timeouts === undefined ? {} : { timeouts: options.timeouts }),
+  };
 
   await mkdir(songDirPath(songId), { recursive: true });
   try {
-    // `.import.<uuid>.tmp` inside the destination directory: same volume, so
-    // the rename below is atomic, and the recovery routine already knows to
-    // delete this prefix.
-    const staged = join(paths.dir, `.import.${taskId}.tmp`);
-    await copyFile(filePath, staged);
-
-    // ffprobe names the file it was given, which is the STAGED copy inside the
-    // library — a path the user has never seen and cannot act on. The reason
-    // has to talk about the file they picked; `failed[].path` already carries
-    // it, so the staged name is replaced rather than appended.
-    const probe = await probeAudio(ffprobePath, staged, {
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-      ...(options.timeouts === undefined ? {} : { timeouts: options.timeouts }),
-    }).catch((err: unknown) => {
-      const detail = err instanceof Error ? err.message.split(staged).join(filePath) : String(err);
-      throw new Error(`无法读取音频：${detail}`);
+    const probe = await probeAudio(tools.ffprobe.path, filePath, run).catch((err: unknown) => {
+      throw new Error(`无法读取音频：${err instanceof Error ? err.message : String(err)}`);
     });
     if (!isMp3Format(probe.container)) {
       throw new Error(`文件扩展名是 .mp3，但实际格式是 ${probe.container || '未知'}`);
     }
 
+    // The library holds one format (0.3.0), so importing is a conversion, not
+    // a copy. The user's file is read where it lies and never modified; the
+    // output goes straight to the task-scoped temp path inside the song's own
+    // directory, which is the same volume as the final name — so the rename
+    // below is still atomic, and one staging step disappeared with the copy.
+    await processAudio(tools.ffmpeg.path, filePath, paths.transcoded, probe, run);
+
     landSongFile(db, sqlite, {
       taskId,
       songId,
-      stagedPath: staged,
+      stagedPath: paths.transcoded,
       mode: 'new',
       commit: () => {
         createFileBackedSongInTx(db, {

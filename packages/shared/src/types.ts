@@ -221,7 +221,7 @@ export interface CapabilitiesData {
 
 /** `GET /cache/status`. */
 export interface CacheStatusData {
-  /** Total size of every song's `song.mp3` on disk. */
+  /** Total size of every song's `song.m4a` on disk. */
   used_bytes: number;
   /** How many songs have an audio file. */
   file_count: number;

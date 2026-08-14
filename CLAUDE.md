@@ -37,7 +37,14 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 当前测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。
+🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b → T2 → T3 → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。
+
+### v0.3.0 实测锁定（随批次追加）
+
+- **MP4 必须 `-movflags +faststart`**：默认索引（`moov`）写在音频之后，媒体元素经 HTTP 拿到这种文件连 duration 都报不出来（accept-gui 实测：唯一请求落在文件最后 0.1%）。判据要断言**真文件里 moov 在 mdat 之前**，别断言参数里有没有那个 flag
+- **媒体流与 API 必须分 session**：Chromium 每 origin 六条 socket，SSE + API + 每条 range 音频都指向 daemon 同一个 origin，播 m4a 时稳定占满——renderer 连 `/status` 都发不出去，表现成「daemon 重启后 GUI 不再注册」而音频一切正常。`lark-media://` 的上游走独立 partition（`session.fromPartition(…).fetch`）。**`net.fetch` 没有 session 选项**，多传一个字段类型检查不拦、运行时静默无效
+- **`songFileInfo(id, { audioMode })` 的 mode 必须显式传**：`canonical` 只认 m4a，`migration-pending` 才兼容 legacy mp3。路径函数不读 DB——谁知道自己的库在不在迁移期，谁负责传
+- **0.3.0 开发版打开 0.2.x 曲库 = 所有歌都「没有文件」**（只认 `song.m4a`）：迁移落地前这是预期行为，也是开发期只用副本的又一条理由
 
 ⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它（`user_version > LATEST`），0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
 ⚠️ **曲库内容已变（2026-08-13 实测）**：不再是「21 首 / 4 歌单、20 首 Go 迁移 imported」——用户当天清库重下，现为 **7 首全 `downloaded` / 1 个歌单 / 0 首 imported**。`accept-m5` 已改成自造 imported 夹具（不再借用户的库，22/22 复跑通过）；但**迁移判据 33 的 A 类（imported）在真实库里已无样本**，要测 A 类分支得自己造。

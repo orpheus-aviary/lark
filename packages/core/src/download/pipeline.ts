@@ -32,7 +32,7 @@ import {
 import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
-import { ensureMp3, probeAudio } from './ffmpeg.js';
+import { probeAudio, processAudio } from './ffmpeg.js';
 import { type NormalizedSource, normalizeSourceOnline } from './link.js';
 import { chatCompletion, cleanLlmJson } from './llm.js';
 import { fetchLyrics } from './lyrics/select.js';
@@ -282,7 +282,7 @@ export async function reidentifySource(
 // ─── Bytes ─────────────────────────────────────────────
 
 export interface StagedAudio {
-  /** Finished mp3 at a task-scoped temp path, ready for `landSongFile`. */
+  /** Finished m4a at a task-scoped temp path, ready for `landSongFile`. */
   path: string;
   duration: number;
 }
@@ -321,23 +321,24 @@ export async function fetchAudio(
   );
 
   ctx.reportStage('converting');
-  const probe = await deps.mediaTools.use(async (tools) => {
+  const landed = await deps.mediaTools.use(async (tools) => {
+    const run = { signal: ctx.signal, timeouts: deps.timeouts };
     try {
-      await ensureMp3(tools.ffmpeg.path, paths.download, paths.transcoded, {
-        signal: ctx.signal,
-        timeouts: deps.timeouts,
-      });
+      // Probe first: bilibili hands over AAC in an MP4, which `processAudio`
+      // then rewraps rather than re-encodes — the bytes the user listens to
+      // are the bytes bilibili sent.
+      const source = await probeAudio(tools.ffprobe.path, paths.download, run);
+      await processAudio(tools.ffmpeg.path, paths.download, paths.transcoded, source, run);
     } finally {
       // The raw download is dead weight either way, and leaving it behind would
       // make the next startup recovery report residue that is not residue.
       await unlink(paths.download).catch(() => {});
     }
-    return probeAudio(tools.ffprobe.path, paths.transcoded, {
-      signal: ctx.signal,
-      timeouts: deps.timeouts,
-    });
+    // Probe the OUTPUT for the duration that goes in the row: a copy that
+    // silently carried no audio would otherwise be committed as a song.
+    return probeAudio(tools.ffprobe.path, paths.transcoded, run);
   });
-  return { path: paths.transcoded, duration: probe.duration };
+  return { path: paths.transcoded, duration: landed.duration };
 }
 
 // ─── Reuse ─────────────────────────────────────────────

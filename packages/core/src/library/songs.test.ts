@@ -459,17 +459,51 @@ describe('a duplicate source key (D8)', () => {
 });
 
 describe('songFileInfo', () => {
+  const songDir = (id: string): string => {
+    const dir = join(nest, 'lark', 'songs', id);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+
   it('probes disk presence and size', () => {
     const song = createSong(db(), sq(), { name: 's' });
-    expect(songFileInfo(song.id)).toEqual({ has_file: false });
-    const dir = join(nest, 'lark', 'songs', song.id);
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'song.mp3'), 'abcd');
-    expect(songFileInfo(song.id)).toEqual({ has_file: true, file_size: 4 });
+    expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
+    writeFileSync(join(songDir(song.id), 'song.m4a'), 'abcd');
+    expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({
+      has_file: true,
+      file_size: 4,
+    });
+  });
+
+  // The migration window: the song still holds 0.2.x's mp3 because the
+  // conversion pass has not reached it. Canonical mode must not see it —
+  // nothing else in the library would play it — and pending mode must, or the
+  // CLI offers a download for audio that is sitting right there.
+  it('sees a not-yet-converted mp3 only in migration-pending mode', () => {
+    const song = createSong(db(), sq(), { name: 'legacy' });
+    writeFileSync(join(songDir(song.id), 'song.mp3'), 'abcdef');
+    expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
+    expect(songFileInfo(song.id, { audioMode: 'migration-pending' })).toEqual({
+      has_file: true,
+      file_size: 6,
+    });
+  });
+
+  // A converted song whose mp3 has not been reclaimed yet: both files exist,
+  // and the canonical one is the answer in either mode.
+  it('prefers the canonical file when both are on disk', () => {
+    const song = createSong(db(), sq(), { name: 'both' });
+    const dir = songDir(song.id);
+    writeFileSync(join(dir, 'song.m4a'), 'abcd');
+    writeFileSync(join(dir, 'song.mp3'), 'abcdefghij');
+    expect(songFileInfo(song.id, { audioMode: 'migration-pending' })).toEqual({
+      has_file: true,
+      file_size: 4,
+    });
   });
 
   it('rejects non-UUID ids (R10)', () => {
-    expect(() => songFileInfo('../x')).toThrow(InvalidIdError);
+    expect(() => songFileInfo('../x', { audioMode: 'canonical' })).toThrow(InvalidIdError);
   });
 });
 

@@ -132,7 +132,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
 
       const parsed = parseRange(req.headers.range, size);
       reply
-        .header('Content-Type', 'audio/mpeg')
+        .header('Content-Type', 'audio/mp4')
         .header('Accept-Ranges', 'bytes')
         .header('Cache-Control', 'no-store');
 

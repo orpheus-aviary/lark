@@ -215,7 +215,7 @@ describe('runEviction', () => {
   });
 
   it('reports and survives a deletion that fails, without leaking the claim', async () => {
-    // A directory where song.mp3 should be: it stats fine and unlink refuses.
+    // A directory where song.m4a should be: it stats fine and unlink refuses.
     const id = seed('undeletable', { file: false });
     mkdirSync(songAudioPath(id), { recursive: true });
     writeFileSync(join(songAudioPath(id), 'filler'), Buffer.alloc(4000));

@@ -26,9 +26,28 @@ export function songDirPath(id: string): string {
   return join(songsDir(), id);
 }
 
-/** `songs/<id>/song.mp3` */
+/**
+ * The one audio file name in the library (0.3.0). Everything writes it and
+ * everything reads it; there is no probing and no second format.
+ */
+export const CANONICAL_AUDIO_FILE = 'song.m4a';
+
+/**
+ * What 0.2.x wrote. Only two kinds of code may mention it: the one-time
+ * migration, and the `has_file` probe while that migration is still pending
+ * (a song not converted yet is present, and reporting it as missing would
+ * offer the user a download for a file they already have).
+ */
+export const LEGACY_AUDIO_FILE = 'song.mp3';
+
+/** `songs/<id>/song.m4a` */
 export function songAudioPath(id: string): string {
-  return join(songDirPath(id), 'song.mp3');
+  return join(songDirPath(id), CANONICAL_AUDIO_FILE);
+}
+
+/** `songs/<id>/song.mp3` — pre-0.3.0 audio. Migration and `has_file` only. */
+export function legacySongAudioPath(id: string): string {
+  return join(songDirPath(id), LEGACY_AUDIO_FILE);
 }
 
 /** `songs/<id>/lyrics.lrc` */

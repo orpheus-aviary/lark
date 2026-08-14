@@ -29,7 +29,13 @@ import {
 import type BetterSqlite3 from 'better-sqlite3';
 import { ClaimRegistry } from '../download/claims.js';
 import { FileOpBusyError, FileOpNotFoundError, SongBusyError } from '../errors.js';
-import { songAudioPath, songDirPath, songLyricsPath, writeLyricsFile } from '../library/lyrics.js';
+import {
+  CANONICAL_AUDIO_FILE,
+  songAudioPath,
+  songDirPath,
+  songLyricsPath,
+  writeLyricsFile,
+} from '../library/lyrics.js';
 import type { Logger } from '../logger/index.js';
 import { recoveredSongsDir } from '../paths.js';
 import { recordDeadLetter } from './changes.js';
@@ -631,7 +637,7 @@ async function deleteRemote(songId: string, arg: DeleteRemoteArg): Promise<FileO
   let quarantined = false;
 
   if (keepAudio && existsSync(songAudioPath(songId))) {
-    await moveInto(songAudioPath(songId), arg.quarantine_target, 'song.mp3');
+    await moveInto(songAudioPath(songId), arg.quarantine_target, CANONICAL_AUDIO_FILE);
     quarantined = true;
   } else {
     await unlink(songAudioPath(songId)).catch(ignoreMissing);

@@ -335,8 +335,8 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
     const quarantine = join(b.larkDir, 'recovered-songs');
     const moved = readdirSync(quarantine).filter((name) => name.startsWith(songId));
     expect(moved, 'the audio should have been moved aside').toHaveLength(1);
-    expect(existsSync(join(quarantine, moved[0] as string, 'song.mp3'))).toBe(true);
-    expect(existsSync(join(b.larkDir, 'songs', songId, 'song.mp3'))).toBe(false);
+    expect(existsSync(join(quarantine, moved[0] as string, 'song.m4a'))).toBe(true);
+    expect(existsSync(join(b.larkDir, 'songs', songId, 'song.m4a'))).toBe(false);
 
     const before = await api<{ quarantined_count: number }>(b, 'GET', '/sync/status');
     expect(before.data?.quarantined_count).toBeGreaterThan(0);

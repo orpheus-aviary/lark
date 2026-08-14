@@ -33,6 +33,7 @@ import { FileEffectRuntime, enqueueLocalDelete } from '../sync/file-ops.js';
 import { nextSyncStamp } from '../sync/hlc.js';
 import { makeLwwTriple } from '../sync/lww.js';
 import { writeTombstone } from '../sync/tombstones.js';
+import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE } from './lyrics.js';
 import { type SourceInput, normalizeSource } from './source.js';
 
 export interface CreateSongInput extends SourceInput {
@@ -429,14 +430,38 @@ export function setFileOrigin(
   if (res.changes === 0) throw new NotFoundError('song', id);
 }
 
-/** Disk probe for the wire enrich fields (has_file / file_size). */
-export function songFileInfo(id: string): SongFileInfo {
+/**
+ * Which audio file names count as "the song has its file".
+ *
+ * `canonical` — `song.m4a`, the only answer once the library is migrated.
+ * `migration-pending` — also accept `song.mp3`, for the window where 0003 has
+ * stamped the schema but the conversion pass has not reached this song yet.
+ * A song waiting its turn is not a song to offer a download for.
+ */
+export type AudioMode = 'canonical' | 'migration-pending';
+
+/**
+ * Disk probe for the wire enrich fields (has_file / file_size).
+ *
+ * The mode is a parameter and never read from the database here: this is a
+ * path function, callers know whether their library is mid-migration (the
+ * daemon closes business routes during it; the CLI's direct backend reads the
+ * flag), and a function that quietly opened a database to answer a stat would
+ * be a second source of truth.
+ */
+export function songFileInfo(id: string, options: { audioMode: AudioMode }): SongFileInfo {
   if (!isUuidV4(id)) throw new InvalidIdError(id);
-  try {
-    const st = statSync(join(songsDir(), id, 'song.mp3'));
-    return { has_file: true, file_size: st.size };
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { has_file: false };
-    throw err;
+  const names =
+    options.audioMode === 'canonical'
+      ? [CANONICAL_AUDIO_FILE]
+      : [CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE];
+  for (const name of names) {
+    try {
+      const st = statSync(join(songsDir(), id, name));
+      return { has_file: true, file_size: st.size };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
   }
+  return { has_file: false };
 }

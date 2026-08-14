@@ -226,6 +226,20 @@ export interface AudioConversionPlan {
 }
 
 /**
+ * Every branch ends `-movflags +faststart -f ipod`.
+ *
+ * MP4 puts its index (`moov`) wherever the muxer finished writing it, which by
+ * default is AFTER the audio. A player handed such a file over HTTP cannot
+ * report so much as a duration until it has range-requested the tail — and
+ * lark's audio is always served over HTTP, to a media element, sometimes over
+ * a slow link. accept-gui caught this the honest way: the 30-minute fixture
+ * came back `duration=undefined`, and the only request the player made was for
+ * the last 0.1% of the file. `+faststart` costs one rewrite pass at the end of
+ * the conversion and moves `moov` to the front, where a stream needs it.
+ */
+const CANONICAL_OUTPUT = ['-movflags', '+faststart', '-f', 'ipod'];
+
+/**
  * How to turn this file into canonical audio — a pure function of the probe,
  * so every branch is testable without a codec that can produce the input.
  *
@@ -241,14 +255,14 @@ export function planAudioConversion(probe: AudioProbe): AudioConversionPlan {
   const containers = probe.container.split(',');
 
   if (probe.codec === 'aac' && containers.some((c) => MP4_FAMILY.has(c))) {
-    return { mode: 'copy', args: [...map, '-c', 'copy', '-f', 'ipod'] };
+    return { mode: 'copy', args: [...map, '-c', 'copy', ...CANONICAL_OUTPUT] };
   }
   // A raw ADTS stream copies fine, but MP4 wants the codec configuration in
   // the sample entry rather than in every frame header — that is the filter.
   if (probe.codec === 'aac' && containers.includes('aac')) {
     return {
       mode: 'copy-adts',
-      args: [...map, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-f', 'ipod'],
+      args: [...map, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', ...CANONICAL_OUTPUT],
     };
   }
   return {
@@ -261,8 +275,7 @@ export function planAudioConversion(probe: AudioProbe): AudioConversionPlan {
       CANONICAL_BITRATE,
       ...(probe.sample_rate > MAX_SAMPLE_RATE ? ['-ar', String(MAX_SAMPLE_RATE)] : []),
       ...(probe.channels > MAX_CHANNELS ? ['-ac', String(MAX_CHANNELS)] : []),
-      '-f',
-      'ipod',
+      ...CANONICAL_OUTPUT,
     ],
   };
 }

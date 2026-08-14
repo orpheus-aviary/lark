@@ -50,7 +50,7 @@ afterEach(() => {
 function seedSong(id: string, options: { audio?: boolean; lyrics?: boolean } = {}): void {
   const dir = join(songsDir(), id);
   mkdirSync(dir, { recursive: true });
-  if (options.audio !== false) writeFileSync(songAudioPath(id), 'mp3');
+  if (options.audio !== false) writeFileSync(songAudioPath(id), 'audio');
   if (options.lyrics) writeFileSync(songLyricsPath(id), '[00:00.00]hi');
 }
 
@@ -179,7 +179,7 @@ describe('executing a delete', () => {
     expect(dir).toBeDefined();
     const rescued = join(recoveredSongsDir(), dir);
     expect(existsSync(join(rescued, 'lyrics.lrc'))).toBe(true);
-    expect(existsSync(join(rescued, 'song.mp3'))).toBe(false);
+    expect(existsSync(join(rescued, 'song.m4a'))).toBe(false);
   });
 
   it('is a no-op when the files are already gone', async () => {
@@ -437,7 +437,7 @@ describe('housekeeping', () => {
     const full = join(recoveredSongsDir(), 'full-dir');
     mkdirSync(empty, { recursive: true });
     mkdirSync(full, { recursive: true });
-    writeFileSync(join(full, 'song.mp3'), 'mp3');
+    writeFileSync(join(full, 'song.m4a'), 'audio');
 
     expect(await pruneEmptyQuarantines()).toBe(1);
     expect(existsSync(empty)).toBe(false);

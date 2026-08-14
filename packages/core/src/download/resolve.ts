@@ -10,8 +10,8 @@
 //
 //   1. transcode into a task-scoped temp file
 //   2. write `.pending.<task>` — the manifest, atomically
-//   3. rename any existing song.mp3 to `.replace.<task>.bak`
-//   4. rename the temp file to song.mp3
+//   3. rename any existing song.m4a to `.replace.<task>.bak`
+//   4. rename the temp file to song.m4a
 //   5. ONE database transaction: the row change AND a recovery-log row
 //   6. clean up: drop the bak, the manifest, the log row
 //
@@ -23,7 +23,7 @@
 //
 // `had_old` in the manifest closes the last window (fourth review ①). Without
 // it, a crash BETWEEN steps 2 and 3 is indistinguishable from one between 4
-// and 5 — in the first case song.mp3 is the intact OLD file and deleting it
+// and 5 — in the first case song.m4a is the intact OLD file and deleting it
 // destroys working audio, in the second it is an uncommitted new file that
 // must go.
 //
@@ -48,11 +48,10 @@ import { eq, like } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
 import { local_metadata, songs } from '../db/schema.js';
 import { DownloadCommitError, InvalidIdError } from '../errors.js';
-import { songDirPath } from '../library/lyrics.js';
+import { CANONICAL_AUDIO_FILE, songDirPath } from '../library/lyrics.js';
 import { touchLastAccessed } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
 
-const AUDIO_FILE = 'song.mp3';
 const LOG_KEY_PREFIX = 'download.commit.';
 
 /** Every temp prefix the recovery routine deletes unconditionally. */
@@ -63,7 +62,7 @@ export interface StagePaths {
   audio: string;
   /** Raw bytes as they arrive from the source. */
   download: string;
-  /** ffmpeg's output, before it becomes song.mp3. */
+  /** ffmpeg's output, before it becomes song.m4a. */
   transcoded: string;
   manifest: string;
   manifestTmp: string;
@@ -81,9 +80,9 @@ export function stagePaths(songId: string, taskId: string): StagePaths {
   const dir = songDirPath(songId);
   return {
     dir,
-    audio: join(dir, AUDIO_FILE),
+    audio: join(dir, CANONICAL_AUDIO_FILE),
     download: join(dir, `.download.${taskId}.tmp`),
-    transcoded: join(dir, `.song.${taskId}.mp3.tmp`),
+    transcoded: join(dir, `.song.${taskId}.m4a.tmp`),
     manifest: join(dir, `.pending.${taskId}`),
     manifestTmp: join(dir, `.pending.${taskId}.tmp`),
     backup: join(dir, `.replace.${taskId}.bak`),
@@ -94,14 +93,14 @@ interface PendingManifest {
   task_id: string;
   song_id: string;
   mode: 'new' | 'replace';
-  /** Was there a song.mp3 when this landing started? Decides the rollback. */
+  /** Was there a song.m4a when this landing started? Decides the rollback. */
   had_old: boolean;
 }
 
 export interface LandSongFileInput {
   taskId: string;
   songId: string;
-  /** Finished mp3 at a task-scoped temp path; renamed into place by this call. */
+  /** Finished m4a at a task-scoped temp path; renamed into place by this call. */
   stagedPath: string;
   /** `new` also owns the song directory, so a failed commit removes it. */
   mode: 'new' | 'replace';
@@ -264,7 +263,7 @@ export interface RecoveryOptions {
  *   temp file                          → delete
  *   manifest + log row                 → committed: sweep bak/manifest/log
  *   manifest, no log, bak present      → rolled back: restore bak
- *   manifest, no log, no bak, had_old  → rename never happened: KEEP song.mp3
+ *   manifest, no log, no bak, had_old  → rename never happened: KEEP song.m4a
  *   manifest, no log, no bak, !had_old → uncommitted new file: delete it
  *   audio but no row, no manifest      → orphan: quarantine, never delete
  *   log row, no manifest               → cleanup was interrupted: drop the row
@@ -327,7 +326,7 @@ export function recoverSongsStore(
 
     // An orphan is quarantined, never deleted: the row may be recoverable and
     // the audio certainly is not (second review, third review ②).
-    if (!hasRow && !sawManifest && existsSync(join(dir, AUDIO_FILE))) {
+    if (!hasRow && !sawManifest && existsSync(join(dir, CANONICAL_AUDIO_FILE))) {
       quarantine(report, dir, songId);
     }
   }
@@ -354,12 +353,12 @@ function applyManifest(
   committed: boolean,
 ): void {
   const manifestPath = join(dir, `.pending.${taskId}`);
-  const audio = join(dir, AUDIO_FILE);
+  const audio = join(dir, CANONICAL_AUDIO_FILE);
   const backup = join(dir, `.replace.${taskId}.bak`);
   const manifest = readManifest(manifestPath);
 
   if (committed) {
-    // The transaction landed, so song.mp3 is the new file. Everything else is
+    // The transaction landed, so song.m4a is the new file. Everything else is
     // leftover from an interrupted step 6.
     quietly(() => unlinkSync(backup));
     quietly(() => unlinkSync(manifestPath));
@@ -368,7 +367,7 @@ function applyManifest(
   }
 
   if (existsSync(backup)) {
-    // Step 4 happened: song.mp3 is the uncommitted new file, bak is the good one.
+    // Step 4 happened: song.m4a is the uncommitted new file, bak is the good one.
     quietly(() => unlinkSync(audio));
     quietly(() => renameSync(backup, audio));
     quietly(() => unlinkSync(manifestPath));
@@ -377,9 +376,9 @@ function applyManifest(
     return;
   }
 
-  // No bak. `had_old` is the only thing that says which file song.mp3 is.
+  // No bak. `had_old` is the only thing that says which file song.m4a is.
   if (manifest?.had_old === true) {
-    // Step 3 had not run: song.mp3 is the untouched previous file. Keep it.
+    // Step 3 had not run: song.m4a is the untouched previous file. Keep it.
     quietly(() => unlinkSync(manifestPath));
     report.oldFileKept++;
     return;
