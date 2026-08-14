@@ -1,6 +1,6 @@
 # v0.3.0 子计划：m4a 统一 + 一次性迁移 + PC 改进三项
 
-> 2026-08-13 **v3（九轮评审定稿）**。上级契约 = 主计划 `2026-08-13-m4a-and-mobile-master-plan.md`（**v11**）§3——其中 §3.2 状态机为锁定项，本子计划只补实现细节，任何语义出入以主计划为准。**Go 迁移自 0.3.0 停止支持且直接删除实现**（用户拍板，见 §2.3）。
+> 2026-08-13 **v3（九轮评审定稿）**；2026-08-14 T2 开工时补 **§9 附表 A（错误分型映射表，冻结）**——§2.2 承诺的那张表，先于 converter 落地。上级契约 = 主计划 `2026-08-13-m4a-and-mobile-master-plan.md`（**v11**）§3——其中 §3.2 状态机为锁定项，本子计划只补实现细节，任何语义出入以主计划为准。**Go 迁移自 0.3.0 停止支持且直接删除实现**（用户拍板，见 §2.3）。
 >
 > 实施按 T0–T6 分批，每批提交前给用户看 commit 信息；`PROCESS.md` 记录逐批实测。
 
@@ -181,3 +181,54 @@
 ## §8 参考
 
 主计划 **v11** §3（契约）；`PROCESS.md`（逐批记录落此）；M7 供应链记录 `2026-08-08-m7-packaging.md` §3.0/§8；M3 管线记录 `2026-08-04-m3-download-pipeline.md`。
+
+---
+
+## §9 附表 A：错误分型映射表（T2 冻结，2026-08-14）
+
+§2.2 允诺的那张表。它决定「什么时候可以删掉用户的 mp3」，所以先于 converter 落地：实现 = `core/src/migration/error-class.ts`，逐行判据 = `error-class.test.ts`，其中**内容类每一行都由真实 vendored ffmpeg 跑真实损坏 mp3 产出**（`@lark/core/testing` 的 `damageMp3()` 从 tracked 的 `scripts/fixtures/tone-1s.mp3` 派生五种损坏形态），不是手写的 `new Error('Invalid data found')` 自证。
+
+### A.1 四路输入信号
+
+| 信号 | 来源 | 为什么不能少 |
+|---|---|---|
+| **调用方 AbortSignal** | converter 自己持有的那个 | 唯一能把「取消」和「超时」分开的东西——两者从 `withTimeout` 出来长得**一模一样**（都是 AbortError，wrapper 文案都是 `cancelled or timed out`） |
+| **errno**（cause 链上的 `code` 字符串） | spawn 失败 / fs 调用 | 机器的问题与文件的问题的分界线 |
+| **失败步骤** | 调用点传入 | `convert`（探测/转码/验证）vs `file_action`（unlink/rename/move）。同一个 EACCES 在前者是「装个能用的 ffmpeg」，在后者是「这一首的目录不可写」，后者绝不该停整个 pass |
+| **ffmpeg 退出码 + stderr** | execFile 的 `code`（数字）与 `stderr` | 只有真的跑起来并非零退出的进程，它说的话才作数 |
+
+### A.2 判定顺序（严格 → 宽松，命中即止）
+
+| # | 条件 | 分型 | 处理 |
+|---|---|---|---|
+| 1 | 调用方 signal 已 abort | **abort** | 非终态回 pending、保留 mp3、清 tmp，续跑 |
+| 2 | `MediaToolsUnavailableError` | **environment** | 工具在碰任何文件之前就不可用 |
+| 3 | errno ∈ `ENOSPC EDQUOT EROFS EIO ENOMEM EMFILE ENFILE EFBIG`（**两个步骤都算**） | **environment** | 磁盘满不因为「碰巧在 rename 时冒出来」就降格成单曲问题 |
+| 4 | 步骤 = `file_action`（其余一切，含 EACCES/EPERM/EBUSY/ENOTEMPTY/EXDEV/ENOENT 与无 errno 的失败） | **file_action** | 该行 `blocked` + 记 `blocked_action`，人工处理后续跑 |
+| 5 | 步骤 = `convert` 且有 errno（spawn 从没变成进程：ENOENT/EACCES/…） | **environment** | 二进制不在或不可执行 |
+| 6 | stderr 命中**环境 pattern** | **environment** | 见 A.3，**必须先于内容 pattern 查** |
+| 7 | 有数字退出码 **且** stderr 命中**内容 pattern** | **content** | 按 class 分流：R → 弃置前探活；A → 移 backup |
+| 8 | 其余（含超时、`ffprobe output was not JSON` 这类没有退出码的自家失败） | **environment** | 分不清就停下、不动文件 |
+
+不变量：**误判成 environment 的代价是一次重试，误判成 content 的代价是一首歌**。所以默认值只能是 environment，且 4 在 5 之前、6 在 7 之前。
+
+### A.3 pattern 清单（小写后子串匹配）
+
+**环境**（先查）：`no space left on device` · `permission denied` · `read-only file system` · `input/output error` · `too many open files` · `cannot allocate memory` · `disk quota exceeded` · `unknown encoder` · `unknown decoder` · `unknown muxer` · `unknown demuxer` · `not found for input stream` · `encoder not found` · `unable to find a suitable output format` · `requested output format` · `bitstream filter`
+
+> 后六条是**能力缺失**：profile 里没有它需要的解码器，那是坏掉的 lark，不是坏掉的歌。
+
+**内容**（后查，且要求有数字退出码）：`invalid data found when processing input` · `failed to find two consecutive mpeg audio frames` · `could not find codec parameters` · `header missing` · `error while decoding` · `moov atom not found` · `failed to read frame size` · `does not contain any stream` · `end of file`
+
+### A.4 两条实测（**都改变了设计**）
+
+1. **ffmpeg 的退出码看不见截断**。拿 tone-1s.mp3 截到 12000/25748 字节喂进去：ffmpeg 打一行解码抱怨、**退出码 0**、写出一个完全合法的 m4a——里面是 **0.47 秒**（原 1.0 秒）。中段刷成 `0xff` 的那份同理：退出 0，**0.29 秒**。只信退出码的迁移会 unlink 掉 mp3 并留下三分之一首歌。⇒ 「验证 m4a」必须查**时长**，判据 5（R 类坏 mp3 → lost）也因此不能只靠 ffmpeg 报错触发。
+2. **环境错误会连带打印解码噪声**。转码中途磁盘满，stderr 里既有 `No space left on device` 也有 `Header missing`——先查哪张表决定这首歌的 mp3 会不会被删。⇒ 环境 pattern 必须先查（规则 6 先于 7），且这条有专门的回归测试。
+
+### A.5 「验证 m4a」的定义（协调表全表引用它）
+
+实现 = `core/src/migration/verify.ts` 的 `assessCanonicalAudio(probe, expected)`，五条全过才算有效：
+
+1. 有音频流 · 2. codec = `aac` · 3. 容器属 mp4 族 · 4. **时长 > 0**（为 0 = moov 没写成，是中断run 的残骸）· 5. `时长 + 容差 ≥ expected`，容差 = `max(0.25 秒, expected × 1%)`
+
+**只拦缩短，不拦变长**——AAC 编码器加 priming 采样，产物比源长一点点是正常的。`expected` 的来源按现场取：转换时是源 mp3 的探测时长；重启后「mp3 无、m4a 在」时是曲库行的 `duration`；两者都没有就传 `null` 跳过第 5 条（前四条仍查）。

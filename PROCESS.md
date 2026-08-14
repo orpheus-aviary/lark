@@ -173,6 +173,12 @@
 
 主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
 
+**当前状态（2026-08-14）**：T0a / T1 / T1b 已完成并提交（`2c7ff08` `38b1fe8` `175ccad` `ffe82c7` `f25d765`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`，vendored ffmpeg 零外部库、不能再产 mp3。**T2 已开工**（T2a 错误分型表已落，见下）。
+
+**T2（迁移 core）剩余顺序**：0003 迁移（pending 与 `user_version=3` 同事务）+ ledger 建表 + schema 契约三调用点 → **Go 迁移实现整体删除** → `migration-backup/` 路径与 recovery 版本化（含 legacy 全表夹具）→ scanner（`object_key` 主键、含孤儿）→ converter（状态机 + 协调表逐行夹具）。
+
+**T2 开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
+
 - [x] **T0a 供应链前半**（2026-08-13）— 先入库 mp3 夹具，再给 vendored ffmpeg 加 AAC 编码器与 ipod 封装器，**LAME 暂留**（生产 `ensureMp3` 要到 T1 才切 m4a，先删就是断链）
   - **`scripts/fixtures/tone-1s.mp3` 入库**（25748 字节，sha256 `25d43ca2…`）：`toneWav(1)` → 当前 vendored ffmpeg 的 libmp3lame，参数与彼时的 `ensureMp3()` 逐字一致（192k / 44.1kHz / `-f mp3`），所以它就是「0.2.x 写进 `songs/<id>/song.mp3` 的那种文件」——迁移链闭环拿它当输入。同一构建跑两次字节相同（实测）。**顺序不可倒**：T1b 删掉 LAME 之后本仓再没有任何 mp3 编码器，配方就只剩历史价值。来历与 sha256 记在新增的 `scripts/fixtures/README.md`
   - **lock 增量**：`--enable-encoder='aac,libmp3lame'`、`--enable-muxer='ipod,mp3'`、decoder 补 `pcm_u8,pcm_s24le,pcm_s32le`（§4-a 的 WAV 支持面，**一次改完只重建一次**；对应的「各配真实样本 gate」随 T4 导入矩阵落）。`build_script_version` → 2
@@ -198,6 +204,12 @@
   - gen-notices 文案「转成 mp3」→「转成 m4a」（FFmpeg 段现在只列 FFmpeg 一个库）· README「外部库只有 LAME」→「无任何外部库」· justfile 注释同步 · `scripts/fixtures/README.md` 的配方改成「来历记录，已跑不动」
   - **gate**：`just fetch-ffmpeg --force` 重建后三条闭环全绿（configure 与锁值逐字节一致、无 nonfree）· 全仓无 mp3 产出调用（rg 只剩注释与「模拟一台有 libmp3lame 的机器」的测试桩）· `just check` · `just test` **2115**（core 829）· **`just accept-m5` 22/22**——真实 bilibili 下载走 copy remux，**导入的 mp3 在没有任何 mp3 编码器的工具链上转成了 m4a**
   - 产物 4.5MB（ffmpeg 2,369,480 + ffprobe 2,175,736），与带 LAME 时基本持平；NOTICE 重新生成后 FFmpeg 段只剩一个库
+- [x] **T2a 错误分型映射表 + 夹具**（2026-08-14）— 子计划要求 T2 的第一个提交是**表**而不是代码，理由是这张表决定「什么时候可以删掉用户的 mp3」。落地 = 子计划新增 **§9 附表 A**（四路信号 / 八条判定顺序 / 两张 pattern 清单）+ `core/src/migration/{error-class,verify}.ts` + 36 条判据，**内容类每一条都由真实 vendored ffmpeg 跑真实损坏 mp3 产出**（`damageMp3()` 从 tracked 的 `tone-1s.mp3` 派生 `unreadable`/`truncated`/`scrambled`/`junk`/`empty`；单元测试破例用 `scripts/fixtures/` 是因为 T1b 之后本仓再没有能造 mp3 的东西，README 已记）
+  - 🐛 **ffmpeg 的退出码看不见截断（实测，改了设计）**：把夹具截到 12000/25748 字节喂进去——ffmpeg 打一行解码抱怨、**退出码 0**、写出完全合法的 m4a，里面只有 **0.47 秒**（原 1.0 秒）；中段刷 `0xff` 的那份是退出 0 / **0.29 秒**。只信退出码的迁移会 unlink 掉 mp3 再留下三分之一首歌。于是「验证 m4a」定义成 `assessCanonicalAudio()` 的五条（有音频流 · aac · mp4 族 · **时长 > 0** · **时长 + 容差 ≥ 源时长**，容差 `max(0.25s, 1%)`，只拦缩短不拦变长——AAC 的 priming 采样本来就让产物略长）
+  - 🐛 **环境错误会连带打印解码噪声**：转码中途磁盘满，stderr 里 `No space left on device` 与 `Header missing` 同时在场，先查哪张表就决定这首歌会不会被删——**环境 pattern 必须先于内容 pattern**，专门配了回归测试
+  - **超时不是中止**：两者从 `withTimeout` 出来长得一模一样（都是 AbortError，wrapper 文案都是 `cancelled or timed out`），唯一能分开它们的是**调用方自己的 signal**。取消 → 回 pending 续跑；超时 → 环境类、停 pass、不动文件
+  - **同一个 errno 按步骤分流**：`convert` 步的 EACCES 是 spawn 失败（环境，装个能用的 ffmpeg），`file_action` 步的 EACCES 是这一首的目录（`blocked`，不停整个 pass）；而 `ENOSPC`/`EROFS`/`EIO` 这类**两个步骤都算环境**——磁盘满不因为碰巧在 rename 时冒出来就降格
+  - gate：`just check` · `just test` **2151**（core 865）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

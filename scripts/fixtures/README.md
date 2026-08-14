@@ -2,7 +2,9 @@
 
 `just fetch-ffmpeg` 与 `just accept-pack` 的闭环判据要的是**真容器**——被测的是我们即将分发的那两个二进制，所以输入不能是被测对象自己造的。这里的文件因此入库（tracked），二进制不入库。
 
-单元测试**不用**这里的文件：最小 LGPL profile 没有 lavfi，测试用 `@lark/core/testing` 的 `toneWav()`（纯 Node 写 44 字节头 + 正弦）现造 WAV。
+单元测试原则上**不用**这里的文件：最小 LGPL profile 没有 lavfi，测试用 `@lark/core/testing` 的 `toneWav()`（纯 Node 写 44 字节头 + 正弦）现造 WAV。
+
+**唯一的例外是 0.3.0 的音频迁移**（`core/src/migration/`）：它的输入就是 mp3，而 T1b 删掉 LAME 之后本仓再没有任何东西能造一个。`@lark/core/testing` 的 `readToneMp3()` / `damageMp3()` 因此读下面的 `tone-1s.mp3` 并派生五种损坏形态（`unreadable` / `truncated` / `scrambled` / `junk` / `empty`）——损坏配方写在代码里，字节偏移量是绝对值，因为夹具本身按 sha256 冻结。
 
 | 文件 | 内容 | sha256 |
 |---|---|---|

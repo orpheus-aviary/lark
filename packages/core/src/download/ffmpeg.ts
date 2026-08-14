@@ -161,11 +161,11 @@ function text(value: unknown): string {
 // ─── Conversion ────────────────────────────────────────
 
 /** Canonical audio is AAC in an MP4 (`-f ipod`), always. */
-export const CANONICAL_BITRATE = '192k';
+const CANONICAL_BITRATE = '192k';
 /** Above this, resample. AAC handles more; nothing in this library needs it. */
-export const MAX_SAMPLE_RATE = 48_000;
+const MAX_SAMPLE_RATE = 48_000;
 /** Above this, downmix. Same reasoning. */
-export const MAX_CHANNELS = 2;
+const MAX_CHANNELS = 2;
 
 export type AudioConversionMode =
   /** Already AAC in an MP4: rewrap, byte-identical audio. */
@@ -208,14 +208,13 @@ export function planAudioConversion(probe: AudioProbe): AudioConversionPlan {
     throw new FfmpegError(`没有找到音频流（容器 ${probe.container || '未知'}）`);
   }
   const map = ['-map', `0:${probe.selected_stream_global_index}`];
-  const containers = probe.container.split(',');
 
-  if (probe.codec === 'aac' && containers.some((c) => MP4_FAMILY.has(c))) {
+  if (probe.codec === 'aac' && isMp4Container(probe.container)) {
     return { mode: 'copy', args: [...map, '-c', 'copy', ...CANONICAL_OUTPUT] };
   }
   // A raw ADTS stream copies fine, but MP4 wants the codec configuration in
   // the sample entry rather than in every frame header — that is the filter.
-  if (probe.codec === 'aac' && containers.includes('aac')) {
+  if (probe.codec === 'aac' && probe.container.split(',').includes('aac')) {
     return {
       mode: 'copy-adts',
       args: [...map, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', ...CANONICAL_OUTPUT],
@@ -236,7 +235,18 @@ export function planAudioConversion(probe: AudioProbe): AudioConversionPlan {
   };
 }
 
-const MP4_FAMILY = new Set(['mp4', 'm4a', 'mov', '3gp', '3g2']);
+const MP4_FAMILY: ReadonlySet<string> = new Set(['mp4', 'm4a', 'mov', '3gp', '3g2']);
+
+/**
+ * Is this `format_name` the MP4 family — the container canonical audio lives
+ * in, and the one an AAC stream can be rewrapped into rather than re-encoded?
+ *
+ * `format_name` is the demuxer's whole list (`mov,mp4,m4a,3gp,3g2,mj2`), never
+ * one name, which is why nothing here compares strings whole.
+ */
+export function isMp4Container(format: string): boolean {
+  return format.split(',').some((c) => MP4_FAMILY.has(c));
+}
 
 /**
  * Write `outputPath` as canonical audio, copying when that is possible.

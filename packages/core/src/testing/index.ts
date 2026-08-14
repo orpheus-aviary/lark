@@ -7,4 +7,5 @@
 export * from '../db/fixture-go-db.js';
 export * from './fake-media-tools.js';
 export * from './fake-upstream.js';
+export * from './mp3-fixture.js';
 export * from './tone-wav.js';
