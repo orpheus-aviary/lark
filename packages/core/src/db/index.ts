@@ -12,6 +12,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { GoMigrationRequiredError, IncompatibleDbError } from '../errors.js';
 import type { Logger } from '../logger/index.js';
+import { clearAudioMigrationPending } from '../migration/pending.js';
 import {
   LATEST_KNOWN_VERSION,
   applyForwardMigrations,
@@ -19,7 +20,7 @@ import {
   isSchemaEmpty,
 } from './migrate.js';
 import { recoverFromMigrationResidue } from './recovery.js';
-import { assertSchemaV2 } from './schema-signature.js';
+import { assertCurrentSchema } from './schema-signature.js';
 import * as schema from './schema.js';
 
 export type LarkDatabase = ReturnType<typeof drizzle<typeof schema>>;
@@ -44,7 +45,10 @@ export interface DatabaseHandles {
  *   v == 0 && Go legacy fingerprint           -> GoMigrationRequiredError
  *   v == 0 && anything else non-empty         -> IncompatibleDbError (refuse)
  *   0 < v < LATEST                            -> forward migrations
- *   v == LATEST                               -> assertSchemaV2, open
+ *   v == LATEST                               -> assertCurrentSchema, open
+ *
+ * A database this call created from nothing also leaves with the audio
+ * migration flag cleared — see the forward-migration branch.
  *
  * The `>LATEST` check must precede the v==0 handling, or a future db would be
  * misread as brand new. Any throw past the open closes the handle (no fd /
@@ -70,7 +74,8 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandles {
     if (v > LATEST_KNOWN_VERSION) {
       throw new IncompatibleDbError(dbPath, v, LATEST_KNOWN_VERSION);
     }
-    if (v === 0 && !isSchemaEmpty(sqlite)) {
+    const brandNew = v === 0 && isSchemaEmpty(sqlite);
+    if (v === 0 && !brandNew) {
       if (isGoLegacyDb(sqlite)) {
         throw new GoMigrationRequiredError(dbPath);
       }
@@ -83,10 +88,20 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandles {
 
     if (v < LATEST_KNOWN_VERSION) {
       applyForwardMigrations(sqlite, v, LATEST_KNOWN_VERSION);
+      // 0003 marks every library reaching v3 as owing the audio migration,
+      // because it cannot know whether `songs/` holds mp3 files. This one was
+      // created from nothing by the call above, so it cannot: clear the flag
+      // and let a fresh daemon — or a fresh `--direct` write — work at once.
+      //
+      // A crash between 0003's commit and this line leaves the flag set on an
+      // empty library, which costs one scan of an empty directory. The reverse
+      // ordering would risk a v3 library whose mp3 files nobody ever converts,
+      // so the window is deliberately on this side (master plan §3.2-2).
+      if (brandNew) clearAudioMigrationPending(sqlite);
     } else {
       // v == LATEST: don't trust the number alone (T3 — one definition of the
       // current schema, raised to v2 by the sync activation migration).
-      assertSchemaV2(sqlite, dbPath);
+      assertCurrentSchema(sqlite, dbPath);
     }
 
     ensureDeviceUuid(sqlite, logger);

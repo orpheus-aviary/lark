@@ -5,10 +5,11 @@
 
 import * as m0001 from './0001-init.js';
 import * as m0002 from './0002-sync-activation.js';
+import * as m0003 from './0003-audio-m4a.js';
 
 export interface Migration {
   readonly version: number;
   readonly sql: string;
 }
 
-export const MIGRATIONS: readonly Migration[] = [m0001, m0002];
+export const MIGRATIONS: readonly Migration[] = [m0001, m0002, m0003];

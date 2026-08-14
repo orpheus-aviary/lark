@@ -46,7 +46,8 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 - **`songFileInfo(id, { audioMode })` 的 mode 必须显式传**：`canonical` 只认 m4a，`migration-pending` 才兼容 legacy mp3。路径函数不读 DB——谁知道自己的库在不在迁移期，谁负责传
 - **0.3.0 开发版打开 0.2.x 曲库 = 所有歌都「没有文件」**（只认 `song.m4a`）：迁移落地前这是预期行为，也是开发期只用副本的又一条理由
 
-⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它（`user_version > LATEST`），0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
+🚨 **T2c 起开发版会把曲库升到 schema v3（单向）**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`，而**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`）。0.3.0 发版前，真实曲库一旦被误升就只能用开发版打开。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
+⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它，0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。
 ⚠️ **曲库内容已变（2026-08-13 实测）**：不再是「21 首 / 4 歌单、20 首 Go 迁移 imported」——用户当天清库重下，现为 **7 首全 `downloaded` / 1 个歌单 / 0 首 imported**。`accept-m5` 已改成自造 imported 夹具（不再借用户的库，22/22 复跑通过）；但**迁移判据 33 的 A 类（imported）在真实库里已无样本**，要测 A 类分支得自己造。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。

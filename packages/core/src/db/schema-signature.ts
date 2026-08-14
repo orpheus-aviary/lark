@@ -1,18 +1,24 @@
-// The ONE definition of "a valid schema v2" (T3, raised from v1 in v0.2 T0).
-// Four call sites share it — createDatabase's ==LATEST path, the read-only
-// open, the crash-recovery validation, and the Go migration (already-migrated
-// short-circuit + pre-swap acceptance on the freshly built temp db). They must
-// never drift into four private ideas of the current schema: a db that lost
-// its sync tables would pass a four-table check today and explode on the first
-// login.
+// The ONE definition of "the current schema" (T3; v1 → v2 in v0.2 T0, v2 → v3
+// in 0.3.0). Three call sites share it — createDatabase's ==LATEST path, the
+// read-only open, and the crash-recovery validation (the Go migration was a
+// fourth until 0.3 deleted it). They must never drift into private ideas of
+// the current schema: a db that lost its sync tables would pass a four-table
+// check today and explode on the first login.
 //
-// The name carries the version on purpose. Bumping LATEST_KNOWN_VERSION should
-// break every call site until somebody has decided what the new signature is.
+// The name used to carry the version (`assertSchemaV2`), so that bumping
+// LATEST_KNOWN_VERSION broke every call site until somebody decided what the
+// new signature was. Three versions in, that rename is churn across every
+// caller which proves nothing on its own. What replaces it is stronger and
+// automatic: `schema-signature.test.ts` migrates a database from zero and
+// asserts this list names EVERY table the chain created — a migration that
+// adds a table and forgets this file now fails there, without anyone having
+// to remember a renaming ritual.
 
 import type BetterSqlite3 from 'better-sqlite3';
 import { SchemaMismatchError } from '../errors.js';
 
-const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
+/** Exported for the completeness test, which is what keeps this list honest. */
+export const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   songs: [
     'id',
     'name',
@@ -88,6 +94,23 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
     'recorded_at',
   ],
   sync_binding: ['id', 'server_id', 'user_id', 'workspace_id', 'schema_version', 'bound_at'],
+  // v3: the one-time audio migration's ledger. Keyed by the directory name
+  // under songs/, not by song_id — see 0003.
+  audio_migration: [
+    'object_key',
+    'song_id',
+    'class',
+    'file_origin',
+    'source_key_present',
+    'status',
+    'blocked_action',
+    'resume_state',
+    'error_class',
+    'last_error',
+    'backup_path',
+    'reconcile_action',
+    'at',
+  ],
   conflict_record: [
     'id',
     'entity_type',
@@ -158,6 +181,7 @@ const REQUIRED_INDEXES: readonly IndexRequirement[] = [
   { name: 'idx_sync_file_ops_song', fragments: ['create index'] },
   { name: 'idx_sync_dead_letters_recent', fragments: ['create index'] },
   { name: 'idx_conflict_unresolved', fragments: ['where resolved_at is null'] },
+  { name: 'idx_audio_migration_status', fragments: ['create index'] },
 ];
 
 function normalizeSql(sql: string): string {
@@ -172,12 +196,12 @@ function tableSql(sqlite: BetterSqlite3.Database, table: string): string {
 }
 
 /**
- * Assert the connected database carries the full schema v2: all 11 tables with
- * their required columns, the definition-relevant indexes (UNIQUE / partial
+ * Assert the connected database carries the current schema: every table above
+ * with its required columns, the definition-relevant indexes (UNIQUE / partial
  * WHERE verified, not just the name), and the load-bearing CHECKs.
  * Throws SchemaMismatchError with the first discrepancy.
  */
-export function assertSchemaV2(sqlite: BetterSqlite3.Database, dbPath: string): void {
+export function assertCurrentSchema(sqlite: BetterSqlite3.Database, dbPath: string): void {
   for (const [table, cols] of Object.entries(REQUIRED_COLUMNS)) {
     const info = sqlite.pragma(`table_info(${table})`) as { name: string }[];
     if (info.length === 0) {

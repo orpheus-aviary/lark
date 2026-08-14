@@ -9,7 +9,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { DestructiveForwardMigrationError, ForwardMigrationError } from '../errors.js';
 import { MIGRATIONS, type Migration } from './migrations/index.js';
 
-export const LATEST_KNOWN_VERSION = 2;
+export const LATEST_KNOWN_VERSION = 3;
 
 /**
  * Inspect the first ~40 lines of a migration's SQL for the destructive

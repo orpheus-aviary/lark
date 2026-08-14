@@ -16,7 +16,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SchemaMismatchError } from '../../errors.js';
 import { createDatabase } from '../index.js';
-import { applyForwardMigrations } from '../migrate.js';
+import { LATEST_KNOWN_VERSION, applyForwardMigrations } from '../migrate.js';
 import * as m0001 from './0001-init.js';
 
 let dir: string;
@@ -72,7 +72,7 @@ describe('0002 — fresh database', () => {
   it('creates the four sync tables and seeds the backfill generations', () => {
     const { sqlite } = createDatabase({ dbPath: ':memory:' });
     try {
-      expect(sqlite.pragma('user_version', { simple: true })).toBe(2);
+      expect(sqlite.pragma('user_version', { simple: true })).toBe(LATEST_KNOWN_VERSION);
       for (const table of [
         'sync_tombstones',
         'sync_file_ops',
@@ -189,7 +189,7 @@ describe('0002 — upgrading a v0.1 library in place', () => {
 
     const { sqlite } = createDatabase({ dbPath: dbPath() });
     try {
-      expect(sqlite.pragma('user_version', { simple: true })).toBe(2);
+      expect(sqlite.pragma('user_version', { simple: true })).toBe(LATEST_KNOWN_VERSION);
       expect(count(sqlite, 'songs')).toBe(1);
       expect(count(sqlite, 'playlists')).toBe(1);
       expect(count(sqlite, 'playlist_songs')).toBe(1);

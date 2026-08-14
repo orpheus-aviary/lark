@@ -216,6 +216,13 @@
   - **writer lock 从四方变三方**（daemon / `--direct` 写 / backup-nest）：`writer-lock.test.ts` 里三条 migrate-go 用例删除，其中「拒绝未知 v0 库时字节不变」这条属性由 `createDatabase` 自己的字节级断言继续覆盖。CLAUDE.md / DESIGN.md 的「四方共守」同步
   - **`createConsoleLogger` 顺手删了**（F16 的第一项）：审计时报「零调用」，其实唯一的调用者是 `scripts/migrate-go.mjs`（.mjs 不在 TS 扫描面内）——这次连调用者一起没了
   - gate：`just check` · `just test` **2130**（core 844，−21）
+- [x] **T2c schema v3：0003 + ledger + 契约**（2026-08-14）— `LATEST_KNOWN_VERSION` **2 → 3**；`0003-audio-m4a` 建 `audio_migration` ledger（主键 `object_key` = `songs/` 下的目录名，**`song_id` 可空且无外键**——旧 file-op 可能指向已删的歌，孤儿目录甚至不是 UUID，拿 song_id 当主键要么丢这些行要么给它们编造曲库条目）+ 置 `audio_migration_pending`
+  - **flag 与 `user_version=3` 同一事务**：`applyForwardMigrations` 本来就把 SQL 和版本戳一起提交，所以 flag 写在**迁移 SQL 里**而不是之后一条语句——否则存在「已是 v3、还没标 pending」的窗口，死在里面的库下次会以普通 v3 打开，它的 `song.mp3` 从此没人再看一眼。配了反向测试：给 0003 尾部接一条必然失败的语句，断言版本戳、flag、ledger 表**一起回滚**
+  - **反方向的窗口留在 `createDatabase`**：全新库（v0 且 schema 空）跑完链条后立刻清 flag，崩在「commit 后、clear 前」只让下次多扫一次空目录。方向永远是多迁不漏迁，两条都有测试
+  - **`assertSchemaV2` → `assertCurrentSchema`**（三调用点：create / readonly / recovery）。以前靠「改名逼所有调用点红」来保证有人重新想过签名，三个版本下来那只是 churn；换成**新增 `schema-signature.test.ts` 的完整性判据**：拿全新迁移链建库，断言 `REQUIRED_COLUMNS` 的键**恰好等于**库里的用户表集合——以后加表忘了改签名，会在这里红，不必再记得改名仪式
+  - 🚨 **从这一批起，开发版碰 v2 库就会把它单向升到 v3**（dev daemon / `--direct` 写 / 测试指错 `LARK_NEST_DIR` 都算），而装在 `/Applications` 的 0.2.0 从此拒绝打开它。CLAUDE.md 顶部的警告已升级成 🚨
+  - **中间态（T3 补齐）**：daemon 还没有 pending 门与 runner，所以此刻 v2 库升上来之后会**照常提供服务**，只是 `has_file` 全 false（只认 m4a）。`accept-cli` 的「复制后升一次级」夹具靠起 daemon 完成，T6 复核
+  - gate：`just check` · `just test` **2146**（core 860，+16）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

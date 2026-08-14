@@ -238,7 +238,7 @@ describe('forward migration runner', () => {
   });
 });
 
-describe('assertSchemaV2 via the ==LATEST open path', () => {
+describe('assertCurrentSchema via the ==LATEST open path', () => {
   it('rejects a same-name UNIQUE index smuggled in for the plain one', () => {
     // The inverse of the v1 check, and it matters more: a UNIQUE index here
     // would make an inbound duplicate impossible to apply, which is a stuck
