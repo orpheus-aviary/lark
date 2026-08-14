@@ -37,21 +37,26 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，`core/src/migration/` 下的迁移能力（ledger / scanner / converter / preflight / 错误分型）齐了但**还没有人调用**——runner、pending 门、三层 boot、进度屏、CLI 口径全在 T3。当前测试 **2213**（core 927）。
+🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）。当前测试 **2293**（shared 79 / core 937 / cli 401 / daemon 475 / gui 401）。下一批 **T4 导入矩阵**。
 
 ### v0.3.0 实测锁定（随批次追加）
 
 - **MP4 必须 `-movflags +faststart`**：默认索引（`moov`）写在音频之后，媒体元素经 HTTP 拿到这种文件连 duration 都报不出来（accept-gui 实测：唯一请求落在文件最后 0.1%）。判据要断言**真文件里 moov 在 mdat 之前**，别断言参数里有没有那个 flag
 - **媒体流与 API 必须分 session**：Chromium 每 origin 六条 socket，SSE + API + 每条 range 音频都指向 daemon 同一个 origin，播 m4a 时稳定占满——renderer 连 `/status` 都发不出去，表现成「daemon 重启后 GUI 不再注册」而音频一切正常。`lark-media://` 的上游走独立 partition（`session.fromPartition(…).fetch`）。**`net.fetch` 没有 session 选项**，多传一个字段类型检查不拦、运行时静默无效
 - **`songFileInfo(id, { audioMode })` 的 mode 必须显式传**：`canonical` 只认 m4a，`migration-pending` 才兼容 legacy mp3。路径函数不读 DB——谁知道自己的库在不在迁移期，谁负责传
-- **0.3.0 开发版打开 0.2.x 曲库 = 所有歌都「没有文件」**（只认 `song.m4a`）：迁移落地前这是预期行为，也是开发期只用副本的又一条理由
+- **0.3.0 开发版打开 0.2.x 曲库 = 当场开始转换**（T3 起）：升 schema v3 之后 daemon 就地跑迁移——mp3 变成 m4a，A 类原件搬进 `migration-backup/`，R 类的原件**删掉**。全程可见、可中断、不静默删（R 类坏文件要探活确认能重下才丢），但**它是不可逆的**，所以开发期只对副本操作这条比 T2 时更硬
 - **ffmpeg 的退出码看不见截断**（T2a 实测）：截断一半的 mp3 喂进去，ffmpeg 打一行抱怨、**退出 0**、写出完全合法的 m4a——里面只有 0.47/1.0 秒。所以「验证 m4a」必须查时长（`assessCanonicalAudio`：有音频流 · aac · mp4 族 · 时长 > 0 · 时长 + `max(0.25s, 1%)` ≥ 源时长，**只拦缩短不拦变长**，AAC priming 会让产物略长）
 - **错误分型的顺序是判据不是风格**（§9 附表 A）：环境 pattern 必须先于内容 pattern 查（磁盘满时 stderr 里两类消息同时在场）；超时不是中止（两者从 `withTimeout` 出来一模一样，**只有调用方自己的 signal** 能分开）；同一个 errno 按步骤分流（`convert` 的 EACCES = spawn 失败 = 环境，`file_action` 的 EACCES = 这一首 = blocked）；分不清一律环境。**误判成环境的代价是一次重试，误判成内容的代价是一首歌**
 - **迁移的恢复从磁盘读，不从 ledger 读**：协调表就是正向路径本身（每步先看目录里有什么、备份里有什么），唯一例外是 `discarding`——它记的是磁盘表达不了的「探活已经说过还能重下」。ledger 一律先写后做，所以崩溃后行永远比现实多说一点。**与主计划 §3.2-9 的偏离**：`blocked` 的重试不重放 `blocked_action` 而是重新判定（更保守，最坏多探活一次），`blocked_action` 是报告字段
 - **A 类的 `asset_missing` 压过一个完好的 m4a**：转换是有损的，它从来不是「被保住的那个东西」——mp3 没了、备份里也没有，就算 m4a 完全有效也绝不 done
 - **迁移的 scanner 走 `songs/` 目录树，不走曲库表**：0.2.x 库里有「行已删、file-op 还指着」的目录和崩溃留下的非歌目录，两种都握着 mp3。只给**持有 mp3** 的目录建 ledger 行（`total` = 工作量而非曲库大小）
+- **迁移期的 daemon 是「可达但不服务」**（T3）：三层 context = BaseContext（含 **bilibili**，因为弃置探活复用缓存清理那一个实现，两个 client = 对风控两个身份）+ **late-bound NormalRuntime**（读早了抛 `RuntimeNotReadyError`，不给 `undefined`）。gate 读**内存里的 phase**，不读 DB flag——flag 是在 activation **中间**清的；三个 preHandler 的顺序是契约（Host → Bearer → 迁移 gate，**401 先于 503**）。pass 在 `listen()` **之后**才起：没人能看见的迁移，和启动时卡死的 daemon 从外面看一模一样
+- **boot 先 drain file-op journal 再迁移**（T3a 实测）：所以「排队中的 op 占住目录」根本占不住——它会被执行掉、连歌一起带走。**只有 attempts 到顶的永久失败 op 才是真路障**，造这种夹具必须自己把 attempts 写到上限
+- **清空迁移备份的四道锁**（判据 51/61）：不在白名单（迁移期直接 503）· 要 `confirm: true` · 走迁移 mutex · **core 删的是目录本身而不是 ledger 里的路径**——逃逸因此结构上不可能。顺序上 **ledger 先忘记备份、文件后删**：崩溃留下的两种谎里，「没有备份」而文件还在只值一次重跑，「原件安全地躺在备份里」而它已经没了要赔一个文件
+- **GUI 在挂载 App 之前就得知道 daemon 服不服务**：迁移期业务路由全 503，而 `App` 一挂载就有五个 store 去 fetch，所以门开在 `App` 外面（`BootGate` 探 `/status`）。**探不到的 daemon 不是正在迁移的 daemon**——落回正常 app，卡在探测上只会把「daemon 正在启动」变成一个空窗口
+- **被销毁的 BrowserWindow 仍是一个正常 JS 对象**（T3 演练时抓到的老缺陷）：`!== null` 判活会在窗口被销毁后（渲染进程被杀、teardown 挨 SIGTERM）让下一次 dock 点击对尸体调 `show()`，未捕获异常打死 app 并**留下一个关不掉的错误弹框**。收敛成 `main/window-ref.ts` 的 `WindowRef`：**每次用的时候问 `isDestroyed()`，不记**；`closed` 只是顺带清引用，且旧窗口的事件不许清掉新窗口
 
-🚨 **T2c 起开发版会把曲库升到 schema v3（单向）**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`，而**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`）。0.3.0 发版前，真实曲库一旦被误升就只能用开发版打开。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本，**起 GUI 后先用 `/api/instance` 验 `nest_dir` 再登录**。
+🚨 **T2c 起开发版会把曲库升到 schema v3（单向），T3 起还会当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它，0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。
 ⚠️ **曲库内容已变（2026-08-13 实测）**：不再是「21 首 / 4 歌单、20 首 Go 迁移 imported」——用户当天清库重下，现为 **7 首全 `downloaded` / 1 个歌单 / 0 首 imported**。`accept-m5` 已改成自造 imported 夹具（不再借用户的库，22/22 复跑通过）；但**迁移判据 33 的 A 类（imported）在真实库里已无样本**，要测 A 类分支得自己造。
 

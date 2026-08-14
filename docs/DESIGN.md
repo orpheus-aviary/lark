@@ -87,6 +87,9 @@ CLI 是 daemon 的第二个前端，也是**唯一可以在没有 daemon 时读�
   **mkdir → 取锁 → 开库**，所以一个空 nest 也能被 CLI 初始化出来。
 - **读路径零写入**：只读开库不取任何锁、不建库、不改 journal 模式，因此在 daemon 运行时、
   备份复制期、迁移进行中都安全。R31 只挡写：**daemon 存活时 `--direct` 写一律拒绝，无逃生门**。
+  0.3.0 起还多一条：**欠着音频迁移的库不接受任何 `--direct` 写**（`AUDIO_MIGRATION_PENDING`），
+  因为那段时间它只有一个合法写者——迁移本身；读照常，且 `has_file` 会按 pending 标记同时认
+  `song.m4a` 与 legacy `song.mp3`，否则没轮到的歌会被谎报成「需要下载」。
 - **身份五态**：`GET /status` 公开 `nest_fingerprint`（`SHA-256(realpath(lark 目录))`）+
   `local_api_version`，探测端据此分 current / absent / other-nest / same-nest-incompatible /
   occupied-unverifiable。指纹只泄露「路径是否相同」，绑 127.0.0.1 + Host 白名单下接受。

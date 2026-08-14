@@ -197,26 +197,25 @@ export type AudioMigrationState =
  * What the pass did with one object, as the ledger's CHECK constraint spells
  * it. Declared here rather than in core so the daemon, the CLI and the GUI
  * share one spelling with the table (0.3.0 §3.2-8).
+ *
+ * A type, not a `readonly []` like `SYNC_FILE_OP_STATES`: nothing validates an
+ * incoming status against this set — the values only ever come OUT of the
+ * ledger, whose CHECK constraint is the enforcement.
  */
-export const AUDIO_MIGRATION_STATUSES = [
-  'pending',
-  'converting',
-  'discarding',
-  'backing_up',
-  'done',
-  'lost',
-  'kept_unconverted',
-  'asset_missing',
-  'blocked',
-  'blocked_file_op',
-] as const;
-
-export type AudioMigrationStatus = (typeof AUDIO_MIGRATION_STATUSES)[number];
+export type AudioMigrationStatus =
+  | 'pending'
+  | 'converting'
+  | 'discarding'
+  | 'backing_up'
+  | 'done'
+  | 'lost'
+  | 'kept_unconverted'
+  | 'asset_missing'
+  | 'blocked'
+  | 'blocked_file_op';
 
 /** R = rebuildable, A = user asset, orphan = a directory with no library row. */
-export const AUDIO_MIGRATION_CLASSES = ['R', 'A', 'orphan'] as const;
-
-export type AudioMigrationClass = (typeof AUDIO_MIGRATION_CLASSES)[number];
+export type AudioMigrationClass = 'R' | 'A' | 'orphan';
 
 /** `GET /status`'s migration summary — counts, never paths. */
 export interface AudioMigrationCounts {

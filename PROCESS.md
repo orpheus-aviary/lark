@@ -173,11 +173,13 @@
 
 主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
 
-**当前状态（2026-08-14）**：T0a / T1 / T1b 已完成并提交（`2c7ff08` `38b1fe8` `175ccad` `ffe82c7` `f25d765`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`，vendored ffmpeg 零外部库、不能再产 mp3。**T2 已开工**（T2a 错误分型表已落，见下）。
+**当前状态（2026-08-14）**：**T0a / T1 / T1b / T2 / T3 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）。测试 **2293**（shared 79 / core 937 / cli 401 / daemon 475 / gui 401）。下一批 **T4 导入矩阵**。
 
-**T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。core 侧的迁移能力齐了，**还没有人调用它**——runner、pending 门、三层 boot、进度屏、CLI 口径都是 **T3**。
+**T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。
 
-**T2 开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
+**T3（daemon / GUI / CLI 接线）已完成**：T3a 三层 context + 阶段机 + runner → T3b 迁移三路由 + file-ops 白名单 → T3c GUI 迁移屏 + 设置页备份区块 → T3d CLI 口径。判据 15–22、51、59、61 已落测试；**判据 54 不在 T3**（它是 §7 的 F3，属 T5b，子计划 §3 的 gate 列错了批次）。
+
+**开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
 
 - [x] **T0a 供应链前半**（2026-08-13）— 先入库 mp3 夹具，再给 vendored ffmpeg 加 AAC 编码器与 ipod 封装器，**LAME 暂留**（生产 `ensureMp3` 要到 T1 才切 m4a，先删就是断链）
   - **`scripts/fixtures/tone-1s.mp3` 入库**（25748 字节，sha256 `25d43ca2…`）：`toneWav(1)` → 当前 vendored ffmpeg 的 libmp3lame，参数与彼时的 `ensureMp3()` 逐字一致（192k / 44.1kHz / `-f mp3`），所以它就是「0.2.x 写进 `songs/<id>/song.mp3` 的那种文件」——迁移链闭环拿它当输入。同一构建跑两次字节相同（实测）。**顺序不可倒**：T1b 删掉 LAME 之后本仓再没有任何 mp3 编码器，配方就只剩历史价值。来历与 sha256 记在新增的 `scripts/fixtures/README.md`
@@ -246,6 +248,34 @@
   - **探活由 daemon 注入**（§4-h）：`canRedownload(sourceKey, signal)` 是缓存清理那一个实现（R26 同源），core 不反向依赖 daemon。**探活自己抛错 = 保留文件**——没网、被限流、响应异常，没有一样是删掉唯一副本的许可
   - **预检三项各自拦截**（判据 1）：能力清单 / 目录可写（真去建目录写一个字节，`access(W_OK)` 对只读挂载和满盘都会说通过）/ `free ≥ max(500MB, 最大单曲 × 3)`——三份是因为源文件、临时产物、备份可以同时存在；不做「整批预留」，那个估算不可能诚实（m4a 比 mp3 小）
   - gate：`just check` · `just test` **2213**（core 927）
+- [x] **T3a 三层 context + 阶段机 gate + runner**（2026-08-14，`05873c0`）— daemon 拆成 **BaseContext**（DB / config / logger / mediaTools / **bilibili** / token / 两条总线 / guiChannel）+ **NormalRuntime**（player / audioStreams / cacheLeases / cacheScheduler / downloads / sync / fileOps，**activation 时才构造**）。判定线不是「贵不贵」而是「白名单 handler 要不要」——`bilibili` 进 Base 是因为迁移的弃置探活复用缓存清理那一个实现（R26），而**一个进程两个 client = 对风控两个身份**
+  - **late-bound 字段读早了直接抛 `RuntimeNotReadyError`**，不是 `undefined`：gate 让这不可达，而一旦 gate 破了，我们要的是当场喊出来，而不是三层调用之后的「cannot read property of undefined」
+  - **gate 读内存里的 phase，不读 DB 那个 flag**：flag 是在 activation **中间**清掉的，逐请求读它会在「runtime 还没建好」的窗口里放开业务路由。三个 preHandler 的顺序是契约：Host → Bearer → 迁移 gate，**401 必须先于 503**（没有 token 的人不该知道这个库正在做什么）
+  - **pass 在 `listen()` 之后才起**（§3.2-3）：一个没人能看见的迁移，和一个启动时卡死的 daemon，从外面看一模一样
+  - 🐛 **boot 先 drain file-op journal 再迁移**——所以「排队中的 op 占住目录」根本占不住：它会被执行掉、连歌一起带走。**只有 attempts 到顶的永久失败 op 才是真路障**，子进程判据的夹具据此改写（第一版就是这么假绿的）
+  - **`onFinished` 自己幂等**：pass 跑第二次会再次到达完成态，而激活只有一次——把 guard 放在调用方，等于让别人替它记住
+  - gate：`just check` · `just test` **2243**（daemon 433→463：gate 16 + runner 12 + 子进程 2）
+- [x] **T3b 迁移三路由 + file-ops 白名单**（2026-08-14，`b910c32`）— `GET /api/audio-migration`（报告，**pending 清掉后仍可读**，ledger 就是那份记录）· `POST …/retry`（重新预检并继续，**kick 不 await**：一趟 pass 是分钟级而这是一个按钮，进度屏本来就在轮询）· `POST …/backup/clear`
+  - **清空备份四道锁**：不在白名单（迁移期直接 503——pass 还在往那个目录里搬文件）· 要 `confirm: true` · 走迁移 mutex · **core 删的是目录本身而不是 ledger 里的路径**，逃逸因此是结构上不可能而不是「查过了」。另配 `resolveBackupPath` 把越界的 `backup_path` 挡在计数与删除之外
+  - **ledger 先忘记备份，文件后删**：崩溃能留下两种谎，「没有备份」而文件还在只值一次重跑，「你的原件安全地躺在备份里」而它已经没了要赔一个文件
+  - **file-op 三端点进白名单**：一个放弃了的同步 op 占着歌曲目录，pass 碰不得，没有这扇门迁移永远完不成。它们是唯一**两个阶段都服务**的路由——按 phase 选执行器（pending 用迁移自己的，normal 用 `ctx.fileOps`），处理完 kick 一次 pass 重扫
+  - **core 多了一个窄 logger（`StructuredLogger`）**：`FileEffectRuntime` 与 converter 只调 `info`/`warn`，却要着 pino 的全表面，逼得 daemon 用自己的四方法 logger 时只能 cast
+  - gate：`just check` · `just test` **2264**（core 937 / daemon 474）
+- [x] **T3c GUI 迁移屏 + 设置页备份区块**（2026-08-14，`458e34f`）— 迁移期没有曲库可给：业务路由全 503，而 `App` 一挂载就有五个 store 去 fetch。所以门开在 `App` **外面**（`BootGate` 探 `/status`），三条出路里第三条最值得写下来：**探不到的 daemon 不是正在迁移的 daemon**——落回正常 app（M4 起它自己会处理离线），卡在探测上只会把「daemon 正在启动」变成一个空窗口
+  - **进度屏不只是进度条**：三种停法里有两种要人，两个入口都在这儿——`blocked_environment` 给原因 + 「重新检测并继续」，`blocked_file_op` 直接复用同步设置那份 retry/discard 列表
+  - **设置页「迁移备份」**：占用 / **其中不可再生的那部分**（`kept_unconverted` 的原件，其余都有 m4a 在旁边）/ 打开目录 / 清空（确认框点名那两个数）/ 「重新下载 N 首」（`lost` 的那些——它们是探活说过「还能重下」才被丢弃的）。**打开目录的 IPC 不收参数**：main 自己算那一个目录，收路径的版本等于一个起了好名字的「随便打开点什么」
+  - 🐛 **store 存报告前要验形状（真缺陷，本批修）**：`refreshReport` 原样存下 200 响应，而 settings 既有测试的桩对任何 URL 都回 config → `report.counts.total` 炸掉整个设置页，10 个既有测试同时红。**404 有 catch 兜着（0.2.x daemon 就是这样），形状不对的 200 没有**
+  - **进度条用原生 `<progress>`**：`role="progressbar"` 挂 div 上过不了 a11y lint（要求可聚焦），而补个 `tabIndex` 只是骗规则；原生元素自带语义、值不用三个 aria 属性同步，`accent-color` 一行就上了琥珀色
+  - gate：`just check` · `just test` **2286**（gui 379→396）
+- [x] **T3d CLI 口径**（2026-08-14，`8b3c9f6`）— `--direct` 写在 pending 时拒绝（`AUDIO_MIGRATION_PENDING`，exit 5），**检查放在 `createDatabase` 之后**：那一次调用正是把 0.2.x 库变成这个状态的人，而全新库不会中招（同一次调用会替它清掉 flag）。**拒绝时把写锁还回去**——攥着它等于让唯一能修好这个库的 daemon 起不来
+  - **读继续开着，但要问库「哪个名字算音频」**：迁移期没轮到的歌**有**音频（mp3），报 `has_file: false` 等于让用户去下载自己已经有的东西。mode 在 open 时读一次就够——它只会**放宽**判定，pass 中途跑完不会让答案变错
+  - **`lark status` 多一行**：它是迁移期唯一还工作的命令，所以「为什么别的命令都在 503」这句话属于它
+  - **判据 15 的另一半用子进程跑**：v1 landing manifest（没有 `version` 键）+ 它的 `.replace.<task>.bak`，磁盘上**没有** `song.mp3`——只有 boot 的 legacy recovery 能把它还原出来，然后同一次 boot 的扫描把它转掉。断言 `song.m4a` 存在，这条路径以外没有别的方式让它成立
+  - gate：`just check` · `just test` **2288**（cli 395→401 / daemon 475）
+- [x] **T3 真机演练**（2026-08-14）— 拿真实曲库的**副本**（`just backup-nest` → scratchpad）造齐五种状态：0 号 imported + 好 mp3（转换后原件进备份）· 1 号 imported + 截断（`kept_unconverted`，唯一副本）· 2 号 downloaded + 截断（探活 → lost）· 3 号被 attempts=5 的 file op 占住 · 4–6 号正常；外加把 `migration-backup/` 建成 0500 让预检当场拦下
+  - **安全闸是「先起 daemon 再开 GUI」**：daemon 由我带着 `LARK_NEST_DIR` 起在副本上并用 `/api/instance` 验过 `nest_dir`；GUI 若环境变量没生效，它比对 nest 不一致会**弹框中止**（不 spawn、不碰真库）。真库复验：`user_version` 仍是 **2**，七首歌仍是 `song.mp3`
+  - 用户实测五步全过：环境暂停屏 → chmod 后点「重新检测并继续」→ 进度跑 → 卡在 file op 的列表 → 处理完**窗口自己切回曲库** → 设置页备份区块的数字与按钮都对
+  - 🐛 **顺手抓到一个与迁移无关的老缺陷**（本次修复）：`mainWindow` 只按 `!== null` 判活，而**被销毁的 BrowserWindow 仍是一个正常 JS 对象**——窗口被销毁（渲染进程被杀、teardown 里挨了 SIGTERM）之后，下一次点 dock 触发 `activate` → 对尸体调 `show()` → 未捕获异常打死整个 app，**留下一个关不掉的错误弹框**（关它的那个进程刚死）。收敛成 `window-ref.ts` 的 `WindowRef`：**每次用的时候问，不记**（`isDestroyed()`），`closed` 事件只是顺带清引用，且旧窗口的事件不许把新窗口清掉
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 
