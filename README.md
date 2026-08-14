@@ -12,7 +12,7 @@
 - 无自动更新
 
 v0.1 是本地全功能版：曲库 / 播放器 / 下载管线 / 歌词 / 缓存模型 / 歌单导入导出 / CLI。
-v0.2 接入 **skybridge 多设备同步**：歌曲与歌单的元数据、歌词跨设备同步（mp3 本体不同步，
+v0.2 接入 **skybridge 多设备同步**：歌曲与歌单的元数据、歌词跨设备同步（音频本体不同步，
 各设备凭来源按需下载），冲突由你来判，GUI 状态栏与 `lark sync` 都能看到同步状态。
 
 > ⚠️ **0.2.0 会把曲库升到 schema v2，且不可逆**——升级后 0.1.0 将拒绝打开
@@ -61,7 +61,7 @@ lark skill export           # 导出给 agent 看的说明书
 ## 数据目录
 
 所有数据在 `~/orpheus-aviary-nest/lark/`：
-- `songs.db` — 曲库 · `songs/<uuid>/{song.mp3, lyrics.lrc}` — 歌曲文件
+- `songs.db` — 曲库 · `songs/<uuid>/{song.m4a, lyrics.lrc}` — 歌曲文件
 - `lark_config.toml` — 本地偏好（含 LLM key，0600）· `logs/` — 日志（按大小轮转）
 
 **复制 / 备份 nest 用 `just backup-nest`**：运行态文件（token、pid、日志、两个锁库）一律不复制，

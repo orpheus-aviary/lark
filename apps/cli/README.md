@@ -29,7 +29,7 @@ lark skill export           # 导出给 agent 用的技能说明
 ## 多设备同步（0.2 起）
 
 歌曲与歌单的元数据、歌词可以经 [skybridge](https://github.com/orpheus-aviary) 在多台设备之间同步；
-mp3 本体不同步，每台设备凭来源信息按需下载。
+音频本体不同步，每台设备凭来源信息按需下载。
 
 ```sh
 lark sync config-show       # 连的是哪台服务器、绑没绑（不需要 daemon，也不需要曲库）

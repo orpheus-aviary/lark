@@ -1,6 +1,6 @@
 # lark 本仓设计
 
-> 2026-05-07 首版 · 占位级；2026-07-16 需求盘点定稿，实施计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`；**2026-08-10 v0.1.0 已发布**——本文描述的 v0.1 范围全部落地；**2026-08-13 v0.2.0 已发布**——skybridge 多设备同步接入，协议冻结与决策见 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`。逐里程碑的实际做法与实测结论见 `PROCESS.md` 与 `docs/plans/`（本文保留为需求与设计的原始记录，不再逐条追平实现细节）。
+> 2026-05-07 首版 · 占位级；2026-07-16 需求盘点定稿，实施计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`；**2026-08-10 v0.1.0 已发布**——本文描述的 v0.1 范围全部落地；**2026-08-13 v0.2.0 已发布**——skybridge 多设备同步接入，协议冻结与决策见 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`；**2026-08-14 起 0.3.0 开发中**——音频统一 m4a（canonical `song.m4a`），计划见 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`。逐里程碑的实际做法与实测结论见 `PROCESS.md` 与 `docs/plans/`（本文保留为需求与设计的原始记录，不再逐条追平实现细节）。
 
 ## 1. 定位
 
@@ -13,17 +13,17 @@
 > 来源：`../lark-go/` 当前实现，2026-07-16 全量盘点（详见 master plan）。TS 版全部保留。
 
 - **播放**：renderer HTML5 Audio、4 种播放模式（顺序/列表循环/单曲循环/随机）、进度 seek、快捷键（空格/←→/↑↓）
-- **下载**：音频**只来自 bilibili**（LLM 驱动：输入分析 → 搜索选 bvid → 多 P 选集 → 推断歌名歌手 → DASH 最高码率 → ffmpeg 转 mp3）；批量下载支持收藏夹/合集链接
+- **下载**：音频**只来自 bilibili**（LLM 驱动：输入分析 → 搜索选 bvid → 多 P 选集 → 推断歌名歌手 → DASH 候选先按 codec 再按码率、AAC 优先 → ffmpeg 原样 remux 成 m4a，非 AAC 才转码）；批量下载支持收藏夹/合集链接
 - **歌词**：网易云/QQ/酷狗三平台并行抓取 + LLM 交叉验证；lrc 3 行同步显示 + 每首歌 offset 微调；可重下/删除
 - **搜索/排序**：跨全库按歌名/歌手搜索；默认/名称/歌手/时间排序（中文 locale）
 - **歌单**：建/改/删（系统歌单 all 保护）、加歌/移除
 - **列表 UI**：可选列（时长/大小/创建时间）、列宽拖拽、双击内联编辑、右键菜单
 - **daemon 模式**：HTTP API 暴露曲库与播放控制，供 AI / CLI 调用
-- **存储**：`songs.db`（SQLite）+ `~/orpheus-aviary-nest/lark/songs/<uuid>/` 下的 mp3 / lrc
+- **存储**：`songs.db`（SQLite）+ `~/orpheus-aviary-nest/lark/songs/<uuid>/` 下的 m4a / lrc（0.3.0 起 canonical `song.m4a`；0.2.x 的 `song.mp3` 由一次性迁移转换）
 
 **新版新增**（2026-07-16 定稿，同日评审修订）：
 - **歌曲链接体系**：`source_url` + 规范化 `source_provider`/`source_key`（bilibili = `bvid:cid`，p 只是展示位置）记录下载来源；右键复制/打开/编辑链接（编辑对话框：取消/自动识别[纯预览]/保存）；文件丢失时链接优先确定性重下，链接缺失或失效才回落 LLM 识别并回写
-- **统一缓存模型**：可选缓存上限（默认不限 = 旧版行为）+ LRU 清理最久未访问文件（只删 mp3，歌词保留）+ 单曲固定防清理；**只清理「下载且可确定性重下」的文件，本地导入文件（含 Go 迁移曲库）是用户资产永不自动清理**；播放被清理的歌自动按需重下
+- **统一缓存模型**：可选缓存上限（默认不限 = 旧版行为）+ LRU 清理最久未访问文件（只删音频，歌词保留）+ 单曲固定防清理；**只清理「下载且可确定性重下」的文件，本地导入文件（含 Go 迁移曲库）是用户资产永不自动清理**；播放被清理的歌自动按需重下
 - **歌单导入导出**：JSON 格式，导出任意歌单含 all；导入时选目标（all / 指定歌单 / 新建歌单自定义名），按 provider key 去重（歌名+歌手相同仅提示疑似重复），按需下载
 - **设置页 GUI**：LLM 配置、主题、字号、缓存上限（含缓存状态与立即清理）、窗口尺寸、日志（Go 版只能手改 toml）。**显示列不在设置页**——视图态（列显隐/列宽/排序/播放模式）留在 TopBar + localStorage，不进 config（M4-12 冻结线）
 - **歌单拖拽排序**：修复 Go 版 reorder 断链并补上 UI（稀疏 rank，拖一次只改一行）
@@ -108,12 +108,12 @@ CLI 是 daemon 的第二个前端，也是**唯一可以在没有 daemon 时读�
 | 歌词文本 | 是 | **v0.2 定案（D3）**：走 change log 的 ⚡ 元数据 op（`set_lyrics` / `clear_lyrics`），单条 change 240KB 护栏，超限本地保留 + dead-letter |
 | `pinned` / `last_accessed_at` / `file_origin` | 否 | 设备本地偏好与行为数据（各设备存储条件不同） |
 | `lark_config.toml` 本地偏好 | 否 | 本地设备相关 |
-| 歌曲本体 mp3 | **否** | 不进 change log 也不走 attachment；靠 source_key + 按需下载在各设备自行取流 |
+| 歌曲本体（音频文件） | **否** | 不进 change log 也不走 attachment；靠 source_key + 按需下载在各设备自行取流 |
 | 播放记录（play history） | 否（无此模型） | v0.1/v0.2 无播放历史功能，仅本地 last_accessed_at |
 
 **预留策略（v0.1）**：只建 sync 三表并维护 `updated_at`/`lww_counter`/`created_at`（事后无法回补的字段）；实体 `device_id` 仅存 skybridge **注册 ID**（注册前 NULL，本地安装身份在 `local_metadata.device_uuid`，两域不混用——owl `0006` 教训）；不写事件、不冻结 payload。账户模型已定：**单账户单资料库**，不做 owl 式 per-profile。
 
-mp3 / 大文件策略已定（2026-07-16）：不同步、不走 attachment，各设备凭 `source_key` 按需下载。
+音频本体 / 大文件策略已定（2026-07-16）：不同步、不走 attachment，各设备凭 `source_key` 按需下载。
 
 **协议已冻结（v0.2）**：payload schema / 墓碑 / LWW 三元组 / rank 通道 / 冲突与 file-effect journal 全部写在 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`（§3 协议、§5 不变量 ㉑–㉚、§8 决策 D1–D8），实现进度见 `PROCESS.md`。三条与本节相关的定案：**歌词进 change log**（上表）、**同 `(provider,key)` 允许共存不自动合并**（D8）、**rank 全部走 `server_seq` 定序的 ⚡ 通道**（D7）。
 
@@ -130,7 +130,7 @@ mp3 / 大文件策略已定（2026-07-16）：不同步、不走 attachment，�
 
 ## 6. 开放议题
 
-已收敛（2026-07-16，详见 master plan §1）：需求清单 ✅ · monorepo 不抽 daemon-kit ✅ · mp3 不同步（靠链接按需下载）✅ · 缓存模型 / 音频格式 / 导入策略 / 打包平台 ✅
+已收敛（2026-07-16，详见 master plan §1）：需求清单 ✅ · monorepo 不抽 daemon-kit ✅ · 音频本体不同步（靠链接按需下载）✅ · 缓存模型 / 音频格式 / 导入策略 / 打包平台 ✅
 
 仍开放：
 - v0.2 歌词文本同步策略（change log vs attachment）

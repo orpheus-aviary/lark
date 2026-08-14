@@ -45,11 +45,6 @@ export function songAudioPath(id: string): string {
   return join(songDirPath(id), CANONICAL_AUDIO_FILE);
 }
 
-/** `songs/<id>/song.mp3` — pre-0.3.0 audio. Migration and `has_file` only. */
-export function legacySongAudioPath(id: string): string {
-  return join(songDirPath(id), LEGACY_AUDIO_FILE);
-}
-
 /** `songs/<id>/lyrics.lrc` */
 export function songLyricsPath(id: string): string {
   return join(songDirPath(id), 'lyrics.lrc');
