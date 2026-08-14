@@ -18,7 +18,9 @@ export * from './backup-nest.js';
 // owns the ledger's vocabulary, the failure classification and the verdict on
 // a conversion result.
 export * from './migration/error-class.js';
+export * from './migration/ledger.js';
 export * from './migration/pending.js';
+export * from './migration/scanner.js';
 export * from './migration/verify.js';
 // sync (v0.2). The engine and apply land in T2; these are what the write
 // paths and the daemon already need.

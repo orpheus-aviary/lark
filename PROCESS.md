@@ -230,6 +230,13 @@
   - **file-op 的 `DeleteRemoteArg` 加 `audio_file`**：没有这个字段 = 0.2.x 的 op = `song.mp3`。这条不是修辞——执行器是「按名字把不可替代的音频挪进 `recovered-songs/`，**紧接着 `rm -rf` 整个目录**」，名字对不上就等于把一首 imported 删掉而不是救下来。定位时两个名字都查（快照的优先）：定位资产不是推断，而下一步是不可逆的
   - **`migrationBackupDir()` 进 paths**（`lark/migration-backup/`，§4-b）：在 `songs/` 树之外，所以缓存清理（走曲库）、同步（走歌）、recovery（走 `songs/`）结构性地够不着它；`backup-nest` 是 deny-list，天然包含——补了判据钉住这一条
   - gate：`just check` · `just test` **2160**（core 874）
+- [x] **T2e ledger 读写 + scanner**（2026-08-14）— `migration/ledger.ts`（状态词汇表 + 行读写）与 `migration/scanner.ts`（走 `songs/` 目录树，不走曲库表）
+  - **一行一个「对象」，而且只给持有 mp3 的目录建行**：`total` 因此等于工作量而不是曲库大小，「`songs/` 树内无 mp3」这条完成条件也有了对应的行。只有 `song.m4a` 的目录跟这一趟没关系，不建行
+  - **走目录树是有理由的**：0.2.x 库里可以有「行已删、file-op 还指着」的目录，也可以有崩溃留下的、根本不是歌的目录，两种都握着 mp3。按表遍历会把它们永远留在磁盘上
+  - **class 判定与缓存清理同源**（R26）：`downloaded` + provider 在可重下集合内 + key 非空 → R，否则 A，没有曲库行 → orphan。**pinned 不参与**——它说的是「别回收」，而迁移不是回收（产物保住了内容）。补了「provider 是本 build 取不到的那种」判据：写路径今天造不出这种行（`normalizeSource` 拦），但将来加了第二个 provider，那个 build 写的库就能被这个 build 打开
+  - **重扫的边界**：终态行原样不动；`converting`/`discarding`/`backing_up`/`blocked` 一律不碰（它们带着 `resume_state`，重置成 pending 会重启一次已经半提交的转换）；只有 `pending` 会**重新判 class**——两次启动之间用户可能把 source 修好了，而 class 决定这首歌的 mp3 能不能删
+  - **`blocked_file_op` 的两条出路**：op 没了 → 回 pending；op 没了**且对象也不在了** → 直接删掉 ledger 行。后者是「file op 自己把歌带走了」（一次同步删除、一次隔离），把它记成迁移故障等于给用户自己下的命令报警，而且那行永远settle 不了
+  - gate：`just check` · `just test` **2180**（core 894）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 
