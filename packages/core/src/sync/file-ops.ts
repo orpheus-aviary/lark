@@ -37,7 +37,7 @@ import {
   songLyricsPath,
   writeLyricsFile,
 } from '../library/lyrics.js';
-import type { Logger } from '../logger/index.js';
+import type { StructuredLogger } from '../logger/index.js';
 import { recoveredSongsDir } from '../paths.js';
 import { recordDeadLetter } from './changes.js';
 
@@ -372,7 +372,7 @@ export interface FileEffectRuntimeOptions {
    * claim instead of blocking on itself (a registry owner never blocks itself).
    */
   owner?: string;
-  logger?: Logger;
+  logger?: StructuredLogger;
   nowMs?: () => number;
   /**
    * Called after an op that MOVED files into `recovered-songs/` instead of
@@ -396,7 +396,7 @@ export class FileEffectRuntime {
   readonly #sqlite: BetterSqlite3.Database;
   readonly #claims: ClaimRegistry;
   readonly #owner: string;
-  readonly #logger?: Logger;
+  readonly #logger?: StructuredLogger;
   readonly #now: () => number;
   readonly #onQuarantine?: (songId: string) => void;
   #running: Promise<DrainResult> | null = null;

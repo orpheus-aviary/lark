@@ -18,7 +18,13 @@
 //   already spoken for by the daemon's own bearer token, and a client that saw
 //   it here would tell the user their DAEMON token was wrong.
 
-import { type RunSyncResult, listFileOps, readBinding, readCursor } from '@lark/core';
+import {
+  type FileEffectRuntime,
+  type RunSyncResult,
+  listFileOps,
+  readBinding,
+  readCursor,
+} from '@lark/core';
 import {
   API_PATHS,
   SYNC_FILE_OP_STATES,
@@ -175,7 +181,9 @@ export function registerSyncRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post(API_PATHS.syncFileOpsRetry, async (req, reply) => {
     const body = objectBody(req.body ?? {}, ['id']);
     const id = body.id === undefined ? undefined : requiredSafeInteger(body, 'id', { min: 1 });
-    const result = await ctx.fileOps.retry(id);
+    const journal = fileOpJournal(ctx);
+    const result = await journal.exclusive(() => journal.runtime.retry(id));
+    journal.afterResolution();
     ok(reply, result satisfies SyncFileOpRunData, 'file operations retried');
   });
 
@@ -184,10 +192,46 @@ export function registerSyncRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post(API_PATHS.syncFileOpsDiscard, async (req, reply) => {
     const body = objectBody(req.body, ['id']);
     const id = requiredSafeInteger(body, 'id', { min: 1 });
-    ctx.fileOps.discard(id);
+    const journal = fileOpJournal(ctx);
+    await journal.exclusive(async () => journal.runtime.discard(id));
+    journal.afterResolution();
     ctx.logger.warn({ op_id: id }, 'sync file op discarded by request');
     ok(reply, { id }, 'file operation discarded');
   });
+}
+
+interface JournalAccess {
+  runtime: FileEffectRuntime;
+  /** Serialize against the migration pass, when there is one. */
+  exclusive<T>(fn: () => Promise<T>): Promise<T>;
+  /** Let the migration pick up whatever the op was holding. */
+  afterResolution(): void;
+}
+
+/**
+ * Which journal executor answers, and what has to be kept away from it.
+ *
+ * These three routes are the only ones that serve in BOTH phases (§3.2-10):
+ * during the migration they are a user's only way to free a song directory a
+ * dead sync op is sitting on, and the normal runtime that usually owns the
+ * journal does not exist yet. Choosing by phase rather than by "is there a
+ * migration object" matters — the pass stays attached after it finishes, and
+ * its executor has no claim registry to share with the download engine.
+ */
+function fileOpJournal(ctx: AppContext): JournalAccess {
+  const migration = ctx.lifecycle.migration;
+  if (ctx.lifecycle.phase === 'normal' || migration === null) {
+    return {
+      runtime: ctx.fileOps,
+      exclusive: (fn) => fn(),
+      afterResolution: () => {},
+    };
+  }
+  return {
+    runtime: migration.fileOps,
+    exclusive: (fn) => migration.exclusive(fn),
+    afterResolution: () => migration.continueAfterFileOp(),
+  };
 }
 
 function toRunData(ctx: AppContext, result: RunSyncResult | null): SyncRunResultData {

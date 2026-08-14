@@ -48,6 +48,24 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     description: 'SSE event stream; ?role=gui&gui_id=<id> claims the GUI command channel',
   },
 
+  // The one-time mp3 → m4a migration (0.3.0). The first two answer while the
+  // library is still being converted; the third only once it is served.
+  {
+    method: 'GET',
+    path: API_PATHS.audioMigration,
+    description: 'Audio migration report: per-object outcome and backup usage',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.audioMigrationRetry,
+    description: 'Re-check the machine and continue a blocked audio migration',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.audioMigrationBackupClear,
+    description: 'Delete every migration backup (needs confirm: true)',
+  },
+
   { method: 'GET', path: API_PATHS.songs, description: 'List songs (search, sort, paginate)' },
   { method: 'GET', path: apiPath.song(':id'), description: 'Get one song' },
   { method: 'PUT', path: apiPath.song(':id'), description: 'Update song fields and source' },

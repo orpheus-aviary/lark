@@ -38,7 +38,7 @@ import {
 import type { AudioMigrationState } from '@lark/shared';
 import { canRedownload } from '../cache.js';
 import type { BaseContext } from '../context.js';
-import type { MigrationHandle } from '../lifecycle.js';
+import type { Mutex } from './runtime.js';
 
 /**
  * How many scan/step rounds one pass will run.
@@ -56,12 +56,17 @@ export interface MigrationRunnerOptions {
    * and the boot pass both get here.
    */
   onFinished: () => Promise<void>;
+  /**
+   * Serializes the pass against the file-op routes (T3b). Optional so a test
+   * can drive the runner alone; the daemon always passes the runtime's.
+   */
+  mutex?: Mutex;
   /** Test seam: report free bytes instead of asking the filesystem. */
   freeBytes?: () => Promise<number>;
   nowMs?: () => number;
 }
 
-export class MigrationRunner implements MigrationHandle {
+export class MigrationRunner {
   readonly #ctx: BaseContext;
   readonly #options: MigrationRunnerOptions;
   readonly #controller = new AbortController();
@@ -105,9 +110,12 @@ export class MigrationRunner implements MigrationHandle {
    */
   run(): Promise<void> {
     if (this.#stopped) return Promise.resolve();
-    this.#running ??= this.#pass().finally(() => {
-      this.#running = null;
-    });
+    const mutex = this.#options.mutex;
+    this.#running ??= (mutex === undefined ? this.#pass() : mutex.run(() => this.#pass())).finally(
+      () => {
+        this.#running = null;
+      },
+    );
     return this.#running;
   }
 

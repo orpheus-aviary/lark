@@ -22,12 +22,16 @@ import {
   mkdirSync,
   openSync,
   readSync,
+  readdirSync,
   renameSync,
+  rmSync,
   statSync,
   unlinkSync,
 } from 'node:fs';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import type BetterSqlite3 from 'better-sqlite3';
 import { larkDir, migrationBackupDir } from '../paths.js';
+import { clearLedgerBackups } from './ledger.js';
 
 /** Where an orphan's audio goes: not a song, so not under a song's name (§4-n). */
 const ORPHANS_SUBDIR = 'orphans';
@@ -44,6 +48,100 @@ export function backupPathFor(
     ? join(migrationBackupDir(), ORPHANS_SUBDIR, `${objectKey}.mp3`)
     : join(migrationBackupDir(), `${objectKey}.mp3`);
   return { absolute, relative: relative(larkDir(), absolute) };
+}
+
+/**
+ * Turn a ledger's relative `backup_path` into a path this process may touch.
+ *
+ * Null for anything that does not land inside `migration-backup/`. The rows are
+ * written by this code, so a `../..` in one means the database was edited or
+ * corrupted — and the caller is either a size report or a delete. Neither is
+ * allowed to follow it out of the directory (§4-m, 判据 51).
+ */
+export function resolveBackupPath(relativePath: string): string | null {
+  if (relativePath === '' || isAbsolute(relativePath)) return null;
+  const root = migrationBackupDir();
+  const absolute = resolve(larkDir(), relativePath);
+  const inside = relative(root, absolute);
+  if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) return null;
+  return absolute;
+}
+
+/** What `migration-backup/` is holding, and how much of it is irreplaceable. */
+export interface BackupSummary {
+  file_count: number;
+  bytes: number;
+  /** Backups of `kept_unconverted` objects: unconvertible AND not downloadable. */
+  asset_count: number;
+  asset_bytes: number;
+}
+
+export function summarizeMigrationBackups(sqlite: BetterSqlite3.Database): BackupSummary {
+  const files = new Map<string, number>();
+  for (const path of walkFiles(migrationBackupDir())) {
+    files.set(path, statSync(path).size);
+  }
+
+  const summary: BackupSummary = {
+    file_count: files.size,
+    bytes: [...files.values()].reduce((sum, size) => sum + size, 0),
+    asset_count: 0,
+    asset_bytes: 0,
+  };
+
+  const kept = sqlite
+    .prepare(
+      `SELECT backup_path FROM audio_migration
+        WHERE status = 'kept_unconverted' AND backup_path IS NOT NULL`,
+    )
+    .all() as { backup_path: string }[];
+  for (const row of kept) {
+    const absolute = resolveBackupPath(row.backup_path);
+    const size = absolute === null ? undefined : files.get(absolute);
+    if (size === undefined) continue; // escaped the directory, or already gone
+    summary.asset_count++;
+    summary.asset_bytes += size;
+  }
+  return summary;
+}
+
+/**
+ * Delete everything under `migration-backup/`, then say what went.
+ *
+ * The ledger is updated FIRST, inside its own transaction. Both orders can be
+ * interrupted, so the question is which lie survives a crash: rows that say
+ * "no backup" while files remain (recoverable — clear again, and the report
+ * still counts what is on disk), or rows that say "your original is safe in the
+ * backup" after it has been deleted. Only one of those can cost someone a file
+ * they were told they still had.
+ */
+export function clearMigrationBackups(
+  sqlite: BetterSqlite3.Database,
+  nowMs: number = Date.now(),
+): { removed_count: number; freed_bytes: number } {
+  const root = migrationBackupDir();
+  const files = walkFiles(root);
+  const freed = files.reduce((sum, path) => sum + statSync(path).size, 0);
+
+  clearLedgerBackups(sqlite, nowMs);
+
+  // The directory itself goes, and comes back on the next preflight. Removing
+  // the tree rather than the paths the ledger names is also what makes this
+  // confined by construction: nothing outside it is ever named.
+  rmSync(root, { recursive: true, force: true });
+  return { removed_count: files.length, freed_bytes: freed };
+}
+
+/** Every regular file under `dir`, following no symlink out of it. */
+function walkFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) found.push(...walkFiles(path));
+    else if (entry.isFile()) found.push(path);
+  }
+  return found;
 }
 
 export type MoveOutcome =

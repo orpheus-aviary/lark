@@ -19,17 +19,31 @@
 // flag: the flag is cleared inside activation, and a per-request read of it
 // would open business routes in the window before the runtime exists.
 
+import type { FileEffectRuntime } from '@lark/core';
 import type { AudioMigrationState, DaemonPhase } from '@lark/shared';
 
 /**
- * The migration pass, as the rest of the daemon sees it.
+ * The migration, as the rest of the daemon sees it.
  *
- * Kept as an interface here rather than importing the runner, so the phase
+ * Kept as an interface here rather than importing the runtime, so the phase
  * machine does not depend on the thing it is sequencing.
  */
 export interface MigrationHandle {
   /** What the pass is doing right now — `/status`'s `state` word. */
   state(): AudioMigrationState;
+  /** Why it is stuck, if it is. May contain paths: never goes on `/status`. */
+  reason(): string | null;
+  /** Run a pass, or join the one running. The retry route's whole body. */
+  run(): Promise<void>;
+  /**
+   * The journal executor the whitelisted file-op routes use while the normal
+   * one does not exist yet (§3.2-10).
+   */
+  readonly fileOps: FileEffectRuntime;
+  /** Run something that touches song directories, never beside the pass. */
+  exclusive<T>(fn: () => Promise<T>): Promise<T>;
+  /** A file op was resolved: pick up whatever it was holding. */
+  continueAfterFileOp(): void;
   /** Stop the pass and wait for its ffmpeg child to go away. Idempotent. */
   stop(): Promise<void>;
 }

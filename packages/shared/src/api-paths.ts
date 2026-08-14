@@ -44,6 +44,13 @@ export const API_PATHS = {
   capabilities: '/api/capabilities',
   instance: '/api/instance',
   events: '/events',
+
+  // The one-time mp3 → m4a migration (0.3.0). Reachable while the library is
+  // NOT being served — that is the point of them — and afterwards, because the
+  // ledger stays as the report of what happened to each file.
+  audioMigration: '/api/audio-migration',
+  audioMigrationRetry: '/api/audio-migration/retry',
+  audioMigrationBackupClear: '/api/audio-migration/backup/clear',
   songs: '/songs',
   playlists: '/playlists',
   config: '/config',

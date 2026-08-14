@@ -193,6 +193,31 @@ export type AudioMigrationState =
   | 'needs_attention'
   | 'finished';
 
+/**
+ * What the pass did with one object, as the ledger's CHECK constraint spells
+ * it. Declared here rather than in core so the daemon, the CLI and the GUI
+ * share one spelling with the table (0.3.0 §3.2-8).
+ */
+export const AUDIO_MIGRATION_STATUSES = [
+  'pending',
+  'converting',
+  'discarding',
+  'backing_up',
+  'done',
+  'lost',
+  'kept_unconverted',
+  'asset_missing',
+  'blocked',
+  'blocked_file_op',
+] as const;
+
+export type AudioMigrationStatus = (typeof AUDIO_MIGRATION_STATUSES)[number];
+
+/** R = rebuildable, A = user asset, orphan = a directory with no library row. */
+export const AUDIO_MIGRATION_CLASSES = ['R', 'A', 'orphan'] as const;
+
+export type AudioMigrationClass = (typeof AUDIO_MIGRATION_CLASSES)[number];
+
 /** `GET /status`'s migration summary — counts, never paths. */
 export interface AudioMigrationCounts {
   phase: DaemonPhase;
@@ -210,6 +235,72 @@ export interface AudioMigrationCounts {
   blocked: number;
   /** A sync file op still owns the directory. */
   blocked_file_op: number;
+}
+
+/**
+ * One object in the migration report (`GET /api/audio-migration`).
+ *
+ * Names only — `object_key` is a directory name under `songs/`, `backup_file`
+ * a name under `migration-backup/`. No absolute path leaves the daemon here
+ * (§3.2-4), and `last_error` is scrubbed of them before it is sent: ffmpeg's
+ * complaints are quoted verbatim otherwise.
+ */
+export interface AudioMigrationObjectData {
+  object_key: string;
+  song_id: string | null;
+  class: AudioMigrationClass;
+  status: AudioMigrationStatus;
+  file_origin: string | null;
+  /** Which file action failed, on a `blocked` row. A report field, not an order. */
+  blocked_action: string | null;
+  error_class: string | null;
+  last_error: string | null;
+  backup_file: string | null;
+  reconcile_action: string | null;
+  at: number;
+}
+
+/**
+ * What `migration-backup/` is holding.
+ *
+ * `asset_*` is the subset that cannot be recovered any other way: the originals
+ * of `kept_unconverted` objects, which by definition could not be converted and
+ * are not downloadable. The rest are originals of songs that also exist as m4a.
+ * A "clear the backup" button that does not draw this line is asking the user
+ * to gamble on a number.
+ */
+export interface AudioMigrationBackupData {
+  file_count: number;
+  bytes: number;
+  asset_count: number;
+  asset_bytes: number;
+}
+
+/** `GET /api/audio-migration` — the full report. Readable after it finishes. */
+export interface AudioMigrationData {
+  counts: AudioMigrationCounts;
+  /** Why the pass stopped, when the machine is the reason. Paths scrubbed. */
+  reason: string | null;
+  objects: AudioMigrationObjectData[];
+  backup: AudioMigrationBackupData;
+}
+
+/** `POST /api/audio-migration/retry`. */
+export interface AudioMigrationRetryData {
+  /**
+   * Whether this call actually re-ran the pass. False once the library is
+   * being served: a conversion running beside the download engine would touch
+   * song directories nothing is holding a claim on.
+   */
+  started: boolean;
+  counts: AudioMigrationCounts;
+  reason: string | null;
+}
+
+/** `POST /api/audio-migration/backup/clear`. */
+export interface AudioMigrationBackupClearData {
+  removed_count: number;
+  freed_bytes: number;
 }
 
 /**

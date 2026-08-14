@@ -313,13 +313,41 @@ describe('boot — the audio migration', () => {
     expect(status.data.audio_migration?.phase).toBe('pending');
     expect(status.data.audio_migration?.blocked_file_op).toBe(1);
 
-    const songs = await fetch(`${base}/songs`, { headers: { authorization: `Bearer ${token}` } });
+    const auth = { authorization: `Bearer ${token}` };
+    const songs = await fetch(`${base}/songs`, { headers: auth });
     expect(songs.status).toBe(503);
     expect(((await songs.json()) as { error_code: string }).error_code).toBe(
       'AUDIO_MIGRATION_PENDING',
     );
     // The mp3 the op owns is exactly where it was.
     expect(existsSync(join(larkDir(), 'songs', id, 'song.mp3'))).toBe(true);
+
+    // ── the way out (判据 16) ──
+    //
+    // The file-op trio is whitelisted precisely so this is possible without a
+    // database editor: list the dead op, discard it, and the pass picks the
+    // directory up on its own.
+    const list = await fetch(`${base}/sync/file-ops?state=failed`, { headers: auth });
+    const ops = ((await list.json()) as { data: { file_ops: { id: number }[] } }).data.file_ops;
+    expect(ops).toHaveLength(1);
+
+    const discarded = await fetch(`${base}/sync/file-ops/discard`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ id: ops[0]?.id }),
+    });
+    expect(discarded.status).toBe(200);
+
+    await vi.waitFor(
+      async () => {
+        const res = await fetch(`${base}/status`);
+        const body = (await res.json()) as { data: StatusData };
+        expect(body.data.audio_migration?.phase).toBe('normal');
+      },
+      { timeout: 60_000, interval: 100 },
+    );
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.m4a'))).toBe(true);
+    expect((await fetch(`${base}/songs`, { headers: auth })).status).toBe(200);
 
     child.proc.kill('SIGTERM');
     expect(await child.waitForExit()).toMatchObject({ code: 0 });

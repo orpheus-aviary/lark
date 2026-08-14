@@ -7,6 +7,7 @@ import type { AppContext } from './context.js';
 import { mapCoreError } from './error-mapping.js';
 import { isMigrationWhitelisted } from './migration/whitelist.js';
 import { fail } from './response.js';
+import { registerAudioMigrationRoutes } from './routes/audio-migration.js';
 import { registerCacheRoutes } from './routes/cache.js';
 import { registerConfigRoutes } from './routes/config.js';
 import { registerConflictRoutes } from './routes/conflicts.js';
@@ -29,6 +30,7 @@ import { InvalidRequestError } from './validation.js';
  */
 export function registerAllRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerSystemRoutes(app, ctx);
+  registerAudioMigrationRoutes(app, ctx);
   registerEventsRoutes(app, ctx);
   registerSongRoutes(app, ctx);
   registerPlaylistRoutes(app, ctx);

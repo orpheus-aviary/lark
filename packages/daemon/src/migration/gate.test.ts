@@ -52,10 +52,44 @@ describe('while the audio migration is pending', () => {
   });
 
   it('keeps the whitelist open', async () => {
-    for (const url of ['/status', '/api/instance', '/api/capabilities']) {
+    for (const url of [
+      '/status',
+      '/api/instance',
+      '/api/capabilities',
+      '/api/audio-migration',
+      // The way out of a stuck migration: a sync op that gave up owns a song
+      // directory, and this is the only door to it (§3.2-10).
+      '/sync/file-ops',
+    ]) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(200);
     }
+  });
+
+  it('lets a stuck file op be retried and discarded', async () => {
+    // Both answer; `discard` refuses THIS id because no such op exists, which
+    // is a 404 from the journal and not the gate's 503.
+    const retry = await app.inject({ method: 'POST', url: '/sync/file-ops/retry', payload: {} });
+    expect(retry.statusCode).toBe(200);
+
+    const discard = await app.inject({
+      method: 'POST',
+      url: '/sync/file-ops/discard',
+      payload: { id: 999 },
+    });
+    expect(discard.statusCode).toBe(404);
+    expect(discard.json<ApiResponse<never>>().error_code).toBe('FILE_OP_NOT_FOUND');
+  });
+
+  it('refuses the backup clear — the pass is still writing there', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/audio-migration/backup/clear',
+      payload: { confirm: true },
+    });
+
+    expect(res.statusCode).toBe(503);
+    expect(res.json<ApiResponse<never>>().error_code).toBe('AUDIO_MIGRATION_PENDING');
   });
 
   it('still authenticates first', async () => {

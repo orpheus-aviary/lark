@@ -11,6 +11,7 @@
 // a drizzle model for a table that exists for one release would be a mapping
 // layer nobody reads.
 
+import type { AudioMigrationClass, AudioMigrationStatus } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { MigrationErrorClass } from './error-class.js';
 
@@ -23,32 +24,26 @@ import type { MigrationErrorClass } from './error-class.js';
  * song whose source is gone, anything that fails R's conditions. Its mp3 is
  * never deleted, only moved into `migration-backup/`. `orphan` is a directory
  * with no library row at all.
+ *
+ * The words themselves live in `@lark/shared`, with the report that carries
+ * them: the table's CHECK constraint, the wire and the GUI have to agree on
+ * this set, and three copies of it would eventually not.
  */
-export type MigrationClass = 'R' | 'A' | 'orphan';
+export type MigrationClass = AudioMigrationClass;
 
-export type MigrationStatus =
-  /** Not started. */
-  | 'pending'
-  /** ffmpeg is running, or was when the process died. */
-  | 'converting'
-  /** R only: the source was probed, the mp3 is being deleted. */
-  | 'discarding'
-  /** A only: the mp3 is being moved into migration-backup/. */
-  | 'backing_up'
-  // ─── terminal ───
-  /** Converted; the mp3 is gone (R) or in the backup (A). */
-  | 'done'
-  /** R only: unreadable mp3, source confirmed live, mp3 deleted. */
-  | 'lost'
-  /** A only: unreadable mp3, kept as-is in the backup. */
-  | 'kept_unconverted'
-  /** The mp3 vanished and no backup holds it. Never reported as done. */
-  | 'asset_missing'
-  // ─── needs a human ───
-  /** A file action failed: permissions, a busy file. */
-  | 'blocked'
-  /** A sync file op still owns this directory. */
-  | 'blocked_file_op';
+/**
+ * Where an object stands.
+ *
+ * `pending` not started · `converting` ffmpeg is running (or was when the
+ * process died) · `discarding` R only, the source was probed and the mp3 is
+ * being deleted · `backing_up` A only, the mp3 is moving into
+ * `migration-backup/`. Terminal: `done` · `lost` (R, unreadable mp3, source
+ * confirmed live) · `kept_unconverted` (A, unreadable mp3, kept as-is) ·
+ * `asset_missing` (the mp3 vanished and no backup holds it — never reported as
+ * done). Needing a person: `blocked` (a file action failed) and
+ * `blocked_file_op` (a sync file op owns the directory).
+ */
+export type MigrationStatus = AudioMigrationStatus;
 
 /** States that will never change again without a new event. */
 export const TERMINAL_STATUSES: readonly MigrationStatus[] = [
@@ -86,6 +81,40 @@ export function getLedgerRow(
 
 export function listLedger(sqlite: BetterSqlite3.Database): LedgerRow[] {
   return sqlite.prepare('SELECT * FROM audio_migration ORDER BY object_key').all() as LedgerRow[];
+}
+
+/**
+ * The mark a row carries once its backup was deleted on purpose (§4-m).
+ *
+ * It goes in `reconcile_action` — the column that already means "something
+ * happened to this object's files outside the state machine" — and is appended
+ * rather than assigned, so a row that was also reconciled keeps both facts.
+ */
+export const BACKUP_CLEARED_MARK = 'backup_cleared';
+
+/**
+ * Forget every backup this ledger points at.
+ *
+ * Called before the files go, so the ledger never claims an original is safe in
+ * a backup that has been deleted.
+ */
+export function clearLedgerBackups(
+  sqlite: BetterSqlite3.Database,
+  nowMs: number = Date.now(),
+): number {
+  const result = sqlite
+    .prepare(
+      `UPDATE audio_migration
+          SET backup_path = NULL,
+              reconcile_action = CASE
+                WHEN reconcile_action IS NULL THEN ?
+                ELSE reconcile_action || '；' || ?
+              END,
+              at = ?
+        WHERE backup_path IS NOT NULL`,
+    )
+    .run(BACKUP_CLEARED_MARK, BACKUP_CLEARED_MARK, nowMs);
+  return result.changes;
 }
 
 /** How many objects sit in each status. Absent statuses count zero. */

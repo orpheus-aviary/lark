@@ -11,6 +11,23 @@ import pino from 'pino';
 
 export type Logger = pino.Logger;
 
+/**
+ * The four calls core actually makes on a logger, as a structural type.
+ *
+ * pino's `Logger` satisfies it, so nothing changes for the daemon's own file
+ * logger — but a caller that holds a narrower logger (the daemon's context
+ * carries exactly these four methods, and tests carry a recorder) can pass it
+ * without a cast. Asking for pino's full surface where only `warn` is called
+ * would push a lie into the one place that must not have one: a component that
+ * takes a logger it will never use as pino.
+ */
+export interface StructuredLogger {
+  debug(fields: Record<string, unknown>, msg: string): void;
+  info(fields: Record<string, unknown>, msg: string): void;
+  warn(fields: Record<string, unknown>, msg: string): void;
+  error(fields: Record<string, unknown>, msg: string): void;
+}
+
 export interface LoggerOptions {
   /** Log file path (nest layout: `lark/logs/lark.log`, single file). */
   filePath: string;

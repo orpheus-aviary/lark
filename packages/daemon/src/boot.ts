@@ -86,7 +86,7 @@ import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
 import { DaemonLifecycle } from './lifecycle.js';
 import { generateLocalToken, publishLocalToken } from './local-token.js';
-import { MigrationRunner } from './migration/runner.js';
+import { MigrationRuntime } from './migration/runtime.js';
 import { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 import { PlayerRuntime } from './player-runtime.js';
 import { buildServer } from './server.js';
@@ -203,7 +203,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   /** Build and swap in the runtime that serves the library (0.3.0 T3). */
   let activate: (() => Promise<void>) | null = null;
   /** The migration pass, on a library that still owes the conversion. */
-  let migration: MigrationRunner | null = null;
+  let migration: MigrationRuntime | null = null;
   let server: FastifyInstance | null = null;
   let teardownPromise: Promise<void> | null = null;
   const shutdownController = new AbortController();
@@ -587,7 +587,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       // Attached now, served later: the pass may not start before `listen()`,
       // or a migration nobody can watch is indistinguishable from a daemon
       // that hung on boot (§3.2-3).
-      migration = new MigrationRunner(ctx, {
+      migration = new MigrationRuntime(ctx, {
         onFinished: async () => {
           await activate?.();
           if (ctx !== null) scheduleEvictionInBackground(ctx, 'audio-migration-finished');
