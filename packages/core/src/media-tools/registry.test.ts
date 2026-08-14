@@ -8,8 +8,8 @@ const INVENTORY: Record<string, string> = {
   '-protocols': 'Input:\n  file\n',
   '-demuxers': ' ---\n D  mov,mp4,m4a,3gp,3g2,mj2 x\n D  mp3 x\n',
   '-decoders': ' ---\n A aac x\n A mp3 x\n',
-  '-encoders': ' ---\n A libmp3lame x\n',
-  '-muxers': ' ---\n E mp3 x\n',
+  '-encoders': ' ---\n A aac x\n A libmp3lame x\n',
+  '-muxers': ' ---\n E ipod x\n E mp3 x\n',
 };
 
 /**

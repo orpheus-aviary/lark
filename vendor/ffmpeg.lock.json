@@ -13,7 +13,14 @@
     "",
     "The configure line is deliberately path-free: it is compared byte for byte in",
     "accept-pack, so it must not carry whichever directory the build happened to run in.",
-    "That is why every path below is relative to the ffmpeg source directory."
+    "That is why every path below is relative to the ffmpeg source directory.",
+    "",
+    "0.3.0 (T0a) moved the canonical format to m4a, which is what the encoder `aac`,",
+    "the muxer `ipod` and the three extra PCM decoders are for: AAC-in-MP4 is remuxed",
+    "with `-c copy -f ipod`, everything else is encoded to AAC, and the import matrix",
+    "has to decode the WAV flavours users actually have. `libmp3lame` and the mp3 muxer",
+    "are still here ONLY because the migration is not written yet — T1b deletes them,",
+    "and after that nothing in this repo can produce an mp3."
   ],
   "lock_version": 1,
   "profile": "lark-minimal-lgpl",
@@ -24,8 +31,8 @@
     "macos_min": "11.0"
   },
   "build_script": "scripts/vendor-ffmpeg.mjs",
-  "build_script_version": 1,
-  "configure": "--prefix=../out --extra-cflags='-I../prefix/include -mmacosx-version-min=11.0' --extra-ldflags='-L../prefix/lib -mmacosx-version-min=11.0' --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-network --disable-ffplay --disable-shared --enable-static --enable-small --enable-libmp3lame --enable-protocol='file,pipe' --enable-demuxer='mov,mp3,aac,flac,wav,ogg,matroska' --enable-decoder='aac,aac_fixed,aac_latm,mp3,mp3float,flac,vorbis,pcm_s16le,pcm_s16be,pcm_f32le,alac,opus' --enable-parser='aac,aac_latm,mpegaudio,flac,vorbis,opus' --enable-encoder=libmp3lame --enable-muxer=mp3 --enable-filter='aresample,aformat,anull,atrim,volume' --enable-bsf=aac_adtstoasc",
+  "build_script_version": 2,
+  "configure": "--prefix=../out --extra-cflags='-I../prefix/include -mmacosx-version-min=11.0' --extra-ldflags='-L../prefix/lib -mmacosx-version-min=11.0' --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-network --disable-ffplay --disable-shared --enable-static --enable-small --enable-libmp3lame --enable-protocol='file,pipe' --enable-demuxer='mov,mp3,aac,flac,wav,ogg,matroska' --enable-decoder='aac,aac_fixed,aac_latm,mp3,mp3float,flac,vorbis,pcm_s16le,pcm_s16be,pcm_f32le,pcm_u8,pcm_s24le,pcm_s32le,alac,opus' --enable-parser='aac,aac_latm,mpegaudio,flac,vorbis,opus' --enable-encoder='aac,libmp3lame' --enable-muxer='ipod,mp3' --enable-filter='aresample,aformat,anull,atrim,volume' --enable-bsf=aac_adtstoasc",
   "sources": [
     {
       "name": "FFmpeg",

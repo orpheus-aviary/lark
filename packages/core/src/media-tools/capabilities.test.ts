@@ -19,8 +19,10 @@ const INVENTORY: Record<string, string> = {
     'Formats:\n D.. = Demuxing supported\n .E. = Muxing supported\n ..d = Is a device\n ---\n D   mov,mp4,m4a,3gp,3g2,mj2 QuickTime / MOV\n D   mp3             MP2/3 (MPEG audio layer 2/3)\n',
   '-decoders':
     'Decoders:\n V..... = Video\n ------\n A....D aac      AAC (Advanced Audio Coding)\n A....D mp3      MP3 (MPEG audio layer 3)\n A....D mp3float MP3 (MPEG audio layer 3)\n',
-  '-encoders': 'Encoders:\n V..... = Video\n ------\n A....D libmp3lame  libmp3lame MP3\n',
-  '-muxers': 'Formats:\n D.. = Demuxing supported\n ---\n  E  mp3             MP2/3\n',
+  '-encoders':
+    'Encoders:\n V..... = Video\n ------\n A....D aac         AAC (Advanced Audio Coding)\n A....D libmp3lame  libmp3lame MP3\n',
+  '-muxers':
+    'Formats:\n D.. = Demuxing supported\n ---\n  E  ipod            iPod H.264 MP4 (MPEG-4 Part 14)\n  E  mp3             MP2/3\n',
 };
 
 const VERSION_JSON = JSON.stringify({
@@ -90,6 +92,22 @@ describe('probeCapabilities', () => {
     });
     expect(result.state).toBe('incompatible');
     expect(result.detail).toContain('libmp3lame');
+  });
+
+  // A 0.2.x-era build: perfectly good at mp3, and useless for the canonical
+  // m4a. Nothing about `-version` or `libmp3lame` distinguishes it.
+  it('is incompatible when ffmpeg cannot produce m4a', async () => {
+    const result = await probeCapabilities(TOOLS, {
+      run: stubRunner({
+        inventory: {
+          '-encoders': 'Encoders:\n --\n A....D libmp3lame  libmp3lame MP3\n',
+          '-muxers': 'Formats:\n ---\n  E  mp3             MP2/3\n',
+        },
+      }),
+    });
+    expect(result.state).toBe('incompatible');
+    expect(result.detail).toContain('encoder aac');
+    expect(result.detail).toContain('muxer ipod');
   });
 
   it('names every gap, not just the first', async () => {

@@ -10,12 +10,18 @@
 //
 //   file protocol       every input and output is a local path
 //   demuxer mov         bilibili's DASH audio is fragmented MP4 (m4a/AAC)
-//   demuxer mp3         re-probing the transcode result, and import
+//   demuxer mp3         reading the files 0.2.x wrote, and import
 //   decoder aac         ditto — the input side
 //   decoder mp3         ditto — the import side
+//   encoder aac         anything that is not already AAC becomes AAC
+//   muxer   ipod        `-f ipod` into songs/<uuid>/song.m4a
 //   encoder libmp3lame  the ONLY mp3 encoder; ffmpeg has no native one
 //   muxer   mp3         `-f mp3` into songs/<uuid>/song.mp3
 //   ffprobe JSON        `-print_format json`; probeAudio parses that
+//
+// The last two are on their way out (0.3.0 T1b): they are required while the
+// download pipeline still writes mp3, and the day it stops, a machine whose
+// ffmpeg has no libmp3lame must stop being called incompatible over it.
 //
 // Names are matched against comma-split inventory entries, because ffmpeg
 // reports one demuxer as `mov,mp4,m4a,3gp,3g2,mj2` — asking for that literal
@@ -34,8 +40,8 @@ export const REQUIRED_CAPABILITIES = {
   protocols: ['file'],
   demuxers: ['mov', 'mp3'],
   decoders: ['aac', 'mp3'],
-  encoders: ['libmp3lame'],
-  muxers: ['mp3'],
+  encoders: ['aac', 'libmp3lame'],
+  muxers: ['ipod', 'mp3'],
 } as const;
 
 export type CapabilityKind = keyof typeof REQUIRED_CAPABILITIES;

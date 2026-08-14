@@ -1,15 +1,16 @@
 // Audio fixtures without an encoder (M7 T0).
 //
 // The suites that run a real ffmpeg used to synthesise their input with
-// `-f lavfi ... -c:a aac`. Both halves of that are gone from the vendored
-// build: the minimal LGPL profile carries no lavfi demuxer and no AAC encoder,
-// on purpose — lark decodes AAC and encodes exactly one format.
+// `-f lavfi ... -c:a aac`. The minimal LGPL profile carries no lavfi demuxer,
+// on purpose. (0.3.0 T0a did add the AAC encoder — canonical audio is m4a now
+// — but making the build under test produce its own input is the wrong shape
+// of test either way: the fixture would fail exactly when the encoder does.)
 //
 // A PCM WAV needs nothing but a 44-byte header, so the fixture is written here
-// and the build under test only has to do the thing it ships to do. The real
-// m4a container is covered where it can be covered honestly: `just
-// fetch-ffmpeg` and accept-pack run the M4A → MP3 → ffprobe closed loop
-// against a checked-in fixture.
+// and the build under test only has to do the thing it ships to do. Real
+// containers are covered where they can be covered honestly: `just
+// fetch-ffmpeg` and accept-pack run their closed loops against the checked-in
+// fixtures in `scripts/fixtures/`.
 
 /**
  * 16-bit mono PCM WAV of a 440Hz tone.

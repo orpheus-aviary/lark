@@ -18,7 +18,8 @@
 //   3. `-show_program_version` reports EXACTLY the configure line in the lock,
 //      and that line contains no `--enable-nonfree`;
 //   4. the frozen capability list is present, item by item;
-//   5. a real M4A is transcoded to a real MP3 and ffprobe reads it back.
+//   5. every conversion lark actually performs is performed, on real files,
+//      and ffprobe reads the result back (see CLOSED_LOOPS).
 //
 // A stub that prints plausible `-version` output satisfies 3 and dies on 5.
 // That is deliberate: `just package bundled` runs this before every build, and
@@ -42,7 +43,7 @@ const SRC = join(BUILD, 'src');
 const PREFIX = join(BUILD, 'prefix');
 const STAGE = join(BUILD, 'out');
 const OUT = join(VENDOR, 'ffmpeg');
-const FIXTURE = join(ROOT, 'scripts', 'fixtures', 'tone-1s.m4a');
+const FIXTURES = join(ROOT, 'scripts', 'fixtures');
 
 const args = new Set(process.argv.slice(2));
 const verifyOnly = args.has('--verify');
@@ -232,10 +233,84 @@ async function verify() {
   await closedLoop(tools);
 }
 
-/** M4A → MP3 → ffprobe, with the binaries we are about to ship. */
+/**
+ * One entry per conversion the shipped pipeline performs. `input` is resolved
+ * lazily so the WAV can be synthesised without a fixture on disk.
+ *
+ * The mp3 fixture is checked in precisely because this list is about to lose
+ * the ability to produce one: T1b removes LAME, and from then on the migration
+ * loop's input can only be a file somebody kept.
+ */
+function closedLoops() {
+  return [
+    {
+      label: 'WAV → AAC → m4a (import)',
+      input: () => writeToneWav(),
+      encode: ['-vn', '-c:a', 'aac', '-b:a', '192k', '-f', 'ipod'],
+      out: 'closed-loop-import.m4a',
+      format: 'm4a',
+      codec: 'aac',
+    },
+    {
+      label: 'M4A → copy → m4a (bilibili remux)',
+      input: () => fixture('tone-1s.m4a'),
+      encode: ['-vn', '-c', 'copy', '-f', 'ipod'],
+      out: 'closed-loop-remux.m4a',
+      format: 'm4a',
+      codec: 'aac',
+    },
+    {
+      label: 'MP3 → AAC → m4a (0.3.0 migration)',
+      input: () => fixture('tone-1s.mp3'),
+      encode: ['-vn', '-c:a', 'aac', '-b:a', '192k', '-f', 'ipod'],
+      out: 'closed-loop-migration.m4a',
+      format: 'm4a',
+      codec: 'aac',
+    },
+    {
+      // Legacy: what 0.2.x wrote. Dies with LAME in T1b.
+      label: 'M4A → MP3 (0.2.x downloads)',
+      input: () => fixture('tone-1s.m4a'),
+      encode: ['-vn', '-acodec', 'libmp3lame', '-ab', '192k', '-ar', '44100', '-f', 'mp3'],
+      out: 'closed-loop-legacy.mp3',
+      format: 'mp3',
+      codec: 'mp3',
+    },
+  ];
+}
+
+function fixture(name) {
+  const path = join(FIXTURES, name);
+  if (!existsSync(path)) die(`the closed-loop fixture is missing: ${path}`);
+  return path;
+}
+
+/**
+ * The same 440Hz tone the unit suites use, so there is one fixture story.
+ *
+ * Imported by exact path rather than through `@lark/core/testing`: that barrel
+ * also carries the Go-era db fixture, which loads better-sqlite3 — and this
+ * script runs whenever `just package` does, i.e. with the workspace binding
+ * built for Electron's ABI, not Node's.
+ */
+async function writeToneWav() {
+  const { toneWav } = await import('../packages/core/dist/testing/tone-wav.js');
+  const path = join(BUILD, 'closed-loop-tone.wav');
+  writeFileSync(path, toneWav(1));
+  return path;
+}
+
+/** Every conversion in `closedLoops()`, with the binaries we are about to ship. */
 async function closedLoop(tools) {
-  if (!existsSync(FIXTURE)) die(`the closed-loop fixture is missing: ${FIXTURE}`);
-  const out = join(BUILD, 'closed-loop.mp3');
+  for (const loop of closedLoops()) {
+    await runClosedLoop(tools, loop);
+  }
+  writeBuildInfo();
+}
+
+async function runClosedLoop(tools, loop) {
+  const input = await loop.input();
+  const out = join(BUILD, loop.out);
   rmSync(out, { force: true });
 
   try {
@@ -244,42 +319,48 @@ async function closedLoop(tools) {
       '-v',
       'error',
       '-i',
-      FIXTURE,
-      '-vn',
-      '-acodec',
-      'libmp3lame',
-      '-ab',
-      '192k',
-      '-ar',
-      '44100',
-      '-f',
-      'mp3',
+      input,
+      ...loop.encode,
       '-y',
       out,
     ]);
   } catch (err) {
-    die(`the M4A → MP3 closed loop failed: ${err.stderr?.toString().trim() ?? err.message}`);
+    die(`closed loop "${loop.label}" failed: ${err.stderr?.toString().trim() ?? err.message}`);
   }
 
   const { stdout } = await execFileAsync(tools.ffprobe.path, [
     '-v',
     'error',
+    '-select_streams',
+    'a:0',
     '-show_entries',
-    'format=duration,format_name',
+    'format=duration,format_name:stream=codec_name',
     '-of',
     'json',
     out,
   ]);
-  const format = JSON.parse(stdout).format;
-  if (!String(format?.format_name).split(',').includes('mp3')) {
-    die(`the transcode produced ${format?.format_name}, not an mp3`);
+  assertProduced(loop, stdout);
+  rmSync(out, { force: true });
+  say(`closed loop ok — ${loop.label}`);
+}
+
+/** Container, codec and length: a copy that silently dropped the audio fails here. */
+function assertProduced(loop, probeJson) {
+  const probed = JSON.parse(probeJson);
+  const format = probed.format;
+  const codec = probed.streams?.[0]?.codec_name;
+  if (!String(format?.format_name).split(',').includes(loop.format)) {
+    die(`"${loop.label}" produced ${format?.format_name}, not ${loop.format}`);
+  }
+  if (codec !== loop.codec) {
+    die(`"${loop.label}" produced a ${codec} stream, not ${loop.codec}`);
   }
   if (!(Number(format.duration) > 0.5)) {
-    die(`the transcode produced ${format.duration}s of audio`);
+    die(`"${loop.label}" produced ${format.duration}s of audio`);
   }
-  rmSync(out, { force: true });
-  say('closed loop ok (M4A → MP3 → ffprobe json)');
+}
 
+function writeBuildInfo() {
   writeFileSync(
     join(OUT, 'BUILD-INFO.json'),
     `${JSON.stringify(

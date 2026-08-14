@@ -169,6 +169,20 @@
   - 若将来艺术图重画成边缘实心的圆角方块，蒙版这一步就成了 no-op，可以删——注释里写了怎么判断
   - **三条已排除的死路**，别再走：清缓存（只对灰光晕那种陈旧渲染有效）· 拉大到 97.5%/100%（owl 自己也只有 91%，尺寸从来不是原因）· 腐蚀 alpha 抹掉深绿描边（露出插画浅色底与裁断的枝叶，更丑）
 
+## v0.3.0 m4a 统一 + 一次性迁移 + PC 三项（Phase A）
+
+主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
+
+- [x] **T0a 供应链前半**（2026-08-13）— 先入库 mp3 夹具，再给 vendored ffmpeg 加 AAC 编码器与 ipod 封装器，**LAME 暂留**（生产 `ensureMp3` 要到 T1 才切 m4a，先删就是断链）
+  - **`scripts/fixtures/tone-1s.mp3` 入库**（25748 字节，sha256 `25d43ca2…`）：`toneWav(1)` → 当前 vendored ffmpeg 的 libmp3lame，参数与彼时的 `ensureMp3()` 逐字一致（192k / 44.1kHz / `-f mp3`），所以它就是「0.2.x 写进 `songs/<id>/song.mp3` 的那种文件」——迁移链闭环拿它当输入。同一构建跑两次字节相同（实测）。**顺序不可倒**：T1b 删掉 LAME 之后本仓再没有任何 mp3 编码器，配方就只剩历史价值。来历与 sha256 记在新增的 `scripts/fixtures/README.md`
+  - **lock 增量**：`--enable-encoder='aac,libmp3lame'`、`--enable-muxer='ipod,mp3'`、decoder 补 `pcm_u8,pcm_s24le,pcm_s32le`（§4-a 的 WAV 支持面，**一次改完只重建一次**；对应的「各配真实样本 gate」随 T4 导入矩阵落）。`build_script_version` → 2
+  - **能力清单只加当下用得上的两项**（`encoder aac` / `muxer ipod`）：`REQUIRED_CAPABILITIES` 是全有全无的 ready 门，注释写着「pipeline 要什么就是什么，不多一项」——ALAC/vorbis/opus/PCM 要到 T4 才有人解码，现在加进去等于让缺它们的 system-mode ffmpeg 连下载都做不了。configure 已经带上，T4 加清单不必再重建
+  - **闭环判据从一条变四条**（`closedLoops()` 表驱动，逐条验容器 + 音轨 codec + 时长）：WAV→AAC→m4a（导入/新下载的编码侧）· m4a→copy→m4a（**bilibili remux，T1 之后每次下载都走的热路径**）· mp3→AAC→m4a（0.3.0 迁移链）· m4a→mp3（0.2.x 遗留，随 T1b 一起删）。原判据只验 `format_name`，copy 把音轨丢光也照样过——补了 `-select_streams a:0` 的 `codec_name`
+  - **toneWav 走精确路径 import**（`dist/testing/tone-wav.js`）而不是 `@lark/core/testing` barrel：barrel 里有 Go 库夹具 → 加载 better-sqlite3，而这个脚本是 `just package` 的前置，那时 workspace 的 binding 正是 Electron ABI（accept-pack 那条「harness 自带 ABI 不成立」的同源教训）
+  - **gate**：`just fetch-ffmpeg` 四条闭环全绿 + `just check` + `just test` **2099**（core +1：「能产 mp3 但产不了 m4a 的 0.2.x 构建 → incompatible」）+ 真实 bilibili 下载不回归（`accept-m5` 第 3 段实跑：`BV1GJ411x7h7:137649199`，5,097,217 字节落盘、source 三元组回写）
+  - ⚠️ **`accept-m5` 跑不完了，与本批无关**：第 4 段（缓存）假定真实曲库里「至少一首带文件的 imported」，而用户当天（2026-08-13 15:58–16:24）清库重下，现在是 7 首全 `downloaded` / 1 歌单 / 0 imported，`imported[0]` 直接 undefined 崩掉。同一件事也抽掉了**迁移判据 33 的 A 类样本**（imported 永不删除那条分支）——harness 自造 imported 夹具（`POST /songs/import` 喂新入库的 mp3）是自然修法，归属待定
+  - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
+
 ## 后续
 - [ ] **v0.3+ 移动版设计 doc**
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
