@@ -14,9 +14,12 @@
 //     for "how much stderr before we SIGKILL the child" is how a verbose
 //     failure turns into a mystery crash. `-v error` keeps output tiny anyway.
 //
-// `probeAudio` returns the container format alongside the duration because
-// import needs it: a `.mp3` that is really an AAC has to be refused, and only
-// the format tells you (R22/M3-11).
+// `probeAudio` returns a whole `AudioProbe` rather than a duration, because
+// from 0.3.0 the probe is what DECIDES the conversion: canonical audio is
+// `song.m4a`, AAC arrives from bilibili already in an MP4, and copying it is
+// both lossless and ~50× faster than re-encoding. Nothing but the probe can
+// tell that apart from an AAC in an ADTS stream (same codec, different
+// bitstream) or from an mp3 that has to be encoded.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -79,23 +82,72 @@ export async function ensureMp3(
   );
 }
 
-export interface AudioInfo {
-  /** Seconds. 0 when the container does not declare one. */
-  duration: number;
+/**
+ * Everything the conversion rules need to know about a file, and nothing that
+ * identifies it: no filename, no staging path (import shows failures to a user
+ * who never saw the staged copy).
+ */
+export interface AudioProbe {
   /** ffprobe's `format_name`, e.g. `mp3` or `mov,mp4,m4a,3gp,3g2,mj2`. */
-  format: string;
+  container: string;
+  /** Seconds. 0 when neither the container nor the stream declares one. */
+  duration: number;
+  /**
+   * ffprobe's GLOBAL `stream.index` of the audio track to use, or -1 when the
+   * file carries no audio.
+   *
+   * Global, and never the `-map 0:a:<n>` ordinal: those are different numbers
+   * the moment a file puts cover art or video before the audio, and mixing
+   * them selects the wrong stream.
+   */
+  selected_stream_global_index: number;
+  codec: string;
+  sample_rate: number;
+  channels: number;
+  /** Often empty — a PCM WAV declares no layout. Informational; rules read `channels`. */
+  channel_layout: string;
+  /** The first is selected; a caller that cares warns about the rest. */
+  audio_stream_count: number;
+  /**
+   * Cover art — a video stream with `disposition.attached_pic`. mp3 and m4a
+   * carry it routinely, so it is NOT what makes a file a video.
+   */
+  has_attached_pic: boolean;
+  /** A video stream that is not cover art: really a video file. */
+  has_real_video: boolean;
 }
 
-/** Duration + container format. Used for both download and import. */
+interface ProbeStream {
+  index?: unknown;
+  codec_type?: unknown;
+  codec_name?: unknown;
+  sample_rate?: unknown;
+  channels?: unknown;
+  channel_layout?: unknown;
+  duration?: unknown;
+  disposition?: { attached_pic?: unknown };
+}
+
+/** Container, streams and dispositions. Used by download, import and migration. */
 export async function probeAudio(
   ffprobePath: string,
   filePath: string,
   options: FfmpegRunOptions = {},
-): Promise<AudioInfo> {
+): Promise<AudioProbe> {
   const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
   const stdout = await run(
     ffprobePath,
-    ['-v', 'error', '-show_entries', 'format=duration,format_name', '-of', 'json', filePath],
+    [
+      '-v',
+      'error',
+      '-show_entries',
+      // `stream_disposition` is its own section: asking for `stream=disposition`
+      // returns nothing, silently, and every file then looks like cover art.
+      'format=format_name,duration:stream=index,codec_type,codec_name,sample_rate,channels,channel_layout,duration:stream_disposition=attached_pic',
+      '-of',
+      'json',
+      filePath,
+    ],
     withTimeout(timeouts.ffprobe, options.signal),
     'ffprobe',
   );
@@ -106,15 +158,143 @@ export async function probeAudio(
   } catch (err) {
     throw new FfmpegError(`ffprobe output was not JSON for ${filePath}`, { cause: err });
   }
-  const format = (parsed as { format?: { duration?: unknown; format_name?: unknown } })?.format;
+  const root = parsed as { format?: { duration?: unknown; format_name?: unknown } | null };
+  const format = root?.format;
   if (format === undefined || format === null) {
     throw new FfmpegError(`ffprobe found no media in ${filePath}`);
   }
-  const duration = Number(format.duration);
+  const streams = Array.isArray((parsed as { streams?: unknown }).streams)
+    ? ((parsed as { streams: ProbeStream[] }).streams as ProbeStream[])
+    : [];
+
+  const audio = streams
+    .filter((s) => s.codec_type === 'audio')
+    .sort((a, b) => number(a.index) - number(b.index));
+  const video = streams.filter((s) => s.codec_type === 'video');
+  const selected = audio[0];
+
+  // Containers that declare no overall duration (ADTS, some ogg) still carry
+  // one on the stream. Reporting 0 there would show the library a song of
+  // unknown length for no reason.
+  const declared = number(format.duration);
+  const duration = declared > 0 ? declared : number(selected?.duration);
+
   return {
-    duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
-    format: typeof format.format_name === 'string' ? format.format_name : '',
+    container: typeof format.format_name === 'string' ? format.format_name : '',
+    duration: duration > 0 ? duration : 0,
+    selected_stream_global_index: selected === undefined ? -1 : number(selected.index),
+    codec: selected === undefined ? '' : text(selected.codec_name),
+    sample_rate: number(selected?.sample_rate),
+    channels: number(selected?.channels),
+    channel_layout: selected === undefined ? '' : text(selected.channel_layout),
+    audio_stream_count: audio.length,
+    has_attached_pic: video.some((s) => number(s.disposition?.attached_pic) === 1),
+    has_real_video: video.some((s) => number(s.disposition?.attached_pic) !== 1),
   };
+}
+
+function number(value: unknown): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+// ─── Conversion ────────────────────────────────────────
+
+/** Canonical audio is AAC in an MP4 (`-f ipod`), always. */
+export const CANONICAL_BITRATE = '192k';
+/** Above this, resample. AAC handles more; nothing in this library needs it. */
+export const MAX_SAMPLE_RATE = 48_000;
+/** Above this, downmix. Same reasoning. */
+export const MAX_CHANNELS = 2;
+
+export type AudioConversionMode =
+  /** Already AAC in an MP4: rewrap, byte-identical audio. */
+  | 'copy'
+  /** AAC in an ADTS stream: rewrap, plus the bitstream filter MP4 needs. */
+  | 'copy-adts'
+  /** Anything else: encode. */
+  | 'transcode';
+
+export interface AudioConversionPlan {
+  mode: AudioConversionMode;
+  /** ffmpeg arguments between the input and the output path. */
+  args: readonly string[];
+}
+
+/**
+ * How to turn this file into canonical audio — a pure function of the probe,
+ * so every branch is testable without a codec that can produce the input.
+ *
+ * `-map 0:<global index>` is on every branch, and it is what excludes cover
+ * art, video and second audio tracks: after an explicit -map, ffmpeg carries
+ * exactly what was named.
+ */
+export function planAudioConversion(probe: AudioProbe): AudioConversionPlan {
+  if (probe.selected_stream_global_index < 0) {
+    throw new FfmpegError(`没有找到音频流（容器 ${probe.container || '未知'}）`);
+  }
+  const map = ['-map', `0:${probe.selected_stream_global_index}`];
+  const containers = probe.container.split(',');
+
+  if (probe.codec === 'aac' && containers.some((c) => MP4_FAMILY.has(c))) {
+    return { mode: 'copy', args: [...map, '-c', 'copy', '-f', 'ipod'] };
+  }
+  // A raw ADTS stream copies fine, but MP4 wants the codec configuration in
+  // the sample entry rather than in every frame header — that is the filter.
+  if (probe.codec === 'aac' && containers.includes('aac')) {
+    return {
+      mode: 'copy-adts',
+      args: [...map, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', '-f', 'ipod'],
+    };
+  }
+  return {
+    mode: 'transcode',
+    args: [
+      ...map,
+      '-c:a',
+      'aac',
+      '-b:a',
+      CANONICAL_BITRATE,
+      ...(probe.sample_rate > MAX_SAMPLE_RATE ? ['-ar', String(MAX_SAMPLE_RATE)] : []),
+      ...(probe.channels > MAX_CHANNELS ? ['-ac', String(MAX_CHANNELS)] : []),
+      '-f',
+      'ipod',
+    ],
+  };
+}
+
+const MP4_FAMILY = new Set(['mp4', 'm4a', 'mov', '3gp', '3g2']);
+
+/**
+ * Write `outputPath` as canonical audio, copying when that is possible.
+ *
+ * The probe is a parameter rather than something this re-derives: the caller
+ * has already paid for it (import validates with it, the migration classifies
+ * with it), and two probes of the same file could disagree after a partial
+ * write. `-f ipod` is not optional — output paths end in `.tmp`, so ffmpeg
+ * cannot infer the container and reports it as "unable to find a suitable
+ * output format", which reads like a codec problem.
+ */
+export async function processAudio(
+  ffmpegPath: string,
+  inputPath: string,
+  outputPath: string,
+  probe: AudioProbe,
+  options: FfmpegRunOptions = {},
+): Promise<AudioConversionMode> {
+  const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
+  const plan = planAudioConversion(probe);
+  await run(
+    ffmpegPath,
+    ['-nostdin', '-v', 'error', '-i', inputPath, ...plan.args, '-y', outputPath],
+    withTimeout(timeouts.ffmpeg, options.signal),
+    'ffmpeg',
+  );
+  return plan.mode;
 }
 
 /**

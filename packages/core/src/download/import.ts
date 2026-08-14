@@ -104,8 +104,8 @@ async function importOne(
       const detail = err instanceof Error ? err.message.split(staged).join(filePath) : String(err);
       throw new Error(`无法读取音频：${detail}`);
     });
-    if (!isMp3Format(probe.format)) {
-      throw new Error(`文件扩展名是 .mp3，但实际格式是 ${probe.format || '未知'}`);
+    if (!isMp3Format(probe.container)) {
+      throw new Error(`文件扩展名是 .mp3，但实际格式是 ${probe.container || '未知'}`);
     }
 
     landSongFile(db, sqlite, {

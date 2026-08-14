@@ -5,13 +5,18 @@
 //
 // The inputs are WAV files written by hand here, not synthesised with
 // `-f lavfi`: the vendored build is a minimal LGPL profile with no lavfi
-// demuxer and no AAC encoder (M7 T0), so a test that asked ffmpeg to generate
-// its own fixture would only pass against a full system build. A PCM WAV needs
-// nothing but a 44-byte header, and it exercises the same argument list.
+// demuxer (M7 T0), so a test that asked ffmpeg to generate its own fixture
+// would only pass against a full system build. A PCM WAV needs nothing but a
+// 44-byte header, and it exercises the same argument list.
 //
-// The container the download pipeline actually receives (bilibili's m4a) is
-// covered where it belongs: `just fetch-ffmpeg` and accept-pack run the real
-// M4A → MP3 → ffprobe closed loop against a checked-in fixture.
+// The m4a the copy path needs IS produced here, by the transcode path, because
+// that is the only encoder in the profile. It costs nothing in confidence: if
+// the encoder were broken the transcode tests fail first and say so.
+//
+// One branch cannot be run for real — `copy-adts` — because the profile has no
+// ADTS muxer (nothing in lark writes one). `planAudioConversion` is a pure
+// function of the probe precisely so that branch is still covered by argument
+// assertions; T4's import matrix adds a checked-in .aac fixture.
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -21,7 +26,14 @@ import { FfmpegError } from '../errors.js';
 import { probeCapabilities } from '../media-tools/capabilities.js';
 import { type ResolvedMediaTools, resolveMediaTools } from '../media-tools/resolve.js';
 import { toneWav } from '../testing/tone-wav.js';
-import { ensureMp3, isMp3Format, probeAudio } from './ffmpeg.js';
+import {
+  type AudioProbe,
+  ensureMp3,
+  isMp3Format,
+  planAudioConversion,
+  probeAudio,
+  processAudio,
+} from './ffmpeg.js';
 import { DEFAULT_TIMEOUTS } from './timeouts.js';
 
 let dir = '';
@@ -35,6 +47,11 @@ let shortWav = '';
  * proving anything.
  */
 let longWav = '';
+/**
+ * The probe of `shortWav`, and equally of `longWav`: same writer, same codec,
+ * rate and layout — only the duration differs, and no rule reads it.
+ */
+let wavProbe: AudioProbe;
 
 beforeAll(async () => {
   const outcome = resolveMediaTools();
@@ -52,6 +69,7 @@ beforeAll(async () => {
   longWav = join(dir, 'long.wav');
   await writeFile(shortWav, toneWav(1));
   await writeFile(longWav, toneWav(120));
+  wavProbe = await probeAudio(tools.ffprobe.path, shortWav);
 }, 60_000);
 
 afterAll(async () => {
@@ -64,7 +82,7 @@ describe('ensureMp3', () => {
     await ensureMp3(tools.ffmpeg.path, shortWav, out);
 
     const info = await probeAudio(tools.ffprobe.path, out);
-    expect(isMp3Format(info.format)).toBe(true);
+    expect(isMp3Format(info.container)).toBe(true);
     expect(info.duration).toBeGreaterThan(0.9);
     expect(info.duration).toBeLessThan(1.5);
   }, 60_000);
@@ -73,7 +91,7 @@ describe('ensureMp3', () => {
     const out = join(dir, 'overwrite.mp3');
     await writeFile(out, 'stale');
     await ensureMp3(tools.ffmpeg.path, shortWav, out);
-    expect(isMp3Format((await probeAudio(tools.ffprobe.path, out)).format)).toBe(true);
+    expect(isMp3Format((await probeAudio(tools.ffprobe.path, out)).container)).toBe(true);
   }, 60_000);
 
   it("reports a non-audio input as FfmpegError with ffmpeg's own reason", async () => {
@@ -127,7 +145,27 @@ describe('probeAudio', () => {
   it('reads duration and container format', async () => {
     const info = await probeAudio(tools.ffprobe.path, shortWav);
     expect(info.duration).toBeGreaterThan(0.9);
-    expect(info.format).toContain('wav');
+    expect(info.container).toContain('wav');
+  }, 60_000);
+
+  it('describes the stream the conversion will use', async () => {
+    const info = await probeAudio(tools.ffprobe.path, shortWav);
+    expect(info.selected_stream_global_index).toBe(0);
+    expect(info.codec).toBe('pcm_s16le');
+    expect(info.sample_rate).toBe(22_050);
+    expect(info.channels).toBe(1);
+    // Empty on purpose: a PCM WAV declares no layout and ffprobe then omits
+    // the key entirely. Every rule reads `channels`; the layout is for humans.
+    expect(info.channel_layout).toBe('');
+    expect(info.audio_stream_count).toBe(1);
+  }, 60_000);
+
+  // Cover art is a video stream, and mp3/m4a carry it routinely. Reading it as
+  // "this is a video file" would refuse most of a real music library.
+  it('reports no video for a plain audio file', async () => {
+    const info = await probeAudio(tools.ffprobe.path, shortWav);
+    expect(info.has_real_video).toBe(false);
+    expect(info.has_attached_pic).toBe(false);
   }, 60_000);
 
   it('rejects a file with no media rather than reporting duration 0', async () => {
@@ -140,6 +178,124 @@ describe('probeAudio', () => {
     await expect(probeAudio(tools.ffprobe.path, join(dir, 'absent.mp3'))).rejects.toThrow(
       FfmpegError,
     );
+  }, 60_000);
+});
+
+describe('planAudioConversion', () => {
+  const base: AudioProbe = {
+    container: 'mov,mp4,m4a,3gp,3g2,mj2',
+    duration: 200,
+    selected_stream_global_index: 0,
+    codec: 'aac',
+    sample_rate: 44_100,
+    channels: 2,
+    channel_layout: 'stereo',
+    audio_stream_count: 1,
+    has_attached_pic: false,
+    has_real_video: false,
+  };
+
+  it('copies AAC that is already in an MP4', () => {
+    const plan = planAudioConversion(base);
+    expect(plan.mode).toBe('copy');
+    expect(plan.args).toEqual(['-map', '0:0', '-c', 'copy', '-f', 'ipod']);
+  });
+
+  it('copies raw ADTS with the bitstream filter MP4 requires', () => {
+    const plan = planAudioConversion({ ...base, container: 'aac' });
+    expect(plan.mode).toBe('copy-adts');
+    expect(plan.args).toEqual([
+      '-map',
+      '0:0',
+      '-c',
+      'copy',
+      '-bsf:a',
+      'aac_adtstoasc',
+      '-f',
+      'ipod',
+    ]);
+  });
+
+  it('encodes anything else at 192k, leaving a sane rate and layout alone', () => {
+    const plan = planAudioConversion({ ...base, container: 'mp3', codec: 'mp3' });
+    expect(plan.mode).toBe('transcode');
+    expect(plan.args).toEqual(['-map', '0:0', '-c:a', 'aac', '-b:a', '192k', '-f', 'ipod']);
+  });
+
+  it('resamples above 48kHz and downmixes above stereo', () => {
+    const plan = planAudioConversion({
+      ...base,
+      container: 'flac',
+      codec: 'flac',
+      sample_rate: 96_000,
+      channels: 6,
+    });
+    expect(plan.args).toContain('-ar');
+    expect(plan.args).toContain('48000');
+    expect(plan.args).toContain('-ac');
+    expect(plan.args).toContain('2');
+  });
+
+  // The bug this rules out: `-map 0:a:0` means "the first AUDIO stream", and
+  // a file whose cover art is stream 0 has its audio at global index 1. Mixing
+  // the two selects the picture.
+  it('maps the global stream index, not the audio ordinal', () => {
+    const plan = planAudioConversion({ ...base, selected_stream_global_index: 1 });
+    expect(plan.args.slice(0, 2)).toEqual(['-map', '0:1']);
+  });
+
+  it('refuses a file with no audio stream instead of building a command', () => {
+    expect(() => planAudioConversion({ ...base, selected_stream_global_index: -1 })).toThrow(
+      FfmpegError,
+    );
+  });
+});
+
+describe('processAudio', () => {
+  it('encodes a WAV into a real AAC-in-MP4', async () => {
+    const out = join(dir, 'processed.m4a');
+    expect(await processAudio(tools.ffmpeg.path, shortWav, out, wavProbe)).toBe('transcode');
+
+    const info = await probeAudio(tools.ffprobe.path, out);
+    expect(info.container.split(',')).toContain('m4a');
+    expect(info.codec).toBe('aac');
+    expect(info.duration).toBeGreaterThan(0.9);
+  }, 60_000);
+
+  // The download path: bilibili hands over AAC in an MP4 already, so the bytes
+  // must survive untouched — a re-encode here is lossy for no reason.
+  it('copies an m4a without re-encoding it', async () => {
+    const source = join(dir, 'source.m4a');
+    await processAudio(tools.ffmpeg.path, shortWav, source, wavProbe);
+    const sourceProbe = await probeAudio(tools.ffprobe.path, source);
+
+    const out = join(dir, 'copied.m4a');
+    expect(await processAudio(tools.ffmpeg.path, source, out, sourceProbe)).toBe('copy');
+    const info = await probeAudio(tools.ffprobe.path, out);
+    expect(info.codec).toBe('aac');
+    expect(info.sample_rate).toBe(sourceProbe.sample_rate);
+    expect(info.duration).toBeCloseTo(sourceProbe.duration, 1);
+  }, 60_000);
+
+  it('reports a non-audio input as FfmpegError', async () => {
+    const junk = join(dir, 'junk-process.m4a');
+    await writeFile(junk, 'this is not audio');
+    await expect(
+      processAudio(tools.ffmpeg.path, junk, join(dir, 'never.m4a'), wavProbe),
+    ).rejects.toThrow(FfmpegError);
+  }, 60_000);
+
+  it('kills a running child when the caller aborts', async () => {
+    const controller = new AbortController();
+    const out = join(dir, 'aborted.m4a');
+    const promise = processAudio(tools.ffmpeg.path, longWav, out, wavProbe, {
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 50);
+    await expect(promise).rejects.toThrow(/cancelled or timed out/);
+
+    const info = await probeAudio(tools.ffprobe.path, out).catch(() => ({ duration: 0 }));
+    expect(info.duration).toBeLessThan(100);
   }, 60_000);
 });
 
