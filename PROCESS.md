@@ -223,6 +223,13 @@
   - 🚨 **从这一批起，开发版碰 v2 库就会把它单向升到 v3**（dev daemon / `--direct` 写 / 测试指错 `LARK_NEST_DIR` 都算），而装在 `/Applications` 的 0.2.0 从此拒绝打开它。CLAUDE.md 顶部的警告已升级成 🚨
   - **中间态（T3 补齐）**：daemon 还没有 pending 门与 runner，所以此刻 v2 库升上来之后会**照常提供服务**，只是 `has_file` 全 false（只认 m4a）。`accept-cli` 的「复制后升一次级」夹具靠起 daemon 完成，T6 复核
   - gate：`just check` · `just test` **2146**（core 860，+16）
+- [x] **T2d legacy 消化：recovery 版本化 + `migration-backup/`**（2026-08-14）— 迁移跑之前，boot 要先把 0.2.x 留下的崩溃残留收拾干净（主计划 §3.2-11），而那些残留说的是 `song.mp3` 的世界
+  - **landing manifest 加 `version` + `audio_file`**：没有 `version` 键 = 0.2.x 写的 = v1 = `song.mp3`。不能靠「看磁盘上有什么」猜——recovery 要分辨的恰恰是磁盘状态相同的那几种情况（`had_old` 那条判据就是为此存在的）。`audio_file` 会被 join 进路径且来自磁盘，所以按**白名单**校验（只认两个我们写过的名字），越界的 manifest 当「不可读」处理，配了 `../../../lark_config.toml` 的判据
+  - **恢复决策表整表跑两遍**（`describe.each` 的两个 era，判据 19）：form 1–7 + 不可读 manifest，v2/v1 各一遍。form 3 的断言点在于 backup **按当时那个名字**还原——mp3 还原成 `song.m4a` 会被 scanner 当成「已迁移」跳过，然后以 `audio/mp4` 播一个 mp3
+  - **孤儿判定改双名**：`songs/<id>/` 里有 `song.mp3` 也算孤儿。只认 canonical 的话，0.3.0 首次开 0.2.x 库会从每一个孤儿旁边走过去
+  - **file-op 的 `DeleteRemoteArg` 加 `audio_file`**：没有这个字段 = 0.2.x 的 op = `song.mp3`。这条不是修辞——执行器是「按名字把不可替代的音频挪进 `recovered-songs/`，**紧接着 `rm -rf` 整个目录**」，名字对不上就等于把一首 imported 删掉而不是救下来。定位时两个名字都查（快照的优先）：定位资产不是推断，而下一步是不可逆的
+  - **`migrationBackupDir()` 进 paths**（`lark/migration-backup/`，§4-b）：在 `songs/` 树之外，所以缓存清理（走曲库）、同步（走歌）、recovery（走 `songs/`）结构性地够不着它；`backup-nest` 是 deny-list，天然包含——补了判据钉住这一条
+  - gate：`just check` · `just test` **2160**（core 874）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

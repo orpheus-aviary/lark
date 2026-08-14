@@ -48,7 +48,7 @@ import { eq, like } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
 import { local_metadata, songs } from '../db/schema.js';
 import { DownloadCommitError, InvalidIdError } from '../errors.js';
-import { CANONICAL_AUDIO_FILE, songDirPath } from '../library/lyrics.js';
+import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE, songDirPath } from '../library/lyrics.js';
 import { touchLastAccessed } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
 
@@ -89,12 +89,29 @@ export function stagePaths(songId: string, taskId: string): StagePaths {
   };
 }
 
+/**
+ * Manifest format. 1 is implicit: anything written before 0.3.0 has no
+ * `version` key at all, and lands on `song.mp3`.
+ *
+ * This exists because recovery runs BEFORE the audio migration (master plan
+ * §3.2-11), so 0.3.0's very first boot on a 0.2.x library reads manifests
+ * written by a build whose canonical file was an mp3. Without the version the
+ * only way to guess would be "look at what is on disk", and the states this
+ * routine has to tell apart are precisely the ones where what is on disk is
+ * ambiguous.
+ */
+const MANIFEST_VERSION = 2;
+
 interface PendingManifest {
+  /** Absent in a pre-0.3.0 manifest, which is what makes it a v1. */
+  version: number;
   task_id: string;
   song_id: string;
   mode: 'new' | 'replace';
-  /** Was there a song.m4a when this landing started? Decides the rollback. */
+  /** Was there an audio file when this landing started? Decides the rollback. */
   had_old: boolean;
+  /** The audio file name this landing was writing: `song.m4a`, or `song.mp3` for a v1. */
+  audio_file: string;
 }
 
 export interface LandSongFileInput {
@@ -138,10 +155,12 @@ export function landSongFile(
 
   const hadOld = existsSync(paths.audio);
   writeManifest(paths, {
+    version: MANIFEST_VERSION,
     task_id: input.taskId,
     song_id: input.songId,
     mode: input.mode,
     had_old: hadOld,
+    audio_file: CANONICAL_AUDIO_FILE,
   });
 
   if (hadOld) renameSync(paths.audio, paths.backup);
@@ -263,10 +282,14 @@ export interface RecoveryOptions {
  *   temp file                          → delete
  *   manifest + log row                 → committed: sweep bak/manifest/log
  *   manifest, no log, bak present      → rolled back: restore bak
- *   manifest, no log, no bak, had_old  → rename never happened: KEEP song.m4a
+ *   manifest, no log, no bak, had_old  → rename never happened: KEEP the audio
  *   manifest, no log, no bak, !had_old → uncommitted new file: delete it
  *   audio but no row, no manifest      → orphan: quarantine, never delete
  *   log row, no manifest               → cleanup was interrupted: drop the row
+ *
+ * "the audio" is `song.m4a` or `song.mp3` depending on the manifest's version:
+ * this runs before the audio migration, so the first 0.3.0 boot over a 0.2.x
+ * library decides all of the above about mp3 files.
  */
 export function recoverSongsStore(
   db: LarkDatabase,
@@ -325,8 +348,14 @@ export function recoverSongsStore(
     }
 
     // An orphan is quarantined, never deleted: the row may be recoverable and
-    // the audio certainly is not (second review, third review ②).
-    if (!hasRow && !sawManifest && existsSync(join(dir, CANONICAL_AUDIO_FILE))) {
+    // the audio certainly is not (second review, third review ②). Both names
+    // count — recovery runs before the audio migration, so on 0.3.0's first
+    // boot over a 0.2.x library every orphan still holds an mp3, and a
+    // canonical-only check would walk past all of them.
+    const hasAudio = [CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE].some((name) =>
+      existsSync(join(dir, name)),
+    );
+    if (!hasRow && !sawManifest && hasAudio) {
       quarantine(report, dir, songId);
     }
   }
@@ -353,13 +382,16 @@ function applyManifest(
   committed: boolean,
 ): void {
   const manifestPath = join(dir, `.pending.${taskId}`);
-  const audio = join(dir, CANONICAL_AUDIO_FILE);
   const backup = join(dir, `.replace.${taskId}.bak`);
   const manifest = readManifest(manifestPath);
+  // An unreadable manifest does not say which era wrote it, so both names are
+  // candidates. Only one of them is ever really there.
+  const names =
+    manifest === null ? [CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE] : [manifest.audio_file];
 
   if (committed) {
-    // The transaction landed, so song.m4a is the new file. Everything else is
-    // leftover from an interrupted step 6.
+    // The transaction landed, so the audio file is the new one. Everything
+    // else is leftover from an interrupted step 6.
     quietly(() => unlinkSync(backup));
     quietly(() => unlinkSync(manifestPath));
     report.committedSwept++;
@@ -367,25 +399,28 @@ function applyManifest(
   }
 
   if (existsSync(backup)) {
-    // Step 4 happened: song.m4a is the uncommitted new file, bak is the good one.
-    quietly(() => unlinkSync(audio));
-    quietly(() => renameSync(backup, audio));
+    // Step 4 happened: the audio file is the uncommitted new one, bak is the
+    // good one. It goes back under the name it was taken from — which, for an
+    // unreadable manifest, is whichever name is standing there now.
+    const present = names.find((name) => existsSync(join(dir, name)));
+    for (const name of names) quietly(() => unlinkSync(join(dir, name)));
+    quietly(() => renameSync(backup, join(dir, present ?? CANONICAL_AUDIO_FILE)));
     quietly(() => unlinkSync(manifestPath));
     report.rolledBack++;
     report.notes.push(`restored the previous file for song ${songId}`);
     return;
   }
 
-  // No bak. `had_old` is the only thing that says which file song.m4a is.
+  // No bak. `had_old` is the only thing that says which file this is.
   if (manifest?.had_old === true) {
-    // Step 3 had not run: song.m4a is the untouched previous file. Keep it.
+    // Step 3 had not run: the audio file is the untouched previous one. Keep it.
     quietly(() => unlinkSync(manifestPath));
     report.oldFileKept++;
     return;
   }
 
   // A new song whose row never committed — the file is unreferenced.
-  quietly(() => unlinkSync(audio));
+  for (const name of names) quietly(() => unlinkSync(join(dir, name)));
   quietly(() => unlinkSync(manifestPath));
   report.rolledBack++;
   if (manifest === null) {
@@ -397,11 +432,20 @@ function readManifest(path: string): PendingManifest | null {
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf-8')) as Partial<PendingManifest>;
     if (typeof parsed?.song_id !== 'string') return null;
+    const version = typeof parsed.version === 'number' ? parsed.version : 1;
+    // The name reaches a path join, so it is matched against the two names
+    // this program has ever written rather than trusted. A manifest naming
+    // anything else is corrupt, and corrupt is a state recovery already knows
+    // how to handle.
+    const audioFile = version >= 2 ? parsed.audio_file : LEGACY_AUDIO_FILE;
+    if (audioFile !== CANONICAL_AUDIO_FILE && audioFile !== LEGACY_AUDIO_FILE) return null;
     return {
+      version,
       task_id: String(parsed.task_id ?? ''),
       song_id: parsed.song_id,
       mode: parsed.mode === 'new' ? 'new' : 'replace',
       had_old: parsed.had_old === true,
+      audio_file: audioFile,
     };
   } catch {
     return null;

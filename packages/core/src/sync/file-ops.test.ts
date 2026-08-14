@@ -188,6 +188,39 @@ describe('executing a delete', () => {
     expect(await runtime().drain()).toEqual({ executed: 1, failed: 0, skipped: 0 });
     expect(countQuarantined()).toBe(0);
   });
+
+  // An op written by 0.2.x has no `audio_file` in its snapshot and a song.mp3
+  // on disk. The boot drain runs it BEFORE the audio migration, so this is a
+  // real sequence, and getting it wrong is not cosmetic: the executor removes
+  // the directory right after, so an unrecognised name deletes an imported
+  // song instead of rescuing it.
+  it('rescues a 0.2.x song.mp3 for an op that predates the file name', async () => {
+    const id = randomUUID();
+    const dir = join(songsDir(), id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'song.mp3'), 'imported audio');
+
+    enqueueRemoteDelete(sqlite, id, 'imported');
+    // Strip the field the way a v0.2 row would have been written.
+    const row = sqlite.prepare('SELECT id, arg FROM sync_file_ops').get() as {
+      id: number;
+      arg: string;
+    };
+    const legacy = JSON.parse(row.arg) as Record<string, unknown>;
+    legacy.audio_file = undefined;
+    sqlite
+      .prepare('UPDATE sync_file_ops SET arg = ? WHERE id = ?')
+      .run(JSON.stringify(legacy), row.id);
+
+    await runtime().drain();
+
+    const [target] = quarantineOf(id);
+    expect(target).toBeDefined();
+    expect(readFileSync(join(recoveredSongsDir(), target, 'song.mp3'), 'utf-8')).toBe(
+      'imported audio',
+    );
+    expect(existsSync(dir)).toBe(false);
+  });
 });
 
 describe('executing the other kinds', () => {

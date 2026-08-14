@@ -59,14 +59,40 @@ const exists = (path: string) => {
   }
 };
 
+/**
+ * The two eras a 0.3.0 boot can meet.
+ *
+ * Recovery runs BEFORE the audio migration, so the first boot over a 0.2.x
+ * library decides the whole table below about `song.mp3` files, using
+ * manifests that have no `version` key at all. Every form is therefore run
+ * twice — the legacy column is not a special case, it is half the states this
+ * routine will actually see in the field.
+ */
+interface Era {
+  label: string;
+  audio: string;
+  /** What the manifest carries beyond the shared fields. */
+  extra: Record<string, unknown>;
+}
+
+const ERAS: Era[] = [
+  {
+    label: 'v2 manifests (0.3.0, song.m4a)',
+    audio: 'song.m4a',
+    extra: { version: 2, audio_file: 'song.m4a' },
+  },
+  { label: 'v1 manifests (0.2.x, song.mp3)', audio: 'song.mp3', extra: {} },
+];
+
 function manifest(
   dir: string,
   taskId: string,
   fields: { mode: 'new' | 'replace'; had_old: boolean },
+  era: Era = ERAS[0],
 ): void {
   write(
     join(dir, `.pending.${taskId}`),
-    JSON.stringify({ task_id: taskId, song_id: SONG_ID, ...fields }),
+    JSON.stringify({ task_id: taskId, song_id: SONG_ID, ...era.extra, ...fields }),
   );
 }
 
@@ -271,11 +297,13 @@ describe('landSongFile', () => {
 
 // ─── recoverSongsStore: the seven forms ────────────────
 
-describe('recoverSongsStore', () => {
+describe.each(ERAS)('recoverSongsStore — $label', (era) => {
+  const AUDIO = era.audio;
+
   it('form 1: deletes every temp prefix', () => {
     const dir = songDir();
     seedSong();
-    write(join(dir, 'song.m4a'), 'GOOD');
+    write(join(dir, AUDIO), 'GOOD');
     for (const name of [
       `.download.${TASK_ID}.tmp`,
       `.song.${TASK_ID}.m4a.tmp`,
@@ -288,48 +316,50 @@ describe('recoverSongsStore', () => {
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.tempFilesRemoved).toBe(5);
-    expect(listDir(dir)).toEqual(['song.m4a']);
-    expect(read(join(dir, 'song.m4a'))).toBe('GOOD');
+    expect(listDir(dir)).toEqual([AUDIO]);
+    expect(read(join(dir, AUDIO))).toBe('GOOD');
   });
 
   it('form 2a: manifest + log row + backup → keeps the new file, sweeps the rest', () => {
     const dir = songDir();
     seedSong();
-    write(join(dir, 'song.m4a'), 'NEW');
+    write(join(dir, AUDIO), 'NEW');
     write(join(dir, `.replace.${TASK_ID}.bak`), 'OLD');
-    manifest(dir, TASK_ID, { mode: 'replace', had_old: true });
+    manifest(dir, TASK_ID, { mode: 'replace', had_old: true }, era);
     logRow(TASK_ID);
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.committedSwept).toBe(1);
-    expect(read(join(dir, 'song.m4a'))).toBe('NEW');
-    expect(listDir(dir)).toEqual(['song.m4a']);
+    expect(read(join(dir, AUDIO))).toBe('NEW');
+    expect(listDir(dir)).toEqual([AUDIO]);
     expect(logRowCount()).toBe(0);
   });
 
   it('form 2b: manifest + log row, no backup → still keeps the new file', () => {
     const dir = songDir();
     seedSong();
-    write(join(dir, 'song.m4a'), 'NEW');
-    manifest(dir, TASK_ID, { mode: 'new', had_old: false });
+    write(join(dir, AUDIO), 'NEW');
+    manifest(dir, TASK_ID, { mode: 'new', had_old: false }, era);
     logRow(TASK_ID);
 
     recoverSongsStore(db, sqlite);
-    expect(read(join(dir, 'song.m4a'))).toBe('NEW');
-    expect(listDir(dir)).toEqual(['song.m4a']);
+    expect(read(join(dir, AUDIO))).toBe('NEW');
+    expect(listDir(dir)).toEqual([AUDIO]);
   });
 
   it('form 3: manifest, no log row, backup present → rolls back to the old file', () => {
     const dir = songDir();
     seedSong();
-    write(join(dir, 'song.m4a'), 'HALF-WRITTEN NEW');
+    write(join(dir, AUDIO), 'HALF-WRITTEN NEW');
     write(join(dir, `.replace.${TASK_ID}.bak`), 'OLD');
-    manifest(dir, TASK_ID, { mode: 'replace', had_old: true });
+    manifest(dir, TASK_ID, { mode: 'replace', had_old: true }, era);
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.rolledBack).toBe(1);
-    expect(read(join(dir, 'song.m4a'))).toBe('OLD');
-    expect(listDir(dir)).toEqual(['song.m4a']);
+    // Restored under the name the era used — an mp3 that came back as
+    // `song.m4a` would be skipped by the scanner and served as the wrong type.
+    expect(read(join(dir, AUDIO))).toBe('OLD');
+    expect(listDir(dir)).toEqual([AUDIO]);
   });
 
   // The P0 case (fourth review ①). Without `had_old` this state is
@@ -337,38 +367,38 @@ describe('recoverSongsStore', () => {
   it('form 4: manifest, no log row, no backup, had_old → KEEPS the intact old file', () => {
     const dir = songDir();
     seedSong();
-    write(join(dir, 'song.m4a'), 'OLD AND FINE');
-    manifest(dir, TASK_ID, { mode: 'replace', had_old: true });
+    write(join(dir, AUDIO), 'OLD AND FINE');
+    manifest(dir, TASK_ID, { mode: 'replace', had_old: true }, era);
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.oldFileKept).toBe(1);
     expect(report.rolledBack).toBe(0);
-    expect(read(join(dir, 'song.m4a'))).toBe('OLD AND FINE');
-    expect(listDir(dir)).toEqual(['song.m4a']);
+    expect(read(join(dir, AUDIO))).toBe('OLD AND FINE');
+    expect(listDir(dir)).toEqual([AUDIO]);
   });
 
   it('form 5: manifest, no log row, no backup, !had_old → deletes the uncommitted file', () => {
     const dir = songDir();
-    write(join(dir, 'song.m4a'), 'UNCOMMITTED NEW');
-    manifest(dir, TASK_ID, { mode: 'new', had_old: false });
+    write(join(dir, AUDIO), 'UNCOMMITTED NEW');
+    manifest(dir, TASK_ID, { mode: 'new', had_old: false }, era);
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.rolledBack).toBe(1);
-    expect(exists(join(dir, 'song.m4a'))).toBe(false);
+    expect(exists(join(dir, AUDIO))).toBe(false);
     expect(listDir(dir)).toEqual([]);
   });
 
   it('form 6: audio with no row and no manifest → quarantined, never deleted', () => {
     const dir = songDir();
-    write(join(dir, 'song.m4a'), 'ORPHAN');
+    write(join(dir, AUDIO), 'ORPHAN');
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.orphansQuarantined).toBe(1);
-    expect(exists(join(dir, 'song.m4a'))).toBe(false);
+    expect(exists(join(dir, AUDIO))).toBe(false);
 
     const [bucket] = readdirSync(trashDir());
     expect(bucket).toMatch(/^recovery-/);
-    expect(read(join(trashDir(), bucket as string, SONG_ID, 'song.m4a'))).toBe('ORPHAN');
+    expect(read(join(trashDir(), bucket as string, SONG_ID, AUDIO))).toBe('ORPHAN');
   });
 
   it('form 7: log row with no manifest → dropped', () => {
@@ -380,14 +410,58 @@ describe('recoverSongsStore', () => {
     expect(logRowCount()).toBe(0);
   });
 
+  // No version to read, so both names are candidates: whichever is there is
+  // the uncommitted one.
   it('treats an unreadable manifest as uncommitted rather than guessing', () => {
     const dir = songDir();
-    write(join(dir, 'song.m4a'), 'NEW');
+    write(join(dir, AUDIO), 'NEW');
     write(join(dir, `.pending.${TASK_ID}`), '{ this is not json');
 
     const report = recoverSongsStore(db, sqlite);
     expect(report.rolledBack).toBe(1);
+    expect(exists(join(dir, AUDIO))).toBe(false);
+  });
+
+  it('restores the backup under the standing name when the manifest is unreadable', () => {
+    const dir = songDir();
+    seedSong();
+    write(join(dir, AUDIO), 'HALF-WRITTEN NEW');
+    write(join(dir, `.replace.${TASK_ID}.bak`), 'OLD');
+    write(join(dir, `.pending.${TASK_ID}`), 'not json either');
+
+    recoverSongsStore(db, sqlite);
+    expect(read(join(dir, AUDIO))).toBe('OLD');
+    expect(listDir(dir)).toEqual([AUDIO]);
+  });
+});
+
+describe('recoverSongsStore', () => {
+  // The manifest names a file that gets joined onto a path, and it is read
+  // from disk — so it is checked against the two names this program has ever
+  // written, not trusted.
+  it('refuses a manifest that names a file outside the song directory', () => {
+    const dir = songDir();
+    seedSong();
+    write(join(dir, 'song.m4a'), 'UNCOMMITTED NEW');
+    write(
+      join(dir, `.pending.${TASK_ID}`),
+      JSON.stringify({
+        version: 2,
+        task_id: TASK_ID,
+        song_id: SONG_ID,
+        mode: 'new',
+        had_old: false,
+        audio_file: '../../../lark_config.toml',
+      }),
+    );
+    write(join(nest, 'lark', 'lark_config.toml'), 'KEEP ME');
+
+    const report = recoverSongsStore(db, sqlite);
+    // Treated as unreadable: the uncommitted file goes, and nothing outside
+    // the song directory is touched.
+    expect(report.rolledBack).toBe(1);
     expect(exists(join(dir, 'song.m4a'))).toBe(false);
+    expect(read(join(nest, 'lark', 'lark_config.toml'))).toBe('KEEP ME');
   });
 
   it('leaves a healthy library completely alone', () => {

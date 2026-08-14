@@ -31,6 +31,7 @@ import { ClaimRegistry } from '../download/claims.js';
 import { FileOpBusyError, FileOpNotFoundError, SongBusyError } from '../errors.js';
 import {
   CANONICAL_AUDIO_FILE,
+  LEGACY_AUDIO_FILE,
   songAudioPath,
   songDirPath,
   songLyricsPath,
@@ -79,6 +80,17 @@ export interface DeleteRemoteArg {
   lyrics_disposition: 'delete' | 'quarantine';
   /** Directory NAME under `recovered-songs/`, never an absolute path — a nest that moved must still resolve it. */
   quarantine_target: string;
+  /**
+   * The audio file name as it was when this op was decided (0.3.0).
+   *
+   * Absent means the op was written by 0.2.x, when that name was `song.mp3` —
+   * and such an op is executed by the boot drain that runs BEFORE the audio
+   * migration, so the mp3 is still exactly what is on disk. Getting this wrong
+   * is not cosmetic: the executor quarantines irreplaceable audio by name and
+   * then removes the directory, so a name that matches nothing deletes an
+   * imported song instead of saving it.
+   */
+  audio_file?: string;
 }
 
 export interface QuarantineArg {
@@ -173,6 +185,7 @@ export function enqueueRemoteDelete(
     audio_origin: audioOrigin,
     lyrics_disposition: lyricsAreOnlyHere(sqlite, songId) ? 'quarantine' : 'delete',
     quarantine_target: quarantineName(songId, opUuid),
+    audio_file: CANONICAL_AUDIO_FILE,
   };
   return insertOp(sqlite, 'delete_song_files', songId, arg, nowMs);
 }
@@ -636,8 +649,13 @@ async function deleteRemote(songId: string, arg: DeleteRemoteArg): Promise<FileO
   const keepLyrics = arg.lyrics_disposition === 'quarantine';
   let quarantined = false;
 
-  if (keepAudio && existsSync(songAudioPath(songId))) {
-    await moveInto(songAudioPath(songId), arg.quarantine_target, CANONICAL_AUDIO_FILE);
+  // The snapshot names the file, and an op with no name is a 0.2.x one whose
+  // file is an mp3. The other name is still checked as a fallback because the
+  // step after this one removes the whole directory: locating the asset is
+  // worth two `existsSync` calls, and looking away from it is unrecoverable.
+  const audio = locateAudio(dir, arg.audio_file ?? LEGACY_AUDIO_FILE);
+  if (keepAudio && audio !== null) {
+    await moveInto(join(dir, audio), arg.quarantine_target, audio);
     quarantined = true;
   } else {
     await unlink(songAudioPath(songId)).catch(ignoreMissing);
@@ -653,6 +671,18 @@ async function deleteRemote(songId: string, arg: DeleteRemoteArg): Promise<FileO
   // Anything else in there (a stray temp file) is ours and unreferenced.
   await rm(dir, { recursive: true, force: true });
   return { quarantined };
+}
+
+/**
+ * Which of the two audio names this song directory actually holds, preferring
+ * the one the op snapshotted. Null when it holds neither.
+ */
+function locateAudio(dir: string, preferred: string): string | null {
+  const candidates =
+    preferred === CANONICAL_AUDIO_FILE
+      ? [CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE]
+      : [LEGACY_AUDIO_FILE, CANONICAL_AUDIO_FILE];
+  return candidates.find((name) => existsSync(join(dir, name))) ?? null;
 }
 
 async function moveInto(from: string, targetName: string, fileName: string): Promise<void> {

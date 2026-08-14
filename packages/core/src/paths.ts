@@ -81,6 +81,23 @@ export function recoveredSongsDir(): string {
   return join(larkDir(), 'recovered-songs');
 }
 
+/**
+ * Where the audio migration keeps what it converted but must not delete:
+ * `lark/migration-backup/` (0.3.0, master plan §3.2-1).
+ *
+ * Outside the `songs/` tree on purpose. Everything in there is by definition
+ * a file the migration could not prove it could get back — an imported song,
+ * or one whose source no longer answers — so it must not be reachable by the
+ * cache eviction (which walks the library), by sync (which sees songs), or by
+ * the startup recovery (which walks `songs/`). A nest backup DOES include it,
+ * and the settings page shows what it costs with a way to empty it: an
+ * invisible pile of bytes growing under a user's home directory is the thing
+ * this layout exists to avoid.
+ */
+export function migrationBackupDir(): string {
+  return join(larkDir(), 'migration-backup');
+}
+
 /** Aviary shared config, the LLM fallback source: `aviary/aviary_config.toml` */
 export function aviaryConfigPath(): string {
   return join(nestDir(), 'aviary', 'aviary_config.toml');

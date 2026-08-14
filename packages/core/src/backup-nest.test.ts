@@ -1,6 +1,13 @@
 // The four contracts of M4-14⑧, each with the failure it exists to prevent.
 
-import { existsSync, mkdirSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,6 +72,20 @@ describe('what lands in the copy', () => {
     expect(existsSync(join(result.larkDir, 'daemon.pid'))).toBe(false);
     expect(existsSync(join(result.larkDir, 'logs'))).toBe(false);
     expect(existsSync(join(result.larkDir, 'songs.db.migrate.lock'))).toBe(false);
+  });
+
+  // Everything in there is a file the audio migration could not prove it
+  // could get back — an imported song, or one whose source stopped answering.
+  // A backup that skipped it would be the one place those bytes are not.
+  it('copies the audio migration backup', async () => {
+    mkdirSync(join(nest, 'lark', 'migration-backup'), { recursive: true });
+    writeFileSync(join(nest, 'lark', 'migration-backup', 'a-song-id.mp3'), 'irreplaceable');
+
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    expect(readFileSync(join(result.larkDir, 'migration-backup', 'a-song-id.mp3'), 'utf-8')).toBe(
+      'irreplaceable',
+    );
   });
 
   it('leaves the lock databases and their sidecars behind', async () => {
