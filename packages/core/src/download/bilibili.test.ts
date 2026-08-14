@@ -205,17 +205,76 @@ describe('audioStream', () => {
     body: { code: 0, data: { dash: { audio } } },
   });
 
+  const aac = (id: number, bandwidth: number, url: string) => ({
+    id,
+    bandwidth,
+    baseUrl: url,
+    mimeType: 'audio/mp4',
+    codecs: 'mp4a.40.2',
+  });
+
   it('picks the highest bandwidth tier', async () => {
     const { client: c } = client([
       playurl([
-        { id: 30216, bandwidth: 67144, baseUrl: 'https://cdn/64k', mimeType: 'audio/mp4' },
-        { id: 30280, bandwidth: 319076, baseUrl: 'https://cdn/192k', mimeType: 'audio/mp4' },
-        { id: 30232, bandwidth: 131898, baseUrl: 'https://cdn/132k', mimeType: 'audio/mp4' },
+        aac(30216, 67144, 'https://cdn/64k'),
+        aac(30280, 319076, 'https://cdn/192k'),
+        aac(30232, 131898, 'https://cdn/132k'),
       ]),
     ]);
     expect(await c.audioStream(BVID, 550103819)).toMatchObject({
       url: 'https://cdn/192k',
       id: 30280,
+      codecs: 'mp4a.40.2',
+      isAac: true,
+    });
+  });
+
+  // Canonical audio is AAC in an MP4, so an AAC stream is copied byte for byte
+  // and anything else is re-encoded (D17). A fatter non-AAC tier is therefore
+  // the worse choice: the extra bitrate does not survive the encoder.
+  it('prefers AAC over a higher-bandwidth stream in another codec', async () => {
+    const { client: c } = client([
+      playurl([
+        {
+          id: 30250,
+          bandwidth: 1_000_000,
+          baseUrl: 'https://cdn/dolby',
+          mimeType: 'audio/mp4',
+          codecs: 'ec-3',
+        },
+        aac(30232, 131898, 'https://cdn/132k'),
+      ]),
+    ]);
+    expect(await c.audioStream(BVID, 1)).toMatchObject({ url: 'https://cdn/132k', isAac: true });
+  });
+
+  it('falls back to the best stream there is when none declares AAC', async () => {
+    const { client: c } = client([
+      playurl([
+        { id: 30251, bandwidth: 900_000, baseUrl: 'https://cdn/flac', codecs: 'fLaC' },
+        { id: 30250, bandwidth: 1_000_000, baseUrl: 'https://cdn/dolby', codecs: 'ec-3' },
+      ]),
+    ]);
+    // Desktop transcodes it (mobile will refuse — D17); either way the probe
+    // of the downloaded bytes, not this field, decides what ffmpeg is told.
+    expect(await c.audioStream(BVID, 1)).toMatchObject({ url: 'https://cdn/dolby', isAac: false });
+  });
+
+  // Old responses (and the odd edge case) omit `codecs` entirely. Guessing
+  // "AAC" there would claim a copy the file might not support; guessing the
+  // other way costs a transcode that the probe will avoid anyway if the bytes
+  // turn out to be AAC.
+  it('treats a missing codecs field as not-AAC and still picks by bandwidth', async () => {
+    const { client: c } = client([
+      playurl([
+        { id: 30216, bandwidth: 67144, baseUrl: 'https://cdn/64k', mimeType: 'audio/mp4' },
+        { id: 30280, bandwidth: 319076, baseUrl: 'https://cdn/192k', mimeType: 'audio/mp4' },
+      ]),
+    ]);
+    expect(await c.audioStream(BVID, 1)).toMatchObject({
+      url: 'https://cdn/192k',
+      codecs: '',
+      isAac: false,
     });
   });
 

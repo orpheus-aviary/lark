@@ -66,6 +66,15 @@ export interface BiliAudioStream {
   /** bilibili's quality id: 30216 (64k) / 30232 (132k) / 30280 (192k). */
   id: number;
   mimeType: string;
+  /** DASH `codecs`, e.g. `mp4a.40.2`. Empty when the entry omits it. */
+  codecs: string;
+  /**
+   * `codecs` says AAC, so this stream can be rewrapped into canonical m4a
+   * without re-encoding (D17). A missing `codecs` counts as NOT AAC: the
+   * penalty for guessing wrong is a needless transcode either way, and this
+   * direction never claims a copy that the file cannot support.
+   */
+  isAac: boolean;
 }
 
 export interface BiliListVideo {
@@ -233,27 +242,34 @@ export function createBilibiliClient(options: BilibiliClientOptions = {}): Bilib
       const url = `${apiBase}/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&fnval=16&fourk=1`;
       const dash = asRecord(asRecord(await getJson(url, signal))?.dash);
       const streams = Array.isArray(dash?.audio) ? dash.audio : [];
-      // Highest bandwidth wins — the tiers are 64k/132k/192k and there is no
-      // reason to ship the user the worst one.
-      let best: BiliAudioStream | null = null;
+      const candidates: BiliAudioStream[] = [];
       for (const entry of streams) {
         const s = asRecord(entry);
         const streamUrl = str(s?.baseUrl) || str(s?.base_url);
         if (streamUrl === '') continue;
-        const candidate: BiliAudioStream = {
+        const codecs = str(s?.codecs);
+        candidates.push({
           url: streamUrl,
           bandwidth: num(s?.bandwidth),
           id: num(s?.id),
           mimeType: str(s?.mimeType) || str(s?.mime_type),
-        };
-        if (best === null || candidate.bandwidth > best.bandwidth) best = candidate;
+          codecs,
+          isAac: isAacCodec(codecs),
+        });
       }
-      if (best === null) {
+      if (candidates.length === 0) {
         throw new BilibiliApiError(
           `no audio stream for ${bvid}:${cid} (video may be members-only)`,
         );
       }
-      return best;
+      // Codec first, bandwidth second (D17). Canonical audio is AAC in an MP4,
+      // so an AAC stream is copied byte for byte while anything else has to be
+      // re-encoded — a 132k AAC beats a 320k something-else, because the
+      // something-else does not survive the encoder intact anyway. Within one
+      // codec the tiers are 64k/132k/192k and the best one wins, as before.
+      const aac = candidates.filter((c) => c.isAac);
+      const pool = aac.length > 0 ? aac : candidates;
+      return pool.reduce((best, c) => (c.bandwidth > best.bandwidth ? c : best));
     },
 
     async favoritesPage(mediaId, pageNum, opts) {
@@ -369,6 +385,16 @@ function str(value: unknown): string {
 
 function num(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+/**
+ * `mp4a.40.<n>` is MPEG-4 audio: .2 is AAC-LC, .5 HE-AAC, .29 HE-AACv2 — all
+ * of them AAC in an MP4, all copyable into canonical m4a. Matched on the
+ * family rather than the exact profile so a new one is not read as "transcode
+ * this"; anything else (`ec-3`, `fLaC`, empty) is not AAC.
+ */
+function isAacCodec(codecs: string): boolean {
+  return codecs.trim().toLowerCase().startsWith('mp4a.40');
 }
 
 function toPage(entry: unknown): BiliPage {

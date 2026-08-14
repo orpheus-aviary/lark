@@ -324,9 +324,12 @@ export async function fetchAudio(
   const landed = await deps.mediaTools.use(async (tools) => {
     const run = { signal: ctx.signal, timeouts: deps.timeouts };
     try {
-      // Probe first: bilibili hands over AAC in an MP4, which `processAudio`
-      // then rewraps rather than re-encodes — the bytes the user listens to
-      // are the bytes bilibili sent.
+      // Probe the bytes that arrived, and let THAT decide the conversion.
+      // `audioStream` already preferred an AAC candidate so this is normally a
+      // rewrap — the audio the user hears is the audio bilibili sent — but the
+      // decision is never taken from the DASH `codecs` field: a stream that
+      // says `mp4a.40.2` and delivers something else would otherwise be
+      // copied into a canonical file that cannot be played.
       const source = await probeAudio(tools.ffprobe.path, paths.download, run);
       await processAudio(tools.ffmpeg.path, paths.download, paths.transcoded, source, run);
     } finally {
