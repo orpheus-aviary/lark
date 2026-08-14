@@ -191,6 +191,65 @@ describe('opening the library', () => {
   });
 });
 
+describe('a library that still owes the audio migration (判据 17)', () => {
+  /** The state 0003 leaves: the flag set, and a song holding an mp3. */
+  async function markPending(): Promise<string> {
+    const { songs } = await seed();
+    const id = songs[0] as string;
+    const core = await import('@lark/core');
+    const { sqlite } = core.createDatabase({ dbPath: dbPath() });
+    sqlite
+      .prepare("UPDATE local_metadata SET value = '1' WHERE key = 'audio_migration_pending'")
+      .run();
+    sqlite.close();
+    const dir = join(larkDir(), 'songs', id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'song.mp3'), 'not really audio, but it is there');
+    return id;
+  }
+
+  it('refuses a direct write and says who can fix it', async () => {
+    await markPending();
+
+    expect(await codeOf(() => createDirectBackend({ mode: 'write' }))).toBe(
+      'AUDIO_MIGRATION_PENDING',
+    );
+  });
+
+  it('hands the writer lock back when it refuses', async () => {
+    await markPending();
+    await codeOf(() => createDirectBackend({ mode: 'write' }));
+
+    // A refusal that kept the lock would leave the very daemon that can FIX
+    // the library unable to start.
+    const after = acquireWriterLock({ dbPath: dbPath() });
+    after.release();
+  });
+
+  it('still reads, and does not call an unconverted song fileless', async () => {
+    const id = await markPending();
+
+    const songs = await withDirect('read', async (backend) => (await backend.listSongs({})).data);
+    const song = songs?.find((candidate) => candidate.id === id);
+    // The mp3 IS the audio until the conversion gets to it; reporting
+    // `has_file: false` would tell the user to download what they have.
+    expect(song?.has_file).toBe(true);
+  });
+
+  it('goes back to the canonical name once the flag is cleared', async () => {
+    const id = await markPending();
+    const core = await import('@lark/core');
+    const { sqlite } = core.createDatabase({ dbPath: dbPath() });
+    core.clearAudioMigrationPending(sqlite);
+    sqlite.close();
+
+    const songs = await withDirect('read', async (backend) => (await backend.listSongs({})).data);
+    // Same mp3 on disk, and now it counts for nothing: after the migration the
+    // served tree is single-format by definition.
+    expect(songs?.find((candidate) => candidate.id === id)?.has_file).toBe(false);
+  });
+});
+
 describe('reads write nothing', () => {
   it('leaves the whole nest tree untouched', async () => {
     await seed();

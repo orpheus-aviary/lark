@@ -100,7 +100,7 @@ export class MigrationPendingError extends Error {
   readonly dbVersion: number;
   constructor(dbPath: string, dbVersion: number, target: number) {
     super(
-      `Database at ${dbPath} is at v${dbVersion} and this build expects v${target}. Start the daemon once (\`lark daemon\`) to complete the upgrade, then retry.`,
+      `Database at ${dbPath} is at v${dbVersion} and this build expects v${target}. Start the daemon once (\`lark daemon\`) to complete the upgrade, then retry. From v3 that upgrade also runs the one-time mp3 → m4a conversion, so give it time to finish.`,
     );
     this.name = 'MigrationPendingError';
     this.dbPath = dbPath;

@@ -52,4 +52,18 @@ export async function runStatus(deps: StatusDeps, opts: StatusOptions): Promise<
   deps.streams.out(`daemon: online (pid ${report.pid}, v${report.version})`);
   deps.streams.out(`uptime: ${Math.round(report.uptime)}s`);
   deps.streams.out(`protocol: local_api_version ${report.local_api_version}`);
+
+  // Only while it is happening (0.3.0 T3d). This is the line that explains why
+  // every other command is answering AUDIO_MIGRATION_PENDING — `status` is the
+  // one command that keeps working, so it is where the reason belongs.
+  const migration = report.audio_migration;
+  if (migration !== undefined && migration.phase !== 'normal') {
+    const settled =
+      migration.done + migration.lost + migration.kept_unconverted + migration.asset_missing;
+    const attention = migration.blocked + migration.blocked_file_op;
+    const stuck = attention > 0 ? `, ${attention} need attention` : '';
+    deps.streams.out(
+      `audio migration: ${migration.state} (${settled}/${migration.total}${stuck}) — the library is not served yet`,
+    );
+  }
 }

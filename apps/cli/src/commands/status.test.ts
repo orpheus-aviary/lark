@@ -56,6 +56,42 @@ describe('lark status — current', () => {
   });
 });
 
+describe('lark status — a daemon that is still migrating (判据 17)', () => {
+  const MIGRATING: DaemonIdentity = {
+    state: 'current',
+    pid: STATUS.pid,
+    status: {
+      ...STATUS,
+      audio_migration: {
+        phase: 'pending',
+        state: 'needs_attention',
+        total: 10,
+        done: 6,
+        lost: 1,
+        kept_unconverted: 0,
+        asset_missing: 0,
+        blocked: 1,
+        blocked_file_op: 1,
+      },
+    },
+  };
+
+  it('says why every other command is refusing', async () => {
+    const { streams, error } = await runWith(MIGRATING, false);
+
+    expect(error).toBeNull();
+    const out = streams.stdout.join('\n');
+    expect(out).toContain('audio migration: needs_attention (7/10, 2 need attention)');
+    expect(out).toContain('the library is not served yet');
+  });
+
+  it('stays quiet on a daemon that is serving', async () => {
+    const { streams } = await runWith(CURRENT, false);
+
+    expect(streams.stdout.join('\n')).not.toContain('audio migration');
+  });
+});
+
 describe('lark status — everything else is an error', () => {
   // The frozen contract (M6-22): only `current` is a success, so a script's
   // rule stays "exit 0 ⇔ stdout has an envelope" rather than "parse the

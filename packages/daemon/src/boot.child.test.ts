@@ -218,8 +218,16 @@ describe('boot', () => {
 // phases are ordered around `listen()`, and from inside the process they are
 // just function calls in the order the source already claims.
 describe('boot — the audio migration', () => {
-  /** Build the state 0003 leaves behind: schema v3, flag set, an mp3 on disk. */
-  async function seedPendingLibrary(): Promise<string> {
+  /**
+   * Build the state 0003 leaves behind: schema v3, flag set, and a song.
+   *
+   * `audio: 'file'` writes the mp3 where 0.2.x kept it. `audio: 'crashed'`
+   * writes what a landing that died mid-replace left instead — a v1 manifest
+   * (no `version` key) and its backup, with NO audio file at all. Only boot's
+   * legacy recovery can turn the second one back into an mp3, which is the
+   * whole point of it running before the scan (§3.2-11).
+   */
+  async function seedPendingLibrary(audio: 'file' | 'crashed' = 'file'): Promise<string> {
     const core = await import('@lark/core');
     vi.stubEnv('LARK_NEST_DIR', nest);
     const { db, sqlite } = core.createDatabase({ dbPath: dbPath() });
@@ -245,7 +253,17 @@ describe('boot — the audio migration', () => {
     }
     const dir = join(larkDir(), 'songs', id);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, 'song.mp3'), await readToneMp3());
+    const mp3 = await readToneMp3();
+    if (audio === 'file') {
+      writeFileSync(join(dir, 'song.mp3'), mp3);
+      return id;
+    }
+    const task = randomUUID();
+    writeFileSync(join(dir, `.replace.${task}.bak`), mp3);
+    writeFileSync(
+      join(dir, `.pending.${task}`),
+      JSON.stringify({ task_id: task, song_id: id, mode: 'replace', had_old: true }),
+    );
     return id;
   }
 
@@ -275,6 +293,31 @@ describe('boot — the audio migration', () => {
 
     const songs = await fetch(`${base}/songs`, { headers: auth });
     expect(songs.status).toBe(200);
+
+    child.proc.kill('SIGTERM');
+    expect(await child.waitForExit()).toMatchObject({ code: 0 });
+  }, 90_000);
+
+  it('migrates an mp3 that only legacy recovery could produce (判据 15)', async () => {
+    const id = await seedPendingLibrary('crashed');
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.mp3'))).toBe(false);
+
+    const child = spawnDaemon();
+    const port = await child.waitForPort();
+
+    await vi.waitFor(
+      async () => {
+        const res = await fetch(`http://127.0.0.1:${port}/status`);
+        const body = (await res.json()) as { data: StatusData };
+        expect(body.data.audio_migration?.phase).toBe('normal');
+      },
+      { timeout: 60_000, interval: 100 },
+    );
+
+    // Recovery restored the backup as `song.mp3` — under the v1 name, because
+    // the manifest had no version — and the scan that followed picked it up.
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.m4a'))).toBe(true);
+    expect(existsSync(join(larkDir(), 'songs', id, 'song.mp3'))).toBe(false);
 
     child.proc.kill('SIGTERM');
     expect(await child.waitForExit()).toMatchObject({ code: 0 });

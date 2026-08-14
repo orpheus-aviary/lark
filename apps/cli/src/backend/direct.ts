@@ -91,9 +91,21 @@ function openForWrite(core: Core, dbPath: string): DirectBackend {
   // The lock comes FIRST: `createDatabase` runs crash recovery and forward
   // migrations, which are writes like any other.
   const lock = attempt(() => core.acquireWriterLock({ dbPath }));
-  let handles: { db: unknown; sqlite: { close(): void } };
+  let handles: Handles;
   try {
     handles = attempt(() => core.createDatabase({ dbPath }));
+    // A library that still owes the mp3 → m4a conversion is not writable by
+    // anything but the migration (§3.2-12). `createDatabase` may have just
+    // CREATED that state — a v2 library upgrades here — so the check belongs
+    // after it, not before. A brand-new library never trips it: the same call
+    // clears the flag for a library it built from nothing.
+    if (core.isAudioMigrationPending(handles.sqlite)) {
+      handles.sqlite.close();
+      throw new CliError(
+        'AUDIO_MIGRATION_PENDING',
+        '这个曲库还欠一次性的 mp3 → m4a 转换。先启动一次 lark（GUI 或 `lark daemon`）让它跑完，再用 --direct 写。',
+      );
+    }
   } catch (err) {
     lock.release();
     throw err;
@@ -101,7 +113,7 @@ function openForWrite(core: Core, dbPath: string): DirectBackend {
 
   let closed = false;
   return {
-    backend: buildBackend(core, handles as never, 'write'),
+    backend: buildBackend(core, handles, 'write'),
     close() {
       if (closed) return;
       closed = true;
@@ -136,12 +148,19 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
   const { db, sqlite } = handles;
 
   /** `has_file` / `file_size` are a live disk probe, exactly as the daemon does. */
-  // T3 derives this from the library's migration flag: a direct READ is
-  // allowed while the conversion pass is still running, and a song waiting
-  // its turn must not be reported as missing its file.
+  //
+  // Which NAME counts as the file comes from the library's own migration flag
+  // (§3.2-12). A direct READ is allowed while the conversion is still running
+  // — reads take no lock — and a song waiting its turn still has its audio, as
+  // an mp3. Reporting it as missing would tell the user to download something
+  // they already have.
+  //
+  // Read once, at open: the mode only ever WIDENS what counts (m4a, or m4a and
+  // mp3), so a pass finishing mid-command cannot make this answer wrong.
+  const audioMode = core.isAudioMigrationPending(sqlite) ? 'migration-pending' : 'canonical';
   const enrich = (song: SongData): SongData => ({
     ...song,
-    ...core.songFileInfo(song.id, { audioMode: 'canonical' }),
+    ...core.songFileInfo(song.id, { audioMode }),
   });
 
   const ok = <T>(data: T, extra: { message?: string; total?: number } = {}): ApiResponse<T> => {
