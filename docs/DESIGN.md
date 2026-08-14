@@ -81,7 +81,7 @@ Electron main 是 daemon 的宿主，不是它的监工：
 CLI 是 daemon 的第二个前端，也是**唯一可以在没有 daemon 时读写库的入口**——所以互斥不能再靠
 「进程内一个写者」这个假设：
 
-- **跨进程 writer lock**：daemon / `--direct` 写 / `migrate-go` / `backup-nest` 四方共守
+- **跨进程 writer lock**：daemon / `--direct` 写 / `backup-nest` 三方共守（`migrate-go` 是第四方，0.3.0 删除）
   `songs.db.writer.lock`（常驻 SQLite 锁库，`BEGIN EXCLUSIVE`，内核 fcntl，kill -9 自动释放，
   **锁文件永不删除**）。锁序冻结 **writer → migrate → 真库 EXCLUSIVE**；`--direct` 写的顺序是
   **mkdir → 取锁 → 开库**，所以一个空 nest 也能被 CLI 初始化出来。

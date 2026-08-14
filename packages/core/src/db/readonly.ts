@@ -114,8 +114,8 @@ function statMissingOnly(dbPath: string): void {
  *
  * `fileMustExist` guarantees the open never creates anything, but it turns a
  * file that vanished since the stat into a bare `SQLITE_CANTOPEN`. That race
- * is real, not theoretical: a read path takes no writer lock, and `migrate-go`
- * renames this exact file twice during its swap (sixth review ⑧). A second
+ * is real, not theoretical: a read path takes no writer lock, and the crash
+ * recovery renames this exact file during a swap (sixth review ⑧). A second
  * stat separates the two: gone now means "not initialised", still there means
  * the open failed for its own reasons and the error belongs to the caller.
  */

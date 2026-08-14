@@ -76,17 +76,3 @@ export function createLogger(options: LoggerOptions): Logger {
     transport,
   );
 }
-
-/** Create a simple stdout logger (development / CLI / test injection). */
-export function createConsoleLogger(name: string, level = 'info'): Logger {
-  return pino({
-    name,
-    level,
-    timestamp: pino.stdTimeFunctions.isoTime,
-    redact: DEFAULT_REDACT,
-    transport: {
-      target: 'pino/file',
-      options: { destination: 1 }, // stdout
-    },
-  });
-}

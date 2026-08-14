@@ -1,4 +1,5 @@
-// The writer lock, and the four writers that now share it (M6-18).
+// The writer lock, and the three writers that share it (M6-18; the Go
+// migration was the fourth until 0.3 deleted it).
 //
 // Two properties are worth the cost of child processes: cross-PROCESS
 // exclusion (the whole point — an in-process test would pass with a plain
@@ -9,17 +10,14 @@
 // subprocesses are spawned via spawn() with argument arrays, no shell.)
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
-import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { backupNest } from '../backup-nest.js';
-import { MigrationBusyError, WriterLockBusyError } from '../errors.js';
-import { seedGoLegacyDb } from './fixture-go-db.js';
+import { WriterLockBusyError } from '../errors.js';
 import { createDatabase } from './index.js';
-import { migrateFromGoDb } from './migrate-go.js';
 import { type WriterLock, acquireWriterLock, writerLockPath } from './writer-lock.js';
 
 let dir: string;
@@ -139,7 +137,7 @@ describe('acquireWriterLock', () => {
   });
 });
 
-describe('the four writers exclude each other', () => {
+describe('the three writers exclude each other', () => {
   const quiet = { probeRunning: async (): Promise<string | null> => null };
 
   function seedNest(root: string): void {
@@ -149,20 +147,6 @@ describe('the four writers exclude each other', () => {
     const { sqlite } = createDatabase({ dbPath: join(lark, 'songs.db') });
     sqlite.close();
   }
-
-  it('refuses a Go migration while another writer holds the lock', async () => {
-    seedGoLegacyDb(dbPath());
-    const lock = take();
-
-    await expect(migrateFromGoDb(dbPath(), { httpProbe: false })).rejects.toBeInstanceOf(
-      WriterLockBusyError,
-    );
-
-    lock.release();
-    await expect(migrateFromGoDb(dbPath(), { httpProbe: false })).resolves.toMatchObject({
-      songs: 20,
-    });
-  });
 
   it('refuses a nest backup while another writer holds the lock', async () => {
     const nest = join(dir, 'nest');
@@ -197,49 +181,5 @@ describe('the four writers exclude each other', () => {
     } finally {
       vi.unstubAllEnvs();
     }
-  });
-
-  it('lets the loser of two concurrent migrations retry into an idempotent answer', async () => {
-    seedGoLegacyDb(dbPath());
-
-    const [first, second] = await Promise.allSettled([
-      migrateFromGoDb(dbPath(), { httpProbe: false }),
-      migrateFromGoDb(dbPath(), { httpProbe: false }),
-    ]);
-
-    // Exactly one migrates; the other is refused rather than racing it into a
-    // half-swapped library. WHICH refusal depends on how far the winner had
-    // got — the writer lock if it is still setting up, the source's own
-    // EXCLUSIVE if it is already mid-backup — and both are refusals with a
-    // name, which is the property that matters.
-    const outcomes = [first.status, second.status].sort();
-    expect(outcomes).toEqual(['fulfilled', 'rejected']);
-    const rejected = (first.status === 'rejected' ? first : second) as PromiseRejectedResult;
-    expect(
-      rejected.reason instanceof WriterLockBusyError ||
-        rejected.reason instanceof MigrationBusyError,
-    ).toBe(true);
-
-    // The library is intact, and the loser's retry is a no-op.
-    const retry = await migrateFromGoDb(dbPath(), { httpProbe: false });
-    expect(retry.already_migrated).toBe(true);
-    expect(retry.songs).toBe(20);
-  });
-});
-
-describe('migrate-go writes nothing before it is sure', () => {
-  it('refuses an unrecognised v0 database byte-for-byte untouched', async () => {
-    // The verdict now comes from a READ-ONLY handle (M6-18 ③). Before that,
-    // the same-value `user_version` write happened first — a write transaction
-    // on a database this command had not yet established it could migrate.
-    const sqlite = new BetterSqlite3(dbPath());
-    sqlite.exec('CREATE TABLE mystery (id TEXT PRIMARY KEY)');
-    sqlite.close();
-    const before = readFileSync(dbPath());
-
-    await expect(migrateFromGoDb(dbPath(), { httpProbe: false })).rejects.toThrow(/missing/);
-
-    expect(readFileSync(dbPath()).equals(before)).toBe(true);
-    expect(existsSync(`${dbPath()}-journal`)).toBe(false);
   });
 });

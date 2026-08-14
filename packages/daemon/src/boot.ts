@@ -146,7 +146,7 @@ function describeBootFailure(err: unknown): string {
     return `${err.message}\n（另一个写者持有写锁：迁移、备份，或一条 \`lark --direct\` 写命令。等它结束后重试。）`;
   }
   if (err instanceof GoMigrationRequiredError) {
-    return `${err.message}\n运行 \`just migrate-go\` 完成迁移后再启动 daemon。`;
+    return `${err.message}\n0.3 起不再自带 Go 迁移：先用 0.2.x 完成迁移，再启动这个版本的 daemon。`;
   }
   if (err instanceof MigrationBusyError) {
     return `数据库迁移正在进行或被其他进程占用（${err.reason}），请稍后再试。`;

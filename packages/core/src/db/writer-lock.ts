@@ -1,11 +1,12 @@
 // The cross-process WRITER lock (M6-18).
 //
-// Four processes can legitimately write this library — the daemon, a
-// `lark --direct` write, `just migrate-go` and `just backup-nest` — and before
-// M6 nothing but the daemon's pid file stood between them. That file is a
-// STARTUP mutex, not a write mutex: it says "no second daemon", never "no
-// second writer", so a direct CLI write during a backup copy, or a migration
-// starting while a daemon booted, were both wide open.
+// Three processes can legitimately write this library — the daemon, a
+// `lark --direct` write and `just backup-nest` (the Go importer was a fourth
+// until 0.3 deleted it) — and before M6 nothing but the daemon's pid file
+// stood between them. That file is a STARTUP mutex, not a write mutex: it
+// says "no second daemon", never "no second writer", so a direct CLI write
+// during a backup copy, or a migration starting while a daemon booted, were
+// both wide open.
 //
 // Mechanism is M1's migration lock verbatim, and for the same reasons:
 // `${dbPath}.writer.lock` is a dedicated SQLite database, holding the lock =

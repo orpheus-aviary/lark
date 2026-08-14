@@ -1,8 +1,8 @@
 // The full backfill (v0.2 T1d, §3.7 / R4-1).
 //
 // A library that existed before it ever synced has no history: v0.1 wrote no
-// change rows at all, `migrate-go` builds its rows with raw SQL, and `unbind`
-// deliberately throws the outbox away. In every one of those cases the first
+// change rows at all, an imported Go-era library arrived as raw SQL, and
+// `unbind` deliberately throws the outbox away. In every one of those cases the first
 // login has to manufacture a `create` for each surviving row, or the peers
 // would only ever hear about what changes AFTER the login and a fresh device
 // would see a nearly empty library.

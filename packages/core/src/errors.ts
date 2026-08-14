@@ -3,14 +3,19 @@
 
 /**
  * createDatabase found the Go-era songs.db (user_version=0, non-empty,
- * playlists.is_system present). Never auto-migrated — the user runs
- * `just migrate-go` explicitly (M1-7).
+ * playlists.is_system present).
+ *
+ * The refusal outlives the migration that used to answer it: 0.3 deleted the
+ * Go importer (nobody has run it since the one library it was written for
+ * moved over, and it was a dev-checkout command to begin with). Recognising
+ * the shape still matters — without it the library reads as "unknown v0
+ * schema", which is the same refusal with none of the guidance.
  */
 export class GoMigrationRequiredError extends Error {
   readonly dbPath: string;
   constructor(dbPath: string) {
     super(
-      `Database at ${dbPath} is a Go-version lark library and must be migrated first. Run \`just migrate-go\` (the Go app cannot open the library afterwards).`,
+      `Database at ${dbPath} is a Go-version lark library. This build cannot migrate it — lark 0.3 removed the importer. Migrate with a lark 0.2.x checkout (\`just migrate-go\`) first, then upgrade.`,
     );
     this.name = 'GoMigrationRequiredError';
     this.dbPath = dbPath;

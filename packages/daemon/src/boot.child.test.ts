@@ -177,7 +177,10 @@ describe('boot', () => {
     const exit = await child.waitForExit();
 
     expect(exit.code).toBe(1);
+    // 0.3 deleted the importer but kept the recognition, so the refusal has to
+    // send the user somewhere: the 0.2.x that can still do it.
     expect(child.stderr()).toContain('migrate-go');
+    expect(child.stderr()).toContain('0.2.x');
     expect(existsSync(pidPath())).toBe(false);
     expect(existsSync(tokenPath())).toBe(false);
   });

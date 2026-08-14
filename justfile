@@ -237,13 +237,6 @@ ensure-electron-abi:
 
 # ─── Migration (M1) ─────────────────────────────────────
 
-# One-shot Go songs.db migration. Interactive y/N. M1 never migrates the real
-# library — point LARK_NEST_DIR at a copied nest for the acceptance run; the
-# real migration date is the user's call once the GUI is usable.
-[group('migration')]
-migrate-go: ensure-node-abi build-core
-    node packages/core/scripts/migrate-go.mjs
-
 # ─── Dev ────────────────────────────────────────────────
 
 # Launch the GUI. Since M4 it spawns/adopts the daemon itself; the spawned

@@ -210,6 +210,12 @@
   - **超时不是中止**：两者从 `withTimeout` 出来长得一模一样（都是 AbortError，wrapper 文案都是 `cancelled or timed out`），唯一能分开它们的是**调用方自己的 signal**。取消 → 回 pending 续跑；超时 → 环境类、停 pass、不动文件
   - **同一个 errno 按步骤分流**：`convert` 步的 EACCES 是 spawn 失败（环境，装个能用的 ffmpeg），`file_action` 步的 EACCES 是这一首的目录（`blocked`，不停整个 pass）；而 `ENOSPC`/`EROFS`/`EIO` 这类**两个步骤都算环境**——磁盘满不因为碰巧在 rename 时冒出来就降格
   - gate：`just check` · `just test` **2151**（core 865）
+- [x] **T2b 删掉 Go 迁移实现**（2026-08-14，子计划 §4-l 用户拍板）— 删 1192 行：`db/migrate-go.ts`（513）+ 它的测试（374）+ `db/probe-go.ts`（47020 探活）+ `scripts/migrate-go.mjs` + justfile recipe + core barrel 的两行导出
+  - **拒绝路径整条保留**：`isGoLegacyDb()` 的指纹识别、`GoMigrationRequiredError`、`createDatabase`/`openReadonlyDatabase` 的两个分支、CLI 的 `MIGRATION_REQUIRED` 映射都不动——不认这个形状的话，Go 库会落进「未知 v0 schema」，同样是拒绝但没有任何指路。文案改成「本版本删了导入器，用 0.2.x 的 checkout 跑一次 `just migrate-go` 再升级」，daemon 的引导语同步，`boot.child.test.ts` 加断言 `0.2.x`
+  - **`fixture-go-db.ts` 留着**：它是造 Go 形状库的夹具，而拒绝路径的测试（`readonly` / `db/index` / daemon boot 子进程）正靠它——删了迁移不等于删了「拒绝得对不对」
+  - **writer lock 从四方变三方**（daemon / `--direct` 写 / backup-nest）：`writer-lock.test.ts` 里三条 migrate-go 用例删除，其中「拒绝未知 v0 库时字节不变」这条属性由 `createDatabase` 自己的字节级断言继续覆盖。CLAUDE.md / DESIGN.md 的「四方共守」同步
+  - **`createConsoleLogger` 顺手删了**（F16 的第一项）：审计时报「零调用」，其实唯一的调用者是 `scripts/migrate-go.mjs`（.mjs 不在 TS 扫描面内）——这次连调用者一起没了
+  - gate：`just check` · `just test` **2130**（core 844，−21）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 
