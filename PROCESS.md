@@ -180,7 +180,8 @@
   - **闭环判据从一条变四条**（`closedLoops()` 表驱动，逐条验容器 + 音轨 codec + 时长）：WAV→AAC→m4a（导入/新下载的编码侧）· m4a→copy→m4a（**bilibili remux，T1 之后每次下载都走的热路径**）· mp3→AAC→m4a（0.3.0 迁移链）· m4a→mp3（0.2.x 遗留，随 T1b 一起删）。原判据只验 `format_name`，copy 把音轨丢光也照样过——补了 `-select_streams a:0` 的 `codec_name`
   - **toneWav 走精确路径 import**（`dist/testing/tone-wav.js`）而不是 `@lark/core/testing` barrel：barrel 里有 Go 库夹具 → 加载 better-sqlite3，而这个脚本是 `just package` 的前置，那时 workspace 的 binding 正是 Electron ABI（accept-pack 那条「harness 自带 ABI 不成立」的同源教训）
   - **gate**：`just fetch-ffmpeg` 四条闭环全绿 + `just check` + `just test` **2099**（core +1：「能产 mp3 但产不了 m4a 的 0.2.x 构建 → incompatible」）+ 真实 bilibili 下载不回归（`accept-m5` 第 3 段实跑：`BV1GJ411x7h7:137649199`，5,097,217 字节落盘、source 三元组回写）
-  - ⚠️ **`accept-m5` 跑不完了，与本批无关**：第 4 段（缓存）假定真实曲库里「至少一首带文件的 imported」，而用户当天（2026-08-13 15:58–16:24）清库重下，现在是 7 首全 `downloaded` / 1 歌单 / 0 imported，`imported[0]` 直接 undefined 崩掉。同一件事也抽掉了**迁移判据 33 的 A 类样本**（imported 永不删除那条分支）——harness 自造 imported 夹具（`POST /songs/import` 喂新入库的 mp3）是自然修法，归属待定
+  - ⚠️ **`accept-m5` 跑不完了，与本批无关（当场修掉，见下条）**：第 4 段（缓存）假定真实曲库里「至少一首带文件的 imported」，而用户当天（2026-08-13 15:58–16:24）清库重下，现在是 7 首全 `downloaded` / 1 歌单 / 0 imported，`imported[0]` 直接 undefined 崩掉。同一件事还抽掉了**迁移判据 33 的 A 类样本**（imported 永不删除那条分支）——T2/T6 要验 A 类得自己造
+- [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 
 ## 后续

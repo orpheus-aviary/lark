@@ -11,9 +11,13 @@
 // Phase order matches accept-gui: build + copy on the NODE abi (backupNest
 // loads better-sqlite3), and the daemon runs on that same abi — no Electron
 // here, so no abi switch.
+//
+// It runs on a copy of the real library but does not depend on its contents:
+// the one song it evicts it downloads itself, and the imports it must not
+// evict it imports itself (see phase 4).
 
 import { spawn } from 'node:child_process';
-import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -168,6 +172,26 @@ try {
   // ── 4 · cache: what may be reclaimed, and what may never be ──
 
   console.log('[4/5] cache…');
+
+  // The cache checks below are about one invariant — an import is a user asset
+  // and is never reclaimed (R1/R26) — so they need imports to exist. They used
+  // to borrow the ones in the user's library, which made a product acceptance
+  // a hostage of somebody's listening habits: on 2026-08-13 that library was
+  // cleared and rebuilt from downloads, and this script crashed on
+  // `imported[0]`. It seeds its own now. Two of them, because one gets pinned
+  // and the other has to prove that being unpinned changed nothing.
+  //
+  // A precondition, not a judgement: if the seed fails there is nothing to
+  // judge, and 22 checks reporting 0/22 would read like a product failure.
+  const seeds = ['accept-m5-import-a.mp3', 'accept-m5-import-b.mp3'].map((name) =>
+    join(copy.nestDir, name),
+  );
+  for (const path of seeds) copyFileSync(join(ROOT, 'scripts/fixtures/tone-1s.mp3'), path);
+  const seeded = await data('POST', '/songs/import', { file_paths: seeds });
+  if (seeded?.imported?.length !== seeds.length) {
+    throw new Error(`could not seed the imported fixtures: ${JSON.stringify(seeded)}`);
+  }
+
   const library = await data('GET', '/songs');
   const imported = library.filter((s) => s.file_origin === 'imported' && s.has_file === true);
   const pinTarget = imported[0];
