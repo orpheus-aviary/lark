@@ -175,7 +175,7 @@
 
 **当前状态（2026-08-14）**：T0a / T1 / T1b 已完成并提交（`2c7ff08` `38b1fe8` `175ccad` `ffe82c7` `f25d765`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`，vendored ffmpeg 零外部库、不能再产 mp3。**T2 已开工**（T2a 错误分型表已落，见下）。
 
-**T2（迁移 core）剩余顺序**：0003 迁移（pending 与 `user_version=3` 同事务）+ ledger 建表 + schema 契约三调用点 → **Go 迁移实现整体删除** → `migration-backup/` 路径与 recovery 版本化（含 legacy 全表夹具）→ scanner（`object_key` 主键、含孤儿）→ converter（状态机 + 协调表逐行夹具）。
+**T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。core 侧的迁移能力齐了，**还没有人调用它**——runner、pending 门、三层 boot、进度屏、CLI 口径都是 **T3**。
 
 **T2 开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
 
@@ -237,6 +237,15 @@
   - **重扫的边界**：终态行原样不动；`converting`/`discarding`/`backing_up`/`blocked` 一律不碰（它们带着 `resume_state`，重置成 pending 会重启一次已经半提交的转换）；只有 `pending` 会**重新判 class**——两次启动之间用户可能把 source 修好了，而 class 决定这首歌的 mp3 能不能删
   - **`blocked_file_op` 的两条出路**：op 没了 → 回 pending；op 没了**且对象也不在了** → 直接删掉 ledger 行。后者是「file op 自己把歌带走了」（一次同步删除、一次隔离），把它记成迁移故障等于给用户自己下的命令报警，而且那行永远settle 不了
   - gate：`just check` · `just test` **2180**（core 894）
+- [x] **T2f converter：单曲状态机 + 协调表**（2026-08-14）— `migration/{converter,backup,preflight}.ts`，28 + 5 条判据（判据 1、5–13、50、52），转换全部跑**真 ffmpeg + 真 mp3 夹具**
+  - **协调表不是第二套实现，它就是正向路径**：每一步都先问「目录里有什么、备份里有什么」再决定，所以「中断后恢复」走的是当初把它带到那儿的同一套规则。**唯一的例外是 `discarding`**——它记的是磁盘无法表达的那件事：实时探活已经说过「这首还能重下」。ledger 一律**先写后做**（`converting` 在 ffmpeg 之前、`discarding` 在 unlink 之前），所以崩溃后行永远比现实「多说了一点」，而不是少说
+  - **A 类的 `asset_missing` 压过一个完好的 m4a**（协调表原文，实现时差点写错）：mp3 不见了、备份里也没有，即使 m4a 完全有效也记 `asset_missing` 而**绝不 done**——转换是有损的，它从来不是「被保住的那个东西」
+  - **静默截断是靠时长判据拦下来的**：`truncated` 夹具走完整条链，ffmpeg 退出 0、产物合法，`assessCanonicalAudio` 认出它短了 → 走内容失败分支 → 探活 → 入 backup。没有这一条，R 类会删掉原件留下半首歌（附表 A.4）
+  - **⚠️ 与主计划 §3.2-9 的一处偏离（更保守，已实测）**：`blocked` 行的重试**不重放 `blocked_action`**，而是重新按磁盘判定。逐条推演过四种 blocked 场景，结果要么相同、要么更保守（最坏情况是多探活一次网络）；`blocked_action` 因此是报告字段而不是执行指令。理由是一条写在失败之前的记录可能已经过时，而磁盘不会与自己不一致
+  - **备份永不覆盖**：目标已存在时比 size + SHA-256（1MiB 分块流式读，别把整首歌读进内存）——一致就是「这次移动上次已经做完了」，不一致就把新来的这份放到 `<key>.reconcile-N.mp3` 并记 `reconcile_action`，两份都不删。孤儿走 `migration-backup/orphans/`，且**不转换**（没有行指向它，转出来也没人能放）
+  - **探活由 daemon 注入**（§4-h）：`canRedownload(sourceKey, signal)` 是缓存清理那一个实现（R26 同源），core 不反向依赖 daemon。**探活自己抛错 = 保留文件**——没网、被限流、响应异常，没有一样是删掉唯一副本的许可
+  - **预检三项各自拦截**（判据 1）：能力清单 / 目录可写（真去建目录写一个字节，`access(W_OK)` 对只读挂载和满盘都会说通过）/ `free ≥ max(500MB, 最大单曲 × 3)`——三份是因为源文件、临时产物、备份可以同时存在；不做「整批预留」，那个估算不可能诚实（m4a 比 mp3 小）
+  - gate：`just check` · `just test` **2213**（core 927）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 
