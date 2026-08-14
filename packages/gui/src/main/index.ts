@@ -18,6 +18,7 @@ import { withMediaToolsDir } from './media-tools-dir.js';
 import { ensureNestIdentity, nestDirFromAdditionalData } from './nest.js';
 import { QuitCoordinator } from './quit.js';
 import { WindowMemory } from './window-memory.js';
+import { WindowRef } from './window-ref.js';
 import { createMainWindow } from './window.js';
 
 const { realLarkDir } = ensureNestIdentity();
@@ -55,8 +56,17 @@ const manager = new DaemonManager({
   log: (msg) => console.log(msg),
 });
 
-let mainWindow: BrowserWindow | null = null;
+/** Never dereferenced directly — see `window-ref.ts` for why. */
+const windowRef = new WindowRef<BrowserWindow>();
 let windowMemory: WindowMemory | null = null;
+
+/** Take ownership of a window: remember its size, forget it when it is gone. */
+function adoptWindow(win: BrowserWindow): void {
+  windowMemory = rememberSize(win);
+  windowRef.adopt(win, () => {
+    windowMemory = null;
+  });
+}
 
 app.on('second-instance', (_event, _argv, _cwd, additionalData) => {
   const otherNest = nestDirFromAdditionalData(additionalData);
@@ -69,10 +79,11 @@ app.on('second-instance', (_event, _argv, _cwd, additionalData) => {
     );
     return;
   }
-  if (mainWindow !== null) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+  const win = windowRef.live();
+  if (win !== null) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
   }
 });
 
@@ -121,17 +132,16 @@ async function bootstrap(): Promise<void> {
   installMediaProtocol({ daemonOrigin: daemonUrl, tokenPath });
 
   const { width, height } = windowSize();
-  mainWindow = createMainWindow({ width, height, daemonUrl, tokenPath });
-  windowMemory = rememberSize(mainWindow);
-  registerDialogIpc(() => mainWindow);
+  adoptWindow(createMainWindow({ width, height, daemonUrl, tokenPath }));
+  // The dialogs open MODAL to the window, so they ask for the live one too.
+  registerDialogIpc(() => windowRef.live());
 
   app.on('activate', () => {
-    // macOS dock click: the window exists but is hidden (red X hides, M4-4).
-    if (mainWindow !== null) mainWindow.show();
-    else {
-      mainWindow = createMainWindow({ width, height, daemonUrl, tokenPath });
-      windowMemory = rememberSize(mainWindow);
-    }
+    // macOS dock click. Usually the window is merely hidden (red X hides,
+    // M4-4) — but if it is gone, this is where it comes back.
+    const win = windowRef.live();
+    if (win !== null) win.show();
+    else adoptWindow(createMainWindow({ width, height, daemonUrl, tokenPath }));
   });
 }
 
