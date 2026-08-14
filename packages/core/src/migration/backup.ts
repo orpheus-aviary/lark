@@ -46,11 +46,6 @@ export function backupPathFor(
   return { absolute, relative: relative(larkDir(), absolute) };
 }
 
-/** Resolve a ledger's stored relative path against the CURRENT nest. */
-export function resolveBackupPath(stored: string): string {
-  return join(larkDir(), stored);
-}
-
 export type MoveOutcome =
   /** The file is now at the target. */
   | { kind: 'moved'; target: string }
@@ -91,7 +86,7 @@ export function moveWithoutOverwrite(from: string, to: string): MoveOutcome {
  * instead of spinning: 999 collisions on one object is not a state any real
  * library reaches.
  */
-export function collisionSafeName(path: string): string {
+function collisionSafeName(path: string): string {
   const base = path.replace(/\.mp3$/, '');
   for (let n = 1; n < 1000; n++) {
     const candidate = `${base}.reconcile-${n}.mp3`;
@@ -114,7 +109,7 @@ function move(from: string, to: string): void {
 }
 
 /** Same size and same SHA-256. Size first: it settles almost every case. */
-export function sameFile(a: string, b: string): boolean {
+function sameFile(a: string, b: string): boolean {
   if (statSync(a).size !== statSync(b).size) return false;
   return sha256(a) === sha256(b);
 }
@@ -124,7 +119,7 @@ export function sameFile(a: string, b: string): boolean {
  * music library, and a user with a long live recording in it should not need
  * that much memory to have their file compared.
  */
-export function sha256(path: string): string {
+function sha256(path: string): string {
   const hash = createHash('sha256');
   const buffer = Buffer.alloc(1024 * 1024);
   const fd = openSync(path, 'r');

@@ -17,7 +17,6 @@ export * from './backup-nest.js';
 // The one-time mp3 → m4a migration (0.3.0). The daemon owns the runner; core
 // owns the ledger's vocabulary, the failure classification and the verdict on
 // a conversion result.
-export * from './migration/backup.js';
 export * from './migration/converter.js';
 export * from './migration/error-class.js';
 export * from './migration/ledger.js';

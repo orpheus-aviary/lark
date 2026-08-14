@@ -90,6 +90,8 @@
 
 ## §3 批次划分
 
+> **进度（2026-08-14）**：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）。逐批实测见 `PROCESS.md`。下一批 **T3**。
+
 | 批 | 内容 | gate |
 |---|---|---|
 | **T0a** | 供应链前半：生成 tracked 真 mp3 fixture（`scripts/fixtures/tone-1s.mp3`，配方与 hash 记录——LAME 移除后失去可复现生成来源，顺序不可倒）→ 加 aac encoder + ipod muxer，**LAME 暂留、新旧闭环并存**（生产 `ensureMp3` 此时仍在用 LAME，先删即断链） | `just fetch-ffmpeg` 门禁全绿 + 现有下载不回归 |
@@ -224,6 +226,12 @@
 
 1. **ffmpeg 的退出码看不见截断**。拿 tone-1s.mp3 截到 12000/25748 字节喂进去：ffmpeg 打一行解码抱怨、**退出码 0**、写出一个完全合法的 m4a——里面是 **0.47 秒**（原 1.0 秒）。中段刷成 `0xff` 的那份同理：退出 0，**0.29 秒**。只信退出码的迁移会 unlink 掉 mp3 并留下三分之一首歌。⇒ 「验证 m4a」必须查**时长**，判据 5（R 类坏 mp3 → lost）也因此不能只靠 ffmpeg 报错触发。
 2. **环境错误会连带打印解码噪声**。转码中途磁盘满，stderr 里既有 `No space left on device` 也有 `Header missing`——先查哪张表决定这首歌的 mp3 会不会被删。⇒ 环境 pattern 必须先查（规则 6 先于 7），且这条有专门的回归测试。
+
+### A.4b T2 实现时的一处偏离（主计划 §3.2-9「blocked 行」）
+
+原文：`blocked | 任意 | 重试一次 blocked_action，成功按 resume_state 推进`。**实现没有重放 `blocked_action`，而是把 `blocked` 行当 `pending` 一样重新按磁盘判定。**
+
+理由与逐条推演：协调表的每一行本来就只看「mp3 / m4a / backup 三者在不在」，所以重新判定必然回到同一个动作——① R 转换后 unlink 失败 → 重判：mp3 在 + m4a 有效 → 仍是 unlink；② A backup move 失败 → 重判：mp3 在 + m4a 有效 → 仍是 move；③ `discarding` 时 unlink 失败 → 重判：mp3 在 + 无 m4a → 重新转换（可能再探活一次网络）——比重放**更保守**；④ `blocked` 期间用户自己删了 mp3 → 重判走「mp3 不在」的行，而重放会对着不存在的文件执行动作。**一条写在失败之前的记录可能已经过时，磁盘不会与自己不一致。** `blocked_action` 因此降级为报告字段（GUI 要显示「卡在哪一步」）。
 
 ### A.5 「验证 m4a」的定义（协调表全表引用它）
 

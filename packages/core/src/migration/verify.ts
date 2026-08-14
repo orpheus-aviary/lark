@@ -17,9 +17,9 @@
 import { type AudioProbe, isMp4Container } from '../download/ffmpeg.js';
 
 /** Floor, for clips too short for the ratio to mean anything. */
-export const DURATION_LOSS_FLOOR_SECONDS = 0.25;
+const DURATION_LOSS_FLOOR_SECONDS = 0.25;
 /** And a proportional allowance for everything else. */
-export const DURATION_LOSS_RATIO = 0.01;
+const DURATION_LOSS_RATIO = 0.01;
 
 export interface AudioAssessment {
   ok: boolean;

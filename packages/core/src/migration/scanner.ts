@@ -17,7 +17,7 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { LEGACY_AUDIO_FILE } from '../library/lyrics.js';
 import { songsDir } from '../paths.js';
 import { pendingFileOpSongIds } from '../sync/file-ops.js';
-import { type MigrationClass, TERMINAL_STATUSES, getLedgerRow } from './ledger.js';
+import { type LedgerRow, type MigrationClass, getLedgerRow } from './ledger.js';
 
 export interface ScanReport {
   /** Objects in the ledger after this scan. */
@@ -68,7 +68,14 @@ export function scanAudioMigration(
   const insert = sqlite.prepare(
     `INSERT INTO audio_migration
        (object_key, song_id, class, file_origin, source_key_present, status, at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (@object_key, @song_id, @class, @file_origin, @source_key_present, @status, @at)`,
+  );
+
+  const update = sqlite.prepare(
+    `UPDATE audio_migration
+        SET song_id = @song_id, class = @class, file_origin = @file_origin,
+            source_key_present = @source_key_present, status = 'pending', at = @at
+      WHERE object_key = @object_key`,
   );
 
   sqlite
@@ -81,66 +88,25 @@ export function scanAudioMigration(
         if (!existsSync(join(root, objectKey, LEGACY_AUDIO_FILE))) continue;
         seen.add(objectKey);
 
-        const song = readSong.get(objectKey) as SongFacts | undefined;
-        const rebuildable = song !== undefined && isRebuildable(song);
-        const klass: MigrationClass = song === undefined ? 'orphan' : rebuildable ? 'R' : 'A';
-        const status = owned.has(objectKey) ? 'blocked_file_op' : 'pending';
-
+        const decision = decide(readSong.get(objectKey) as SongFacts | undefined, objectKey);
         const existing = getLedgerRow(sqlite, objectKey);
+
         if (existing === undefined) {
-          insert.run(
-            objectKey,
-            song === undefined ? null : objectKey,
-            klass,
-            song?.file_origin ?? null,
-            rebuildable ? 1 : 0,
-            status,
-            nowMs,
-          );
+          const status = owned.has(objectKey) ? 'blocked_file_op' : 'pending';
+          insert.run({ ...decision, status, at: nowMs });
           report.inserted++;
           continue;
         }
-
-        if (TERMINAL_STATUSES.includes(existing.status)) continue;
-        // Mid-flight and `blocked` rows carry state the converter is going to
-        // resume from, including the class it decided under. Re-deciding it
-        // here would let a `backing_up(done)` row wake up as something else.
-        if (existing.status !== 'pending' && existing.status !== 'blocked_file_op') continue;
-        if (existing.status === 'blocked_file_op' && owned.has(objectKey)) continue;
+        if (!isReDecidable(existing.status, objectKey, owned)) continue;
 
         if (existing.status === 'blocked_file_op') report.unblocked++;
         // A `pending` row is re-decided on purpose: between boots the user may
         // have fixed a source link, and the class is what says whether this
         // song's mp3 may be deleted. Fresher is safer in both directions.
-        sqlite
-          .prepare(
-            `UPDATE audio_migration
-                SET song_id = ?, class = ?, file_origin = ?, source_key_present = ?,
-                    status = 'pending', at = ?
-              WHERE object_key = ?`,
-          )
-          .run(
-            song === undefined ? null : objectKey,
-            klass,
-            song?.file_origin ?? null,
-            rebuildable ? 1 : 0,
-            nowMs,
-            objectKey,
-          );
+        update.run({ ...decision, at: nowMs });
       }
 
-      // An object that was waiting on a file op and is no longer on disk was
-      // taken away by that op finishing — a sync delete, a quarantine. That is
-      // not a migration outcome, and recording it as one would put a warning
-      // in the report for a song the user themselves removed.
-      for (const row of sqlite
-        .prepare("SELECT object_key FROM audio_migration WHERE status = 'blocked_file_op'")
-        .all() as { object_key: string }[]) {
-        if (seen.has(row.object_key) || owned.has(row.object_key)) continue;
-        sqlite.prepare('DELETE FROM audio_migration WHERE object_key = ?').run(row.object_key);
-        report.vanished++;
-      }
-
+      report.vanished = forgetVanished(sqlite, seen, owned);
       report.total = (
         sqlite.prepare('SELECT count(*) AS n FROM audio_migration').get() as { n: number }
       ).n;
@@ -148,6 +114,67 @@ export function scanAudioMigration(
     .immediate();
 
   return report;
+}
+
+/** Everything about an object that comes from the library, as bind values. */
+interface Decision {
+  object_key: string;
+  song_id: string | null;
+  class: MigrationClass;
+  file_origin: string | null;
+  source_key_present: number;
+}
+
+function decide(song: SongFacts | undefined, objectKey: string): Decision {
+  const rebuildable = song !== undefined && isRebuildable(song);
+  return {
+    object_key: objectKey,
+    // A directory with no row is not "a song we lost track of" — it is an
+    // object, and the ledger says so by leaving this null.
+    song_id: song === undefined ? null : objectKey,
+    class: song === undefined ? 'orphan' : rebuildable ? 'R' : 'A',
+    file_origin: song?.file_origin ?? null,
+    source_key_present: rebuildable ? 1 : 0,
+  };
+}
+
+/**
+ * May this scan overwrite the row's decision?
+ *
+ * Only `pending`, and `blocked_file_op` once its op is gone. Terminal rows are
+ * the report; mid-flight and `blocked` rows carry state the converter resumes
+ * from, and re-deciding those would let a half-committed conversion wake up as
+ * something else.
+ */
+function isReDecidable(
+  status: LedgerRow['status'],
+  objectKey: string,
+  owned: ReadonlySet<string>,
+): boolean {
+  if (status === 'pending') return true;
+  return status === 'blocked_file_op' && !owned.has(objectKey);
+}
+
+/**
+ * Drop rows whose object a resolved file op took away — a sync delete, a
+ * quarantine. That is not a migration outcome, and recording it as one would
+ * warn the user about a delete they asked for, in a row that can never settle.
+ */
+function forgetVanished(
+  sqlite: BetterSqlite3.Database,
+  seen: ReadonlySet<string>,
+  owned: ReadonlySet<string>,
+): number {
+  const rows = sqlite
+    .prepare("SELECT object_key FROM audio_migration WHERE status = 'blocked_file_op'")
+    .all() as { object_key: string }[];
+  let vanished = 0;
+  for (const row of rows) {
+    if (seen.has(row.object_key) || owned.has(row.object_key)) continue;
+    sqlite.prepare('DELETE FROM audio_migration WHERE object_key = ?').run(row.object_key);
+    vanished++;
+  }
+  return vanished;
 }
 
 /** R's static condition: downloaded, from a provider we can fetch, with a key. */
