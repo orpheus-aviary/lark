@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld('larkAPI', {
   getDaemonToken,
   rendererPid: process.pid,
   guiVersion: GUI_VERSION,
-  pickMp3: () => ipcRenderer.invoke(IPC_CHANNELS.pickMp3) as Promise<string[]>,
+  pickAudio: () => ipcRenderer.invoke(IPC_CHANNELS.pickAudio) as Promise<string[]>,
   openExternal: (url: string) =>
     ipcRenderer.invoke(IPC_CHANNELS.openExternal, url) as Promise<boolean>,
   pickJsonFile: () => ipcRenderer.invoke(IPC_CHANNELS.pickJsonFile) as Promise<string | null>,

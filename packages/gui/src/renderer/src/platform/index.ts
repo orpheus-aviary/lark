@@ -14,7 +14,7 @@ export interface PlatformAdapter {
   getDaemonToken(): string | null;
   readonly rendererPid: number;
   readonly guiVersion: string;
-  pickMp3(): Promise<string[]>;
+  pickAudio(): Promise<string[]>;
   /** Open an http(s) link in the browser; false if it was refused (R10). */
   openExternal(url: string): Promise<boolean>;
   /** Pick a playlist file to import; null on cancel. */
@@ -38,7 +38,7 @@ export function getPlatform(): PlatformAdapter {
     get guiVersion() {
       return window.larkAPI.guiVersion;
     },
-    pickMp3: () => window.larkAPI.pickMp3(),
+    pickAudio: () => window.larkAPI.pickAudio(),
     openExternal: (url) => window.larkAPI.openExternal(url),
     pickJsonFile: () => window.larkAPI.pickJsonFile(),
     saveExportFile: (input) => window.larkAPI.saveExportFile(input),

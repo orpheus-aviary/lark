@@ -170,6 +170,33 @@ export const TASK_ERROR_CODES = [
 
 export type TaskErrorCode = (typeof TASK_ERROR_CODES)[number];
 
+/**
+ * Every code that can land on ONE file inside an import's result (0.3.0 T4).
+ *
+ * A third domain rather than an addition to either set above, because a bad
+ * file is not a bad request: `POST /songs/import` answers 200 with per-file
+ * outcomes, so these codes ride inside `ImportResultData.failed[]` and never
+ * on an envelope. Registering them above would make the daemon's status table
+ * and the CLI's exit map claim codes neither can ever produce — the exact lie
+ * the registries exist to prevent.
+ *
+ * Two are shared with the other domains on purpose: a file that ffprobe or
+ * ffmpeg rejects is `FFMPEG_FAILED` wherever it happens, and anything else
+ * that escapes is `INTERNAL_ERROR`.
+ */
+export const IMPORT_FILE_ERROR_CODES = [
+  /** Extension or codec outside what the shipped ffmpeg can read. */
+  'IMPORT_UNSUPPORTED_FORMAT',
+  /** A real video track (cover art does not count). */
+  'IMPORT_HAS_VIDEO',
+  /** Readable, but carries no audio stream at all. */
+  'IMPORT_NO_AUDIO',
+  'FFMPEG_FAILED',
+  'INTERNAL_ERROR',
+] as const;
+
+export type ImportFileErrorCode = (typeof IMPORT_FILE_ERROR_CODES)[number];
+
 const ENVELOPE_SET: ReadonlySet<string> = new Set(DAEMON_ENVELOPE_ERROR_CODES);
 const TASK_SET: ReadonlySet<string> = new Set(TASK_ERROR_CODES);
 

@@ -26,13 +26,7 @@ import { FfmpegError } from '../errors.js';
 import { probeCapabilities } from '../media-tools/capabilities.js';
 import { type ResolvedMediaTools, resolveMediaTools } from '../media-tools/resolve.js';
 import { toneWav } from '../testing/tone-wav.js';
-import {
-  type AudioProbe,
-  isMp3Format,
-  planAudioConversion,
-  probeAudio,
-  processAudio,
-} from './ffmpeg.js';
+import { type AudioProbe, planAudioConversion, probeAudio, processAudio } from './ffmpeg.js';
 import { DEFAULT_TIMEOUTS } from './timeouts.js';
 
 let dir = '';
@@ -295,15 +289,4 @@ describe('processAudio', () => {
     const info = await probeAudio(tools.ffprobe.path, out).catch(() => ({ duration: 0 }));
     expect(info.duration).toBeLessThan(100);
   }, 60_000);
-});
-
-describe('isMp3Format', () => {
-  // The import guard: an AAC renamed to .mp3 must not enter the library as one.
-  it('tells a real mp3 apart from a renamed m4a', () => {
-    expect(isMp3Format('mp3')).toBe(true);
-    expect(isMp3Format('mov,mp4,m4a,3gp,3g2,mj2')).toBe(false);
-    expect(isMp3Format('aac')).toBe(false);
-    expect(isMp3Format('flac')).toBe(false);
-    expect(isMp3Format('')).toBe(false);
-  });
 });

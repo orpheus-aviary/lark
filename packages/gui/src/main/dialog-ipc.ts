@@ -8,7 +8,7 @@ import { rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrationBackupDir } from '@lark/core/paths';
-import { sanitizeFileName } from '@lark/shared';
+import { IMPORT_AUDIO_EXTENSIONS, sanitizeFileName } from '@lark/shared';
 import type {
   BrowserWindow,
   OpenDialogOptions,
@@ -34,11 +34,17 @@ export interface SaveExportInput {
   content: string;
 }
 
-/** Multi-select .mp3 picker. Cancel (or no selection) → empty array. */
-export async function pickMp3(dialogLike: OpenDialogLike, win: BrowserWindow): Promise<string[]> {
+/**
+ * Multi-select audio picker. Cancel (or no selection) → empty array.
+ *
+ * The filter is `IMPORT_AUDIO_EXTENSIONS` itself rather than a list kept in
+ * step with it: the picker and the import gate disagreeing means a file the
+ * dialog offers and the daemon then refuses.
+ */
+export async function pickAudio(dialogLike: OpenDialogLike, win: BrowserWindow): Promise<string[]> {
   const result = await dialogLike.showOpenDialog(win, {
     properties: ['openFile', 'multiSelections'],
-    filters: [{ name: 'MP3', extensions: ['mp3'] }],
+    filters: [{ name: '音频文件', extensions: [...IMPORT_AUDIO_EXTENSIONS] }],
   });
   return result.canceled ? [] : result.filePaths;
 }
@@ -89,10 +95,10 @@ export async function saveExportFile(
 }
 
 export function registerDialogIpc(getWindow: () => BrowserWindow | null): void {
-  ipcMain.handle(IPC_CHANNELS.pickMp3, async () => {
+  ipcMain.handle(IPC_CHANNELS.pickAudio, async () => {
     const win = getWindow();
     if (win === null) return [];
-    return await pickMp3(dialog, win);
+    return await pickAudio(dialog, win);
   });
 
   ipcMain.handle(IPC_CHANNELS.pickJsonFile, async () => {

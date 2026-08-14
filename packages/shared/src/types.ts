@@ -3,6 +3,7 @@
 // interface names are PascalCase. Kept free of any Node / Electron / DOM-host
 // concept so the same definitions compile everywhere.
 
+import type { ImportFileErrorCode } from './error-codes.js';
 import type { SyncState } from './sync-types.js';
 
 /**
@@ -79,7 +80,12 @@ export interface PinSongRequest {
   pinned: boolean;
 }
 
-/** `POST /songs/import` body — absolute paths of local mp3 files. */
+/**
+ * `POST /songs/import` body — absolute paths of local audio files.
+ *
+ * Any of `IMPORT_AUDIO_EXTENSIONS`; the library holds one format, so each one
+ * is converted on the way in (§3.4).
+ */
 export interface ImportSongsRequest {
   file_paths: readonly string[];
 }
@@ -816,10 +822,21 @@ export interface RecognizeUrlData {
   video_title: string;
 }
 
-/** `POST /songs/import` — per-file outcomes; one bad file never fails the batch. */
+/**
+ * `POST /songs/import` — per-file outcomes; one bad file never fails the batch.
+ *
+ * Both arms grew a field in 0.3.0, when import stopped being "copy an mp3" and
+ * became a conversion with a decision table behind it (§3.4):
+ *
+ *   - `warnings` says what the library's copy does NOT carry — a second audio
+ *     track that was dropped, a lossless source that is now AAC. The import
+ *     succeeded; the user is told what it cost.
+ *   - `error_code` classifies a refusal, so a client can tell "this is a
+ *     video" from "this machine's ffmpeg choked" without matching on prose.
+ */
 export interface ImportResultData {
-  imported: readonly { song_id: string; name: string }[];
-  failed: readonly { path: string; reason: string }[];
+  imported: readonly { song_id: string; name: string; warnings: readonly string[] }[];
+  failed: readonly { path: string; reason: string; error_code: ImportFileErrorCode }[];
 }
 
 // ─── SSE events (M2-7) ─────────────────────────────────

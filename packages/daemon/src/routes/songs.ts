@@ -241,8 +241,9 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
   // ─── M3 additions ────────────────────────────────────
 
   /**
-   * Import local mp3 files. Per-file outcomes: one unreadable file must not
-   * cost the other 199 (M3-11).
+   * Import local audio files. Per-file outcomes: one unreadable file must not
+   * cost the other 199 (M3-11), and from 0.3.0 an accepted one can still owe
+   * the user a warning about what the conversion dropped (§3.4).
    */
   app.post(API_PATHS.songImport, async (req, reply) => {
     const body = objectBody(req.body, ['file_paths']);

@@ -7,6 +7,7 @@ export * from './types.js';
 export * from './sync-types.js';
 export * from './config-types.js';
 export * from './error-codes.js';
+export * from './audio-formats.js';
 export * from './filename.js';
 export * from './limits.js';
 export * from './transport.js';

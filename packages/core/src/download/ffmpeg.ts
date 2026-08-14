@@ -132,8 +132,19 @@ export async function probeAudio(
   // Containers that declare no overall duration (ADTS, some ogg) still carry
   // one on the stream. Reporting 0 there would show the library a song of
   // unknown length for no reason.
+  //
+  // With more than one audio track the container's duration is the LONGEST of
+  // them, and only the selected one is being kept — so there the stream wins.
+  // (A two-track fixture whose tracks are 1s and 2s is exactly how a library
+  // row ends up claiming a length its file does not have.)
   const declared = number(format.duration);
-  const duration = declared > 0 ? declared : number(selected?.duration);
+  const streamDuration = number(selected?.duration);
+  const duration =
+    audio.length > 1 && streamDuration > 0
+      ? streamDuration
+      : declared > 0
+        ? declared
+        : streamDuration;
 
   return {
     container: typeof format.format_name === 'string' ? format.format_name : '',
@@ -274,17 +285,6 @@ export async function processAudio(
     'ffmpeg',
   );
   return plan.mode;
-}
-
-/**
- * Is this really an MP3?
- *
- * `format_name` is a comma-separated list of the formats the demuxer answers
- * to, so a renamed `.m4a` reports `mov,mp4,m4a,3gp,3g2,mj2` and never `mp3`.
- * Extension checks cannot see any of this.
- */
-export function isMp3Format(format: string): boolean {
-  return format.split(',').includes('mp3');
 }
 
 // ─── Child process ─────────────────────────────────────

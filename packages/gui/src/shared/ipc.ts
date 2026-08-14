@@ -2,7 +2,7 @@
 
 export const IPC_CHANNELS = {
   /** Native multi-select mp3 picker → absolute path array ([] on cancel). */
-  pickMp3: 'dialog:pick-mp3',
+  pickAudio: 'dialog:pick-audio',
   /** Open an http(s) link in the user's browser (R10); false when refused. */
   openExternal: 'shell:open-external',
   /** Single-select .json picker for an import file → path, or null on cancel. */

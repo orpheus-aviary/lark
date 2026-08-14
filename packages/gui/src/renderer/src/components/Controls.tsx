@@ -44,14 +44,24 @@ export function Controls(): React.JSX.Element {
    * D20: the Go version imported silently — one file per 200 could fail and
    * nothing said so. `ImportResultData` has a per-file failure channel, so it
    * gets reported.
+   *
+   * Since 0.3.0 a SUCCESS can owe the user a sentence too: the library holds
+   * one format, so importing a FLAC re-encodes it and importing a two-track
+   * file keeps one track. Those are warnings, not errors — the song is in the
+   * library either way, and they say what its copy does not carry (§3.4).
    */
   async function importLocalFiles(): Promise<void> {
     setImporting(true);
     try {
-      const paths = await getPlatform().pickMp3();
+      const paths = await getPlatform().pickAudio();
       if (paths.length === 0) return;
       const result = await importFiles(paths);
       if (result.imported.length > 0) toast.success(`已导入 ${result.imported.length} 首`);
+      for (const entry of result.imported) {
+        for (const warning of entry.warnings) {
+          toast.warning(`${entry.name}：${warning}`);
+        }
+      }
       for (const failure of result.failed) {
         toast.error(`导入失败：${failure.path} — ${failure.reason}`);
       }
@@ -91,8 +101,8 @@ export function Controls(): React.JSX.Element {
       <Button
         variant="ghost"
         size="icon-sm"
-        aria-label="导入本地 MP3"
-        title="导入本地 MP3"
+        aria-label="导入本地音频"
+        title="导入本地音频"
         disabled={importing}
         onClick={() => void importLocalFiles()}
       >

@@ -38,22 +38,22 @@ let upstream: FakeUpstream;
 let nest: string;
 let fixtures: string;
 let mp3Path: string;
-let fakeMp3Path: string;
+let wavAsMp3Path: string;
 
 beforeAll(async () => {
   fixtures = mkdtempSync(join(tmpdir(), 'lark-import-fixtures-'));
   mp3Path = join(fixtures, '稻香.mp3');
-  fakeMp3Path = join(fixtures, 'actually-wav.mp3');
+  wavAsMp3Path = join(fixtures, 'actually-wav.mp3');
 
   // The real mp3 is the checked-in fixture, copied — not encoded here. From
   // T1b the vendored build has no mp3 encoder at all (canonical audio is m4a),
   // and an import test needs an input the importer will still accept.
   copyFileSync(fileURLToPath(new URL(MP3_FIXTURE, import.meta.url)), mp3Path);
 
-  // Not an mp3, wearing a .mp3 extension — the case only the container check
-  // catches (fifth review ⑨). It used to be AAC-in-MP4; a WAV proves the same
-  // thing and needs no encoder the shipped build does not have.
-  writeFileSync(fakeMp3Path, toneWav(1));
+  // A WAV wearing a .mp3 extension. The whole matrix lives in core's
+  // import.test.ts; what this file needs is one file whose extension lies, to
+  // prove the route reports what the PROBE decided rather than the name.
+  writeFileSync(wavAsMp3Path, toneWav(1));
 }, 60_000);
 
 beforeEach(async () => {
@@ -116,6 +116,9 @@ describe('POST /songs/import', () => {
     expect(failed).toEqual([]);
     expect(imported).toHaveLength(1);
     expect(imported[0].name).toBe('稻香');
+    // An mp3 cannot be rewrapped, so the user is told the conversion cost
+    // something (§3.4 — the wire carries it, criterion 53).
+    expect(imported[0].warnings).toEqual([expect.stringContaining('AAC 192k')]);
 
     const songId = imported[0].song_id;
     const listed = await app.inject({ method: 'GET', url: apiPath.song(songId) });
@@ -125,14 +128,15 @@ describe('POST /songs/import', () => {
     expect(readdirSync(join(paths.songsDir(), songId))).toEqual(['song.m4a']);
   }, 60_000);
 
-  // Extension checks cannot see this; only the container can.
-  it('refuses a non-mp3 file wearing a .mp3 extension, and says why', async () => {
-    const res = await post(API_PATHS.songImport, { file_paths: [fakeMp3Path] });
+  // Extension checks cannot see what a file is; only the container can. Until
+  // 0.3.0 that only ever meant refusing a liar — now the library takes any
+  // format it can read, so a WAV called `.mp3` is simply a WAV.
+  it('imports by what the file IS, not what it is called', async () => {
+    const res = await post(API_PATHS.songImport, { file_paths: [wavAsMp3Path] });
     const { imported, failed } = bodyOf(res).data;
-    expect(imported).toEqual([]);
-    expect(failed[0].reason).toMatch(/实际格式/);
-    // No half-created song directory left behind.
-    expect(readdirSync(paths.songsDir())).toEqual([]);
+    expect(failed).toEqual([]);
+    expect(imported[0].warnings).toEqual([expect.stringContaining('无损')]);
+    expect(readdirSync(join(paths.songsDir(), imported[0].song_id))).toEqual(['song.m4a']);
   }, 60_000);
 
   it('reports per-file outcomes instead of failing the batch', async () => {
@@ -140,7 +144,9 @@ describe('POST /songs/import', () => {
     const res = await post(API_PATHS.songImport, { file_paths: [mp3Path, missing] });
     const { imported, failed } = bodyOf(res).data;
     expect(imported).toHaveLength(1);
-    expect(failed).toEqual([{ path: missing, reason: expect.any(String) }]);
+    expect(failed).toEqual([
+      { path: missing, reason: expect.any(String), error_code: 'FFMPEG_FAILED' },
+    ]);
   }, 60_000);
 
   // Found in acceptance: ffprobe names the file it was handed, which is the
@@ -156,11 +162,13 @@ describe('POST /songs/import', () => {
     expect(failure.reason).not.toContain(paths.songsDir());
   }, 60_000);
 
-  it('refuses a non-mp3 extension without probing it', async () => {
-    const flac = join(fixtures, 'song.flac');
-    writeFileSync(flac, 'x');
-    const res = await post(API_PATHS.songImport, { file_paths: [flac] });
-    expect(bodyOf(res).data.failed[0].reason).toContain('.mp3');
+  it('refuses an extension outside the supported set without probing it', async () => {
+    const wma = join(fixtures, 'song.wma');
+    writeFileSync(wma, 'x');
+    const res = await post(API_PATHS.songImport, { file_paths: [wma] });
+    const [failure] = bodyOf(res).data.failed;
+    expect(failure.error_code).toBe('IMPORT_UNSUPPORTED_FORMAT');
+    expect(failure.reason).toContain('.wma');
   });
 
   // Before M7-18 this answered 200 with every path in `failed`, each reason

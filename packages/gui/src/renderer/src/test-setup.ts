@@ -21,7 +21,7 @@ function defaultLarkApi(): LarkApi {
     getDaemonToken: () => 'test-token',
     rendererPid: 4242,
     guiVersion: '0.0.0-test',
-    pickMp3: vi.fn(() => Promise.resolve([])),
+    pickAudio: vi.fn(() => Promise.resolve([])),
     openExternal: vi.fn(() => Promise.resolve(true)),
     pickJsonFile: vi.fn(() => Promise.resolve(null)),
     saveExportFile: vi.fn(() => Promise.resolve(true)),

@@ -170,7 +170,7 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     description: 'Queue a lyrics fetch for a song',
   },
 
-  { method: 'POST', path: API_PATHS.songImport, description: 'Import local mp3 files' },
+  { method: 'POST', path: API_PATHS.songImport, description: 'Import local audio files' },
   {
     method: 'POST',
     path: apiPath.songRecognizeUrl(':id'),
