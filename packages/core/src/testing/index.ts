@@ -5,6 +5,7 @@
 // media toolchain that never spawns a child.
 
 export * from '../db/fixture-go-db.js';
+export * from './audio-fixtures.js';
 export * from './fake-media-tools.js';
 export * from './fake-upstream.js';
 export * from './mp3-fixture.js';

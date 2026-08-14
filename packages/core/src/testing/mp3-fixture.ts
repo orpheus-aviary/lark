@@ -12,10 +12,7 @@
 // recipes are three lines each, they are deterministic against a byte-frozen
 // fixture, and reading them beats reading four more opaque blobs.
 
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fixturePath, readFixture } from './audio-fixtures.js';
 
 /**
  * Ways an mp3 in a real library goes bad, named for what the TOOLS see rather
@@ -36,12 +33,12 @@ export type Mp3Damage =
 
 /** The tracked fixture's own bytes: 1s, 192kbps, 44.1kHz, 25748 bytes. */
 export async function readToneMp3(): Promise<Buffer> {
-  return readFile(toneMp3Path());
+  return readFixture('tone-1s.mp3');
 }
 
 /** Absolute path to the tracked fixture. Dev checkout only, by design. */
 export function toneMp3Path(): string {
-  return join(repoRoot(), 'scripts', 'fixtures', 'tone-1s.mp3');
+  return fixturePath('tone-1s.mp3');
 }
 
 /**
@@ -68,19 +65,4 @@ export function damageMp3(source: Buffer, damage: Mp3Damage): Buffer {
     case 'empty':
       return Buffer.alloc(0);
   }
-}
-
-function repoRoot(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  // Walks from either the TS source or the emitted dist copy, so the same
-  // helper works under vitest and under a built daemon's test run.
-  for (let depth = 0; depth < 8; depth++) {
-    if (existsSync(join(dir, 'pnpm-workspace.yaml'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  throw new Error(
-    'no pnpm-workspace.yaml above this module — the mp3 fixture only exists in a dev checkout',
-  );
 }
