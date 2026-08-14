@@ -25,7 +25,9 @@ vi.mock('electron', () => ({
   shell: { openExternal: vi.fn() },
 }));
 
-const { pickJsonFile, sanitizeFileName, saveExportFile } = await import('./dialog-ipc.js');
+const { openMigrationBackup, pickJsonFile, sanitizeFileName, saveExportFile } = await import(
+  './dialog-ipc.js'
+);
 
 const WIN = {} as BrowserWindow;
 
@@ -121,5 +123,31 @@ describe('saveExportFile', () => {
     });
     expect(saved).toBe(false);
     expect(existsSync(join(dir, 'x'))).toBe(false);
+  });
+});
+
+describe('openMigrationBackup', () => {
+  // Reveals ONE directory, derived here rather than passed in (0.3.0 §4-m):
+  // an IPC that opened a path the renderer named would be a "launch anything"
+  // primitive with a friendly name.
+  it('opens the backup directory when there is one', async () => {
+    vi.stubEnv('LARK_NEST_DIR', dir);
+    const backups = join(dir, 'lark', 'migration-backup');
+    mkdirSync(backups, { recursive: true });
+    const openPath = vi.fn(() => Promise.resolve(''));
+
+    expect(await openMigrationBackup({ openPath })).toBe(true);
+    expect(openPath).toHaveBeenCalledWith(backups);
+    vi.unstubAllEnvs();
+  });
+
+  it('says no rather than opening an error window when it is gone', async () => {
+    vi.stubEnv('LARK_NEST_DIR', dir);
+    const openPath = vi.fn(() => Promise.resolve(''));
+
+    // The honest answer after a clear: the directory is not there.
+    expect(await openMigrationBackup({ openPath })).toBe(false);
+    expect(openPath).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 });

@@ -21,6 +21,8 @@ export interface PlatformAdapter {
   pickJsonFile(): Promise<string | null>;
   /** Save an export through a native dialog; false on cancel. */
   saveExportFile(input: { default_name: string; content: string }): Promise<boolean>;
+  /** Reveal the migration backup directory; false when there is nothing to open. */
+  openMigrationBackup(): Promise<boolean>;
 }
 
 let cached: PlatformAdapter | undefined;
@@ -40,6 +42,7 @@ export function getPlatform(): PlatformAdapter {
     openExternal: (url) => window.larkAPI.openExternal(url),
     pickJsonFile: () => window.larkAPI.pickJsonFile(),
     saveExportFile: (input) => window.larkAPI.saveExportFile(input),
+    openMigrationBackup: () => window.larkAPI.openMigrationBackup(),
   };
   return cached;
 }

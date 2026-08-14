@@ -50,4 +50,10 @@ export interface LarkApi {
    * packaged build (the acceptance gate checks that).
    */
   readonly readLegal: (document: LegalDocument) => Promise<string | null>;
+  /**
+   * Open the migration backup directory in the file manager (0.3.0 T3c).
+   * `false` when the OS refused — including "there is nothing there", which is
+   * the honest answer once the backups have been cleared.
+   */
+  readonly openMigrationBackup: () => Promise<boolean>;
 }

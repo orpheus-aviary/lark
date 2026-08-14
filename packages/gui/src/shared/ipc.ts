@@ -15,4 +15,10 @@ export const IPC_CHANNELS = {
    * would be an arbitrary-file-read primitive.
    */
   readLegal: 'legal:read',
+  /**
+   * Reveal `migration-backup/` in the file manager (0.3.0 §4-m). Takes NO
+   * path: main derives the one directory this may open, so the renderer never
+   * gets to name a target.
+   */
+  openMigrationBackup: 'shell:open-migration-backup',
 } as const;

@@ -7,6 +7,7 @@ import { LOG_LEVELS, THEME_MODES } from '@lark/shared';
 import { Button } from '../ui/button.js';
 import { Input } from '../ui/input.js';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select.js';
+import { MigrationBlock } from './MigrationBlock.js';
 import { CacheBlock, LegalBlock, MediaToolsBlock } from './blocks.js';
 import type { Draft } from './draft.js';
 import { Field, Section } from './fields.js';
@@ -170,6 +171,11 @@ export function GeneralTab({
       <Section title="媒体工具" hint="下载与导入都要用 ffmpeg 转码和识别格式">
         <MediaToolsBlock />
       </Section>
+
+      {/* Owns its own <Section>: on a library that never ran the one-time
+          mp3 → m4a migration it renders nothing at all, and a titled empty box
+          would be a section about a version this install never saw. */}
+      <MigrationBlock />
 
       <Section title="关于" hint={`lark ${window.larkAPI.guiVersion}`}>
         <LegalBlock />

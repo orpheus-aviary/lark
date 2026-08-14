@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 import { getPlatform } from './platform/index.js';
+import { BootGate } from './session/BootGate.js';
 import { applyThemeMode } from './theme/theme.js';
 import './style.css';
 
@@ -30,6 +31,11 @@ if (!rootElement) throw new Error('lark: #root element not found');
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    {/* Nothing of the library mounts until the daemon says it is serving one
+        (0.3.0 §3.2-2): during the audio migration every business route
+        refuses, and App's stores fetch the moment they exist. */}
+    <BootGate>
+      <App />
+    </BootGate>
   </React.StrictMode>,
 );

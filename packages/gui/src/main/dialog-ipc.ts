@@ -3,9 +3,11 @@
 // inject a fake result (M4-14⑥ — CDP cannot drive native dialogs).
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrationBackupDir } from '@lark/core/paths';
 import { sanitizeFileName } from '@lark/shared';
 import type {
   BrowserWindow,
@@ -14,7 +16,7 @@ import type {
   SaveDialogOptions,
   SaveDialogReturnValue,
 } from 'electron';
-import { dialog, ipcMain } from 'electron';
+import { dialog, ipcMain, shell } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import { readLegalDocument } from './legal-ipc.js';
 import { openExternalIfSafe } from './window.js';
@@ -123,4 +125,25 @@ export function registerDialogIpc(getWindow: () => BrowserWindow | null): void {
       devRoot: resolve(dirname(fileURLToPath(import.meta.url)), '../../../..'),
     });
   });
+
+  // Takes no argument, on purpose (§4-m): main derives the ONE directory this
+  // may reveal. An IPC that opened a path the renderer named would be a
+  // "launch anything" primitive with a friendly name.
+  ipcMain.handle(IPC_CHANNELS.openMigrationBackup, () => openMigrationBackup());
+}
+
+/**
+ * Reveal the migration backups.
+ *
+ * `false` when the directory is not there, which is the honest answer after a
+ * clear — `shell.openPath` on a missing path opens a file-manager error the
+ * user cannot act on.
+ */
+export async function openMigrationBackup(
+  shellLike: { openPath(path: string): Promise<string> } = shell,
+): Promise<boolean> {
+  const dir = migrationBackupDir();
+  if (!existsSync(dir)) return false;
+  const error = await shellLike.openPath(dir);
+  return error === '';
 }

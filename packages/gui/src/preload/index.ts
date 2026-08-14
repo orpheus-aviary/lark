@@ -36,4 +36,6 @@ contextBridge.exposeInMainWorld('larkAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.saveExportFile, input) as Promise<boolean>,
   readLegal: (document: LegalDocument) =>
     ipcRenderer.invoke(IPC_CHANNELS.readLegal, document) as Promise<string | null>,
+  openMigrationBackup: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.openMigrationBackup) as Promise<boolean>,
 } satisfies LarkApi);
