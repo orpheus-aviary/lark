@@ -5,8 +5,12 @@
 //   node scripts/vendor-ffmpeg.mjs --verify  verify only; never builds
 //   node scripts/vendor-ffmpeg.mjs --force   rebuild from scratch
 //
-// Everything it needs is in `vendor/ffmpeg.lock.json`. Nothing here decides
-// policy: the capability list comes from `@lark/core/media-tools`, so the
+// Everything it needs is in `vendor/ffmpeg.lock.json`. Since 0.3.0 T1b the
+// profile has no external libraries at all — LAME left with the mp3 encoder,
+// because nothing in lark writes an mp3 any more — so this builds one tarball.
+//
+// Nothing here decides policy: the capability list comes from
+// `@lark/core/media-tools`, so the
 // binaries this produces are checked against the SAME frozen list the daemon
 // probes at runtime. Two lists would eventually disagree, and the one that
 // mattered would be the one nobody was looking at.
@@ -40,7 +44,6 @@ const VENDOR = join(ROOT, 'vendor');
 const LOCK_PATH = join(VENDOR, 'ffmpeg.lock.json');
 const BUILD = join(VENDOR, 'build');
 const SRC = join(BUILD, 'src');
-const PREFIX = join(BUILD, 'prefix');
 const STAGE = join(BUILD, 'out');
 const OUT = join(VENDOR, 'ffmpeg');
 const FIXTURES = join(ROOT, 'scripts', 'fixtures');
@@ -86,13 +89,8 @@ async function build() {
   mkdirSync(SRC, { recursive: true });
   mkdirSync(OUT, { recursive: true });
 
-  const lame = source('LAME');
   const ffmpeg = source('FFmpeg');
-  const lameArchive = await fetchSource(lame);
-  const ffmpegArchive = await fetchSource(ffmpeg);
-
-  buildLame(lame, lameArchive);
-  buildFfmpeg(ffmpeg, ffmpegArchive);
+  buildFfmpeg(ffmpeg, await fetchSource(ffmpeg));
 
   for (const name of ['ffmpeg', 'ffprobe']) {
     const built = join(STAGE, 'bin', name);
@@ -139,23 +137,6 @@ async function fetchSource(entry) {
   }
   say(`${entry.name} ${entry.version} sha256 ok`);
   return archive;
-}
-
-function buildLame(entry, archive) {
-  const dir = join(BUILD, `lame-${entry.version}`);
-  if (existsSync(join(PREFIX, 'lib', 'libmp3lame.a'))) {
-    say('LAME already built');
-    return;
-  }
-  rmSync(dir, { recursive: true, force: true });
-  run('tar', ['-xf', archive, '-C', BUILD]);
-
-  const env = macEnv();
-  // `--disable-frontend`: only the library is used, and the CLI drags in extras.
-  run('./configure', entry.configure.replace('<prefix>', PREFIX).split(' '), { cwd: dir, env });
-  run('make', [`-j${cpus().length}`], { cwd: dir, env });
-  run('make', ['install'], { cwd: dir, env });
-  say('LAME built');
 }
 
 function buildFfmpeg(entry, archive) {
@@ -237,9 +218,9 @@ async function verify() {
  * One entry per conversion the shipped pipeline performs. `input` is resolved
  * lazily so the WAV can be synthesised without a fixture on disk.
  *
- * The mp3 fixture is checked in precisely because this list is about to lose
- * the ability to produce one: T1b removes LAME, and from then on the migration
- * loop's input can only be a file somebody kept.
+ * The mp3 fixture is checked in precisely because this list can no longer
+ * produce one: T1b removed LAME, so the migration loop's input is a file
+ * somebody kept, and there is no way to regenerate it here.
  */
 function closedLoops() {
   return [
@@ -266,15 +247,6 @@ function closedLoops() {
       out: 'closed-loop-migration.m4a',
       format: 'm4a',
       codec: 'aac',
-    },
-    {
-      // Legacy: what 0.2.x wrote. Dies with LAME in T1b.
-      label: 'M4A → MP3 (0.2.x downloads)',
-      input: () => fixture('tone-1s.m4a'),
-      encode: ['-vn', '-acodec', 'libmp3lame', '-ab', '192k', '-ar', '44100', '-f', 'mp3'],
-      out: 'closed-loop-legacy.mp3',
-      format: 'mp3',
-      codec: 'mp3',
     },
   ];
 }

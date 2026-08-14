@@ -1,7 +1,7 @@
 // These run a REAL ffmpeg. A mocked child_process would prove the argument
 // list is what we wrote down and nothing about whether ffmpeg accepts it — and
 // the arguments are exactly where this can be wrong (a codec name, a flag
-// order, an output that is silently not an mp3).
+// order, an output that is silently not what it claims to be).
 //
 // The inputs are WAV files written by hand here, not synthesised with
 // `-f lavfi`: the vendored build is a minimal LGPL profile with no lavfi
@@ -28,7 +28,6 @@ import { type ResolvedMediaTools, resolveMediaTools } from '../media-tools/resol
 import { toneWav } from '../testing/tone-wav.js';
 import {
   type AudioProbe,
-  ensureMp3,
   isMp3Format,
   planAudioConversion,
   probeAudio,
@@ -74,71 +73,6 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (dir !== '') await rm(dir, { recursive: true, force: true });
-});
-
-describe('ensureMp3', () => {
-  it('transcodes to a real 44.1kHz mp3', async () => {
-    const out = join(dir, 'out.mp3');
-    await ensureMp3(tools.ffmpeg.path, shortWav, out);
-
-    const info = await probeAudio(tools.ffprobe.path, out);
-    expect(isMp3Format(info.container)).toBe(true);
-    expect(info.duration).toBeGreaterThan(0.9);
-    expect(info.duration).toBeLessThan(1.5);
-  }, 60_000);
-
-  it('overwrites an existing output instead of prompting', async () => {
-    const out = join(dir, 'overwrite.mp3');
-    await writeFile(out, 'stale');
-    await ensureMp3(tools.ffmpeg.path, shortWav, out);
-    expect(isMp3Format((await probeAudio(tools.ffprobe.path, out)).container)).toBe(true);
-  }, 60_000);
-
-  it("reports a non-audio input as FfmpegError with ffmpeg's own reason", async () => {
-    const junk = join(dir, 'junk.mp3');
-    await writeFile(junk, 'this is not audio');
-    await expect(ensureMp3(tools.ffmpeg.path, junk, join(dir, 'never.mp3'))).rejects.toThrow(
-      FfmpegError,
-    );
-  }, 60_000);
-
-  it('names a missing binary instead of failing as a generic spawn error', async () => {
-    await expect(
-      ensureMp3(join(dir, 'no-such-ffmpeg'), shortWav, join(dir, 'never.mp3')),
-    ).rejects.toThrow(/ffmpeg not found.*LARK_FFMPEG_PATH/);
-  });
-
-  // Cancellation is the whole reason for the AbortSignal plumbing: without it
-  // `downloads.close()` waits out a 10-minute transcode.
-  it('kills a running child when the caller aborts', async () => {
-    const controller = new AbortController();
-    const out = join(dir, 'aborted.mp3');
-    const promise = ensureMp3(tools.ffmpeg.path, longWav, out, { signal: controller.signal });
-    setTimeout(() => controller.abort(), 50);
-    await expect(promise).rejects.toThrow(/cancelled or timed out/);
-
-    // Had the child survived the abort it would have finished and left a
-    // complete 120s mp3 here. Anything shorter (or unreadable) means it died.
-    const info = await probeAudio(tools.ffprobe.path, out).catch(() => ({ duration: 0 }));
-    expect(info.duration).toBeLessThan(100);
-  }, 60_000);
-
-  it('gives up on its own deadline', async () => {
-    const out = join(dir, 'timeout.mp3');
-    await expect(
-      ensureMp3(tools.ffmpeg.path, longWav, out, {
-        timeouts: { ...DEFAULT_TIMEOUTS, ffmpeg: 5 },
-      }),
-    ).rejects.toThrow(/cancelled or timed out/);
-  }, 60_000);
-
-  it('rejects an already-aborted signal without spawning anything', async () => {
-    await expect(
-      ensureMp3(tools.ffmpeg.path, shortWav, join(dir, 'never.mp3'), {
-        signal: AbortSignal.abort(),
-      }),
-    ).rejects.toThrow(/cancelled or timed out/);
-  });
 });
 
 describe('probeAudio', () => {
@@ -311,6 +245,35 @@ describe('processAudio', () => {
     expect(bytes.indexOf('moov')).toBeGreaterThan(-1);
     expect(bytes.indexOf('moov')).toBeLessThan(bytes.indexOf('mdat'));
   }, 60_000);
+
+  it('overwrites an existing output instead of prompting', async () => {
+    const out = join(dir, 'overwrite.m4a');
+    await writeFile(out, 'stale');
+    await processAudio(tools.ffmpeg.path, shortWav, out, wavProbe);
+    expect((await probeAudio(tools.ffprobe.path, out)).codec).toBe('aac');
+  }, 60_000);
+
+  it('names a missing binary instead of failing as a generic spawn error', async () => {
+    await expect(
+      processAudio(join(dir, 'no-such-ffmpeg'), shortWav, join(dir, 'never.m4a'), wavProbe),
+    ).rejects.toThrow(/ffmpeg not found.*LARK_FFMPEG_PATH/);
+  });
+
+  it('gives up on its own deadline', async () => {
+    await expect(
+      processAudio(tools.ffmpeg.path, longWav, join(dir, 'timeout.m4a'), wavProbe, {
+        timeouts: { ...DEFAULT_TIMEOUTS, ffmpeg: 5 },
+      }),
+    ).rejects.toThrow(/cancelled or timed out/);
+  }, 60_000);
+
+  it('rejects an already-aborted signal without spawning anything', async () => {
+    await expect(
+      processAudio(tools.ffmpeg.path, shortWav, join(dir, 'never.m4a'), wavProbe, {
+        signal: AbortSignal.abort(),
+      }),
+    ).rejects.toThrow(/cancelled or timed out/);
+  });
 
   it('reports a non-audio input as FfmpegError', async () => {
     const junk = join(dir, 'junk-process.m4a');

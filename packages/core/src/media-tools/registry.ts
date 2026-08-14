@@ -1,7 +1,7 @@
 // One answer per process to "can we transcode right now?" (M7-18).
 //
 // Before this, three places decided independently: boot resolved the binaries
-// once and logged them, `ensureMp3`/`probeAudio` re-resolved on every call and
+// once and logged them, the conversion helpers re-resolved on every call and
 // ignored boot's answer, and import called ffprobe on its own and folded a
 // missing toolchain into "this file failed to import". The observable result
 // was a daemon reporting no ffmpeg while downloads transcoded fine through

@@ -190,6 +190,14 @@
   - **accept-gui 的节流从 48 KiB/s 提到 192 KiB/s**：mp3 没有索引、从第一帧就能播；m4a 必须先读几百 KB 的 moov，48 KiB/s 下每次加载十秒——量的是拨号网速不是产品。192 KiB/s 仍然远不够 30 分钟文件缓冲到 90%（判据 2/4 的意义不变）
   - **gate**：`just check` · `just test` **2118**（core 832 / gui 379）· `just test-sync-e2e` **19/19** · `just accept-m5` **22/22**（真实 bilibili 下载现在是 **copy remux**：5,401,140 字节的原始 AAC，不再是 5,097,217 字节的转码 mp3）· `just accept-gui` **15/15**（真 Electron 媒体元素放 m4a）
   - ⚠️ **0.3.0 的开发版看 0.2.x 曲库 = 一首歌都没有文件**：`has_file` 只认 `song.m4a`，副本里的 21 个 `song.mp3` 一个都不算——这正是 T2/T3 迁移要解决的，也是「开发期只对副本操作」的又一条理由（缓存清理同理，看不见就不会删）
+- [x] **T1b 供应链后半：删掉 LAME**（2026-08-14）— 应用链已经不产 mp3 了，供应链跟上：configure 去掉 `--enable-libmp3lame` / `--enable-encoder=libmp3lame` / `--enable-muxer=mp3`，LAME 的 source 条目、构建段与 `PREFIX` 一并删除——**profile 现在零外部库**（`--extra-cflags` 里那对 `-I../prefix/include` / `-L../prefix/lib` 也没有存在理由了），`build_script_version` → 3
+  - **mp3 的 demuxer / decoder / parser 全部保留**：迁移要**读** 0.2.x 写下的东西，导入也要。清单里 mp3 出现两次，两次都是读路径
+  - **`REQUIRED_CAPABILITIES` 去掉 `encoder libmp3lame` 与 `muxer mp3`**：它是全有全无的 ready 门，继续要求一个我们不用的编码器，等于对着一台完全能跑 lark 的机器说「不兼容」。新增一条测试断言「没有 mp3 编码器也 ready」
+  - **`ensureMp3` 从 core 删除**，它独有的四条覆盖（缺二进制的报错文案 / 自己的超时 / 已 abort 的 signal 不 spawn / 覆盖既有输出）原样移到 `processAudio`
+  - **`accept-pack` §3f 的闭环换成迁移那一条**（`tone-1s.mp3` → aac/ipod → ffprobe，验容器 + 音轨 codec）：原来那条用 libmp3lame，删了 LAME 之后**只会在发版当天红**——0.2.0 那次「判据落后于协议」的同款教训，这次提前改
+  - gen-notices 文案「转成 mp3」→「转成 m4a」（FFmpeg 段现在只列 FFmpeg 一个库）· README「外部库只有 LAME」→「无任何外部库」· justfile 注释同步 · `scripts/fixtures/README.md` 的配方改成「来历记录，已跑不动」
+  - **gate**：`just fetch-ffmpeg --force` 重建后三条闭环全绿（configure 与锁值逐字节一致、无 nonfree）· 全仓无 mp3 产出调用（rg 只剩注释与「模拟一台有 libmp3lame 的机器」的测试桩）· `just check` · `just test` **2115**（core 829）· **`just accept-m5` 22/22**——真实 bilibili 下载走 copy remux，**导入的 mp3 在没有任何 mp3 编码器的工具链上转成了 m4a**
+  - 产物 4.5MB（ffmpeg 2,369,480 + ffprobe 2,175,736），与带 LAME 时基本持平；NOTICE 重新生成后 FFmpeg 段只剩一个库
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

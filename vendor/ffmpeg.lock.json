@@ -9,18 +9,15 @@
     "package). The one credible prebuilt alternative (Martin Riedl's macOS arm64 release,",
     "verified nonfree-free on 2026-08-10) is `--enable-gpl --enable-version3` with 30",
     "static external libraries, every one of which we would have to mirror the",
-    "corresponding source for. This profile has one external library and is LGPL.",
+    "corresponding source for.",
+    "",
+    "0.3.0 made m4a canonical, and as of T1b this profile has NO external libraries at",
+    "all: LAME left with the mp3 encoder and the mp3 muxer, because nothing in lark",
+    "writes an mp3 any more. The mp3 demuxer, decoder and parser stay — the one-time",
+    "migration has to READ what 0.2.x wrote, and so does import.",
     "",
     "The configure line is deliberately path-free: it is compared byte for byte in",
-    "accept-pack, so it must not carry whichever directory the build happened to run in.",
-    "That is why every path below is relative to the ffmpeg source directory.",
-    "",
-    "0.3.0 (T0a) moved the canonical format to m4a, which is what the encoder `aac`,",
-    "the muxer `ipod` and the three extra PCM decoders are for: AAC-in-MP4 is remuxed",
-    "with `-c copy -f ipod`, everything else is encoded to AAC, and the import matrix",
-    "has to decode the WAV flavours users actually have. `libmp3lame` and the mp3 muxer",
-    "are still here ONLY because the migration is not written yet — T1b deletes them,",
-    "and after that nothing in this repo can produce an mp3."
+    "accept-pack, so it must not carry whichever directory the build happened to run in."
   ],
   "lock_version": 1,
   "profile": "lark-minimal-lgpl",
@@ -31,8 +28,8 @@
     "macos_min": "11.0"
   },
   "build_script": "scripts/vendor-ffmpeg.mjs",
-  "build_script_version": 2,
-  "configure": "--prefix=../out --extra-cflags='-I../prefix/include -mmacosx-version-min=11.0' --extra-ldflags='-L../prefix/lib -mmacosx-version-min=11.0' --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-network --disable-ffplay --disable-shared --enable-static --enable-small --enable-libmp3lame --enable-protocol='file,pipe' --enable-demuxer='mov,mp3,aac,flac,wav,ogg,matroska' --enable-decoder='aac,aac_fixed,aac_latm,mp3,mp3float,flac,vorbis,pcm_s16le,pcm_s16be,pcm_f32le,pcm_u8,pcm_s24le,pcm_s32le,alac,opus' --enable-parser='aac,aac_latm,mpegaudio,flac,vorbis,opus' --enable-encoder='aac,libmp3lame' --enable-muxer='ipod,mp3' --enable-filter='aresample,aformat,anull,atrim,volume' --enable-bsf=aac_adtstoasc",
+  "build_script_version": 3,
+  "configure": "--prefix=../out --extra-cflags='-mmacosx-version-min=11.0' --extra-ldflags='-mmacosx-version-min=11.0' --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-network --disable-ffplay --disable-shared --enable-static --enable-small --enable-protocol='file,pipe' --enable-demuxer='mov,mp3,aac,flac,wav,ogg,matroska' --enable-decoder='aac,aac_fixed,aac_latm,mp3,mp3float,flac,vorbis,pcm_s16le,pcm_s16be,pcm_f32le,pcm_u8,pcm_s24le,pcm_s32le,alac,opus' --enable-parser='aac,aac_latm,mpegaudio,flac,vorbis,opus' --enable-encoder=aac --enable-muxer=ipod --enable-filter='aresample,aformat,anull,atrim,volume' --enable-bsf=aac_adtstoasc",
   "sources": [
     {
       "name": "FFmpeg",
@@ -41,22 +38,9 @@
       "license_file": "COPYING.LGPLv2.1",
       "sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
       "archive": "ffmpeg-8.1.2.tar.xz",
-      "urls": ["https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz"],
-      "patches": []
-    },
-    {
-      "name": "LAME",
-      "version": "3.100",
-      "license": "LGPL-2.0-or-later",
-      "license_file": "COPYING",
-      "sha256": "ddfe36cab873794038ae2c1210557ad34857a4b6bdc515785d1da9e175b1da1e",
-      "archive": "lame-3.100.tar.gz",
-      "_url_comment": "SourceForge is upstream; the mirror serves the byte-identical tarball and is listed second because the sha256 above is what actually decides.",
       "urls": [
-        "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz",
-        "https://sources.voidlinux.org/lame-3.100/lame-3.100.tar.gz"
+        "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz"
       ],
-      "configure": "--prefix=<prefix> --disable-shared --enable-static --disable-frontend --disable-dependency-tracking --disable-gtktest",
       "patches": []
     }
   ]

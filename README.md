@@ -111,7 +111,7 @@ curl -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/api/capabilities   # 自�
 
 MIT，见 [LICENSE](LICENSE)。
 
-`bundled` 安装包另带一份**自建的 FFmpeg**（LGPL 2.1+，外部库只有 LAME，不含 GPL 或 nonfree 组件）：
+`bundled` 安装包另带一份**自建的 FFmpeg**（LGPL 2.1+，无任何外部库，不含 GPL 或 nonfree 组件）：
 版本、完整 configure、源码地址与校验和锁在 `vendor/ffmpeg.lock.json`，构建脚本
 `scripts/vendor-ffmpeg.mjs` 一并公开，足以复现同一份二进制。应用内「设置 → 关于」可读到随包
 分发的许可证与第三方软件声明全文。

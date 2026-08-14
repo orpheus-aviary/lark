@@ -39,50 +39,6 @@ export interface FfmpegRunOptions {
 }
 
 /**
- * Transcode anything ffmpeg can read into a 192kbps 44.1kHz MP3.
- *
- * `-vn` drops the cover art stream bilibili's audio track sometimes carries;
- * `-nostdin` stops ffmpeg from consuming the daemon's stdin if it ever decides
- * to prompt; `-y` overwrites, which is safe because the output is always a
- * task-scoped temp path.
- *
- * `-f mp3` is not optional here: the output path ends in `.tmp`, so ffmpeg
- * cannot infer the container from the extension and fails with "unable to find
- * a suitable output format" — a message that reads like a codec problem.
- */
-export async function ensureMp3(
-  ffmpegPath: string,
-  inputPath: string,
-  outputPath: string,
-  options: FfmpegRunOptions = {},
-): Promise<void> {
-  const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
-  await run(
-    ffmpegPath,
-    [
-      '-nostdin',
-      '-v',
-      'error',
-      '-i',
-      inputPath,
-      '-vn',
-      '-acodec',
-      'libmp3lame',
-      '-ab',
-      '192k',
-      '-ar',
-      '44100',
-      '-f',
-      'mp3',
-      '-y',
-      outputPath,
-    ],
-    withTimeout(timeouts.ffmpeg, options.signal),
-    'ffmpeg',
-  );
-}
-
-/**
  * Everything the conversion rules need to know about a file, and nothing that
  * identifies it: no filename, no staging path (import shows failures to a user
  * who never saw the staged copy).

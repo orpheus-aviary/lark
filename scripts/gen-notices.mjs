@@ -144,7 +144,7 @@ function ffmpegSection() {
     '## FFmpeg',
     '',
     '本安装包内含一份自建的 FFmpeg（`Contents/Resources/ffmpeg/`），仅用于把下载到的音频',
-    '转成 mp3、以及读取音频信息。它以独立进程运行，不与本应用链接。',
+    '转成 m4a、以及读取音频信息。它以独立进程运行，不与本应用链接。',
     '',
     `构建配置（profile \`${lock.profile}\`，许可证 **${lock.license}**）：`,
     '',

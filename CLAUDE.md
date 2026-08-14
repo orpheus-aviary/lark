@@ -37,7 +37,7 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 当前测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b → T2 → T3 → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。
+🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 → T3 → T4 → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。
 
 ### v0.3.0 实测锁定（随批次追加）
 
@@ -183,10 +183,10 @@ lark/
 
 ### M7 实测锁定（详见 `docs/plans/2026-08-08-m7-packaging.md` §8）
 
-- **ffmpeg 是自建的，不是装来的**：`ffmpeg-static` / `@derhuerst/ffprobe-static` 的二进制 `--enable-nonfree`，**不可再分发**（连 GPL 都不行）。现在 `just fetch-ffmpeg` 从源码建最小 LGPL profile（FFmpeg + LAME，4.5MB），锁在 `vendor/ffmpeg.lock.json`。它是**发版门禁**：源码 SHA → configure 与锁值逐字节比对 → 见 nonfree 即拒 → 能力清单 → **每一种真实转换各跑一遍闭环**（0.3.0 T0a 起四条：WAV→AAC→m4a · m4a→copy→m4a · mp3→AAC→m4a · m4a→mp3，最后一条随 T1b 删 LAME 一起消失）。`just package bundled` 每次前置跑它，stub 过不了第一道（不是 Mach-O）
+- **ffmpeg 是自建的，不是装来的**：`ffmpeg-static` / `@derhuerst/ffprobe-static` 的二进制 `--enable-nonfree`，**不可再分发**（连 GPL 都不行）。现在 `just fetch-ffmpeg` 从源码建最小 LGPL profile（FFmpeg + LAME，4.5MB），锁在 `vendor/ffmpeg.lock.json`。它是**发版门禁**：源码 SHA → configure 与锁值逐字节比对 → 见 nonfree 即拒 → 能力清单 → **每一种真实转换各跑一遍闭环**（0.3.0 起三条：WAV→AAC→m4a · m4a→copy→m4a · mp3→AAC→m4a；T1b 删 LAME 后 profile 零外部库，mp3 只剩 demuxer/decoder/parser 供迁移与导入**读**）。`just package bundled` 每次前置跑它，stub 过不了第一道（不是 Mach-O）
 - **configure 串必须路径无关**（`--prefix=../out` 这类相对路径）：绝对路径会烙进二进制、`-show_program_version` 读得到，锁值就绑死在某台机器的目录上
 - **媒体工具单一真相 = `ctx.mediaTools`（MediaToolsRegistry）**：capabilities / 下载引擎 / `probeAudio` / import 全部共享一份。`ensureMp3` 与 `probeAudio` **接收已解析的路径**，不许自己再找——以前各找各的，能出现「capabilities 报没有 ffmpeg，下载却通过 Homebrew 成功」。`ready` 缓存到执行失败（ENOENT/EACCES）才失效，`missing`/`incompatible` 按 ≥5s 节流重探
-- **ready 判定是完整能力清单**（demuxer mov/mp3 · decoder aac/mp3 · encoder libmp3lame · muxer mp3 · file protocol · ffprobe JSON），不是 `-version` 退出 0——后者一个 shell 脚本就能过
+- **ready 判定是完整能力清单**（0.3.0 起：demuxer mov/mp3 · decoder aac/mp3 · **encoder aac · muxer ipod** · file protocol · ffprobe JSON），不是 `-version` 退出 0——后者一个 shell 脚本就能过。清单只列**真正用到的**：不写 mp3 了就不能再要求 libmp3lame，否则是对一台能跑 lark 的机器说谎
 - **ffmpeg 的清单输出**：`-hide_banner -v quiet -X` **只认第一个清单选项**（串多个只出第一个）；分隔线是 ` ---` 不是 ` --`（8.1 还多一列设备标志），按字面 `--` 匹配会把好构建判成「缺全部能力」
 - **单测不能用 `-f lavfi` 造 fixture**：最小 profile 没有 lavfi（AAC 编码器 0.3.0 T0a 起有了，但让被测构建自己造输入本来就是错的形状）。改用 `@lark/core/testing` 的 `toneWav()`（纯 Node 写 44 字节头 + 正弦），真容器只在 `fetch-ffmpeg` 与 accept-pack 的闭环里用（入库夹具 `scripts/fixtures/`，来历与 sha256 见同目录 README）
 - **`just package [mode]` 是位置参数**：`mode=system` 这种写法在 just 1.46.0 会被当成第二个 recipe 名（实测报 "does not contain recipe"）

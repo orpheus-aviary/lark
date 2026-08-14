@@ -1,27 +1,26 @@
 // What "ffmpeg works" means here, frozen (M7-18).
 //
 // The old check was `-version` exiting 0. That is not a capability check: a
-// three-line shell script passes it, and so does a real ffmpeg built without
-// libmp3lame — which then fails at the end of a download, after the bytes are
+// three-line shell script passes it, and so does a real ffmpeg with no AAC
+// encoder — which then fails at the end of a download, after the bytes are
 // already on disk. Readiness is therefore the whole list below, verified item
 // by item against ffmpeg's own inventory.
 //
 // The list is exactly what the pipeline asks for and nothing more:
 //
-//   file protocol       every input and output is a local path
-//   demuxer mov         bilibili's DASH audio is fragmented MP4 (m4a/AAC)
-//   demuxer mp3         reading the files 0.2.x wrote, and import
-//   decoder aac         ditto — the input side
-//   decoder mp3         ditto — the import side
-//   encoder aac         anything that is not already AAC becomes AAC
-//   muxer   ipod        `-f ipod` into songs/<uuid>/song.m4a
-//   encoder libmp3lame  the ONLY mp3 encoder; ffmpeg has no native one
-//   muxer   mp3         `-f mp3` into songs/<uuid>/song.mp3
-//   ffprobe JSON        `-print_format json`; probeAudio parses that
+//   file protocol   every input and output is a local path
+//   demuxer mov     bilibili's DASH audio is fragmented MP4 (m4a/AAC)
+//   demuxer mp3     reading the files 0.2.x wrote — the migration, and import
+//   decoder aac     ditto — the input side
+//   decoder mp3     ditto — the import side
+//   encoder aac     anything that is not already AAC becomes AAC
+//   muxer   ipod    `-f ipod` into songs/<uuid>/song.m4a
+//   ffprobe JSON    `-print_format json`; probeAudio parses that
 //
-// The last two are on their way out (0.3.0 T1b): they are required while the
-// download pipeline still writes mp3, and the day it stops, a machine whose
-// ffmpeg has no libmp3lame must stop being called incompatible over it.
+// mp3 appears twice and both are READ paths. Nothing in lark writes an mp3
+// since 0.3.0, so `libmp3lame` and the mp3 muxer are NOT required: a machine
+// whose ffmpeg lacks them is perfectly able to run lark, and calling it
+// incompatible would be a lie about what we need.
 //
 // Names are matched against comma-split inventory entries, because ffmpeg
 // reports one demuxer as `mov,mp4,m4a,3gp,3g2,mj2` — asking for that literal
@@ -40,8 +39,8 @@ export const REQUIRED_CAPABILITIES = {
   protocols: ['file'],
   demuxers: ['mov', 'mp3'],
   decoders: ['aac', 'mp3'],
-  encoders: ['aac', 'libmp3lame'],
-  muxers: ['ipod', 'mp3'],
+  encoders: ['aac'],
+  muxers: ['ipod'],
 } as const;
 
 export type CapabilityKind = keyof typeof REQUIRED_CAPABILITIES;

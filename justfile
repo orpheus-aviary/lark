@@ -147,7 +147,8 @@ build-cli: build-shared build-core
 # `bundled` releases carry their own ffmpeg/ffprobe, built here from source.
 # Not downloaded from npm: `ffmpeg-static` and `@derhuerst/ffprobe-static` ship
 # `--enable-nonfree` binaries, which may not be redistributed under any licence.
-# This profile is LGPL with exactly one external library (LAME).
+# This profile is LGPL and has no external libraries at all (LAME left with the
+# mp3 encoder in 0.3.0).
 #
 # Everything the build needs is in `vendor/ffmpeg.lock.json` (source URLs,
 # sha256s, the verbatim configure line). The products land in `vendor/ffmpeg/`,

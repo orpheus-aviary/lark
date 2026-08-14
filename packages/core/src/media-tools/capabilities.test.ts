@@ -19,14 +19,13 @@ const INVENTORY: Record<string, string> = {
     'Formats:\n D.. = Demuxing supported\n .E. = Muxing supported\n ..d = Is a device\n ---\n D   mov,mp4,m4a,3gp,3g2,mj2 QuickTime / MOV\n D   mp3             MP2/3 (MPEG audio layer 2/3)\n',
   '-decoders':
     'Decoders:\n V..... = Video\n ------\n A....D aac      AAC (Advanced Audio Coding)\n A....D mp3      MP3 (MPEG audio layer 3)\n A....D mp3float MP3 (MPEG audio layer 3)\n',
-  '-encoders':
-    'Encoders:\n V..... = Video\n ------\n A....D aac         AAC (Advanced Audio Coding)\n A....D libmp3lame  libmp3lame MP3\n',
+  '-encoders': 'Encoders:\n V..... = Video\n ------\n A....D aac  AAC (Advanced Audio Coding)\n',
   '-muxers':
-    'Formats:\n D.. = Demuxing supported\n ---\n  E  ipod            iPod H.264 MP4 (MPEG-4 Part 14)\n  E  mp3             MP2/3\n',
+    'Formats:\n D.. = Demuxing supported\n ---\n  E  ipod            iPod H.264 MP4 (MPEG-4 Part 14)\n',
 };
 
 const VERSION_JSON = JSON.stringify({
-  program_version: { version: '8.1.2', configuration: '--enable-libmp3lame' },
+  program_version: { version: '8.1.2', configuration: '--enable-encoder=aac' },
 });
 
 interface StubOptions {
@@ -82,20 +81,11 @@ describe('probeCapabilities', () => {
   it('is ready when the whole frozen list is present', async () => {
     const result = await probeCapabilities(TOOLS, { run: stubRunner() });
     expect(result).toMatchObject({ state: 'ready', detail: null, version: '8.1.2' });
-    expect(result.configuration).toBe('--enable-libmp3lame');
-  });
-
-  // The old check was `-version` exiting 0, which this build passes.
-  it('is incompatible when ffmpeg runs but cannot encode mp3', async () => {
-    const result = await probeCapabilities(TOOLS, {
-      run: stubRunner({ inventory: { '-encoders': 'Encoders:\n --\n A....D aac  AAC\n' } }),
-    });
-    expect(result.state).toBe('incompatible');
-    expect(result.detail).toContain('libmp3lame');
+    expect(result.configuration).toBe('--enable-encoder=aac');
   });
 
   // A 0.2.x-era build: perfectly good at mp3, and useless for the canonical
-  // m4a. Nothing about `-version` or `libmp3lame` distinguishes it.
+  // m4a. The old check was `-version` exiting 0, which this build passes.
   it('is incompatible when ffmpeg cannot produce m4a', async () => {
     const result = await probeCapabilities(TOOLS, {
       run: stubRunner({
@@ -119,8 +109,22 @@ describe('probeCapabilities', () => {
         },
       }),
     });
-    expect(result.detail).toContain('libmp3lame');
-    expect(result.detail).toContain('mp3');
+    expect(result.detail).toContain('encoder aac');
+    expect(result.detail).toContain('muxer ipod');
+  });
+
+  // Nothing writes an mp3 since 0.3.0, and requiring what we do not use would
+  // refuse a perfectly good ffmpeg — a stripped Homebrew build, say.
+  it('is ready without an mp3 encoder or muxer', async () => {
+    const result = await probeCapabilities(TOOLS, {
+      run: stubRunner({
+        inventory: {
+          '-encoders': 'Encoders:\n --\n A....D aac  AAC\n',
+          '-muxers': 'Formats:\n ---\n  E  ipod   MP4\n',
+        },
+      }),
+    });
+    expect(result.state).toBe('ready');
   });
 
   it('is missing — not incompatible — when a binary is not on disk', async () => {

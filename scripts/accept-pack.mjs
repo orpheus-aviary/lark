@@ -203,47 +203,58 @@ function judge3Bundled(resources, work) {
   );
 
   // The one thing a stub cannot fake. Run with the binaries taken out of the
-  // MOUNTED app, on a real m4a, and read the result back with its own ffprobe.
-  const out = join(work, 'closed-loop.mp3');
+  // MOUNTED app, on the mp3 a 0.2.x library is full of, and read the result
+  // back with its own ffprobe — this is the migration's conversion, performed
+  // by the binaries about to ship.
+  const out = join(work, 'closed-loop.m4a');
   const transcode = sh(ffmpeg, [
     '-nostdin',
     '-v',
     'error',
     '-i',
-    join(ROOT, 'scripts/fixtures/tone-1s.m4a'),
-    '-vn',
-    '-acodec',
-    'libmp3lame',
-    '-ab',
+    join(ROOT, 'scripts/fixtures/tone-1s.mp3'),
+    '-map',
+    '0:0',
+    '-c:a',
+    'aac',
+    '-b:a',
     '192k',
-    '-ar',
-    '44100',
+    '-movflags',
+    '+faststart',
     '-f',
-    'mp3',
+    'ipod',
     '-y',
     out,
   ]);
   const probe = sh(ffprobe, [
     '-v',
     'error',
+    '-select_streams',
+    'a:0',
     '-show_entries',
-    'format=duration,format_name',
+    'format=duration,format_name:stream=codec_name',
     '-of',
     'json',
     out,
   ]);
   let format = null;
+  let codec = null;
   try {
-    format = JSON.parse(probe.out).format;
+    const parsed = JSON.parse(probe.out);
+    format = parsed.format;
+    codec = parsed.streams?.[0]?.codec_name;
   } catch {
     format = null;
   }
   check(
-    '§3f · bundled: the shipped binaries really transcode M4A → MP3 → ffprobe json',
+    '§3f · bundled: the shipped binaries really convert MP3 → m4a → ffprobe json',
     transcode.code === 0 &&
-      String(format?.format_name).split(',').includes('mp3') &&
+      String(format?.format_name).split(',').includes('m4a') &&
+      codec === 'aac' &&
       Number(format?.duration) > 0.5,
-    format ? `${format.format_name} ${format.duration}s` : transcode.out.trim().slice(0, 120),
+    format
+      ? `${format.format_name} ${codec} ${format.duration}s`
+      : transcode.out.trim().slice(0, 120),
   );
 
   const notices = readFileSync(join(resources, 'THIRD-PARTY-NOTICES.md'), 'utf8');
