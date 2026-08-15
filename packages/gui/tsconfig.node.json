@@ -13,5 +13,16 @@
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "electron.vite.config.ts"
+  ],
+  "references": [
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../daemon"
+    }
   ]
 }

@@ -14,5 +14,10 @@
       "@/*": ["src/renderer/src/*"]
     }
   },
-  "include": ["src/renderer/src/**/*.ts", "src/renderer/src/**/*.tsx", "src/shared/**/*.ts"]
+  "include": ["src/renderer/src/**/*.ts", "src/renderer/src/**/*.tsx", "src/shared/**/*.ts"],
+  "references": [
+    {
+      "path": "../shared"
+    }
+  ]
 }
