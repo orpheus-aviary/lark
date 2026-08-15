@@ -52,6 +52,12 @@ export interface TaskRecord {
   errorCode: string | null;
   errorMessage: string | null;
   result: { song_id: string } | null;
+  /** Bytes of THIS stage's transfer; zeroed on every stage change (§3.5). */
+  receivedBytes: number;
+  totalBytes: number | null;
+  /** What the last EMITTED progress event said, for the throttle (§4-d). */
+  progressEmittedAt: number;
+  progressEmittedBytes: number;
 
   dedupeKey: string;
   target: DownloadTarget | null;
@@ -79,6 +85,8 @@ export function toTaskData(task: TaskRecord): DownloadTaskData {
     error_code: task.errorCode,
     error_message: task.errorMessage,
     result: task.result,
+    received_bytes: task.receivedBytes,
+    total_bytes: task.totalBytes,
   };
 }
 

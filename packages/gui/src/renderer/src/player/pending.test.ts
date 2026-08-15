@@ -62,6 +62,8 @@ function task(id: string, state: DownloadTaskData['state'], songId: string): Dow
     error_code: null,
     error_message: null,
     result: state === 'succeeded' ? { song_id: songId } : null,
+    received_bytes: 0,
+    total_bytes: null,
   };
 }
 

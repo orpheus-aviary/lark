@@ -167,6 +167,8 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
           state: task.state,
           stage: task.stage,
           revision: task.revision,
+          received_bytes: task.received_bytes,
+          total_bytes: task.total_bytes,
         }),
       onSucceeded: (task) => {
         if (task.result !== null) {

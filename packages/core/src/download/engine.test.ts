@@ -8,7 +8,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DownloadNamingMode, LlmConfig } from '@lark/shared';
+import type { DownloadNamingMode, DownloadTaskData, LlmConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
@@ -363,6 +363,86 @@ describe('naming mode', () => {
     const plain = e.enqueueDownload({ target: videoTarget(1, null, 'original') });
     await settle(e, plain.id);
     expect(stages.slice(stages.lastIndexOf('naming') + 1)).not.toContain('naming');
+  }, 60_000);
+});
+
+// ─── Byte progress (0.3.0 §3.5) ────────────────────────
+
+describe('transfer progress', () => {
+  /** Every status snapshot the engine emitted for this task, in order. */
+  function watch(): { events: DownloadTaskData[]; engine: DownloadEngine } {
+    const events: DownloadTaskData[] = [];
+    return { events, engine: build({ callbacks: { onStatus: (t) => events.push(t) } }) };
+  }
+
+  it('reports what arrived and what was promised, then zeroes it', async () => {
+    const { events, engine } = watch();
+    const { id } = engine.enqueueDownload({ target: videoTarget() });
+    await settle(engine, id);
+
+    const mine = events.filter((event) => event.id === id);
+    const transferring = mine.filter(
+      (event) => event.stage === 'downloading' && event.received_bytes > 0,
+    );
+    expect(transferring.length).toBeGreaterThan(0);
+    for (const event of transferring) {
+      expect(event.total_bytes).toBe(audioFixture.length);
+      expect(event.received_bytes).toBeLessThanOrEqual(audioFixture.length);
+    }
+    // The last thing said about the transfer is its full size — the throttle
+    // must not be allowed to hold the tail (§3.5).
+    expect(transferring.at(-1)?.received_bytes).toBe(audioFixture.length);
+
+    // Progress belongs to one stage, and a terminal task has none.
+    for (const event of mine.filter((e) => e.stage !== 'downloading')) {
+      expect(event.received_bytes).toBe(0);
+      expect(event.total_bytes).toBeNull();
+    }
+  }, 60_000);
+
+  // The other half of the contract: a source that declares no size.
+  it('reports bytes with no total when the source does not declare one', async () => {
+    upstream.state.audioChunkBytes = 4096;
+    const { events, engine } = watch();
+    const { id } = engine.enqueueDownload({ target: videoTarget() });
+    await settle(engine, id);
+
+    const transferring = events.filter(
+      (event) => event.id === id && event.stage === 'downloading' && event.received_bytes > 0,
+    );
+    expect(transferring.length).toBeGreaterThan(0);
+    for (const event of transferring) expect(event.total_bytes).toBeNull();
+    expect(transferring.at(-1)?.received_bytes).toBe(audioFixture.length);
+  }, 60_000);
+
+  it('throttles: many chunks, few events', async () => {
+    upstream.state.audioChunkBytes = 1024;
+    const chunks = Math.ceil(audioFixture.length / 1024);
+    expect(chunks).toBeGreaterThan(20);
+
+    const { events, engine } = watch();
+    const { id } = engine.enqueueDownload({ target: videoTarget() });
+    await settle(engine, id);
+
+    // §4-d: one every 500ms at most, so a transfer this fast produces the
+    // opening one and the forced final value — never one per chunk.
+    const transferring = events.filter(
+      (event) => event.id === id && event.stage === 'downloading' && event.received_bytes > 0,
+    );
+    expect(transferring.length).toBeLessThanOrEqual(2);
+    expect(transferring.at(-1)?.received_bytes).toBe(audioFixture.length);
+  }, 60_000);
+
+  it('never goes backwards within one transfer', async () => {
+    upstream.state.audioChunkBytes = 2048;
+    const { events, engine } = watch();
+    const { id } = engine.enqueueDownload({ target: videoTarget() });
+    await settle(engine, id);
+
+    const received = events
+      .filter((event) => event.id === id && event.stage === 'downloading')
+      .map((event) => event.received_bytes);
+    expect(received).toEqual([...received].sort((a, b) => a - b));
   }, 60_000);
 });
 
@@ -964,28 +1044,36 @@ describe('callbacks', () => {
    * consecutive events may share a stage only if something else moved.
    */
   it('emits an event only when something actually changed', async () => {
-    const seen: { state: string; stage: string | null; songId: string | null }[] = [];
-    const e = build({
-      callbacks: {
-        onStatus: (t) => seen.push({ state: t.state, stage: t.stage, songId: t.song_id }),
-      },
-    });
+    const seen: DownloadTaskData[] = [];
+    const e = build({ callbacks: { onStatus: (t) => seen.push(t) } });
     const { id } = e.enqueueDownload({ target: videoTarget() });
     await settle(e, id);
     await settleAll(e);
 
-    const mine = seen.filter((_, i) => i < seen.length);
-    const inert = mine.filter((event, i) => {
-      const previous = mine[i - 1];
+    // Byte progress is a fourth axis (§3.5): two events can legitimately agree
+    // on state, stage AND song id and still be a real update, which is exactly
+    // why the dedupe tuple carries `revision`.
+    const inert = seen.filter((event, i) => {
+      const previous = seen[i - 1];
       return (
-        i > 0 &&
         previous !== undefined &&
         previous.state === event.state &&
         previous.stage === event.stage &&
-        previous.songId === event.songId
+        previous.song_id === event.song_id &&
+        previous.received_bytes === event.received_bytes
       );
     });
     expect(inert).toEqual([]);
+    // …and within one task the revision only ever climbs, so a client that
+    // dedupes on the tuple never drops one of these. (Per task: the lyrics
+    // continuation is a second task, and its revisions start at 1 again.)
+    const byTask = new Map<string, number[]>();
+    for (const event of seen) {
+      byTask.set(event.id, [...(byTask.get(event.id) ?? []), event.revision]);
+    }
+    for (const revisions of byTask.values()) {
+      expect(revisions).toEqual([...revisions].sort((a, b) => a - b));
+    }
   }, 60_000);
 
   it('announces a new batch even when every item merged onto pending tasks', () => {

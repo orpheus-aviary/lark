@@ -707,6 +707,21 @@ export interface DownloadTaskData {
   error_code: string | null;
   error_message: string | null;
   result: { song_id: string } | null;
+  /**
+   * Bytes of audio transferred so far (0.3.0 §3.5).
+   *
+   * Only meaningful during `downloading`: it is zeroed on every stage change,
+   * and monotonic within one. A client reading it in another stage sees 0,
+   * which is the truth about how much of THIS stage has moved.
+   */
+  received_bytes: number;
+  /**
+   * What the source said the transfer would be, or `null` when it did not say
+   * (no `content-length`, or a chunked response). `null` is a real answer and
+   * not zero: "unknown size" and "empty file" ask a progress line for
+   * different things.
+   */
+  total_bytes: number | null;
 }
 
 // Batch targets are two types, not one: the request may ask for a playlist
@@ -905,7 +920,9 @@ export interface ImportResultData {
  * `download:status` carries `revision` because `(state, stage)` alone is not
  * unique: binding the song id is a real change that happens while the stage
  * stays `resolving`, so two events legitimately agree on both. The tuple
- * `(state, stage, revision)` is what a client dedupes on (M3-5).
+ * `(state, stage, revision)` is what a client dedupes on (M3-5). From 0.3.0
+ * byte progress is a third source of "same state, same stage, new event", and
+ * it is throttled at the source (§4-d) rather than at every receiver.
  */
 export type PlayerCommandEvent = { type: 'player:command'; request_id: string } & PlayerCommand;
 
@@ -921,6 +938,9 @@ export type LarkEvent =
       state: TaskState;
       stage: DownloadStage | null;
       revision: number;
+      /** Same contract as the snapshot's: `downloading` only, zeroed between. */
+      received_bytes: number;
+      total_bytes: number | null;
     }
   | { type: 'download:complete'; task_id: string; song_id: string }
   | { type: 'download:error'; task_id: string; error_code: string; message: string }

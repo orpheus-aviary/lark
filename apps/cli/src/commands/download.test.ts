@@ -144,6 +144,110 @@ describe('download — one input', () => {
   });
 });
 
+describe('download — progress while waiting', () => {
+  /** Transferring `received` of `total`, as one poll would see it. */
+  const transferring = (received: number, total: number | null): DownloadTasksData =>
+    snapshot({
+      tasks: [
+        task({
+          state: 'running',
+          stage: 'downloading',
+          received_bytes: received,
+          total_bytes: total,
+        }),
+      ],
+    });
+
+  const done = snapshot({ tasks: [task({ state: 'succeeded', result: { song_id: 'song-1' } })] });
+
+  // Criterion 29, the terminal shape: one line that keeps being replaced.
+  it('refreshes one line in a terminal, and clears it at the end', async () => {
+    const ctx = fakeContext(
+      {
+        taskSnapshots: [
+          transferring(0, 1000),
+          transferring(400, 1000),
+          transferring(900, 1000),
+          done,
+        ],
+      },
+      {},
+      { tty: true },
+    );
+    await runDownload(ctx, 'BV1', {}, NOW);
+
+    expect(ctx.streams.stderrLive).toEqual([
+      '… 下载音频',
+      '… 下载音频 40%',
+      '… 下载音频 90%',
+      // Cleared, so the outcome does not print on top of a stale percentage.
+      '',
+    ]);
+    // Nothing was appended line by line — that is the other renderer.
+    expect(ctx.streams.stderr).toEqual([]);
+    expect(ctx.streams.stdout).toEqual(['✓ 完成（song song-1）']);
+  });
+
+  // …and the log shape: a line per milestone, nothing between.
+  it('prints a line every tenth when stderr is not a terminal', async () => {
+    const ctx = fakeContext({
+      taskSnapshots: [
+        transferring(0, 1000),
+        transferring(20, 1000), // 2% — below the step
+        transferring(150, 1000), // 15% — first step
+        transferring(180, 1000), // still inside it
+        transferring(400, 1000), // next step
+        done,
+      ],
+    });
+    await runDownload(ctx, 'BV1', {}, NOW);
+
+    expect(ctx.streams.stderr).toEqual(['… 下载音频', '… 下载音频 15%', '… 下载音频 40%']);
+    expect(ctx.streams.stderrLive).toEqual([]);
+  });
+
+  // The `total_bytes: null` branch: nothing to divide by, so it counts.
+  it('counts megabytes when the source declared no size', async () => {
+    const mb = 1024 * 1024;
+    const ctx = fakeContext({
+      taskSnapshots: [
+        transferring(1 * mb, null),
+        transferring(2 * mb, null), // under the 5MiB step, and no clock moved
+        transferring(7 * mb, null),
+        done,
+      ],
+    });
+    await runDownload(ctx, 'BV1', {}, { ...NOW, now: () => 0 });
+
+    expect(ctx.streams.stderr).toEqual(['… 下载音频 1.0MB', '… 下载音频 7.0MB']);
+  });
+
+  // A stalled transfer of unknown size still says something (§4-d).
+  it('speaks up on the clock when the bytes are not moving', async () => {
+    const mb = 1024 * 1024;
+    let clock = 0;
+    const ctx = fakeContext({
+      taskSnapshots: [transferring(mb, null), transferring(mb + 1024, null), done],
+    });
+    const tick = (): number => {
+      clock += 2000;
+      return clock;
+    };
+    await runDownload(ctx, 'BV1', {}, { ...NOW, now: tick });
+
+    expect(ctx.streams.stderr).toHaveLength(2);
+  });
+
+  it('says nothing at all under --json', async () => {
+    const ctx = fakeContext({ taskSnapshots: [transferring(400, 1000), done] }, { json: true });
+    await runDownload(ctx, 'BV1', {}, NOW);
+
+    expect(ctx.streams.stderr).toEqual([]);
+    expect(ctx.streams.stderrLive).toEqual([]);
+    expect(ctx.streams.stdout).toHaveLength(1);
+  });
+});
+
 describe('download — a favourites folder', () => {
   const list = {
     title: '收藏夹',

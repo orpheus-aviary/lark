@@ -19,22 +19,48 @@ import type { CliError } from './errors.js';
 export interface Streams {
   out(line: string): void;
   err(line: string): void;
+  /**
+   * Replace the stderr line in place, with NO newline — a progress line that
+   * is about to be replaced again (0.3.0 §3.5). `''` clears it, which is how a
+   * caller ends one without leaving a stale percentage on screen.
+   *
+   * On stderr like `err`, and for the same reason: stdout carries the one
+   * envelope, and a `--json` run must not find a progress line in it.
+   */
+  errLine(text: string): void;
+  /** Is stderr a terminal? Only there does overwriting a line mean anything. */
+  tty: boolean;
 }
 
 export const processStreams: Streams = {
   out: (line) => process.stdout.write(`${line}\n`),
   err: (line) => process.stderr.write(`${line}\n`),
+  // `\r` to column 0 and `\x1b[K` to wipe what was there: without the erase, a
+  // shorter line leaves the tail of the longer one behind it.
+  errLine: (text) => process.stderr.write(`\r\x1b[K${text}`),
+  tty: process.stderr.isTTY === true,
 };
 
+export interface CapturedStreams extends Streams {
+  stdout: string[];
+  stderr: string[];
+  /** Every `errLine` write, in order — the overwriting is not simulated. */
+  stderrLive: string[];
+}
+
 /** Collects both streams; the shape every command test asserts on. */
-export function captureStreams(): Streams & { stdout: string[]; stderr: string[] } {
+export function captureStreams(options: { tty?: boolean } = {}): CapturedStreams {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const stderrLive: string[] = [];
   return {
     stdout,
     stderr,
+    stderrLive,
     out: (line) => stdout.push(line),
     err: (line) => stderr.push(line),
+    errLine: (text) => stderrLive.push(text),
+    tty: options.tty === true,
   };
 }
 

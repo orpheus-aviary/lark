@@ -97,6 +97,8 @@ describe('wire shapes (compile-time)', () => {
       error_code: null,
       error_message: null,
       result: { song_id: 's1' },
+      received_bytes: 0,
+      total_bytes: null,
     } satisfies DownloadTaskData;
     expect(task.result?.song_id).toBe('s1');
   });
@@ -160,8 +162,18 @@ describe('wire shapes (compile-time)', () => {
         state: 'running',
         stage: 'downloading',
         revision: 4,
+        received_bytes: 1024,
+        total_bytes: 4096,
       },
-      { type: 'download:status', task_id: 't1', state: 'queued', stage: null, revision: 1 },
+      {
+        type: 'download:status',
+        task_id: 't1',
+        state: 'queued',
+        stage: null,
+        revision: 1,
+        received_bytes: 0,
+        total_bytes: null,
+      },
       { type: 'download:complete', task_id: 't1', song_id: 's1' },
       { type: 'download:error', task_id: 't1', error_code: 'FFMPEG_FAILED', message: 'boom' },
       { type: 'download:cancelled', task_id: 't1' },

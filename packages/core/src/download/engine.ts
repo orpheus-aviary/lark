@@ -96,6 +96,14 @@ const NAMING_LABEL: Record<DownloadNamingMode, string> = {
   clean: '清洗命名',
 };
 
+// Progress event throttle (§4-d): at most one per 500ms, and only when the
+// transfer moved by 1% or a quarter of a megabyte since the last one. Both
+// halves matter — the time floor bounds a fast local transfer, and the size
+// floor keeps a slow one from emitting a pixel of change every half second.
+const PROGRESS_MIN_INTERVAL_MS = 500;
+const PROGRESS_MIN_BYTES = 256 * 1024;
+const PROGRESS_MIN_FRACTION = 0.01;
+
 /** Pending (queued + running) tasks allowed at once. */
 export const DEFAULT_QUEUE_CAPACITY = 1000;
 /** Terminal tasks kept for `GET /download/tasks`. */
@@ -549,6 +557,10 @@ export class DownloadEngine {
       errorCode: null,
       errorMessage: null,
       result: null,
+      receivedBytes: 0,
+      totalBytes: null,
+      progressEmittedAt: 0,
+      progressEmittedBytes: 0,
       dedupeKey: seed.dedupeKey,
       target: seed.target ?? null,
       targetsFrozen: false,
@@ -577,12 +589,58 @@ export class DownloadEngine {
     // the opening stage and the pipeline reports it again on entry. The
     // contract is one event per transition (M3-6).
     if (task.stage === stage) return;
+    // The throttle can be holding the last few percent when the transfer ends,
+    // and a progress line frozen at 97% is worse than none (§3.5).
+    this.#flushProgress(task);
     task.stage = stage;
+    // Progress belongs to ONE stage: carrying the transfer's bytes into
+    // `converting` would show a client a percentage of the wrong thing.
+    this.#resetProgress(task);
     // Entering `saving` freezes the target list: the commit transaction is
     // about to read it, and a merge landing mid-transaction would be invisible
     // to it (second review ⑫).
     if (stage === POINT_OF_NO_RETURN) task.targetsFrozen = true;
     this.#bump(task);
+  }
+
+  /**
+   * Record transferred bytes, and decide whether anyone hears about it (§4-d).
+   *
+   * Throttled HERE rather than at the transfer or at each receiver: the engine
+   * is the only place that knows what it last emitted, and an un-throttled
+   * chunk callback on a 5MB file is thousands of SSE frames for a line of text
+   * that changes by a pixel.
+   */
+  #setProgress(task: TaskRecord, received: number, total: number | null): void {
+    task.receivedBytes = received;
+    task.totalBytes = total;
+
+    const now = Date.now();
+    if (now - task.progressEmittedAt < PROGRESS_MIN_INTERVAL_MS) return;
+    const delta = received - task.progressEmittedBytes;
+    const enoughBytes = delta >= PROGRESS_MIN_BYTES;
+    const enoughPercent = total !== null && delta >= total * PROGRESS_MIN_FRACTION;
+    if (!enoughBytes && !enoughPercent) return;
+    this.#emitProgress(task, now);
+  }
+
+  /** Send the value the throttle is holding, if it is holding one. */
+  #flushProgress(task: TaskRecord): void {
+    if (task.receivedBytes === task.progressEmittedBytes) return;
+    this.#emitProgress(task, Date.now());
+  }
+
+  #emitProgress(task: TaskRecord, at: number): void {
+    task.progressEmittedAt = at;
+    task.progressEmittedBytes = task.receivedBytes;
+    this.#bump(task);
+  }
+
+  #resetProgress(task: TaskRecord): void {
+    task.receivedBytes = 0;
+    task.totalBytes = null;
+    task.progressEmittedAt = 0;
+    task.progressEmittedBytes = 0;
   }
 
   // ─── Worker ──────────────────────────────────────────
@@ -696,6 +754,7 @@ export class DownloadEngine {
     return {
       signal: AbortSignal.any(signals),
       reportStage: (stage) => this.#setStage(task, stage),
+      reportProgress: (received, total) => this.#setProgress(task, received, total),
     };
   }
 
@@ -896,6 +955,9 @@ export class DownloadEngine {
   #finish(task: TaskRecord, state: Extract<TaskState, 'succeeded' | 'failed' | 'cancelled'>): void {
     task.state = state;
     task.stage = null;
+    // A terminal task has no stage, so it has no transfer either: leaving the
+    // last byte count on it would make a finished row render as 63% forever.
+    this.#resetProgress(task);
     task.finishedAt = Date.now();
     task.revision++;
     const data = toTaskData(task);

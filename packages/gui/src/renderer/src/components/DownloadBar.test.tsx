@@ -42,6 +42,8 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
     error_code: null,
     error_message: null,
     result: null,
+    received_bytes: 0,
+    total_bytes: null,
     ...overrides,
   };
 }
@@ -236,7 +238,7 @@ describe('status line', () => {
     });
     render(<DownloadBar />);
 
-    expect(await screen.findByText('下载中')).toBeDefined();
+    expect(await screen.findByText('下载音频')).toBeDefined();
     expect(screen.getByText('1/3')).toBeDefined();
   });
 
@@ -268,7 +270,7 @@ describe('the batch action bar shares this row (S3/B-5)', () => {
 
     // Greyed out, but present — an action nobody can see is an action nobody
     // knows exists.
-    expect(screen.getByText('下载中')).toBeDefined();
+    expect(screen.getByText('下载音频')).toBeDefined();
     expect(screen.getByRole('button', { name: '固定' }).hasAttribute('disabled')).toBe(true);
     expect(screen.queryByText(/已选/)).toBeNull();
 
@@ -277,7 +279,7 @@ describe('the batch action bar shares this row (S3/B-5)', () => {
     expect(await screen.findByText('已选 2 首')).toBeDefined();
     expect(screen.getByRole('button', { name: '固定' }).hasAttribute('disabled')).toBe(false);
     // The download line is still right there next to it.
-    expect(screen.getByText('下载中')).toBeDefined();
+    expect(screen.getByText('下载音频')).toBeDefined();
   });
 
   it('puts the batch buttons after everything else in the row', () => {

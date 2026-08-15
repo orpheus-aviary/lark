@@ -60,7 +60,7 @@ describe('waitForTask', () => {
     });
 
     await waitForTask(ctx, 'task-1', NOW);
-    expect(ctx.streams.stderr).toEqual(['… 下载音频', '… 转码']);
+    expect(ctx.streams.stderr).toEqual(['… 下载音频', '… 处理音频']);
     // Progress is never stdout: that one is reserved for the result.
     expect(ctx.streams.stdout).toEqual([]);
   });

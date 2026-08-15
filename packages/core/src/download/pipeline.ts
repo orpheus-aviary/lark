@@ -16,7 +16,7 @@
 
 import { createWriteStream } from 'node:fs';
 import { mkdir, unlink } from 'node:fs/promises';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { pipeline as streamPipeline } from 'node:stream/promises';
 import type { DownloadNamingMode, DownloadStage, LlmConfig, SongData } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
@@ -62,6 +62,12 @@ export interface PipelineDeps {
 export interface StepContext {
   signal: AbortSignal;
   reportStage: (stage: DownloadStage) => void;
+  /**
+   * How much of the transfer has arrived (§3.5). Called per chunk — the
+   * throttling that decides which of those become events is the engine's, not
+   * the transfer's: only the engine knows what it last told anyone.
+   */
+  reportProgress?: (receivedBytes: number, totalBytes: number | null) => void;
 }
 
 /** What a task is trying to download, after the route's deterministic parse. */
@@ -341,8 +347,15 @@ export async function fetchAudio(
   if (response.body === null) {
     throw new BilibiliApiError(`audio stream for ${input.bvid}:${input.cid} had no body`);
   }
+  // `null` rather than 0 when the source does not say: "unknown size" and
+  // "empty" ask a progress line for different things (§3.5).
+  const declared = Number(response.headers.get('content-length'));
+  const total = Number.isFinite(declared) && declared > 0 ? declared : null;
+  ctx.reportProgress?.(0, total);
+
   await streamPipeline(
     Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
+    countingStream(ctx, total),
     createWriteStream(paths.download),
     { signal: ctx.signal },
   );
@@ -369,6 +382,24 @@ export async function fetchAudio(
     return probeAudio(tools.ffprobe.path, paths.transcoded, run);
   });
   return { path: paths.transcoded, duration: landed.duration };
+}
+
+/**
+ * A pass-through that counts. Chunk-level rather than a `data` listener on the
+ * source: inside the pipeline it inherits the backpressure and the abort
+ * handling that `streamPipeline` already gives every other member, and a task
+ * cancelled mid-transfer tears down the whole chain rather than leaking a
+ * listener on a stream nobody is reading.
+ */
+function countingStream(ctx: StepContext, total: number | null): Transform {
+  let received = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      received += chunk.length;
+      ctx.reportProgress?.(received, total);
+      callback(null, chunk);
+    },
+  });
 }
 
 // ─── Reuse ─────────────────────────────────────────────

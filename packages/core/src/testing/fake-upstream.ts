@@ -49,6 +49,12 @@ export interface FakeUpstreamState {
   searchResults: FakeSearchHit[];
   /** Raw bytes served for the audio stream — real m4a in the engine tests. */
   audio: Buffer;
+  /**
+   * Serve the audio in chunks of this size, with NO `content-length` — what a
+   * transfer of unknown size looks like. `null` sends it in one write with the
+   * length declared, which is the ordinary case.
+   */
+  audioChunkBytes: number | null;
   /** Answer an LLM completion. `null` makes the endpoint fail with a 500. */
   llm: ((system: string, user: string) => string) | null;
   lyrics: {
@@ -108,6 +114,7 @@ export function defaultState(): FakeUpstreamState {
       },
     ],
     audio: Buffer.alloc(0),
+    audioChunkBytes: null,
     llm: null,
     lyrics: {
       netease: [{ name: '稻香', artist: '周杰伦', lrc: DEFAULT_LRC }],
@@ -254,6 +261,17 @@ async function route(url: URL, req: Req, res: Res, state: FakeUpstreamState): Pr
   }
   if (path.startsWith('/media/')) {
     if (state.hangAudio) return; // never responds: the caller must abort
+    // Chunked: no `content-length`, delivered in pieces — a real transfer for
+    // anything that watches bytes arrive, and the only way to reach the
+    // "size unknown" half of the progress contract (§3.5).
+    if (state.audioChunkBytes !== null) {
+      res.writeHead(200, { 'content-type': 'audio/mp4' });
+      for (let at = 0; at < state.audio.length; at += state.audioChunkBytes) {
+        res.write(state.audio.subarray(at, at + state.audioChunkBytes));
+      }
+      res.end();
+      return;
+    }
     res.writeHead(200, {
       'content-type': 'audio/mp4',
       'content-length': String(state.audio.length),

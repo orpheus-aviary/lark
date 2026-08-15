@@ -23,6 +23,8 @@ function task(id: string, overrides: Partial<DownloadTaskData> = {}): DownloadTa
     error_code: null,
     error_message: null,
     result: null,
+    received_bytes: 0,
+    total_bytes: null,
     ...overrides,
   };
 }
@@ -89,6 +91,8 @@ describe('status events', () => {
       state: 'running',
       stage: 'downloading',
       revision: 2,
+      received_bytes: 0,
+      total_bytes: null,
     });
     await flush();
 
@@ -103,6 +107,8 @@ describe('status events', () => {
       state: 'queued',
       stage: null,
       revision: 1,
+      received_bytes: 0,
+      total_bytes: null,
     });
     await flush();
     expect(calls.some((call) => call.url.endsWith('/download/tasks'))).toBe(true);
@@ -115,7 +121,13 @@ describe('status events', () => {
         task('b', { stage: 'analyzing', revision: 1 }),
       ],
     });
-    const shared = { state: 'running', stage: 'downloading', revision: 2 } as const;
+    const shared = {
+      state: 'running',
+      stage: 'downloading',
+      revision: 2,
+      received_bytes: 0,
+      total_bytes: null,
+    } as const;
     for (const id of ['a', 'b']) {
       useDownloads.getState().applyEvent({ type: 'download:status', task_id: id, ...shared });
     }

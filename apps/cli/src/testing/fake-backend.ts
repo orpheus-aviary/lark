@@ -39,7 +39,7 @@ import type {
 } from '../backend/types.js';
 import type { CommandContext, GlobalFlags } from '../context.js';
 import { IdentityHandle } from '../lib/identity.js';
-import { type Streams, captureStreams } from '../lib/output.js';
+import { type CapturedStreams, captureStreams } from '../lib/output.js';
 
 export interface CallRecord {
   method: string;
@@ -139,6 +139,8 @@ export function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskDat
     error_code: null,
     error_message: null,
     result: null,
+    received_bytes: 0,
+    total_bytes: null,
     ...overrides,
   };
 }
@@ -291,15 +293,22 @@ export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
 
 export interface FakeContext extends CommandContext {
   backend: FakeBackend;
-  streams: Streams & { stdout: string[]; stderr: string[] };
+  streams: CapturedStreams;
 }
 
-/** A CommandContext over the fake backend, with both streams captured. */
+/**
+ * A CommandContext over the fake backend, with both streams captured.
+ *
+ * `tty` is off by default because that is what a test run and a piped shell
+ * have in common; the progress renderer picks a different shape for each, so
+ * the suites that care pass it explicitly (§3.5).
+ */
 export function fakeContext(
   data: FakeBackendData = {},
   flags: Partial<GlobalFlags> = {},
+  options: { tty?: boolean } = {},
 ): FakeContext {
-  const streams = captureStreams();
+  const streams = captureStreams(options);
   return {
     backend: createFakeBackend(data),
     streams,
