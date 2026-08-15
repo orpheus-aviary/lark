@@ -30,10 +30,12 @@ import {
   DOWNLOAD_BATCH_ITEMS_MAX,
   DOWNLOAD_BATCH_KEYWORD_MAX,
   DOWNLOAD_INPUT_MAX,
+  DOWNLOAD_NAMING_MODES,
   DOWNLOAD_PARSE_LINES_MAX,
   DOWNLOAD_PLAYLIST_NAME_MAX,
   type DownloadBatchGroupInput,
   type DownloadBatchItemInput,
+  type DownloadNamingMode,
   type DownloadTaskAcceptedData,
   FETCH_LIST_ITEMS_MAX,
   FETCH_LIST_PAGES_MAX,
@@ -47,6 +49,7 @@ import { ok } from '../response.js';
 import {
   InvalidRequestError,
   objectBody,
+  optionalEnum,
   optionalUuid,
   pathUuid,
   requiredString,
@@ -96,8 +99,20 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
    * The single-input preflight: everything that can be answered before the
    * queue, answered before the queue.
    */
-  const preflightSingle = async (item: ParsedItem): Promise<DownloadTarget> => {
+  const preflightSingle = async (
+    item: ParsedItem,
+    namingMode: DownloadNamingMode | undefined,
+  ): Promise<DownloadTarget> => {
     if (item.kind === 'keyword') {
+      // A keyword has no title to keep, so it has always been named by the
+      // model — asking for a mode here means the caller thinks it is choosing
+      // something, and answering 200 would agree with them (§3.6-1).
+      if (namingMode !== undefined) {
+        throw new InvalidRequestError(
+          'INVALID_BODY',
+          'naming_mode 只用于视频链接：关键词搜索的命名一直由 LLM 决定',
+        );
+      }
       if (!hasLlm()) {
         throw new InvalidRequestError(
           'LLM_NOT_CONFIGURED',
@@ -110,6 +125,18 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
       throw new InvalidRequestError(
         'INVALID_SOURCE',
         '收藏夹和合集链接请先用 /download/fetch-list 展开，再用 /download/batch 下载',
+      );
+    }
+    if (namingMode === undefined) {
+      throw new InvalidRequestError(
+        'INVALID_BODY',
+        'naming_mode 必填（original = 原标题，clean = 让 LLM 提取歌名和歌手）',
+      );
+    }
+    if (namingMode === 'clean' && !hasLlm()) {
+      throw new InvalidRequestError(
+        'LLM_NOT_CONFIGURED',
+        '清洗命名需要配置 LLM；或者用 naming_mode=original 保留原标题',
       );
     }
     // The page list is needed for p → cid anyway, so asking it here is free —
@@ -125,18 +152,19 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
         );
       }
     }
-    return { kind: 'video', bvid: item.bvid, page: item.page, title: null };
+    return { kind: 'video', bvid: item.bvid, page: item.page, title: null, naming: namingMode };
   };
 
   // ─── POST /download/song ───────────────────────────────
 
   app.post(API_PATHS.downloadSong, async (req, reply) => {
-    const body = objectBody(req.body, ['input', 'playlist_id']);
+    const body = objectBody(req.body, ['input', 'playlist_id', 'naming_mode']);
     const input = requiredString(body, 'input', { maxLength: INPUT_MAX });
     const playlistId = optionalUuid(body, 'playlist_id');
+    const namingMode = optionalEnum(body, 'naming_mode', DOWNLOAD_NAMING_MODES);
 
     const item = await resolveOne(input);
-    const target = await preflightSingle(item);
+    const target = await preflightSingle(item, namingMode);
     const task = ctx.downloads.enqueueDownload({
       target,
       ...(playlistId === undefined ? {} : { playlistIds: [playlistId] }),
@@ -173,6 +201,17 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     const needsLlm = groups.some((g) => g.items.some((i) => i.kind === 'keyword'));
     if (needsLlm && !hasLlm()) {
       throw new InvalidRequestError('LLM_NOT_CONFIGURED', '批量里包含关键词条目，需要先配置 LLM');
+    }
+    // Same shape, same reason: `clean` is an LLM call per item, and a 200 here
+    // would turn into 50 tasks failing one by one for a knowable reason.
+    const needsLlmForNaming = groups.some((g) =>
+      g.items.some((i) => i.kind === 'video' && i.naming === 'clean'),
+    );
+    if (needsLlmForNaming && !hasLlm()) {
+      throw new InvalidRequestError(
+        'LLM_NOT_CONFIGURED',
+        '批量里有条目要清洗命名，需要先配置 LLM（或者改用原标题）',
+      );
     }
 
     const batches = ctx.downloads.enqueueBatches(groups);
@@ -322,8 +361,14 @@ function readBatchGroups(raw: unknown): DownloadBatchGroupInput[] {
 }
 
 function readItem(raw: unknown): DownloadBatchItemInput {
-  const item = objectBody(raw, ['kind', 'bvid', 'page', 'title', 'query']);
+  const item = objectBody(raw, ['kind', 'bvid', 'page', 'title', 'query', 'naming']);
   if (item.kind === 'keyword') {
+    // Refused rather than ignored: `naming` on a keyword item is a caller that
+    // believes it is choosing something (§3.6-1). `objectBody` has to allow the
+    // key for the video branch, so this is the only place that can say no.
+    if (item.naming !== undefined) {
+      throw new InvalidRequestError('INVALID_BODY', 'keyword 条目不接受 naming');
+    }
     return {
       kind: 'keyword',
       query: requiredString(item, 'query', { maxLength: DOWNLOAD_BATCH_KEYWORD_MAX }),
@@ -348,11 +393,16 @@ function readItem(raw: unknown): DownloadBatchItemInput {
   if (title !== null && title !== undefined && typeof title !== 'string') {
     throw new InvalidRequestError('INVALID_BODY', 'item.title must be a string or null');
   }
+  const naming = optionalEnum(item, 'naming', DOWNLOAD_NAMING_MODES);
+  if (naming === undefined) {
+    throw new InvalidRequestError('INVALID_BODY', 'item.naming must be original or clean');
+  }
   return {
     kind: 'video',
     bvid: parsed.bvid,
     page: typeof page === 'number' ? page : null,
     title: typeof title === 'string' && title.trim() !== '' ? title.trim() : null,
+    naming,
   };
 }
 

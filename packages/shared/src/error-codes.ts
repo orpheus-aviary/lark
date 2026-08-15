@@ -84,6 +84,10 @@ export const DAEMON_ENVELOPE_ERROR_CODES = [
   'FFMPEG_FAILED',
   'LLM_FAILED',
   'LLM_NOT_CONFIGURED',
+  // Two requests want the same video under different naming modes (0.3.0
+  // §3.6-1). They would merge onto one task, and one of the two users would
+  // silently get the other's answer, so the second one is refused instead.
+  'NAMING_MODE_CONFLICT',
   // Not a download-only failure despite living in this group: import raises it
   // too. It says "this machine has no usable ffmpeg", which is never a property
   // of the song or the file (M7-18).
@@ -147,6 +151,10 @@ export const TASK_ERROR_CODES = [
   'LLM_FAILED',
   'LLM_NOT_CONFIGURED',
   'MEDIA_TOOLS_UNAVAILABLE',
+  // Same reason as the sync codes below: no task raises it — it is refused at
+  // enqueue time — but `describeTaskError` passes any CodedError through, so
+  // the registry closes over the class rather than over today's callers.
+  'NAMING_MODE_CONFLICT',
   'NORMALIZE_FAILED',
   'NOT_FOUND',
   'PREFLIGHT_TIMEOUT',

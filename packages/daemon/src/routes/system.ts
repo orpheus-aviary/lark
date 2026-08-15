@@ -1,5 +1,11 @@
 import { realpathSync } from 'node:fs';
-import { nestFingerprint, paths, realpathMissingOk } from '@lark/core';
+import {
+  isLlmConfigured,
+  nestFingerprint,
+  paths,
+  realpathMissingOk,
+  resolveLlmConfig,
+} from '@lark/core';
 import {
   API_PATHS,
   type CapabilitiesData,
@@ -309,6 +315,10 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
       version: ctx.version,
       endpoints: [...ENDPOINTS],
       media_tools: await ctx.mediaTools.refresh(),
+      // The EFFECTIVE config (0.3.0 §3.6-1): a key inherited from aviary's
+      // shared config is a working LLM, and a client that greyed out keyword
+      // search because lark's own file is empty would be wrong about it.
+      llm_available: isLlmConfigured(resolveLlmConfig(ctx.config)),
     } satisfies CapabilitiesData);
   });
 }

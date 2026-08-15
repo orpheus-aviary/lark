@@ -118,8 +118,12 @@ echo "BV1xx411c7mD" | lark download --batch - --yes
   skipped; the batch does NOT wait unless \`--wait\` is passed
 - \`--playlist <name|id>\` puts everything into that playlist
 - \`--allow-partial\` accepts a list that only came back partially
-- a keyword needs an LLM configured (\`LLM_NOT_CONFIGURED\`, exit 3); a bilibili
-  link does not
+- \`--clean-name\` names videos with the LLM (song + artist read out of the
+  title) instead of keeping the title verbatim; it is a video-only flag, and
+  the same video cannot be queued under both namings at once
+  (\`NAMING_MODE_CONFLICT\`, exit 2)
+- a keyword needs an LLM configured (\`LLM_NOT_CONFIGURED\`, exit 3), and so
+  does \`--clean-name\`; a plain bilibili link does not
 
 A finished task prints its full snapshot; a failed one exits 1 with
 \`error_code: "TASK_FAILED"\` and the task in \`details.task\`.

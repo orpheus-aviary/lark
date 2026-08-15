@@ -103,7 +103,7 @@ describe('download — one input', () => {
     await runDownload(ctx, 'BV1', { playlist: 'all' }, NOW);
 
     const request = ctx.backend.argsOf('downloadSong')?.[0] as DownloadSongRequest;
-    expect(request).toEqual({ input: 'BV1' });
+    expect(request).toEqual({ input: 'BV1', naming_mode: 'original' });
   });
 
   it('a failed task is TASK_FAILED with the whole snapshot in details, stdout empty', async () => {
@@ -164,8 +164,8 @@ describe('download — a favourites folder', () => {
       {
         target: { kind: 'all' },
         items: [
-          { kind: 'video', bvid: 'BV1', page: null, title: '第一首' },
-          { kind: 'video', bvid: 'BV2', page: null, title: '第二首' },
+          { kind: 'video', bvid: 'BV1', page: null, title: '第一首', naming: 'original' },
+          { kind: 'video', bvid: 'BV2', page: null, title: '第二首', naming: 'original' },
         ],
       },
     ]);
@@ -225,9 +225,9 @@ describe('download — many lines', () => {
 
     const groups = ctx.backend.argsOf('downloadBatch')?.[0] as DownloadBatchGroupInput[];
     expect(groups[0]?.items).toEqual([
-      { kind: 'video', bvid: 'BV1', page: null, title: null },
+      { kind: 'video', bvid: 'BV1', page: null, title: null, naming: 'original' },
       { kind: 'keyword', query: '周杰伦 晴天' },
-      { kind: 'video', bvid: 'BV2', page: null, title: null },
+      { kind: 'video', bvid: 'BV2', page: null, title: null, naming: 'original' },
     ]);
   });
 
@@ -265,6 +265,7 @@ describe('download — many lines', () => {
       bvid: 'BV249',
       page: null,
       title: null,
+      naming: 'original',
     });
   });
 

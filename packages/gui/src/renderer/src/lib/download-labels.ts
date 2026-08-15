@@ -8,6 +8,7 @@ export const STAGE_LABELS: Record<DownloadStage, string> = {
   analyzing: '解析中',
   searching: '搜索中',
   resolving: '定位资源',
+  naming: '清洗命名',
   downloading: '下载中',
   converting: '转码中',
   saving: '保存中',

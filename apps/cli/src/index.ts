@@ -265,6 +265,7 @@ program
   .option('--wait', 'follow until it finishes (default for a single input)')
   .option('--no-wait', 'return as soon as it is queued')
   .option('--allow-partial', 'proceed even when the list only came back partially')
+  .option('--clean-name', 'ask the LLM for the song and the artist instead of keeping the title')
   .action((input: string | undefined, opts) =>
     withBackend('daemon', (ctx) => runDownload(ctx, input, opts), {
       precheck: () => assertDownloadShape(input, opts),

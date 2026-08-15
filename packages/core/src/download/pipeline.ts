@@ -18,7 +18,7 @@ import { createWriteStream } from 'node:fs';
 import { mkdir, unlink } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import { pipeline as streamPipeline } from 'node:stream/promises';
-import type { DownloadStage, LlmConfig, SongData } from '@lark/shared';
+import type { DownloadNamingMode, DownloadStage, LlmConfig, SongData } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
@@ -66,7 +66,13 @@ export interface StepContext {
 
 /** What a task is trying to download, after the route's deterministic parse. */
 export type DownloadTarget =
-  | { kind: 'video'; bvid: string; page: number | null; title: string | null }
+  | {
+      kind: 'video';
+      bvid: string;
+      page: number | null;
+      title: string | null;
+      naming: DownloadNamingMode;
+    }
   | { kind: 'keyword'; query: string };
 
 export interface ResolvedTarget {
@@ -81,10 +87,12 @@ export interface ResolvedTarget {
 /**
  * Turn a target into a resolved (bvid, page, cid) plus the name to store.
  *
- * Naming is frozen (M3-7): a URL download takes the video's title and
- * uploader verbatim, and only a batch item's own `title` overrides it. The Go
- * version ran every download through `inferSongInfo`, which meant the same URL
- * could produce a different song name on different days.
+ * Naming is the submitter's choice, taken once and carried on the target
+ * (0.3.0 §3.6-1). `original` is the M3-7 rule unchanged: the title as it
+ * stands, the uploader as the artist, so the same URL always produces the same
+ * song — which is what the Go version lost by running everything through the
+ * model. `clean` asks for that model pass explicitly, and falls back to the
+ * same two values when it cannot answer.
  */
 export async function resolveTarget(
   deps: PipelineDeps,
@@ -101,10 +109,17 @@ export async function resolveTarget(
     { signal: ctx.signal },
   );
   const view = await deps.bilibili.view(target.bvid, { signal: ctx.signal });
+  // The list's title when a list gave one, the video's own otherwise — and
+  // whichever it is, it is also what `clean` falls back to.
+  const title = target.title ?? view.title;
+  if (target.naming === 'original') return { source, name: title, artist: view.ownerName };
+
+  ctx.reportStage('naming');
+  const inferred = await inferSongInfo(deps, title, '', view.ownerName, ctx);
   return {
     source,
-    name: target.title ?? view.title,
-    artist: view.ownerName,
+    name: inferred.song_name !== '' ? inferred.song_name : title,
+    artist: inferred.artist !== '' ? inferred.artist : view.ownerName,
   };
 }
 
@@ -208,6 +223,15 @@ async function analyzeKeyword(
   };
 }
 
+/**
+ * Ask the model for the song and the artist inside a title. Degrades to empty
+ * strings, which every caller has a deterministic fallback for.
+ *
+ * Everything except a cancellation, that is. An aborted fetch and a provider
+ * 500 both arrive here as `LlmRequestError` — only the caller's OWN signal can
+ * tell them apart, and swallowing the first would let a cancelled task carry
+ * on downloading the audio it was told to stop fetching (§3.6-1).
+ */
 async function inferSongInfo(
   deps: PipelineDeps,
   title: string,
@@ -221,7 +245,10 @@ async function inferSongInfo(
     INFER_SONG_INFO_PROMPT,
     payload,
     ctx,
-  ).catch(() => null);
+  ).catch(() => {
+    ctx.signal.throwIfAborted();
+    return null;
+  });
   return { song_name: str(parsed?.song_name), artist: str(parsed?.artist) };
 }
 

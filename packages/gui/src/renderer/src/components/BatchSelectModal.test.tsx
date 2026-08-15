@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
+import { useMediaTools } from '../stores/media-tools.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
 
 const PLAYLIST_ID = 'a4f1e3c2-0000-4000-8000-000000000001';
@@ -86,6 +87,10 @@ const batchBody = (): { groups: { target: unknown; items: unknown[] }[] } | unde
 
 beforeEach(() => {
   stubFetch();
+  // The naming default is remembered between submissions (§4-e), so a test
+  // that ticks the box would otherwise decide what the next one starts with.
+  localStorage.clear();
+  useMediaTools.setState({ llmAvailable: null });
   songResponses = [];
   fetchListResult = {
     title: '我的收藏夹',
@@ -116,14 +121,19 @@ describe('list groups', () => {
       {
         target: { kind: 'new', name: '我的收藏夹' },
         items: [
-          { kind: 'video', bvid: 'BV1', page: null, title: null },
-          { kind: 'video', bvid: 'BV2', page: null, title: null },
+          { kind: 'video', bvid: 'BV1', page: null, title: '第一首', naming: 'clean' },
+          { kind: 'video', bvid: 'BV2', page: null, title: '第二首', naming: 'clean' },
         ],
       },
     ]);
   });
 
-  it('passes the list titles through only when 原标题 is ticked', async () => {
+  // Criterion 23. The checkbox used to send `title: null` when unticked, which
+  // on a favourites folder is the SAME name the daemon would have used anyway
+  // — the two branches were indistinguishable at the wire. Now they differ in
+  // the field that decides, and the title rides along either way (it is what
+  // cleaning reads the song name out of).
+  it('produces two different requests from the two checkbox states', async () => {
     const user = userEvent.setup();
     open([favorites]);
     await screen.findByText('我的收藏夹');
@@ -133,8 +143,8 @@ describe('list groups', () => {
     await waitFor(() => expect(batchBody()).toBeDefined());
 
     expect(batchBody()?.groups[0]?.items).toEqual([
-      { kind: 'video', bvid: 'BV1', page: null, title: '第一首' },
-      { kind: 'video', bvid: 'BV2', page: null, title: '第二首' },
+      { kind: 'video', bvid: 'BV1', page: null, title: '第一首', naming: 'original' },
+      { kind: 'video', bvid: 'BV2', page: null, title: '第二首', naming: 'original' },
     ]);
   });
 
@@ -194,7 +204,40 @@ describe('single items', () => {
     expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
       input: 'https://www.bilibili.com/video/BV9',
       playlist_id: PLAYLIST_ID,
+      naming_mode: 'clean',
     });
+  });
+
+  // The other half of criterion 24: the dialog asks once, for every link item
+  // in the submission, and the answer rides on each request.
+  it('applies one naming answer to every link item', async () => {
+    const user = userEvent.setup();
+    const second: ParsedItem = { ...video, bvid: 'BV8', url: 'https://www.bilibili.com/video/BV8' };
+    open([video, second]);
+
+    await user.click(screen.getByLabelText('原标题'));
+    await user.click(screen.getByRole('button', { name: /确认下载/ }));
+
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url.endsWith('/download/song'))).toHaveLength(2),
+    );
+    for (const call of calls.filter((c) => c.url.endsWith('/download/song'))) {
+      expect((call.body as { naming_mode: string }).naming_mode).toBe('original');
+    }
+  });
+
+  it('sends no naming for a keyword item', async () => {
+    const user = userEvent.setup();
+    const keyword: ParsedItem = { kind: 'keyword', query: '稻香' };
+    open([keyword]);
+
+    await user.click(screen.getByRole('button', { name: /确认下载/ }));
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: '稻香',
+      }),
+    );
   });
 
   it('stops at the first refusal and says how far it got', async () => {

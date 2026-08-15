@@ -31,6 +31,9 @@ describe('task lifecycle constants', () => {
       'analyzing',
       'searching',
       'resolving',
+      // 0.3.0: between having the video and starting the transfer, and only on
+      // the `clean` naming path (§3.6-2).
+      'naming',
       'downloading',
       'converting',
       'saving',
@@ -106,7 +109,7 @@ describe('wire shapes (compile-time)', () => {
         {
           target: { kind: 'new', name: '新歌单' },
           items: [
-            { kind: 'video', bvid: 'BV1Ki4y1y7HC', page: null, title: '稻香' },
+            { kind: 'video', bvid: 'BV1Ki4y1y7HC', page: null, title: '稻香', naming: 'original' },
             { kind: 'keyword', query: '周杰伦 稻香' },
           ],
         },

@@ -367,6 +367,13 @@ export interface CapabilitiesData {
    * that renders those actions has to be able to see it coming.
    */
   media_tools: MediaToolsInfo;
+  /**
+   * Is an LLM configured (0.3.0 §3.6-1)? The same reason as `media_tools`:
+   * keyword search and `naming_mode: 'clean'` are refused without one, so a
+   * client that offers either has to be able to grey it out first rather than
+   * let the user pick something that will be rejected.
+   */
+  llm_available: boolean;
 }
 
 // ─── Cache (M5) ────────────────────────────────────────
@@ -644,6 +651,10 @@ export const DOWNLOAD_STAGES = [
   'analyzing',
   'searching',
   'resolving',
+  // Asking the model for the song and the artist inside the title (0.3.0
+  // §3.6-2). Only on the `clean` naming path, and only between having the
+  // video and starting the transfer — an `original` download never reports it.
+  'naming',
   'downloading',
   'converting',
   'saving',
@@ -711,14 +722,38 @@ export type BatchTargetData =
   | { kind: 'playlist'; playlist_id: string; name: string };
 
 /**
+ * How a video's song name is decided (0.3.0 §3.6-1).
+ *
+ * `original` stores the title as it stands — the list's title when one came
+ * with it, the video's own otherwise. `clean` asks the LLM for the song and
+ * the artist inside that title, falling back to the title and the uploader
+ * when it cannot tell.
+ *
+ * It is a mode rather than a boolean because the two are not "on and off" of
+ * one thing: they read different sources and cost different amounts, and the
+ * user picks per submission.
+ */
+export const DOWNLOAD_NAMING_MODES = ['original', 'clean'] as const;
+export type DownloadNamingMode = (typeof DOWNLOAD_NAMING_MODES)[number];
+
+/**
  * One requested item. A `keyword` item needs the LLM to pick a video, so the
  * daemon can reject it synchronously when no LLM is configured — no network
  * needed to know that. `title` on a video item is the trustworthy list title
  * from `fetch-list` (the Go version's `UseOrigTitle` path); absent, the
  * pipeline falls back to the video's own title.
+ *
+ * `naming` is required on a video item, and absent on a keyword one: a keyword
+ * search has no title to keep, so it has always run the model (§3.6-1).
  */
 export type DownloadBatchItemInput =
-  | { kind: 'video'; bvid: string; page: number | null; title: string | null }
+  | {
+      kind: 'video';
+      bvid: string;
+      page: number | null;
+      title: string | null;
+      naming: DownloadNamingMode;
+    }
   | { kind: 'keyword'; query: string };
 
 export interface DownloadBatchGroupInput {
@@ -765,6 +800,13 @@ export interface DownloadSongRequest {
   input: string;
   /** Omitted for the virtual all view (§4.1) — a UUID only, never `'all'`. */
   playlist_id?: string;
+  /**
+   * Conditionally required (§3.6-1): mandatory when `input` is a video link,
+   * REFUSED when it is a keyword. Optional in the type because one field
+   * cannot be two things — the daemon knows which shape the input is only
+   * after parsing it, and answers `INVALID_BODY` either way round.
+   */
+  naming_mode?: DownloadNamingMode;
 }
 
 /** `POST /download/parse` body — one pasted blob, possibly multi-line. */

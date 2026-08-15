@@ -64,7 +64,7 @@ const bodyOf = (res: { body: string }) => JSON.parse(res.body);
 
 describe('POST /download/song', () => {
   it('queues a single-part URL with no LLM configured', async () => {
-    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
     expect(res.statusCode).toBe(200);
     expect(bodyOf(res).data.task_id).toMatch(/^[0-9a-f-]{36}$/);
   });
@@ -82,7 +82,7 @@ describe('POST /download/song', () => {
         { page: 2, part: '二', duration: 5, cid: 222 },
       ],
     });
-    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
     expect(res.statusCode).toBe(400);
     expect(bodyOf(res).error_code).toBe('LLM_NOT_CONFIGURED');
     expect(bodyOf(res).message).toContain('?p=');
@@ -101,12 +101,15 @@ describe('POST /download/song', () => {
       ],
     });
     configureLlm();
-    expect((await post(API_PATHS.downloadSong, { input: VIDEO_URL })).statusCode).toBe(200);
+    expect(
+      (await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' }))
+        .statusCode,
+    ).toBe(200);
   });
 
   it('does not preflight at all when ?p= is explicit', async () => {
     const before = upstream.requests.length;
-    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=2` });
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=2`, naming_mode: 'original' });
     expect(upstream.requests.slice(before)).toEqual([]);
   });
 
@@ -117,7 +120,10 @@ describe('POST /download/song', () => {
   });
 
   it('refuses a non-bilibili link', async () => {
-    const res = await post(API_PATHS.downloadSong, { input: 'https://youtube.com/watch?v=x' });
+    const res = await post(API_PATHS.downloadSong, {
+      input: 'https://youtube.com/watch?v=x',
+      naming_mode: 'original',
+    });
     expect(res.statusCode).toBe(400);
     expect(bodyOf(res).message).toContain('不是 B 站链接');
   });
@@ -125,6 +131,7 @@ describe('POST /download/song', () => {
   it('points a list link at fetch-list instead of queuing it', async () => {
     const res = await post(API_PATHS.downloadSong, {
       input: 'https://space.bilibili.com/9666167/favlist?fid=96661672',
+      naming_mode: 'original',
     });
     expect(res.statusCode).toBe(400);
     expect(bodyOf(res).message).toContain('fetch-list');
@@ -136,19 +143,84 @@ describe('POST /download/song', () => {
   });
 
   it('rejects an oversized input', async () => {
-    const res = await post(API_PATHS.downloadSong, { input: 'x'.repeat(9000) });
+    const res = await post(API_PATHS.downloadSong, {
+      input: 'x'.repeat(9000),
+      naming_mode: 'original',
+    });
     expect(res.statusCode).toBe(400);
   });
 
   it('emits a queued status event immediately', async () => {
-    await post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
     expect(events.some((e) => e.type === 'download:status' && e.state === 'queued')).toBe(true);
+  });
+
+  // ── naming_mode (0.3.0 §3.6-1) ──
+
+  it('refuses a video link with no naming_mode', async () => {
+    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('INVALID_BODY');
+    expect(bodyOf(res).message).toContain('naming_mode');
+    expect(ctx.downloads.snapshot().tasks).toEqual([]);
+  });
+
+  // The other half of "conditionally required": a keyword has no title to
+  // keep, so a caller that names one is wrong about what it is asking for.
+  it('refuses naming_mode on a keyword', async () => {
+    configureLlm();
+    const res = await post(API_PATHS.downloadSong, {
+      input: '周杰伦 稻香',
+      naming_mode: 'clean',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('INVALID_BODY');
+  });
+
+  it('refuses a value outside the two modes', async () => {
+    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'fancy' });
+    expect(res.statusCode).toBe(400);
+  });
+
+  // Criterion 28, the daemon half: cleaning is an LLM call, so a machine
+  // without one hears it before the queue rather than one failed task later.
+  it('refuses clean naming with no LLM, and takes original', async () => {
+    const refused = await post(API_PATHS.downloadSong, {
+      input: VIDEO_URL,
+      naming_mode: 'clean',
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(bodyOf(refused).error_code).toBe('LLM_NOT_CONFIGURED');
+
+    const accepted = await post(API_PATHS.downloadSong, {
+      input: VIDEO_URL,
+      naming_mode: 'original',
+    });
+    expect(accepted.statusCode).toBe(200);
+  });
+
+  // Criterion 26 on the single-input channel: the two would merge onto one
+  // task, and the second submitter would silently get the first one's answer.
+  it('refuses a second submission under the other mode', async () => {
+    configureLlm();
+    expect(
+      (await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' }))
+        .statusCode,
+    ).toBe(200);
+
+    const res = await post(API_PATHS.downloadSong, {
+      input: `${VIDEO_URL}?p=1`,
+      naming_mode: 'clean',
+    });
+    expect(res.statusCode).toBe(409);
+    expect(bodyOf(res).error_code).toBe('NAMING_MODE_CONFLICT');
+    expect(ctx.downloads.snapshot().tasks).toHaveLength(1);
   });
 
   // `(state, stage)` is not unique — binding the song id keeps the stage at
   // `resolving` — so the revision is what makes the dedupe key work.
   it('carries the revision on every status event', async () => {
-    await post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
     const statuses = events.filter((e) => e.type === 'download:status');
     expect(statuses.length).toBeGreaterThan(0);
     for (const event of statuses) expect(event.revision).toBeGreaterThan(0);
@@ -194,6 +266,7 @@ describe('POST /download/batch', () => {
     bvid: BVID,
     page,
     title: null,
+    naming: 'original' as const,
   });
 
   it('creates the new playlist, returns full snapshots and announces both', async () => {
@@ -214,7 +287,7 @@ describe('POST /download/batch', () => {
   // Without this the batch would be invisible: every item merged onto an
   // existing pending task, so no task transition happens at all.
   it('announces a batch whose items all merged onto pending tasks', async () => {
-    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1` });
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' });
     events.length = 0;
     await post(API_PATHS.downloadBatch, {
       groups: [{ target: { kind: 'all' }, items: [videoItem(1)] }],
@@ -240,6 +313,67 @@ describe('POST /download/batch', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it('refuses a video item with no naming', async () => {
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        { target: { kind: 'all' }, items: [{ kind: 'video', bvid: BVID, page: 1, title: null }] },
+      ],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).message).toContain('naming');
+  });
+
+  it('refuses naming on a keyword item', async () => {
+    configureLlm();
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        {
+          target: { kind: 'all' },
+          items: [{ kind: 'keyword', query: '稻香', naming: 'clean' }],
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('refuses a clean item with no LLM — no network needed to know either', async () => {
+    const before = upstream.requests.length;
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        {
+          target: { kind: 'new', name: '不该被建出来的' },
+          items: [{ kind: 'video', bvid: BVID, page: 1, title: null, naming: 'clean' }],
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('LLM_NOT_CONFIGURED');
+    expect(upstream.requests.slice(before)).toEqual([]);
+  });
+
+  // Criterion 26: the refusal has to land before the playlist transaction, or
+  // "every group commits or none does" is not a property of a batch.
+  it('refuses a mode conflict before creating the group playlist', async () => {
+    configureLlm();
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' });
+
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        {
+          target: { kind: 'new', name: '不该被建出来的歌单' },
+          items: [{ kind: 'video', bvid: BVID, page: 1, title: null, naming: 'clean' }],
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(409);
+    expect(bodyOf(res).error_code).toBe('NAMING_MODE_CONFLICT');
+
+    const playlists = await app.inject({ method: 'GET', url: API_PATHS.playlists });
+    expect(
+      (playlists.json().data as { name: string }[]).some((p) => p.name === '不该被建出来的歌单'),
+    ).toBe(false);
+  });
+
   it('404s an unknown playlist target without creating anything', async () => {
     const res = await post(API_PATHS.downloadBatch, {
       groups: [
@@ -256,7 +390,10 @@ describe('POST /download/batch', () => {
   it('rejects a malformed bvid through the same parser the paste box uses', async () => {
     const res = await post(API_PATHS.downloadBatch, {
       groups: [
-        { target: { kind: 'all' }, items: [{ kind: 'video', bvid: 'nope', page: 1, title: null }] },
+        {
+          target: { kind: 'all' },
+          items: [{ kind: 'video', bvid: 'nope', page: 1, title: null, naming: 'original' }],
+        },
       ],
     });
     expect(res.statusCode).toBe(400);
@@ -372,8 +509,12 @@ describe('POST /download/fetch-list', () => {
 describe('POST /download/cancel', () => {
   it('cancels a queued task', async () => {
     upstream.state.hangAudio = true;
-    const first = bodyOf(await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1` }));
-    const second = bodyOf(await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=2` }));
+    const first = bodyOf(
+      await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' }),
+    );
+    const second = bodyOf(
+      await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=2`, naming_mode: 'original' }),
+    );
 
     const res = await post(API_PATHS.downloadCancel, { task_id: second.data.task_id });
     expect(res.statusCode).toBe(200);
@@ -399,10 +540,13 @@ describe('POST /download/cancel', () => {
 describe('GET /download/tasks', () => {
   it('answers a snapshot of tasks and batches', async () => {
     upstream.state.hangAudio = true;
-    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1` });
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' });
     await post(API_PATHS.downloadBatch, {
       groups: [
-        { target: { kind: 'all' }, items: [{ kind: 'video', bvid: BVID, page: 2, title: null }] },
+        {
+          target: { kind: 'all' },
+          items: [{ kind: 'video', bvid: BVID, page: 2, title: null, naming: 'original' }],
+        },
       ],
     });
 
@@ -441,7 +585,7 @@ describe('shutdownSignal', () => {
     upstream.state.delayMs = 60_000;
 
     const started = Date.now();
-    const pending = post(API_PATHS.downloadSong, { input: VIDEO_URL });
+    const pending = post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
     // Give the handler a moment to actually be in the fetch.
     await new Promise((r) => setTimeout(r, 50));
     ctx.shutdownController.abort(new Error('daemon shutting down'));

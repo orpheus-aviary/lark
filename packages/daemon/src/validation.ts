@@ -241,6 +241,20 @@ export function queryParams(
   return out;
 }
 
+/** A body field from a closed set of strings. `undefined` when absent. */
+export function optionalEnum<T extends string>(
+  body: Record<string, unknown>,
+  key: string,
+  domain: readonly T[],
+): T | undefined {
+  const value = body[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || !(domain as readonly string[]).includes(value)) {
+    throw new InvalidRequestError('INVALID_BODY', `${key} must be one of: ${domain.join(', ')}`);
+  }
+  return value as T;
+}
+
 export function queryEnum<T extends string>(
   query: Record<string, string | undefined>,
   key: string,

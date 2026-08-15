@@ -92,7 +92,13 @@ function toBatchData(batch: BatchRecord): DownloadBatchData {
 export function toTarget(item: DownloadBatchGroupInput['items'][number]): DownloadTarget {
   return item.kind === 'keyword'
     ? { kind: 'keyword', query: item.query }
-    : { kind: 'video', bvid: item.bvid, page: item.page, title: item.title };
+    : {
+        kind: 'video',
+        bvid: item.bvid,
+        page: item.page,
+        title: item.title,
+        naming: item.naming,
+      };
 }
 
 /**

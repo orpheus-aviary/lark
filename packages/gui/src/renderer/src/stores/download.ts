@@ -15,6 +15,7 @@ import type {
   DownloadBatchGroupInput,
   DownloadBatchesData,
   DownloadCancelRequest,
+  DownloadNamingMode,
   DownloadParseRequest,
   DownloadSongRequest,
   DownloadTaskAcceptedData,
@@ -51,7 +52,16 @@ interface DownloadState {
   resetEventStream: () => void;
   cancel: (taskId: string) => Promise<void>;
   parse: (input: string) => Promise<ParseResultData>;
-  downloadSong: (input: string, playlistId?: string) => Promise<string>;
+  /**
+   * `naming` is required for a video link and refused for a keyword — the
+   * daemon decides which the input is, so the caller passes what it knows and
+   * `undefined` means "a keyword" (§3.6-1).
+   */
+  downloadSong: (
+    input: string,
+    playlistId?: string,
+    naming?: DownloadNamingMode,
+  ) => Promise<string>;
   fetchList: (query: FetchListRequest) => Promise<FetchListData>;
   submitBatch: (groups: readonly DownloadBatchGroupInput[]) => Promise<DownloadBatchData[]>;
   importFiles: (paths: readonly string[]) => Promise<ImportResultData>;
@@ -155,10 +165,11 @@ export const useDownloads = create<DownloadState>((set, get) => ({
     return envelope.data ?? { items: [] };
   },
 
-  downloadSong: async (input, playlistId) => {
+  downloadSong: async (input, playlistId, naming) => {
     const body: DownloadSongRequest = { input };
     // §4.1: the virtual `all` view sends no playlist at all — never `'all'`.
     if (playlistId !== undefined) body.playlist_id = playlistId;
+    if (naming !== undefined) body.naming_mode = naming;
     const envelope = await request<DownloadTaskAcceptedData>('POST', API_PATHS.downloadSong, body);
     get().refresh();
     return envelope.data?.task_id ?? '';

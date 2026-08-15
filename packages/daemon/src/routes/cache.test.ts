@@ -421,7 +421,7 @@ describe('the eviction scheduler', () => {
   it('evicts the song a download just finished, in the same drain', async () => {
     boot(0.001); // ~1 KiB: anything at all is over the limit
     const task = ctx.downloads.enqueueDownload({
-      target: { kind: 'video', bvid: BVID, page: 1, title: null },
+      target: { kind: 'video', bvid: BVID, page: 1, title: null, naming: 'original' },
     });
 
     await vi.waitFor(() => expect(ctx.downloads.get(task.id).state).toBe('succeeded'), {

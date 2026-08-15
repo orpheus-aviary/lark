@@ -27,6 +27,7 @@ import {
   type DownloadBatchGroupInput,
   type DownloadBatchItemInput,
   type DownloadBatchesData,
+  type DownloadNamingMode,
   type DownloadSongRequest,
   type DownloadTaskAcceptedData,
   type DownloadTaskData,
@@ -56,11 +57,18 @@ export interface DownloadOptions {
   /** Tri-state: absent means "the default for this shape" (M6-11). */
   wait?: boolean;
   allowPartial?: boolean;
+  /** `--clean-name`: let the LLM name the song instead of keeping the title. */
+  cleanName?: boolean;
 }
 
 /** Injected so tests need neither a clock nor a real stdin. */
 export interface DownloadDeps extends WaitDeps {
   stdin?: AsyncIterable<Uint8Array | string>;
+}
+
+/** What `--clean-name` means for a video item (§3.6-1). */
+function namingOf(opts: DownloadOptions): DownloadNamingMode {
+  return opts.cleanName === true ? 'clean' : 'original';
 }
 
 /**
@@ -103,7 +111,7 @@ export async function runDownload(
     return await downloadList(ctx, only, opts, deps);
   }
   if (lines.length === 1) {
-    return await downloadOne(ctx, (lines[0] as InputLine).text, opts, deps);
+    return await downloadOne(ctx, (lines[0] as InputLine).text, only as ParsedItem, opts, deps);
   }
   return await downloadMany(ctx, lines, items, opts, deps);
 }
@@ -136,11 +144,19 @@ async function parseAll(ctx: CommandContext, lines: readonly InputLine[]): Promi
 async function downloadOne(
   ctx: CommandContext,
   input: string,
+  item: ParsedItem,
   opts: DownloadOptions,
   deps: DownloadDeps,
 ): Promise<void> {
+  // A keyword search has no title to keep, so it is named by the model either
+  // way — and the daemon refuses `naming_mode` on one. Saying so beats sending
+  // the flag and letting it be ignored (the `--allow-partial` lesson, F11).
+  if (item.kind === 'keyword' && opts.cleanName === true) {
+    throw usageError('--clean-name 只对视频链接有意义：关键词搜索的命名一直由 LLM 决定。');
+  }
   const target = await resolveTarget(ctx, opts.playlist);
   const request: DownloadSongRequest = { input };
+  if (item.kind === 'video') request.naming_mode = namingOf(opts);
   if (target.target.kind === 'playlist') request.playlist_id = target.target.playlist_id;
 
   const envelope = await ctx.backend.downloadSong(request);
@@ -250,9 +266,11 @@ async function downloadList(
   const items: DownloadBatchItemInput[] = list.videos.map((video) => ({
     kind: 'video',
     bvid: video.bvid,
-    // A list gives no `?p=`, and its title is the trustworthy one (M3-5).
+    // A list gives no `?p=`, and its title is the trustworthy one (M3-5) —
+    // which is also what `clean` hands the model to read a song name out of.
     page: null,
     title: video.title,
+    naming: namingOf(opts),
   }));
   await enqueueBatch(ctx, [{ target: target.target, items }], opts, deps);
 }
@@ -294,7 +312,13 @@ async function downloadMany(
   const batchItems: DownloadBatchItemInput[] = items.map((item) =>
     item.kind === 'keyword'
       ? { kind: 'keyword', query: item.query }
-      : { kind: 'video', bvid: (item as { bvid: string }).bvid, page: pageOf(item), title: null },
+      : {
+          kind: 'video',
+          bvid: (item as { bvid: string }).bvid,
+          page: pageOf(item),
+          title: null,
+          naming: namingOf(opts),
+        },
   );
 
   const target = await resolveTarget(ctx, opts.playlist);

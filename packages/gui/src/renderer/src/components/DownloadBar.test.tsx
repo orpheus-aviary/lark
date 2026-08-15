@@ -70,7 +70,8 @@ beforeEach(() => {
     }),
   );
   useDownloads.setState({ tasks: [], batches: [], cancelling: [] });
-  useMediaTools.setState({ info: null });
+  useMediaTools.setState({ info: null, llmAvailable: null });
+  localStorage.clear();
   useLibrary.setState({
     playlistId: VIRTUAL_ALL_PLAYLIST_ID,
     search: '',
@@ -85,8 +86,8 @@ afterEach(() => {
 });
 
 describe('one line of input', () => {
-  it('sends a lone video straight to /download/song with the normalised url', async () => {
-    const user = userEvent.setup();
+  /** Type a link and get as far as the naming question (§3.6-1). */
+  async function askOne(user: ReturnType<typeof userEvent.setup>): Promise<void> {
     parseResult = () =>
       jsonResponse({
         success: true,
@@ -97,14 +98,74 @@ describe('one line of input', () => {
         },
       });
     render(<DownloadBar />);
-
     await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+    await screen.findByText('怎么命名？');
+  }
+
+  // Criterion 24: the two answers reach the daemon as two different requests.
+  it('asks how to name a lone video, and sends the answer with the url', async () => {
+    const user = userEvent.setup();
+    await askOne(user);
+
+    // Nothing is queued while the question is open.
+    expect(calls.some((call) => call.url.endsWith('/download/song'))).toBe(false);
+    await user.click(screen.getByRole('button', { name: '原标题' }));
 
     await waitFor(() =>
       expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
         input: 'https://www.bilibili.com/video/BV1?p=2',
+        naming_mode: 'original',
       }),
     );
+  });
+
+  it('sends the other mode when the other button is used', async () => {
+    const user = userEvent.setup();
+    await askOne(user);
+    await user.click(screen.getByRole('button', { name: '清洗命名' }));
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: 'https://www.bilibili.com/video/BV1?p=2',
+        naming_mode: 'clean',
+      }),
+    );
+  });
+
+  it('cancelling the question queues nothing', async () => {
+    const user = userEvent.setup();
+    await askOne(user);
+    await user.click(screen.getByRole('button', { name: '取消' }));
+
+    expect(calls.some((call) => call.url.endsWith('/download/song'))).toBe(false);
+  });
+
+  // Criterion 28, the GUI half. `llm_available: false` is a daemon that knows
+  // it has no model — not the `null` of one that has not answered yet.
+  it('disables cleaning when the daemon reports no LLM', async () => {
+    const user = userEvent.setup();
+    useMediaTools.setState({ llmAvailable: false });
+    await askOne(user);
+
+    expect(screen.getByRole('button', { name: '清洗命名' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText(/没有配置 LLM/)).toBeDefined();
+  });
+
+  // A keyword has no title to keep, so there is nothing to ask about.
+  it('sends a keyword with no naming question at all', async () => {
+    const user = userEvent.setup();
+    parseResult = () =>
+      jsonResponse({ success: true, data: { items: [{ kind: 'keyword', query: '稻香' }] } });
+    render(<DownloadBar />);
+
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), '稻香{Enter}');
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: '稻香',
+      }),
+    );
+    expect(screen.queryByText('怎么命名？')).toBeNull();
   });
 
   it('opens the selection dialog for anything with more than one item', async () => {

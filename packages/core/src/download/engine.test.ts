@@ -8,7 +8,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { LlmConfig } from '@lark/shared';
+import type { DownloadNamingMode, LlmConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
@@ -16,7 +16,12 @@ import type { LarkDatabase } from '../db/index.js';
 import { songs } from '../db/schema.js';
 import { MediaToolsUnavailableError } from '../errors.js';
 import { songLyricsPath } from '../library/lyrics.js';
-import { createPlaylist, deletePlaylist, getPlaylistSongs } from '../library/playlists.js';
+import {
+  createPlaylist,
+  deletePlaylist,
+  getPlaylistSongs,
+  listPlaylists,
+} from '../library/playlists.js';
 import { getSong, listSongs } from '../library/songs.js';
 import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
 import { resolveMediaTools } from '../media-tools/resolve.js';
@@ -128,8 +133,11 @@ async function settleAll(e: DownloadEngine, timeoutMs = 30_000): Promise<void> {
 const taskOf = (e: DownloadEngine, id: string) =>
   e.snapshot().tasks.find((t) => t.id === id) ?? expect.fail(`no task ${id}`);
 
-const videoTarget = (page: number | null = null, title: string | null = null) =>
-  ({ kind: 'video', bvid: BVID, page, title }) as const;
+const videoTarget = (
+  page: number | null = null,
+  title: string | null = null,
+  naming: DownloadNamingMode = 'original',
+) => ({ kind: 'video', bvid: BVID, page, title, naming }) as const;
 
 // ─── The R16 criterion ─────────────────────────────────
 
@@ -243,6 +251,166 @@ describe('multi-part with no ?p= and no LLM', () => {
     expect(task.error_message).toContain('?p=');
     expect(listSongs(db, sqlite).total).toBe(0);
   }, 60_000);
+});
+
+// ─── Naming (0.3.0 §3.6-1) ─────────────────────────────
+
+describe('naming mode', () => {
+  /** Answer the infer prompt; everything else is not this suite's business. */
+  function inferAs(answer: { song_name?: string; artist?: string } | 'fail'): void {
+    upstream.state.llm = (system) => {
+      if (!system.includes('推断内容名称')) return '1';
+      if (answer === 'fail') throw new Error('the model is having a day');
+      return JSON.stringify(answer);
+    };
+  }
+
+  it('keeps the title verbatim, and asks nothing, on original', async () => {
+    inferAs({ song_name: '不该被用到', artist: '也不该' });
+    const e = build({ llm: llmConfig() });
+    const { id } = e.enqueueDownload({ target: videoTarget(null, null, 'original') });
+    await settle(e, id);
+
+    const song = getSong(db, sqlite, taskOf(e, id).result?.song_id as string);
+    // The fixture's own title and uploader, untouched by a configured model.
+    expect(song.name).toBe('【私藏馆】周杰伦《稻香》');
+    expect(song.artist).toBe('音乐私藏馆');
+    expect(upstream.requests.some((r) => r.includes('chat/completions'))).toBe(false);
+  }, 60_000);
+
+  it('stores what the model read out of the title on clean', async () => {
+    inferAs({ song_name: '稻香', artist: '周杰伦' });
+    const e = build({ llm: llmConfig() });
+    const { id } = e.enqueueDownload({ target: videoTarget(null, null, 'clean') });
+    await settle(e, id);
+
+    const song = getSong(db, sqlite, taskOf(e, id).result?.song_id as string);
+    expect(song.name).toBe('稻香');
+    expect(song.artist).toBe('周杰伦');
+  }, 60_000);
+
+  // Criterion 25.
+  it('falls back to the uploader when the model gives no artist', async () => {
+    inferAs({ song_name: '晴天', artist: '' });
+    const e = build({ llm: llmConfig() });
+    const { id } = e.enqueueDownload({ target: videoTarget(null, null, 'clean') });
+    await settle(e, id);
+
+    const song = getSong(db, sqlite, taskOf(e, id).result?.song_id as string);
+    expect(song.name).toBe('晴天');
+    expect(song.artist).toBe('音乐私藏馆');
+  }, 60_000);
+
+  it('falls back to the title the submission carried when the model fails', async () => {
+    inferAs('fail');
+    const e = build({ llm: llmConfig() });
+    // A list item: its own title is the one to fall back to, not the video's.
+    const { id } = e.enqueueDownload({ target: videoTarget(null, '列表里的标题', 'clean') });
+    await settle(e, id);
+
+    const task = taskOf(e, id);
+    // Degraded, never failed: the audio is what the user asked for.
+    expect(task.state).toBe('succeeded');
+    const song = getSong(db, sqlite, task.result?.song_id as string);
+    expect(song.name).toBe('列表里的标题');
+    expect(song.artist).toBe('音乐私藏馆');
+  }, 60_000);
+
+  // Criterion 27. The one failure the fallback must NOT swallow: an aborted
+  // model call and a provider error arrive as the same error, and only the
+  // task's own signal can tell them apart.
+  //
+  // Set up so that naming is the LAST thing that touches the network: the song
+  // is already in the library with its file, so this download transfers
+  // nothing and every later step is local. Swallow the abort here and the task
+  // walks straight past the commit point and reports SUCCESS — joining a
+  // playlist the user cancelled out of.
+  it('a cancel during naming cancels the task instead of committing it', async () => {
+    inferAs({ song_name: '稻香', artist: '周杰伦' });
+    const e = build({ llm: llmConfig() });
+    const first = e.enqueueDownload({ target: videoTarget(1, null, 'original') });
+    await settle(e, first.id);
+    const playlist = createPlaylist(db, sqlite, '不该收到这首');
+
+    let cancel: (() => void) | null = null;
+    upstream.state.llm = (system) => {
+      if (!system.includes('推断内容名称')) return '1';
+      cancel?.();
+      throw new Error('the request was aborted');
+    };
+    const second = e.enqueueDownload({
+      target: videoTarget(1, null, 'clean'),
+      playlistIds: [playlist.id],
+    });
+    cancel = () => e.cancel(second.id);
+    await settle(e, second.id);
+
+    expect(taskOf(e, second.id).state).toBe('cancelled');
+    expect(getPlaylistSongs(db, sqlite, playlist.id)).toHaveLength(0);
+  }, 60_000);
+
+  it('reports the naming stage only on the clean path', async () => {
+    inferAs({ song_name: '稻香', artist: '周杰伦' });
+    const stages: (string | null)[] = [];
+    const e = build({
+      llm: llmConfig(),
+      callbacks: { onStatus: (task) => stages.push(task.stage) },
+    });
+    const { id } = e.enqueueDownload({ target: videoTarget(null, null, 'clean') });
+    await settle(e, id);
+    expect(stages).toContain('naming');
+
+    const plain = e.enqueueDownload({ target: videoTarget(1, null, 'original') });
+    await settle(e, plain.id);
+    expect(stages.slice(stages.lastIndexOf('naming') + 1)).not.toContain('naming');
+  }, 60_000);
+});
+
+// ─── Naming conflicts ──────────────────────────────────
+
+describe('two submissions, two naming modes', () => {
+  // Criterion 26: the refusal lands before anything is written.
+  it('refuses the second one, and creates no playlist on the way out', async () => {
+    const e = build();
+    e.enqueueDownload({ target: videoTarget(1, null, 'original') });
+
+    let caught: unknown;
+    try {
+      e.enqueueBatches([
+        {
+          target: { kind: 'new', name: '不该被建出来的歌单' },
+          items: [{ kind: 'video', bvid: BVID, page: 1, title: null, naming: 'clean' }],
+        },
+      ]);
+    } catch (err) {
+      caught = err;
+    }
+
+    expect((caught as { code?: string })?.code).toBe('NAMING_MODE_CONFLICT');
+    expect(listPlaylists(db, sqlite).some((p) => p.name === '不该被建出来的歌单')).toBe(false);
+  });
+
+  it('refuses a request that disagrees with itself', () => {
+    const e = build();
+    expect(() =>
+      e.enqueueBatches([
+        {
+          target: { kind: 'all' },
+          items: [
+            { kind: 'video', bvid: BVID, page: 1, title: null, naming: 'original' },
+            { kind: 'video', bvid: BVID, page: 1, title: null, naming: 'clean' },
+          ],
+        },
+      ]),
+    ).toThrow(/NAMING|命名/);
+  });
+
+  it('merges the two that agree', () => {
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget(1, null, 'clean') });
+    const second = e.enqueueDownload({ target: videoTarget(1, null, 'clean') });
+    expect(second.id).toBe(first.id);
+  });
 });
 
 // ─── Keyword path ──────────────────────────────────────
@@ -457,7 +625,7 @@ describe('enqueueBatches', () => {
     const [batch] = e.enqueueBatches([
       {
         target: { kind: 'new', name: '收藏夹导入' },
-        items: [{ kind: 'video', bvid: BVID, page: null, title: '稻香' }],
+        items: [{ kind: 'video', bvid: BVID, page: null, title: '稻香', naming: 'original' }],
       },
     ]);
 
@@ -477,13 +645,13 @@ describe('enqueueBatches', () => {
       e.enqueueBatches([
         {
           target: { kind: 'new', name: '第一个' },
-          items: [{ kind: 'video', bvid: BVID, page: 1, title: null }],
+          items: [{ kind: 'video', bvid: BVID, page: 1, title: null, naming: 'original' }],
         },
         {
           target: { kind: 'new', name: '第二个' },
           items: [
-            { kind: 'video', bvid: BVID, page: 2, title: null },
-            { kind: 'video', bvid: BVID, page: 3, title: null },
+            { kind: 'video', bvid: BVID, page: 2, title: null, naming: 'original' },
+            { kind: 'video', bvid: BVID, page: 3, title: null, naming: 'original' },
           ],
         },
       ]),
@@ -499,7 +667,7 @@ describe('enqueueBatches', () => {
       e.enqueueBatches([
         {
           target: { kind: 'playlist', playlist_id: '11111111-2222-4333-8444-555555555555' },
-          items: [{ kind: 'video', bvid: BVID, page: 1, title: null }],
+          items: [{ kind: 'video', bvid: BVID, page: 1, title: null, naming: 'original' }],
         },
       ]),
     ).toThrow(/playlist not found/);
@@ -513,7 +681,7 @@ describe('enqueueBatches', () => {
     const [batch] = e.enqueueBatches([
       {
         target: { kind: 'all' },
-        items: [{ kind: 'video', bvid: BVID, page: 1, title: '批量标题' }],
+        items: [{ kind: 'video', bvid: BVID, page: 1, title: '批量标题', naming: 'original' }],
       },
     ]);
     await settleAll(e);
@@ -528,7 +696,7 @@ describe('enqueueBatches', () => {
     e.enqueueBatches([
       {
         target: { kind: 'all' },
-        items: [{ kind: 'video', bvid: BVID, page: 1, title: '列表里的标题' }],
+        items: [{ kind: 'video', bvid: BVID, page: 1, title: '列表里的标题', naming: 'original' }],
       },
     ]);
     await settleAll(e);
@@ -827,7 +995,10 @@ describe('callbacks', () => {
     e.enqueueDownload({ target: videoTarget(1) });
 
     const [batch] = e.enqueueBatches([
-      { target: { kind: 'all' }, items: [{ kind: 'video', bvid: BVID, page: 1, title: null }] },
+      {
+        target: { kind: 'all' },
+        items: [{ kind: 'video', bvid: BVID, page: 1, title: null, naming: 'original' }],
+      },
     ]);
     expect(changed).toEqual([batch?.id]);
   });

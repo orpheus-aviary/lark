@@ -5,19 +5,21 @@
 // it is without queueing anything, a lone video or keyword goes straight to
 // `POST /download/song`, and anything else opens the selection dialog.
 
-import type { ParsedItem } from '@lark/shared';
+import type { DownloadNamingMode, ParsedItem } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { ListChecks, Loader2, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { taskLabel } from '../lib/download-labels.js';
 import { errorMessage } from '../lib/errors.js';
+import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { activeTask, batchProgress, useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
 import { mediaToolsWarning, useMediaTools } from '../stores/media-tools.js';
 import { BatchActionBar } from './BatchActionBar.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
 import { DownloadTasksPopover } from './DownloadTasksPopover.js';
+import { NamingModeDialog } from './NamingModeDialog.js';
 import { PasteInputModal } from './PasteInputModal.js';
 import { Button } from './ui/button.js';
 import { Input } from './ui/input.js';
@@ -44,6 +46,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const cancel = useDownloads((s) => s.cancel);
   const playlistId = useLibrary((s) => s.playlistId);
   const mediaTools = useMediaTools((s) => s.info);
+  const llmAvailable = useMediaTools((s) => s.llmAvailable);
   const refreshMediaTools = useMediaTools((s) => s.refresh);
 
   const [value, setValue] = useState('');
@@ -51,6 +54,9 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const [notice, setNotice] = useState<Notice | null>(null);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [batchItems, setBatchItems] = useState<readonly ParsedItem[] | null>(null);
+  // A lone video link, waiting for its naming answer. Held rather than
+  // downloaded immediately because the answer is the user's, not a default.
+  const [pendingVideo, setPendingVideo] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -80,10 +86,16 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         return;
       }
       const only = items[0];
-      if (items.length === 1 && only && (only.kind === 'video' || only.kind === 'keyword')) {
-        // `input` for a video is the NORMALISED url parse handed back (it keeps
-        // `?p=`), and for a keyword the query itself (§4.2).
-        await downloadSong(only.kind === 'video' ? only.url : only.query, targetPlaylist);
+      if (items.length === 1 && only?.kind === 'keyword') {
+        // A keyword has no title to keep, so there is nothing to ask: the model
+        // names it either way, and `naming_mode` on one is refused (§3.6-1).
+        await downloadSong(only.query, targetPlaylist);
+        setValue('');
+        return;
+      }
+      if (items.length === 1 && only?.kind === 'video') {
+        // `input` is the NORMALISED url parse handed back (it keeps `?p=`).
+        setPendingVideo(only.url);
         setValue('');
         return;
       }
@@ -104,6 +116,19 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const showsError = notice?.error === true || (!busy && current === null && toolsWarning !== null);
   // A task in `saving` has passed the point where aborting helps (M3 contract).
   const cancellable = current !== null && current.stage !== 'saving' && !isCancelling;
+
+  /** The second half of `submit` for a video: run once the naming is known. */
+  async function startVideo(url: string, naming: DownloadNamingMode): Promise<void> {
+    setBusy(true);
+    try {
+      await downloadSong(url, targetPlaylist, naming);
+    } catch (err) {
+      setNotice({ text: errorMessage(err), error: true });
+    } finally {
+      setBusy(false);
+      inputRef.current?.focus();
+    }
+  }
 
   async function cancelCurrent(): Promise<void> {
     if (!current) return;
@@ -199,6 +224,22 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         />
       )}
       {batchItems && <BatchSelectModal items={batchItems} onClose={() => setBatchItems(null)} />}
+      <NamingModeDialog
+        open={pendingVideo !== null}
+        count={1}
+        value={loadNamingMode()}
+        // `null` is "not answered yet", and greying out the option a daemon
+        // has not been asked about would be a lie in the other direction.
+        llmAvailable={llmAvailable !== false}
+        onCancel={() => setPendingVideo(null)}
+        onConfirm={(mode) => {
+          const url = pendingVideo;
+          setPendingVideo(null);
+          if (url === null) return;
+          rememberNamingMode(mode);
+          void startVideo(url, mode);
+        }}
+      />
     </div>
   );
 }

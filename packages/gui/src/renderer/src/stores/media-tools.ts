@@ -1,8 +1,11 @@
-// Whether this machine can transcode, as the GUI sees it (M7-18).
+// What this daemon can do, as the GUI sees it (M7-18).
 //
 // The daemon is the only one who knows: it owns the registry, the four-level
 // resolution and the capability probe. So the GUI never looks for a binary —
-// it reads `media_tools` off `GET /api/capabilities` and renders the verdict.
+// it reads `GET /api/capabilities` and renders the verdict. Named for
+// `media_tools` because that was the whole answer until 0.3.0 added
+// `llm_available`; both come from the same response, and asking twice for one
+// payload would be worse than a store whose name lags its contents.
 //
 // Its own lane, like `cache-status`: a settings dialog reopened mid-flight
 // supersedes the older request instead of racing it.
@@ -17,11 +20,18 @@ const lane = createLane();
 interface MediaToolsState {
   /** `null` until the first answer arrives — "unknown", not "broken". */
   info: MediaToolsInfo | null;
+  /**
+   * Is an LLM configured (§3.6-1)? `null` until the first answer, and treated
+   * as "assume it is there" by the UI: greying out `clean` on a daemon that
+   * simply has not answered yet would be the same lie in the other direction.
+   */
+  llmAvailable: boolean | null;
   refresh: () => void;
 }
 
 export const useMediaTools = create<MediaToolsState>((set) => ({
   info: null,
+  llmAvailable: null,
 
   refresh: () => {
     void lane
@@ -35,6 +45,8 @@ export const useMediaTools = create<MediaToolsState>((set) => ({
         // from "no ffmpeg" — the second one accuses the user's machine.
         const info = envelope.data?.media_tools;
         if (isMediaToolsInfo(info)) set({ info });
+        const llm = envelope.data?.llm_available;
+        if (typeof llm === 'boolean') set({ llmAvailable: llm });
       })
       .catch(() => {
         // Leave the last known answer in place. A failed capabilities fetch

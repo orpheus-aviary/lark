@@ -30,6 +30,7 @@ const STAGE_TEXT: Record<DownloadStage, string> = {
   analyzing: '分析输入',
   searching: '搜索候选',
   resolving: '解析地址',
+  naming: '清洗命名',
   downloading: '下载音频',
   converting: '转码',
   saving: '保存',

@@ -28,6 +28,7 @@ import { existsSync, rmSync } from 'node:fs';
 import type {
   DownloadBatchData,
   DownloadBatchGroupInput,
+  DownloadNamingMode,
   DownloadStage,
   DownloadTaskData,
   DownloadTaskInput,
@@ -44,6 +45,7 @@ import { playlists, songs } from '../db/schema.js';
 import {
   DownloadQueueFullError,
   InvalidSourceError,
+  NamingModeConflictError,
   NotFoundError,
   TaskNotCancellableError,
   TaskNotFoundError,
@@ -87,6 +89,12 @@ import {
 import { DEFAULT_TIMEOUTS, type DownloadTimeouts } from './timeouts.js';
 
 export { describeTaskError, downloadDedupeKey } from './task-data.js';
+
+/** How the two naming modes read in a refusal. */
+const NAMING_LABEL: Record<DownloadNamingMode, string> = {
+  original: '原标题',
+  clean: '清洗命名',
+};
 
 /** Pending (queued + running) tasks allowed at once. */
 export const DEFAULT_QUEUE_CAPACITY = 1000;
@@ -195,6 +203,7 @@ export class DownloadEngine {
   enqueueDownload(input: EnqueueDownloadInput): DownloadTaskData {
     const key = downloadDedupeKey(input.target);
     const targets = [...new Set(input.playlistIds ?? [])];
+    this.#assertNamingCompatible([{ key, target: input.target }]);
     const merged = this.#mergeInto(key, targets);
     if (merged !== null) return merged;
 
@@ -294,6 +303,15 @@ export class DownloadEngine {
         throw new InvalidSourceError('新歌单名称不能为空');
       }
     }
+
+    // Before the capacity check and before the playlist transaction, over
+    // every item of every group at once (§3.6-1). A conflict found later —
+    // while merging item 40 of 50 — would already have created playlists and
+    // registered tasks, and "every group commits or none does" would be a
+    // sentence in a comment rather than a property.
+    this.#assertNamingCompatible(
+      plans.flatMap((plan) => plan.items.map(({ item, key }) => ({ key, target: toTarget(item) }))),
+    );
 
     // Net new = items that will not merge onto something already pending, and
     // that are not duplicates of each other within this request.
@@ -436,6 +454,38 @@ export class DownloadEngine {
     let pending = 0;
     for (const task of this.#tasks.values()) if (!isTerminal(task.state)) pending++;
     if (pending + incoming > this.#capacity) throw new DownloadQueueFullError(this.#capacity);
+  }
+
+  /**
+   * Refuse a submission that would merge onto a different naming mode.
+   *
+   * Checked against BOTH the pending task for that key and the rest of this
+   * request: a paste holding the same link twice, once cleaned and once not,
+   * has the same problem as two tabs — one of the two answers would be thrown
+   * away silently, and the dedupe key deliberately does not include the mode
+   * (that would download the audio twice to store two names, §3.6-1).
+   */
+  #assertNamingCompatible(entries: readonly { key: string; target: DownloadTarget }[]): void {
+    const withinRequest = new Map<string, DownloadNamingMode>();
+    for (const { key, target } of entries) {
+      if (target.kind !== 'video') continue;
+      const claimed = this.#pendingNaming(key) ?? withinRequest.get(key);
+      if (claimed !== undefined && claimed !== target.naming) {
+        throw new NamingModeConflictError(
+          `${target.bvid} 已经在队列里，命名方式是「${NAMING_LABEL[claimed]}」，这次要「${NAMING_LABEL[target.naming]}」——等它下完再提交，或者先取消它`,
+        );
+      }
+      withinRequest.set(key, target.naming);
+    }
+  }
+
+  /** The naming mode a pending task for this key is already committed to. */
+  #pendingNaming(dedupeKey: string): DownloadNamingMode | undefined {
+    const taskId = this.#dedupe.get(dedupeKey);
+    if (taskId === undefined) return undefined;
+    const task = this.#tasks.get(taskId);
+    if (task === undefined || isTerminal(task.state)) return undefined;
+    return task.target?.kind === 'video' ? task.target.naming : undefined;
   }
 
   #assertPlaylistExists(id: string): void {

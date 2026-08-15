@@ -170,4 +170,21 @@ describe('GET /api/capabilities', () => {
       });
     });
   });
+
+  // The same shape of promise for the other refusable feature (§3.6-1):
+  // keyword search and clean naming both need a model, and a client that
+  // offers either has to be able to grey it out before the 400.
+  describe('llm_available', () => {
+    it('is false with no config, and true once one is set', async () => {
+      expect((await capabilities()).llm_available).toBe(false);
+
+      ctx.config.llm = {
+        url: 'https://example.test/v1',
+        model: 'm',
+        api_key: 'k',
+        api_format: 'openai',
+      };
+      expect((await capabilities()).llm_available).toBe(true);
+    });
+  });
 });

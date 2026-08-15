@@ -152,6 +152,10 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   BAD_REQUEST: EXIT_USAGE,
   // Only a GUI can trigger this one; it is still a malformed request.
   GUI_REGISTRATION_REQUIRED: EXIT_USAGE,
+  // `--clean-name` on a video that is already queued as `--no-clean-name` (or
+  // the other way round). Retrying it unchanged cannot help either: the fix is
+  // to wait for the queued one, or drop the flag.
+  NAMING_MODE_CONFLICT: EXIT_USAGE,
   // `lark sync login http://…` without `--allow-insecure-http`: the command
   // was wrong, and retrying it unchanged cannot help.
   SYNC_INSECURE_URL: EXIT_USAGE,

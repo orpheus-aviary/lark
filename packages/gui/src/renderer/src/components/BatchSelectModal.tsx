@@ -5,13 +5,20 @@
 // commits all-or-nothing; the "single items" group is then submitted one
 // request at a time, best-effort, and stops at the first refusal.
 
-import type { DownloadBatchGroupInput, FetchListRequest, ParsedItem } from '@lark/shared';
+import type {
+  DownloadBatchGroupInput,
+  DownloadNamingMode,
+  FetchListRequest,
+  ParsedItem,
+} from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
+import { useMediaTools } from '../stores/media-tools.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import {
@@ -32,6 +39,8 @@ interface SingleItem {
   label: string;
   /** What `POST /download/song` receives verbatim. */
   input: string;
+  /** Keywords are named by the model regardless, so the choice skips them. */
+  isVideo: boolean;
   checked: boolean;
 }
 
@@ -45,6 +54,12 @@ interface ListGroup {
   id: string;
   query: FetchListRequest;
   title: string;
+  /**
+   * Checked = keep the list's own titles; unchecked = let the model read a
+   * song name out of them (§3.6-1). Until 0.3.0 both branches stored the same
+   * string on a favourites folder, because the "fall back to the LLM" the
+   * comment promised only ever existed for keyword searches.
+   */
   useOriginalTitle: boolean;
   videos: readonly ListVideo[];
   loading: boolean;
@@ -76,6 +91,10 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
   const submitBatch = useDownloads((s) => s.submitBatch);
   const downloadSong = useDownloads((s) => s.downloadSong);
   const playlistId = useLibrary((s) => s.playlistId);
+  const llmAvailable = useMediaTools((s) => s.llmAvailable);
+  // Read once: the dialog's own state owns it from here, and a re-render
+  // reaching back into storage would fight the user's clicks.
+  const [initialNaming] = useState(() => (llmAvailable === false ? 'original' : loadNamingMode()));
 
   const [singles, setSingles] = useState<readonly SingleItem[]>(() =>
     items
@@ -85,6 +104,7 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
         // §4.2: a video keeps the normalised url (with `?p=`), a keyword the query.
         label: item.kind === 'video' ? item.url : item.query,
         input: item.kind === 'video' ? item.url : item.query,
+        isVideo: item.kind === 'video',
         checked: true,
       })),
   );
@@ -95,7 +115,7 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
         id: groupId(item),
         query: listQuery(item),
         title: item.kind === 'favorites' ? '收藏夹' : '合集',
-        useOriginalTitle: false,
+        useOriginalTitle: initialNaming === 'original',
         videos: [],
         loading: true,
         error: null,
@@ -103,6 +123,10 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
   );
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  // One answer for every link item in this submission (§3.6-1). The list
+  // groups keep their own, because a favourites folder and a pasted link are
+  // not obviously the same decision.
+  const [singlesNaming, setSinglesNaming] = useState<DownloadNamingMode>(initialNaming);
 
   // Expanding the lists is the one thing this dialog does on its own. `items`
   // is fixed for as long as the dialog is open, so this runs once per list.
@@ -203,9 +227,13 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
           kind: 'video',
           bvid: video.bvid,
           page: null,
-          // Trusting the list title is opt-in; otherwise the pipeline falls
-          // back to the LLM / the video's own title.
-          title: group.useOriginalTitle ? video.title : null,
+          // The list's title travels either way: `original` stores it as it
+          // stands, `clean` is what the model reads the song name OUT of. It
+          // is the better of the two titles in both cases — sending null on
+          // the clean branch would hand the model the video's own title
+          // instead, which is exactly what made the checkbox a no-op.
+          title: video.title,
+          naming: group.useOriginalTitle ? 'original' : 'clean',
         })),
     }));
     await submitBatch(payload);
@@ -219,7 +247,7 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
     let done = 0;
     for (const item of checkedSingles) {
       try {
-        await downloadSong(item.input, target);
+        await downloadSong(item.input, target, item.isVideo ? singlesNaming : undefined);
         done++;
       } catch (err) {
         // A full queue stops the rest, and the count says how far it got.
@@ -233,6 +261,7 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
 
   async function confirm(): Promise<void> {
     setSubmitting(true);
+    rememberNamingMode(singlesNaming);
     try {
       await submitListGroups();
       await submitSingles();
@@ -266,6 +295,25 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
               <header className="flex items-center gap-2 rounded-t-md bg-muted px-3 py-2 text-sm">
                 <span className="font-medium">单项下载</span>
                 <span className="text-muted-foreground text-xs">({singles.length})</span>
+                <label
+                  htmlFor="singles-original"
+                  className="ml-auto flex items-center gap-1.5 text-muted-foreground text-xs"
+                  title={
+                    llmAvailable === false
+                      ? '没有配置 LLM，只能用原标题'
+                      : '勾上 = 直接用视频标题；不勾 = 让 LLM 读出歌名和歌手'
+                  }
+                >
+                  <Checkbox
+                    id="singles-original"
+                    checked={singlesNaming === 'original'}
+                    disabled={llmAvailable === false}
+                    onCheckedChange={() =>
+                      setSinglesNaming(singlesNaming === 'original' ? 'clean' : 'original')
+                    }
+                  />
+                  原标题
+                </label>
               </header>
               <ul className="max-h-40 overflow-y-auto p-2">
                 {singles.map((item) => (

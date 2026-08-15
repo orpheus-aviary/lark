@@ -355,6 +355,23 @@ export class NormalizeFailedError extends CodedError {
   }
 }
 
+/**
+ * The same video is already queued under the other naming mode (0.3.0 §3.6-1).
+ *
+ * Two requests for one video merge onto ONE task — that is what stops a
+ * double-click downloading twice — so the second submitter would silently
+ * receive the first one's naming. Refusing is the only answer that does not
+ * misreport what happened: the queue is not a place where the last writer
+ * wins, and there is nothing to reconcile.
+ */
+export class NamingModeConflictError extends CodedError {
+  readonly code = 'NAMING_MODE_CONFLICT';
+  constructor(message: string) {
+    super(message);
+    this.name = 'NamingModeConflictError';
+  }
+}
+
 /** Pre-enqueue network checks blew the per-request budget (M3-5). */
 export class PreflightTimeoutError extends CodedError {
   readonly code = 'PREFLIGHT_TIMEOUT';
