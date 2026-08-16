@@ -14,9 +14,11 @@
 // at every depth — which is why both names live in `@lark/core/paths`.)
 
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { SKILL_FILE_NAME, SKILL_TEMP_PREFIX, skillPath } from '@lark/core/paths';
+import { confirm } from '../lib/confirm.js';
 import { type Streams, emitEnvelope, successEnvelope } from '../lib/output.js';
 import { resolveTargetPath } from '../lib/target-path.js';
 import { CLI_VERSION } from '../version.js';
@@ -29,6 +31,8 @@ export interface SkillExportOptions {
 export interface SkillExportDeps {
   streams: Streams;
   json: boolean;
+  /** `--yes`: skip the overwrite question (and required outside a TTY). */
+  yes?: boolean;
   version?: string;
 }
 
@@ -53,6 +57,12 @@ export async function runSkillExport(
   deps: SkillExportDeps,
 ): Promise<void> {
   const target = resolveSkillTarget(opts.output);
+  // §7 F14: `playlist export -o` asks before overwriting and this did not,
+  // which made "the same flag on two commands" mean two different things. The
+  // file it lands on is usually a skill someone edited.
+  if (existsSync(target)) {
+    await confirm(`${target} 已存在，覆盖？`, { yes: deps.yes === true, json: deps.json === true });
+  }
   await mkdir(dirname(target), { recursive: true });
 
   const document = renderSkillTemplate({ version: deps.version ?? CLI_VERSION });

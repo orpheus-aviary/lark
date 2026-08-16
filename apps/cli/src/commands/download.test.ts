@@ -61,6 +61,42 @@ describe('download — argument shape', () => {
   });
 });
 
+// §7 F11 — criterion 44. The flag is about ONE list that came back
+// incomplete; on any other shape it used to be accepted and never read.
+describe('download — --allow-partial where it cannot apply', () => {
+  it('refuses it with --batch, before touching the daemon', async () => {
+    const ctx = fakeContext();
+    const err = await caught(() =>
+      runDownload(ctx, undefined, { batch: 'list.txt', allowPartial: true }, NOW),
+    );
+    expect(err?.code).toBe('USAGE_ERROR');
+    expect(ctx.backend.names()).toEqual([]);
+  });
+
+  it('refuses it on a single input that is not a list', async () => {
+    const ctx = fakeContext({ taskSnapshots: succeeds() });
+    const err = await caught(() => runDownload(ctx, 'BV1', { allowPartial: true }, NOW));
+    expect(err?.code).toBe('USAGE_ERROR');
+    // Whether an input IS a list is only knowable after the parse, so this one
+    // costs a classify — but still nothing queued.
+    expect(ctx.backend.names()).toEqual(['parseInput']);
+  });
+
+  it('takes it on the shape it was written for', async () => {
+    const videos = [{ bvid: 'BV1', title: '第一首', duration: 100 }];
+    const ctx = fakeContext({
+      parse: {
+        items: [{ kind: 'favorites', media_id: '123', url: 'https://space.bilibili.com/x' }],
+      },
+      fetchList: { title: '收藏夹', videos, error: '第 7 页请求失败' },
+      taskSnapshots: [snapshot({ batches: [batch()] })],
+    });
+
+    await runDownload(ctx, 'https://space.bilibili.com/x', { allowPartial: true }, NOW);
+    expect(ctx.backend.names()).toContain('downloadBatch');
+  });
+});
+
 describe('download — one input', () => {
   it('parses, enqueues and follows the task to the end', async () => {
     const ctx = fakeContext({ taskSnapshots: succeeds() });

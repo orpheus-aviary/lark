@@ -82,7 +82,12 @@ async function backendFor(
       return { backend: createHttpBackend(), close: () => {} };
     case 'direct-read':
     case 'direct-write': {
-      if (mode.kind === 'direct-read' && mode.note !== undefined) streams.err(mode.note);
+      // §7 F12: the note explains why this is a direct read rather than a
+      // daemon call — worth saying to a person, and a broken promise under
+      // --json, where exit 0 means stderr is empty.
+      if (mode.kind === 'direct-read' && mode.note !== undefined && !flags.json) {
+        streams.err(mode.note);
+      }
       // The ONE dynamic import of `@lark/core`'s barrel (M6-21): everything
       // above this line runs without loading better-sqlite3.
       const { createDirectBackend } = await import('./backend/direct.js');

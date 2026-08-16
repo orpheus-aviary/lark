@@ -252,7 +252,9 @@ async function discardFileOp(ctx: CommandContext, id: number): Promise<void> {
   // answer well.
   const listed = await ctx.backend.syncFileOps('failed');
   const target = listed.data?.file_ops.find((op) => op.id === id);
-  if (target !== undefined) ctx.streams.err(opLine(target));
+  // Not under --json (§7 F12): exit 0 promises an empty stderr, and a caller
+  // that passed --yes never sees the question this line was written for.
+  if (target !== undefined && !ctx.flags.json) ctx.streams.err(opLine(target));
 
   await confirm(`放弃文件操作 #${id}？这次文件改动永远不会执行，只在日志里留一条记录。`, {
     yes: ctx.flags.yes,
@@ -288,7 +290,7 @@ export async function runSyncUnbind(ctx: CommandContext, opts: UnbindOptions): P
       `当前有 ${pending.total} 条未推送变更，其中 ${pending.unpublished_deletes} 条是删除 / 清空歌词——重新绑定同一个 workspace 时，它们会被远端的旧记录复活。`,
     );
   }
-  for (const line of lines) ctx.streams.err(line);
+  if (!ctx.flags.json) for (const line of lines) ctx.streams.err(line);
 
   await confirm('确定解除绑定？', { yes: ctx.flags.yes, json: ctx.flags.json });
 

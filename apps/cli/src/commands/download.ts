@@ -86,6 +86,15 @@ export function assertDownloadShape(input: string | undefined, opts: DownloadOpt
   if (input === undefined && opts.batch === undefined) {
     throw usageError('给一个链接或关键词，或者用 --batch <文件|-> 批量下载。');
   }
+  // §7 F11: `--allow-partial` is about ONE list that came back incomplete —
+  // `fetch-list`'s partial-success contract. With `--batch` there is no list
+  // to be partial, and the flag was read nowhere: accepted, ignored, and
+  // indistinguishable from working.
+  if (opts.allowPartial === true && opts.batch !== undefined) {
+    throw usageError(
+      '--allow-partial 只用于收藏夹 / 合集链接（那种列表可能只取回一部分）；--batch 的每一行都是独立的一次下载。',
+    );
+  }
 }
 
 export async function runDownload(
@@ -109,6 +118,12 @@ export async function runDownload(
   const only = lines.length === 1 ? items[0] : undefined;
   if (only !== undefined && (only.kind === 'favorites' || only.kind === 'collection')) {
     return await downloadList(ctx, only, opts, deps);
+  }
+  // The other half of the F11 refusal: whether a single pasted input is a LIST
+  // is only knowable after the parse, so the shape check upstream cannot catch
+  // this one. Both say the same thing rather than one of them staying silent.
+  if (opts.allowPartial === true) {
+    throw usageError('--allow-partial 只用于收藏夹 / 合集链接：这次的输入不是列表。');
   }
   if (lines.length === 1) {
     return await downloadOne(ctx, (lines[0] as InputLine).text, only as ParsedItem, opts, deps);

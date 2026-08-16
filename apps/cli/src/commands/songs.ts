@@ -40,6 +40,11 @@ export function assertListShape(opts: ListOptions): void {
     ['--search', opts.search],
     ['--limit', opts.limit],
     ['--offset', opts.offset],
+    // §7 F15: these were let through, and the report's order is the order the
+    // PAIRS were found in — a `--sort name` that changed nothing visible is
+    // worse than the refusal the other three already get.
+    ['--sort', opts.sort],
+    ['--order', opts.order],
   ] as const) {
     if (value !== undefined) {
       throw usageError(`--duplicates 扫描整个曲库，不能和 ${flag} 一起用。`);

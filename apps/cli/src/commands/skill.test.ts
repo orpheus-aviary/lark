@@ -169,15 +169,28 @@ describe('lark skill export', () => {
     expect(envelope.data.prompt).toBe(installPrompt(envelope.data.path));
   });
 
-  it('overwrites a previous export without asking', async () => {
-    // It is a generated document, not user data — that is also why the backup
-    // skips it (M6-14).
+  // §7 F14: `playlist export -o` has always asked, and this did not — one
+  // flag on two commands meaning two different things. The document is
+  // generated, but the file it lands on may not be the one lark wrote.
+  it('asks before overwriting a previous export', async () => {
     const streams = captureStreams();
-    await runSkillExport({}, { streams, json: false });
-    await runSkillExport({}, { streams, json: false });
+    await runSkillExport({}, { streams, json: false, yes: true });
+
+    // No TTY and no --yes: the confirmation refuses rather than assuming.
+    await expect(runSkillExport({}, { streams, json: false })).rejects.toMatchObject({
+      code: 'USAGE_ERROR',
+    });
 
     const target = join(nest, 'lark', 'lark-skill.md');
     expect(readFileSync(target, 'utf-8')).toContain('name: lark');
+    expect(readdirSync(join(nest, 'lark'))).toEqual(['lark-skill.md']);
+  });
+
+  it('overwrites without asking once told to', async () => {
+    const streams = captureStreams();
+    await runSkillExport({}, { streams, json: false, yes: true });
+    await runSkillExport({}, { streams, json: false, yes: true });
+
     expect(readdirSync(join(nest, 'lark'))).toEqual(['lark-skill.md']);
   });
 });

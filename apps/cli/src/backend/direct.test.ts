@@ -439,3 +439,58 @@ describe('cache', () => {
     expect(readdirSync(larkDir())).not.toContain('lark_config.toml');
   });
 });
+
+// ─── The two backends agree on what a name is (§7 F13) ──
+//
+// Criterion 46. `--direct` only ever checked the LENGTH, so it accepted names
+// the HTTP route refuses — and wrote them. A library is one library whichever
+// door the write came through.
+
+describe('name validation matches the route', () => {
+  it('refuses a blank song name, and trims the one it takes', async () => {
+    const { songs } = await seed();
+    await withDirect('write', async (backend) => {
+      expect(await codeOf(() => backend.updateSong(songs[0] as string, { name: '' }))).toBe(
+        'USAGE_ERROR',
+      );
+      expect(await codeOf(() => backend.updateSong(songs[0] as string, { name: '   ' }))).toBe(
+        'USAGE_ERROR',
+      );
+
+      const updated = await backend.updateSong(songs[0] as string, { name: '  稻香  ' });
+      expect((updated.data as { name: string }).name).toBe('稻香');
+    });
+  });
+
+  // The artist is the deliberate asymmetry: it CAN be cleared.
+  it('lets the artist be emptied', async () => {
+    const { songs } = await seed();
+    await withDirect('write', async (backend) => {
+      const updated = await backend.updateSong(songs[0] as string, { artist: '  ' });
+      expect((updated.data as { artist: string }).artist).toBe('');
+    });
+  });
+
+  it('refuses a blank playlist name, on create and on rename', async () => {
+    await withDirect('write', async (backend) => {
+      expect(await codeOf(() => backend.createPlaylist('   '))).toBe('USAGE_ERROR');
+
+      const created = await backend.createPlaylist('  夜跑  ');
+      const id = (created.data as { id: string; name: string }).id;
+      expect((created.data as { name: string }).name).toBe('夜跑');
+
+      expect(await codeOf(() => backend.renamePlaylist(id, ''))).toBe('USAGE_ERROR');
+    });
+  });
+
+  it('trims a search the way the route trims it', async () => {
+    const { songs } = await seed();
+    await withDirect('write', async (backend) => {
+      await backend.updateSong(songs[0] as string, { name: '稻香' });
+    });
+    await withDirect('read', async (backend) => {
+      const found = await backend.listSongs({ search: '  稻香  ' });
+      expect((found.data as { name: string }[]).map((song) => song.name)).toContain('稻香');
+    });
+  });
+});

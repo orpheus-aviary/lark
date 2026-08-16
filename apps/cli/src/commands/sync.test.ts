@@ -288,18 +288,18 @@ describe('sync file-ops', () => {
   });
 });
 
-describe('sync unbind', () => {
-  const unbindResult = {
-    changes: 3,
-    tombstones: 1,
-    dead_letters: 0,
-    cursors: 1,
-    discarded_changes: 0,
-    discarded_deletes: 0,
-    had_credentials: true,
-    backfill_target: 2,
-  };
+const unbindResult = {
+  changes: 3,
+  tombstones: 1,
+  dead_letters: 0,
+  cursors: 1,
+  discarded_changes: 0,
+  discarded_deletes: 0,
+  had_credentials: true,
+  backfill_target: 2,
+};
 
+describe('sync unbind', () => {
   // R5-P1-3: a confirmation that cannot say how much is being thrown away is
   // not a confirmation.
   it('names the unpushed deletes BEFORE asking', async () => {
@@ -392,5 +392,35 @@ describe('sync config-show', () => {
     expect(printed).not.toContain('super-secret-token');
     expect(printed).not.toContain('super-secret-refresh');
     expect(printed).toContain('"has_token":true');
+  });
+});
+
+// ─── The --json contract (§7 F12 — criterion 45) ────────
+//
+// Exit 0 under --json promises stdout holds exactly one envelope and stderr
+// holds nothing. Three human-mode lines were written outside that promise.
+
+describe('--json keeps stderr empty on the success path', () => {
+  it('says nothing extra while discarding a file op', async () => {
+    const ctx = fakeContext({ syncFileOps: [fileOp()] }, { yes: true, json: true });
+
+    await runSyncFileOps(ctx, { discard: '7' });
+
+    // The row description is for the question — and under --json there is no
+    // question, because --yes already answered it.
+    expect(ctx.streams.stderr).toEqual([]);
+    expect(ctx.streams.stdout).toHaveLength(1);
+  });
+
+  it('says nothing extra while unbinding', async () => {
+    const ctx = fakeContext(
+      { syncPending: { total: 4, unpublished_deletes: 2 }, syncUnbind: unbindResult },
+      { yes: true, json: true },
+    );
+
+    await runSyncUnbind(ctx, {});
+
+    expect(ctx.streams.stderr).toEqual([]);
+    expect(ctx.streams.stdout).toHaveLength(1);
   });
 });

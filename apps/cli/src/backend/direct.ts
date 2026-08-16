@@ -203,6 +203,21 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     return value;
   };
 
+  /**
+   * A name, by the same rule the HTTP route uses (§7 F13).
+   *
+   * Trimmed FIRST, then required to be non-empty, and the trimmed value is
+   * what gets written — `'  '` is not a name, and `' 稻香 '` and `'稻香'` are
+   * the same song. `--direct` only checked the LENGTH, so the two backends
+   * disagreed about what the library accepts, which is exactly the shape of
+   * difference nobody finds until their library has a row named `'   '`.
+   */
+  const requiredName = (value: string, max: number, what: string): string => {
+    const trimmed = value.trim();
+    if (trimmed === '') throw usageError(`${what}不能为空。`);
+    return capped(trimmed, max, what);
+  };
+
   return {
     status: () =>
       Promise.reject(new CliError('USAGE_ERROR', '`status` 只描述 daemon，不走直连后端。')),
@@ -210,8 +225,11 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     // ── Songs ──────────────────────────────────────────
     listSongs: (query: SongListQuery) => {
       const options: SongListQuery = { ...query };
-      if (options.search !== undefined)
-        options.search = capped(options.search, SEARCH_MAX, '搜索词');
+      // Trimmed like the route trims it: a search for `' 稻香 '` is a search
+      // for `'稻香'`, and LIKE would not agree (§7 F13).
+      if (options.search !== undefined) {
+        options.search = capped(options.search.trim(), SEARCH_MAX, '搜索词');
+      }
       if (options.limit !== undefined && options.limit > LIMIT_MAX) {
         throw usageError(`--limit 最大 ${LIMIT_MAX}。`);
       }
@@ -223,9 +241,12 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       Promise.resolve(ok(enrich(attempt(() => core.getSong(db, sqlite, validId(id)))))),
     updateSong: (id, patch) => {
       writable();
-      if (patch.name !== undefined) capped(patch.name, NAME_MAX, '歌名');
-      if (patch.artist !== undefined) capped(patch.artist, NAME_MAX, '歌手名');
-      const updated = attempt(() => core.updateSong(db, sqlite, validId(id), patch));
+      const edit = { ...patch };
+      // The artist MAY be cleared; the name may not — the same asymmetry
+      // `validation.ts` encodes for the route.
+      if (edit.name !== undefined) edit.name = requiredName(edit.name, NAME_MAX, '歌名');
+      if (edit.artist !== undefined) edit.artist = capped(edit.artist.trim(), NAME_MAX, '歌手名');
+      const updated = attempt(() => core.updateSong(db, sqlite, validId(id), edit));
       return Promise.resolve(ok(enrich(updated)));
     },
     deleteSong: async (id) => {
@@ -263,14 +284,19 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     createPlaylist: (name) => {
       writable();
       const created = attempt(() =>
-        core.createPlaylist(db, sqlite, capped(name, NAME_MAX, '歌单名')),
+        core.createPlaylist(db, sqlite, requiredName(name, NAME_MAX, '歌单名')),
       );
       return Promise.resolve(ok(created as PlaylistData));
     },
     renamePlaylist: (id, name) => {
       writable();
       const renamed = attempt(() =>
-        core.renamePlaylist(db, sqlite, writablePlaylistId(id), capped(name, NAME_MAX, '歌单名')),
+        core.renamePlaylist(
+          db,
+          sqlite,
+          writablePlaylistId(id),
+          requiredName(name, NAME_MAX, '歌单名'),
+        ),
       );
       return Promise.resolve(ok(renamed as PlaylistData));
     },

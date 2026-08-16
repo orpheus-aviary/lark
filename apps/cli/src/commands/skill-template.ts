@@ -117,7 +117,8 @@ echo "BV1xx411c7mD" | lark download --batch - --yes
 - \`--batch <file|->\` → one input per line, \`#\` comments and blank lines
   skipped; the batch does NOT wait unless \`--wait\` is passed
 - \`--playlist <name|id>\` puts everything into that playlist
-- \`--allow-partial\` accepts a list that only came back partially
+- \`--allow-partial\` accepts a favourites / collection list that only came
+  back partially; it is a usage error on any other shape
 - \`--clean-name\` names videos with the LLM (song + artist read out of the
   title) instead of keeping the title verbatim; it is a video-only flag, and
   the same video cannot be queued under both namings at once

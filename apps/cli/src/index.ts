@@ -140,13 +140,17 @@ function withIdentity(body: (deps: DaemonCommandDeps) => Promise<void>): Promise
 
 /** A command that touches neither the daemon nor the library (M6-3). */
 function withLocal(
-  body: (deps: { streams: typeof processStreams; json: boolean }) => Promise<void>,
+  body: (deps: {
+    streams: typeof processStreams;
+    json: boolean;
+    yes: boolean;
+  }) => Promise<void>,
   refusal = '这个命令是纯本地操作，不接受 --direct。',
 ): Promise<void> {
   return run(async () => {
     const current = flags();
     if (current.direct) throw new CliError('USAGE_ERROR', refusal);
-    await body({ streams: processStreams, json: current.json });
+    await body({ streams: processStreams, json: current.json, yes: current.yes });
   });
 }
 

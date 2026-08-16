@@ -198,6 +198,10 @@ describe('songs list --duplicates', () => {
     expect(() => assertListShape({ duplicates: true, search: 'x' })).toThrow(/--search/);
     expect(() => assertListShape({ duplicates: true, limit: '10' })).toThrow(/--limit/);
     expect(() => assertListShape({ duplicates: true, offset: '10' })).toThrow(/--offset/);
-    expect(() => assertListShape({ search: 'x' })).not.toThrow();
+    // §7 F15: these two were let through, and the report is grouped by key —
+    // so `--sort name` changed nothing a reader could see.
+    expect(() => assertListShape({ duplicates: true, sort: 'name' })).toThrow(/--sort/);
+    expect(() => assertListShape({ duplicates: true, order: 'desc' })).toThrow(/--order/);
+    expect(() => assertListShape({ search: 'x', sort: 'name' })).not.toThrow();
   });
 });
