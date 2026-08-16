@@ -222,14 +222,18 @@ export function createBilibiliClient(options: BilibiliClientOptions = {}): Bilib
       const data = asRecord(
         await getJson(`${apiBase}/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`, signal),
       );
-      const title = str(data?.title);
+      // Decoded like every other title bilibili hands back (§7 F10). It was
+      // the ONLY one that was not, and 0.3.0 made that visible: `original`
+      // naming stores this string verbatim, so an `&amp;` in a title used to
+      // reach the library through this path and no other.
+      const title = decodeEntities(str(data?.title));
       if (title === '') throw new BilibiliApiError(`view for ${bvid} carried no title`);
       const owner = asRecord(data?.owner);
       const pages = Array.isArray(data?.pages) ? data.pages.map(toPage) : [];
       return {
         bvid: str(data?.bvid) || bvid,
         title,
-        ownerName: str(owner?.name),
+        ownerName: decodeEntities(str(owner?.name)),
         ownerMid: num(owner?.mid),
         duration: num(data?.duration),
         videos: num(data?.videos) || Math.max(pages.length, 1),

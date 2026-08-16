@@ -193,6 +193,30 @@ describe('pagelist / view', () => {
     expect(view.pages).toHaveLength(1);
   });
 
+  // §7 F10: `view` was the ONE title path that did not decode entities, and
+  // 0.3.0 made it visible — `original` naming stores this string verbatim.
+  it('decodes entities in the title and the uploader name', async () => {
+    const { client: c } = client([
+      {
+        match: '/web-interface/view',
+        body: {
+          code: 0,
+          data: {
+            bvid: BVID,
+            title: 'R&amp;B 现场 &quot;live&quot;',
+            duration: 223,
+            videos: 1,
+            owner: { mid: 1, name: 'A&amp;B 音乐' },
+            pages: [{ page: 1, part: '正片', duration: 223, cid: 1 }],
+          },
+        },
+      },
+    ]);
+    const view = await c.view(BVID);
+    expect(view.title).toBe('R&B 现场 "live"');
+    expect(view.ownerName).toBe('A&B 音乐');
+  });
+
   it('rejects a view with no title rather than storing an empty song name', async () => {
     const { client: c } = client([{ match: '/web-interface/view', body: { code: 0, data: {} } }]);
     await expect(c.view(BVID)).rejects.toThrow(BilibiliApiError);

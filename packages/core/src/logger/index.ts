@@ -1,5 +1,7 @@
-// pino logger factories (M1-15): file-rolling for the daemon/GUI, stdout for
-// dev/CLI. Both install the same redact paths, so any structured log line
+// pino logger factories (M1-15): file-rolling for the daemon, stdout for
+// dev/CLI. (The GUI has no logger of its own — its main process logs through
+// console and the daemon it spawns owns the file, §7 F16.) Both install the
+// same redact paths, so any structured log line
 // carrying a token or api_key field is masked before serialization. Raw
 // string interpolation sidesteps `pino.redact` entirely — that's the job of
 // the grep guard landing in M2 alongside the token guard.
