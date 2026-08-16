@@ -834,6 +834,28 @@ export interface DownloadCancelRequest {
   task_id: string;
 }
 
+/**
+ * `POST /download/cancel-all` payload — one entry per task that was active
+ * when the request arrived (§4-f).
+ *
+ * Best-effort by construction, and per-item because the three outcomes are
+ * genuinely different: a queued task is `cancelled` on the spot, a running one
+ * is asked to stop and is still `running` when this answers, and one already
+ * past the commit point cannot be cancelled at all. Reporting a single number
+ * would make the last of those look like a failure of the request.
+ */
+export interface DownloadCancelAllData {
+  /** Tasks that reached `cancelled` immediately — queued ones, in practice. */
+  cancelled: number;
+  results: readonly {
+    task_id: string;
+    /** The task's state right after the attempt. */
+    state: TaskState;
+    /** Why it was not cancelled, when it was not. `null` means accepted. */
+    error_code: string | null;
+  }[];
+}
+
 /** `POST /download/song` / `redownload` / `download/lyrics/:id` payload. */
 export interface DownloadTaskAcceptedData {
   task_id: string;

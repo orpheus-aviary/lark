@@ -66,6 +66,7 @@ export const API_PATHS = {
   downloadBatch: '/download/batch',
   downloadFetchList: '/download/fetch-list',
   downloadCancel: '/download/cancel',
+  downloadCancelAll: '/download/cancel-all',
   downloadTasks: '/download/tasks',
   songImport: '/songs/import',
 

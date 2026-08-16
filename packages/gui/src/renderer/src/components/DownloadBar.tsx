@@ -18,7 +18,7 @@ import { useLibrary } from '../stores/library.js';
 import { mediaToolsWarning, useMediaTools } from '../stores/media-tools.js';
 import { BatchActionBar } from './BatchActionBar.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
-import { DownloadTasksPopover } from './DownloadTasksPopover.js';
+import { DownloadPanel } from './DownloadPanel.js';
 import { NamingModeDialog } from './NamingModeDialog.js';
 import { PasteInputModal } from './PasteInputModal.js';
 import { Button } from './ui/button.js';
@@ -44,6 +44,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const parse = useDownloads((s) => s.parse);
   const downloadSong = useDownloads((s) => s.downloadSong);
   const cancel = useDownloads((s) => s.cancel);
+  const refresh = useDownloads((s) => s.refresh);
   const playlistId = useLibrary((s) => s.playlistId);
   const mediaTools = useMediaTools((s) => s.info);
   const llmAvailable = useMediaTools((s) => s.llmAvailable);
@@ -57,6 +58,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   // A lone video link, waiting for its naming answer. Held rather than
   // downloaded immediately because the answer is the user's, not a default.
   const [pendingVideo, setPendingVideo] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -163,11 +165,20 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         >
           <Maximize2 />
         </Button>
-        <DownloadTasksPopover>
-          <Button variant="secondary" size="icon-sm" aria-label="下载任务" title="下载任务">
-            <ListChecks />
-          </Button>
-        </DownloadTasksPopover>
+        <Button
+          variant="secondary"
+          size="icon-sm"
+          aria-label="下载任务"
+          title="下载任务"
+          onClick={() => {
+            // The snapshot is the only place terminal detail lives, and the
+            // ring ages tasks out — so it is refetched when the panel opens.
+            refresh();
+            setPanelOpen(true);
+          }}
+        >
+          <ListChecks />
+        </Button>
         {trailing}
       </div>
 
@@ -224,6 +235,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         />
       )}
       {batchItems && <BatchSelectModal items={batchItems} onClose={() => setBatchItems(null)} />}
+      <DownloadPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
       <NamingModeDialog
         open={pendingVideo !== null}
         count={1}

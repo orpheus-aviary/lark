@@ -14,6 +14,7 @@ import type {
   DownloadBatchData,
   DownloadBatchGroupInput,
   DownloadBatchesData,
+  DownloadCancelAllData,
   DownloadCancelRequest,
   DownloadNamingMode,
   DownloadParseRequest,
@@ -41,6 +42,15 @@ interface DownloadState {
   batches: readonly DownloadBatchData[];
   /** Tasks the user asked to cancel that have not reached a terminal state. */
   cancelling: readonly string[];
+  /**
+   * Terminal tasks the user cleared from the panel (§3.6-3).
+   *
+   * Client-side, and deliberately: "clear the record" is about this window's
+   * list, not about the daemon's ring — another window has its own idea of
+   * what it has read, and a shared server-side dismissal would delete history
+   * out from under it.
+   */
+  dismissed: readonly string[];
   refresh: () => void;
   /** Feed one `download:*` event in. */
   applyEvent: (event: LarkEvent) => void;
@@ -51,6 +61,10 @@ interface DownloadState {
    */
   resetEventStream: () => void;
   cancel: (taskId: string) => Promise<void>;
+  /** Ask every active task to stop; answers per task (§4-f). */
+  cancelAll: () => Promise<DownloadCancelAllData>;
+  /** Move terminal tasks out of the panel. Active ones are never touched. */
+  dismissTerminal: () => void;
   parse: (input: string) => Promise<ParseResultData>;
   /**
    * `naming` is required for a video link and refused for a keyword — the
@@ -71,6 +85,7 @@ export const useDownloads = create<DownloadState>((set, get) => ({
   tasks: [],
   batches: [],
   cancelling: [],
+  dismissed: [],
 
   refresh: () => {
     void tasksLane
@@ -156,6 +171,28 @@ export const useDownloads = create<DownloadState>((set, get) => ({
       }
       throw err;
     }
+  },
+
+  cancelAll: async () => {
+    const active = get()
+      .tasks.filter((task) => task.state === 'queued' || task.state === 'running')
+      .map((task) => task.id);
+    set({ cancelling: [...new Set([...get().cancelling, ...active])] });
+    try {
+      const envelope = await request<DownloadCancelAllData>('POST', API_PATHS.downloadCancelAll);
+      get().refresh();
+      return envelope.data ?? { cancelled: 0, results: [] };
+    } catch (err) {
+      set({ cancelling: get().cancelling.filter((id) => !active.includes(id)) });
+      throw err;
+    }
+  },
+
+  dismissTerminal: () => {
+    const terminal = get()
+      .tasks.filter((task) => task.state !== 'queued' && task.state !== 'running')
+      .map((task) => task.id);
+    set({ dismissed: [...new Set([...get().dismissed, ...terminal])] });
   },
 
   parse: async (input) => {

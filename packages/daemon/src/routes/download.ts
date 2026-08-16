@@ -35,6 +35,7 @@ import {
   DOWNLOAD_PLAYLIST_NAME_MAX,
   type DownloadBatchGroupInput,
   type DownloadBatchItemInput,
+  type DownloadCancelAllData,
   type DownloadNamingMode,
   type DownloadTaskAcceptedData,
   FETCH_LIST_ITEMS_MAX,
@@ -302,6 +303,38 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     const body = objectBody(req.body, ['task_id']);
     const task = ctx.downloads.cancel(requiredUuid(body, 'task_id'));
     ok(reply, task, `task is ${task.state}`);
+  });
+
+  // ─── POST /download/cancel-all ─────────────────────────
+
+  /**
+   * Ask every active task to stop (§4-f).
+   *
+   * The active set is SNAPSHOTTED first: cancelling releases the worker, which
+   * starts the next queued task, and a loop reading the live list would chase
+   * its own tail. Per-item because the outcomes differ — queued stops now,
+   * running is asked and answers `running`, and one past the commit point
+   * cannot be cancelled at all and says so instead of failing the request.
+   */
+  app.post(API_PATHS.downloadCancelAll, async (_req, reply) => {
+    const active = ctx.downloads
+      .snapshot()
+      .tasks.filter((task) => task.state === 'queued' || task.state === 'running');
+
+    const results = active.map((task) => {
+      try {
+        const after = ctx.downloads.cancel(task.id);
+        return { task_id: task.id, state: after.state, error_code: null };
+      } catch (err) {
+        // One task refusing is not the request failing: the other nineteen
+        // still stopped, and the caller is told which one did not.
+        const code = (err as { code?: string }).code ?? 'INTERNAL_ERROR';
+        return { task_id: task.id, state: task.state, error_code: code };
+      }
+    });
+
+    const cancelled = results.filter((result) => result.state === 'cancelled').length;
+    ok(reply, { cancelled, results } satisfies DownloadCancelAllData, `cancelled ${cancelled}`);
   });
 
   // ─── GET /download/tasks ───────────────────────────────

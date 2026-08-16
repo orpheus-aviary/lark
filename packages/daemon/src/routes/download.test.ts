@@ -5,7 +5,7 @@
 
 import { type FakeUpstream, startFakeUpstream } from '@lark/core/testing';
 import { API_PATHS, type LarkEvent, apiPath } from '@lark/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type TestApp,
   type TestContext,
@@ -534,6 +534,46 @@ describe('POST /download/cancel', () => {
 
   it('rejects a non-uuid task id', async () => {
     expect((await post(API_PATHS.downloadCancel, { task_id: 'x' })).statusCode).toBe(400);
+  });
+});
+
+describe('POST /download/cancel-all', () => {
+  it('answers one entry per active task, and stops them', async () => {
+    upstream.state.hangAudio = true;
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' });
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=2`, naming_mode: 'original' });
+
+    const res = await post(API_PATHS.downloadCancelAll, {});
+    expect(res.statusCode).toBe(200);
+    const data = bodyOf(res).data;
+    expect(data.results).toHaveLength(2);
+    for (const entry of data.results) expect(entry.error_code).toBeNull();
+
+    // A queued task stops on the spot; a running one is asked to and settles
+    // on its own — so the snapshot is what proves it, not the answer.
+    await vi.waitFor(() => {
+      const active = ctx.downloads
+        .snapshot()
+        .tasks.filter((task) => task.state === 'queued' || task.state === 'running');
+      expect(active).toEqual([]);
+    });
+  });
+
+  it('answers an empty set when nothing is running', async () => {
+    const res = await post(API_PATHS.downloadCancelAll, {});
+    expect(bodyOf(res).data).toEqual({ cancelled: 0, results: [] });
+  });
+
+  it('leaves the terminal ones alone', async () => {
+    upstream.state.hangAudio = true;
+    await post(API_PATHS.downloadSong, { input: `${VIDEO_URL}?p=1`, naming_mode: 'original' });
+    await post(API_PATHS.downloadCancelAll, {});
+    await vi.waitFor(() => {
+      expect(ctx.downloads.snapshot().tasks.every((task) => task.state === 'cancelled')).toBe(true);
+    });
+
+    // The second sweep has nothing to do: cancelled is not active.
+    expect(bodyOf(await post(API_PATHS.downloadCancelAll, {})).data.results).toEqual([]);
   });
 });
 

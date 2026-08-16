@@ -166,6 +166,11 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
   },
   { method: 'POST', path: API_PATHS.downloadCancel, description: 'Cancel a download task' },
   {
+    method: 'POST',
+    path: API_PATHS.downloadCancelAll,
+    description: 'Ask every active download task to stop; answers per task',
+  },
+  {
     method: 'GET',
     path: API_PATHS.downloadTasks,
     description: 'Snapshot of download tasks and batches',
