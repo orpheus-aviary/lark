@@ -37,7 +37,7 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 ✅ → T5 → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器。当前测试 **2318**（shared 79 / core 961 / cli 401 / daemon 475 / gui 402）。下一批 **T5 PC 三项 + 协议定稿（`LOCAL_API_VERSION` → 6）**。
+🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 ✅ → T5 ✅ → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器；PC 三项已交付，**协议已定稿在 `LOCAL_API_VERSION = 6`**。当前测试 **2365**（shared 79 / core 976 / cli 407 / daemon 489 / gui 414）。下一批 **T5b「已实现未实装」修复批**（§7 的 F1–F17）。
 
 ### v0.3.0 实测锁定（随批次追加）
 
@@ -60,6 +60,11 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **凡是「shipped profile 能不能做到」的测试都要显式指向 vendored 构建**（T4）：`resolveMediaTools()` 默认挑 Homebrew，那份什么都解得开——在开发机上它会全绿地放走一个缺解码器的构建。用 `@lark/core/testing` 的 `vendoredToolsDir()` 塞 `LARK_MEDIA_TOOLS_DIR`。同源的静态守卫是 `media-tools/profile.test.ts`（读 `vendor/ffmpeg.lock.json` 的 configure 比对三份清单）
 - **多音轨文件的容器时长是最长那条轨**（T4 夹具照出来的旧缺陷）：只留第 0 条却记容器时长，曲库行就会宣称一个它的文件没有的长度。`probeAudio` 在「音轨 >1 且流自报时长」时改用流的
 - **ipod muxer 会把音频挪到 stream 0**，`-map` 先给封面也没用：所以本仓「音频不在 0 号」的真文件只有 `scripts/fixtures/tone-1s-video.mp4`（h264 在 0、AAC 在 1）——判据 60 的真文件证据只能是它
+- **命名模式不进 dedupe key，所以冲突只能拒绝**（T5）：进了就等于同一个视频下两遍去存两个名字；合并则会让第二个提交者悄悄拿到第一个人的答案。全量预检必须在**容量检查与歌单事务之前**，否则 merge 到第 40 项才发现时歌单已经建出来了
+- **「取消」在 `clean` 路径上的差别只在一种形态下看得见**（T5）：`inferSongInfo` 吞掉 abort 时，下游任何一次网络调用都会撞上同一个 signal，任务照样进 cancelled——**测试因此在没有修复的情况下也是绿的**。真正的差别在「这首歌本地已有文件」：那条路径上 resolveTarget 之后再没有网络，任务会走过 commit point 报成功并加进用户已取消的歌单。**要验一个 fail-closed 的分支，先确认没有别人替它兜底**
+- **`tsc -b` 会跳过没有 `references` 的 project**（T5）：gui 的两个 project 原来没声明依赖，改 `@lark/shared` 不会让它重跑，`just check` 全绿而 renderer 停在旧类型上。**而 `pnpm --filter @lark/gui exec tsc --noEmit` 什么都不检查**（gui 根 tsconfig 是 `files: []` + references）——两个假绿叠在一起。要单独查 renderer 用 `tsc -p tsconfig.web.json`
+- **进度节流放在 engine**（T5）：只有它知道自己上次发出去的是什么。阶段切换**先 flush 再归零**（停在 97% 的进度条比没有更糟），终态也归零；`total_bytes` 用 `null` 不用 0——「不知道多大」和「空文件」对进度行是两个问题。字节进度让 `(state, stage, song_id)` 不再唯一，dedupe 只能靠 `revision`
+- **同一个词既当分区标题又当状态文案就会撞**（T5）：面板的「排队中」分区与排队任务自己的状态行同字，`getByText` 直接两个命中。分区标题改 `<h3>`（role=heading）才分得开
 
 🚨 **T2c 起开发版会把曲库升到 schema v3（单向），T3 起还会当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它，0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。

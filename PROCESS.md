@@ -173,13 +173,15 @@
 
 主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
 
-**当前状态（2026-08-14）**：**T0a / T1 / T1b / T2 / T3 / T4 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）；导入不再只收 mp3，**shipped profile 读得开的都收**，扩展名降级成文件对话框的过滤器。测试 **2318**（shared 79 / core 961 / cli 401 / daemon 475 / gui 402）。下一批 **T5 PC 三项 + 协议定稿**。
+**当前状态（2026-08-15）**：**T0a / T1 / T1b / T2 / T3 / T4 / T5 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）；导入收 **shipped profile 读得开的一切**；PC 三项（命名清洗 / 阶段+字节进度 / 下载面板）已交付，**协议定稿在 `LOCAL_API_VERSION = 6`**。测试 **2365**（shared 79 / core 976 / cli 407 / daemon 489 / gui 414）。下一批 **T5b「已实现未实装」修复批**（子计划 §7 的 F1–F17，判据 35–47）。
 
 **T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。
 
 **T3（daemon / GUI / CLI 接线）已完成**：T3a 三层 context + 阶段机 + runner → T3b 迁移三路由 + file-ops 白名单 → T3c GUI 迁移屏 + 设置页备份区块 → T3d CLI 口径。判据 15–22、51、59、61 已落测试；**判据 54 不在 T3**（它是 §7 的 F3，属 T5b，子计划 §3 的 gate 列错了批次）。
 
 **T4（导入矩阵）已完成**：T4a 九个真容器夹具 + `toneWav` 扩 PCM 形态 → T4b 矩阵本体（shared 格式清单 + core 判定 + `warnings`/`error_code` + daemon/GUI 接线）。判据 31、53 已落测试。
+
+**T5（PC 三项 + 协议定稿）已完成**：T5.1 命名清洗 → T5.2 阶段 + 字节进度 → T5.3 下载面板 + cancel-all → T5.4 `LOCAL_API_VERSION` 升 6。判据 23–30、32 已落测试。中间掉出一个**验收工具自己的洞**（`tsc -b` 跳过 gui），单独修了。
 
 **开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
 
@@ -291,6 +293,28 @@
   - **矩阵测试必须显式指向 vendored 构建**：`resolveMediaTools()` 默认挑 Homebrew，而这套判据的全部内容就是「我们要发的那个 profile 读不读得开」——在开发机上它会全绿地放走一个缺解码器的构建。`vendoredToolsDir()` 有就用它（`LARK_MEDIA_TOOLS_DIR`），没有再回落
   - **profile 守卫进了单测**（`media-tools/profile.test.ts`）：读 `vendor/ffmpeg.lock.json` 的 configure，断言白名单里每个 codec 有解码器、每个扩展名有 demuxer、`REQUIRED_CAPABILITIES` 全在、encoder 恰好只有 aac。T1b 已经裁过一次这个 profile，下一次裁不能把导入对话框还在提供的解码器裁掉——那种失败会以「某个用户的 flac 导不进来」的形式，在造成它的那次提交很久之后才出现
   - gate：`just check` · `just test` **2318**（core 937→961 / gui 401→402）
+- [x] **T5.1 命名清洗**（2026-08-15，`817efe8`）— 那个复选框写着「原标题」，而两个分支存的是同一个字符串：收藏夹场景里列表标题**就是**视频标题，勾不勾都一样，所以没人能靠用它发现它坏了。「不勾就回退 LLM」只对关键词成立——注释描述的是链接路径上不存在的东西
+  - **命名是提交者选的模式，挂在 target 上**：`original` 是 M3-7 原样（标题照存、UP 主当歌手，同一个 URL 永远同一首歌），`clean` 显式要那一次模型调用，读不出来就回退到同样这两个值。两条 wire 通道各自说清楚：batch item 带 `naming`，`/download/song` 带 `naming_mode`（链接必填、关键词拒绝——关键词没有标题可保留）
+  - **模式故意不进 dedupe key**：进了就等于同一个视频下载两遍去存两个名字。所以「同一视频、另一种命名」是**拒绝**而不是合并——合并会让第二个提交者悄悄拿到第一个人的答案。全量预检跑在容量检查与歌单事务**之前**（判据 26）：merge 到第 40 项才发现冲突时，歌单已经建出来了
+  - 🐛 **abort 必须重抛，而它的差别只在一种形态下看得见**：`inferSongInfo` 原本 `.catch(() => null)`，把取消当成「模型没答上来」降级。第一版测试**在没有修复的情况下也是绿的**——因为下游任何一次网络调用都会撞上同一个已 abort 的 signal，任务照样进 cancelled。真正的差别在**「这首歌本地已经有文件」**：那条路径上 resolveTarget 之后再没有网络，任务会一路走过 commit point 报成功，还把歌加进用户已经取消掉的歌单。判据 27 的夹具因此先下一遍、再下第二遍
+  - **`llm_available` 进 capabilities**：理由与 `media_tools` 同源——没有模型时 `clean` 会被拒，客户端得能先灰掉它。GUI 弹框默认「清洗命名」（记忆上次选择，仍每次问），没配 LLM 时自动退回原标题并禁用
+  - gate：`just check` · `just test` **2345**
+- [x] **`tsc -b` 跳过 gui**（2026-08-15，`26e10d3`）— gui 的两个 project 没声明 `references`，于是 tsc 的 up-to-date 判定只比它自己的源文件与 buildinfo，**`@lark/shared` 的 .d.ts 变了它不重跑**：一个 wire 类型改动可以在 `just check` 全绿的情况下把 renderer 留在错的类型上，直到 gui 里恰好又有别的东西改动。**两个假绿叠在一起**——我当时用 `pnpm --filter @lark/gui exec tsc --noEmit` 复核，而 gui 根 tsconfig 是 `files: []` + references，那条命令**什么都不检查**。加上 references 后正反都验过：改坏 shared，`tsc -b` 现在会报出 gui 的错
+- [x] **T5.2 阶段 + 字节进度**（2026-08-15，`f6bcc14`）— 状态行从第一个字节到最后一个都写着「下载中」，40MB 的歌在慢网上与卡住无从分辨。传输现在数字节，snapshot 与 `download:status` 同时带 `received_bytes` / `total_bytes`
+  - **节流在 engine，不在传输也不在接收端**：只有 engine 知道自己上次发了什么。阈值 §4-d（≥500ms 且（≥1% 或 ≥256KiB））；**阶段切换先 flush 再归零**——停在 97% 的进度条比没有进度条更糟；终态也归零，否则已完成的行会永远显示 63%
+  - **`total_bytes` 是 null 不是 0**：「不知道多大」和「空文件」对进度行是两个问题，两个渲染器分别回答（有分母给百分比，没有给 MB）
+  - **`(state, stage, song_id)` 不再唯一**：字节进度是第四条轴，原来那条「相邻事件不得三元组相同」的不变量因此改写成「四元组 + 每个任务内 revision 单调」
+  - **CLI 的 `Streams` 长出 `errLine` + `tty`**：TTY 同行覆盖（`\r\x1b[K`，收尾清行），非 TTY 每 10% 打点、无总量退化成每 5MiB 或每 2 秒，`--json` 全静音。阶段文案统一到主计划 §3.6-2，`converting` 改叫「处理音频」——0.3.0 起 AAC 源是重封装，同一个阶段干着百分之一的活不该自称转码
+  - gate：`just check` · `just test` **2354**
+- [x] **T5.3 下载面板 + cancel-all**（2026-08-15，`0856c3b`）— popover 换成独立面板（进行中 / 排队中 / 已结束三段），术语按 §3.6-3 冻结：**取消任务 · 清除记录**，删除歌曲不在这里
+  - **`POST /download/cancel-all` 先 snapshot 再逐个**：取消会释放 worker、worker 会拉起下一个排队任务，边读活列表边取消就是追自己的尾巴。逐项返回，因为三种结果本来就不同——排队的当场停、运行中的是「已请求」（返回时仍是 running）、过了 commit point 的**取消不了**（那是一首下完的歌，不是抗命），toast 照实说
+  - **「清除记录」是客户端的**：它说的是这个窗口的列表，不是 daemon 的 ring——另一个窗口有它自己「读过什么」的账
+  - 🐛 **`排队中` 既是分区标题又是任务状态文案**，`getByText` 直接撞出两个命中。分区标题改成 `<h3>`（role=heading）才分得开——顺带也是屏幕阅读器该有的结构
+  - gate：`just check` · `just test` **2363**
+- [x] **T5.4 协议定稿 v6**（2026-08-15，`66b51e5`）— 真正需要版本闸的只有一条：`/download/song` 现在**必填** `naming_mode`，而 v5 daemon 会把它当未知字段拒掉。其余（字节进度 / `naming` 阶段 / cancel-all / `/api/audio-migration`）都是增量
+  - capabilities 补齐 `audio_format` 与 `import_formats`（`llm_effective_format` 是 §7 的 F5，留在 T5b）；`accept-pack` 里两处字面量 `5` 同批改——0.2.0 的教训就是写死在验收脚本里的协议版本只会在发版当天红
+  - 判据 32 特意写成字面量 5 而不是 `LOCAL_API_VERSION - 1`：它说的是「0.2.x 那个 daemon」这件历史事实
+  - gate：`just check` · `just test` **2365**
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

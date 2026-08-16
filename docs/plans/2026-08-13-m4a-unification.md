@@ -90,9 +90,11 @@
 
 ## §3 批次划分
 
-> **进度（2026-08-14）**：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）· **T3 ✅**（四个提交：三层 context + 阶段机 + runner → 迁移三路由 + file-ops 白名单 → GUI 迁移屏 + 备份区块 → CLI 口径；判据 15–22、51、59、61 + 真机副本演练）· **T4 ✅**（两个提交：九个真容器夹具 + `toneWav` 扩 PCM → 矩阵本体；判据 31、53）。逐批实测见 `PROCESS.md`。下一批 **T5**。
+> **进度（2026-08-15）**：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）· **T3 ✅**（四个提交：三层 context + 阶段机 + runner → 迁移三路由 + file-ops 白名单 → GUI 迁移屏 + 备份区块 → CLI 口径；判据 15–22、51、59、61 + 真机副本演练）· **T4 ✅**（两个提交：九个真容器夹具 + `toneWav` 扩 PCM → 矩阵本体；判据 31、53）· **T5 ✅**（四个提交 + 一个工具修复：命名清洗 → 阶段与字节进度 → 面板与 cancel-all → 协议升 6；判据 23–30、32）。逐批实测见 `PROCESS.md`。下一批 **T5b**。
 >
 > **T4 与本表的两处出入**：① `pickAudio` 的格式清单落在 `@lark/shared`（core 的闸门、GUI 主进程的对话框过滤器、将来 capabilities 的 `import_formats` 是同一份），不是各自写一遍；② **capabilities 的 `audio_format` / `import_formats` / `llm_available` 仍留在 T5**（D8：中间批次不自称 v6，且这三个字段今天没有消费者——GUI 静态 import 那份清单）。
+>
+> **T5 与本表的两处出入**：① `naming` 阶段随 T5.1 一起进 `DOWNLOAD_STAGES`（本表把它归在「阶段」那一项，但它是命名路径自己的阶段，同一次改 `resolveTarget` 顺手落下比分两批碰同一个函数干净）；② capabilities 的 **`llm_available` 提前到 T5.1**——GUI 的命名弹框要靠它灰显，等到定稿批就得先发一个明知会被拒的选项；`audio_format` / `import_formats` 仍在 T5.4，`llm_effective_format` 按计划留给 T5b 的 F5。
 >
 > **本表 T3 的 gate 写错了一处**：判据 **54**（冲突 local + 不可解析 payload 在 core 层被拒）是 §7 的 F3，属 **T5b**，与 T3 的实现面无关。T3 实际覆盖 15–22、51、59、61。
 
