@@ -90,7 +90,7 @@
 
 ## §3 批次划分
 
-> **进度（2026-08-15）**：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）· **T3 ✅**（四个提交：三层 context + 阶段机 + runner → 迁移三路由 + file-ops 白名单 → GUI 迁移屏 + 备份区块 → CLI 口径；判据 15–22、51、59、61 + 真机副本演练）· **T4 ✅**（两个提交：九个真容器夹具 + `toneWav` 扩 PCM → 矩阵本体；判据 31、53）· **T5 ✅**（四个提交 + 一个工具修复：命名清洗 → 阶段与字节进度 → 面板与 cancel-all → 协议升 6；判据 23–30、32）。逐批实测见 `PROCESS.md`。下一批 **T5b**。
+> **进度（2026-08-15）**：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）· **T3 ✅**（四个提交：三层 context + 阶段机 + runner → 迁移三路由 + file-ops 白名单 → GUI 迁移屏 + 备份区块 → CLI 口径；判据 15–22、51、59、61 + 真机副本演练）· **T4 ✅**（两个提交：九个真容器夹具 + `toneWav` 扩 PCM → 矩阵本体；判据 31、53）· **T5 ✅**（四个提交 + 一个工具修复：命名清洗 → 阶段与字节进度 → 面板与 cancel-all → 协议升 6；判据 23–30、32）· **T5b ✅**（五个提交，按「谁在撒谎」分组：daemon 三个活设置 → 冲突恢复 → GUI 设置页与右键菜单 → CLI 空转 flag 与 stderr 承诺 → 唯一没解码的标题；F1–F17 全关闭，判据 35–47、54）。逐批实测见 `PROCESS.md`。下一批 **T6**。
 >
 > **T4 与本表的两处出入**：① `pickAudio` 的格式清单落在 `@lark/shared`（core 的闸门、GUI 主进程的对话框过滤器、将来 capabilities 的 `import_formats` 是同一份），不是各自写一遍；② **capabilities 的 `audio_format` / `import_formats` / `llm_available` 仍留在 T5**（D8：中间批次不自称 v6，且这三个字段今天没有消费者——GUI 静态 import 那份清单）。
 >
@@ -144,7 +144,12 @@
 
 背景：「原标题」暴露的坑型（前端实现、下游无效/无差别）做了一次全仓双向审计——正向（41 个 GUI 控件 → wire → daemon → core 四连问）+ 反向（config 字段 / CLI flags / wire 请求字段全量）。结构性结论：daemon `objectBody` 对未知字段一律 400，**字面 dead wire 不可能静默存在**；命中全部属于 semantic no-op / boot-only 未提示 / 呈现错配三类。
 
-### 7.1 必修清单 F1–F17
+### 7.1 必修清单 F1–F17（**2026-08-16 全部完成**）
+
+> 五个提交：`fa5b6b0`（F1/F5 域/F7）· `2c490f6`（F2/F3+判据 54/F9）· `444fe7c`（F4/F5 UI/F6/F8/F17 + 歌词字号 hint）· `ba187f1`（F11–F15）· `916d750`（F10/F16）。逐条实测见 `PROCESS.md`。
+>
+> **与本表的两处出入**：① F5 拆成两半——域校验与 `llm_effective_format` 随 daemon 那个提交走，Select 的呈现随 GUI 那个走（同一个字段的两端本来就在两个包里）；② F16 的 `createConsoleLogger` 早已不在仓里（T2 删 Go 迁移时一并没了），实际改的是那条说文件轮转服务「daemon/GUI」的头注释。
+
 
 | # | 问题（file:line 证据） | 修法 |
 |---|---|---|

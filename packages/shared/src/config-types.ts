@@ -26,7 +26,6 @@ export interface LlmConfig {
  * here is a request that silently speaks the wrong protocol.
  */
 export const LLM_API_FORMATS = ['', 'openai', 'anthropic'] as const;
-export type LlmApiFormat = (typeof LLM_API_FORMATS)[number];
 
 export interface WindowConfig {
   width: number;

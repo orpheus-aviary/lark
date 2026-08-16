@@ -37,7 +37,7 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 ✅ → T5 ✅ → T5b → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器；PC 三项已交付，**协议已定稿在 `LOCAL_API_VERSION = 6`**。当前测试 **2365**（shared 79 / core 976 / cli 407 / daemon 489 / gui 414）。下一批 **T5b「已实现未实装」修复批**（§7 的 F1–F17）。
+🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 ✅ → T5 ✅ → T5b ✅ → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器；PC 三项已交付，**协议已定稿在 `LOCAL_API_VERSION = 6`**。「已实现未实装」的 F1–F17 也已全部修完。当前测试 **2396**（shared 79 / core 981 / cli 417 / daemon 495 / gui 424）。下一批 **T6**：验收脚本复核 + 真实副本库迁移闭环 + 收藏夹人工 smoke + 九步发版 0.3.0。
 
 ### v0.3.0 实测锁定（随批次追加）
 
@@ -65,6 +65,11 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **`tsc -b` 会跳过没有 `references` 的 project**（T5）：gui 的两个 project 原来没声明依赖，改 `@lark/shared` 不会让它重跑，`just check` 全绿而 renderer 停在旧类型上。**而 `pnpm --filter @lark/gui exec tsc --noEmit` 什么都不检查**（gui 根 tsconfig 是 `files: []` + references）——两个假绿叠在一起。要单独查 renderer 用 `tsc -p tsconfig.web.json`
 - **进度节流放在 engine**（T5）：只有它知道自己上次发出去的是什么。阶段切换**先 flush 再归零**（停在 97% 的进度条比没有更糟），终态也归零；`total_bytes` 用 `null` 不用 0——「不知道多大」和「空文件」对进度行是两个问题。字节进度让 `(state, stage, song_id)` 不再唯一，dedupe 只能靠 `revision`
 - **同一个词既当分区标题又当状态文案就会撞**（T5）：面板的「排队中」分区与排队任务自己的状态行同字，`getByText` 直接两个命中。分区标题改 `<h3>`（role=heading）才分得开
+- **「保存了」不等于「生效了」**（T5b F1/F7）：写盘成功、回读正确、界面照常，而真正持有这个设置的东西（timer / 清理触发器）没被告知。`PATCH /config` 之后要把变了的值**交给正在用它的人**；只在值真的变了时交（同值再保存不该重置周期），且缓存上限**只有变小**才排清理——`0 = 不限` 是最大值，纯数值比较会把「从 0 改成 900」读成放大
+- **枚举字段没有域校验 = 静默说错协议**（T5b F5）：`api_format` 只有 `anthropic` 走 Anthropic 分支，**其余一切都走 OpenAI**，所以拼错的值会被保存下来然后安静地用错协议。域要在进来时拒、从盘上读到非法值时收敛回 `''`（跟随 aviary），不是收敛到某个没人选过的协议
+- **`''` 是一个值，不是「没设置」**（T5b F5/F6）：`api_format: ''` = 跟随 aviary、空 api_key = 用 aviary 的共享 key。UI 把它们显示成 `openai` / 「未设置」都是在说反话；`''` 要有自己的选项并带上**它当前解析成什么**（`llm_effective_format`，`GET /config` 拿不到）。**Radix 不许 `Select.Item` 的 value 是空串**，替身翻译只发生在那一个 Select 的两端
+- **一个 fail-closed 的分支，先确认没有别人替它兜底**（T5/T5b 共同教训）：判据 27 的第一版测试在没有修复时也是绿的（下游的 signal 兜住了），判据 42 的 badge 同理要断言「归零后消失」而不是「显示过」。写完先把修复去掉跑一遍——绿的就是没测到
+- **残留的测试 nest 多半是「跑挂的测试」而不是漏了 `rmSync`**：`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 没机会跑。数一下前缀与时间戳能分清是漏清理还是被打断
 
 🚨 **T2c 起开发版会把曲库升到 schema v3（单向），T3 起还会当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它，0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。

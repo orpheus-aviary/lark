@@ -173,7 +173,7 @@
 
 主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
 
-**当前状态（2026-08-15）**：**T0a / T1 / T1b / T2 / T3 / T4 / T5 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）；导入收 **shipped profile 读得开的一切**；PC 三项（命名清洗 / 阶段+字节进度 / 下载面板）已交付，**协议定稿在 `LOCAL_API_VERSION = 6`**。测试 **2365**（shared 79 / core 976 / cli 407 / daemon 489 / gui 414）。下一批 **T5b「已实现未实装」修复批**（子计划 §7 的 F1–F17，判据 35–47）。
+**当前状态（2026-08-16）**：**T0a / T1 / T1b / T2 / T3 / T4 / T5 / T5b 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）；导入收 **shipped profile 读得开的一切**；PC 三项（命名清洗 / 阶段+字节进度 / 下载面板）已交付，**协议定稿在 `LOCAL_API_VERSION = 6`**。「已实现未实装」的 F1–F17 也全部修完。测试 **2396**（shared 79 / core 981 / cli 417 / daemon 495 / gui 424）。下一批 **T6**：验收脚本复核（accept-m5 / pack / gui / sync）+ 真实副本库迁移闭环 + 收藏夹人工 smoke + 九步发版 0.3.0。
 
 **T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。
 
@@ -182,6 +182,8 @@
 **T4（导入矩阵）已完成**：T4a 九个真容器夹具 + `toneWav` 扩 PCM 形态 → T4b 矩阵本体（shared 格式清单 + core 判定 + `warnings`/`error_code` + daemon/GUI 接线）。判据 31、53 已落测试。
 
 **T5（PC 三项 + 协议定稿）已完成**：T5.1 命名清洗 → T5.2 阶段 + 字节进度 → T5.3 下载面板 + cancel-all → T5.4 `LOCAL_API_VERSION` 升 6。判据 23–30、32 已落测试。中间掉出一个**验收工具自己的洞**（`tsc -b` 跳过 gui），单独修了。
+
+**T5b（「已实现未实装」修复批）已完成**：五个提交，按「谁在撒谎」分组——daemon 的三个活设置（`fa5b6b0`）→ 冲突恢复（`2c490f6`）→ GUI 的设置页与右键菜单（`444fe7c`）→ CLI 的空转 flag 与 stderr 承诺（`ba187f1`）→ 唯一没解码的标题（`916d750`）。F1–F17 全关闭，判据 35–47、54 已落测试。
 
 **开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
 
@@ -315,6 +317,26 @@
   - capabilities 补齐 `audio_format` 与 `import_formats`（`llm_effective_format` 是 §7 的 F5，留在 T5b）；`accept-pack` 里两处字面量 `5` 同批改——0.2.0 的教训就是写死在验收脚本里的协议版本只会在发版当天红
   - 判据 32 特意写成字面量 5 而不是 `LOCAL_API_VERSION - 1`：它说的是「0.2.x 那个 daemon」这件历史事实
   - gate：`just check` · `just test` **2365**
+- [x] **T5b F1/F5/F7 三个「保存了但没人接手」的设置**（2026-08-16，`fa5b6b0`）— 共同的形状：写盘成功、回读正确、界面照常，而**真正持有这个设置的东西没被告知**
+  - **`sync.interval_min` 只在 boot 读一次**：timer 一直按旧周期跑到重启，而设置页、config 文件、`GET /config` 三处都说新值。triggers 暴露 `rearmScheduler`，PATCH 只在值真的变了时调（同值再保存不该重置周期）。**重新计时而不是缩短当前周期**——「每 5 分钟」从你按下保存那一刻算起，这既是用户的意思也是更好守的承诺
+  - **缓存上限调小无人触发清理**：三个触发点里没有「用户刚把它调小」。只有**变小**才排清理，且 `0 = 不限` 是最大值——从 0 改成 900 是缩小，纯数值比较会读反
+  - **`llm.api_format` 无域校验**：客户端只认 `anthropic`，其余一律当 OpenAI，所以一个拼错的值会被保存下来然后**静默说错协议**。收成闭集（进来时拒、从盘上读到非法值时收敛回 `''` = 跟随 aviary，而不是收敛到某个没人选过的协议）
+  - **测试要能看见 timer**：判据 35 用真定时器 + `vi.useFakeTimers`，断言的是 `tickScheduler` 的**调用节奏**而不是同步轮次（轮次还要有 session，那是另一件事）。反向验过：去掉 re-arm 这条测试变红
+  - gate：`just check` · `just test` **2375**
+- [x] **T5b F2/F3/F9 冲突恢复与它的说法**（2026-08-16，`2c490f6`）— 「保留本机」在没有本机 payload 时把 `'{}'` 解析成七个 undefined，每个字段回落成现值，**bump 一次 LWW 并推一条什么都没改的更新**，同时告诉用户你的版本回来了
+  - **拒绝写在 core**：GUI 禁用按钮只是礼貌，CLI 和旧 GUI 也得挡住。「保留远端」不需要 payload，所以两者里只拒一个
+  - **差异表漏了 `source_provider` / `source_key`**——而它们是 `apply.ts` 判定冲突的七个字段里的两个，于是「只有链接不同」的冲突渲染成一个表头加两个按钮；两边完全相同时也有兜底文案
+  - toast 把 `applied` 说成「拉取」——夹具恰好 `pulled === applied`，所以它一直读起来是对的
+  - gate：`just check` · `just test` **2385**（含 GUI 侧）
+- [x] **T5b F4/F5-UI/F6/F8/F17 GUI 的五处**（2026-08-16，`444fe7c`）— 「去登录…」落在常规 tab（Tabs 改受控，开门的人指定房间）· `api_format: ''` 被显示成 openai 且选一次就回不去（`''` 成为独立选项并带上它当前解析成什么；**Radix 不许 `Select.Item` 的 value 是空串**，替身翻译只发生在这一个 Select 的两端）· 清了 key 的占位符没提 aviary 回退 · 歌词偏移归零时 badge 卡住 · 右键三项在多选时只作用于右键那一行
+  - **同一个词既当分区标题又当状态文案就会撞**：面板那批已经踩过一次，这批的教训是**测试要顺着真实的门走**——判据 38 断言的是「点了『去登录』之后 tab 是 sync」，而不是直接 set 一个 store 字段
+- [x] **T5b F11–F15 CLI**（2026-08-16，`ba187f1`）— `--allow-partial` 只在收藏夹分支被读，`--batch` 与单链接下**收下即忽略**（正是这批要清的形状）；`--json` 成功路径三处 stderr 泄漏；`--direct` 只查长度所以写得进 HTTP 会拒的空名/未 trim 名；`skill export -o` 不问就覆盖而 `playlist export -o` 会问；`songs list --duplicates` 放行改不了输出的 `--sort/--order`
+  - **两处 `--allow-partial` 的拒绝时机不同**：`--batch` 在参数形状层就拒（不碰 daemon），而「单个输入是不是列表」只有 parse 之后才知道，所以那条要多花一次分类——**两条都说，不留一条静默**
+  - `--direct` 对齐的是**路由的语义而不是 core**：sync apply 的远端写路径不受本地输入边界约束
+- [x] **T5b F10/F16 最后两处**（2026-08-16，`916d750`）— `view.title` 是 bilibili 那边唯一没过 `decodeEntities` 的标题，0.3.0 让它开始要紧（`original` 命名把这个串原样存进曲库），UP 主名同路；logger 头注释说文件轮转服务「daemon/GUI」，而 GUI 从来没有自己的 logger
+  - **一条计划里当年就写错的话也改了**：`2026-08-05-m4-gui-base.md` 把「不勾原标题 → 回落 LLM/视频自身标题」写成契约，而链接路径上根本没有 LLM——它记录的是这个缺陷本身，所以就地批注而不是删掉
+- [x] **T5b 收尾清理**（2026-08-16）— 删掉三个没人消费的导出（`progressLabel` 只被同文件用、`IMPORT_FILE_ERROR_CODES` 只用来派生类型就该是纯类型、两个没人 import 的类型别名）；清掉 `/var/folders/.../lark-*` 下 22 个残留测试 nest
+  - **那些残留是「跑挂的测试」留下的，不是代码漏了 `rmSync`**：11 个前缀 × 2 次，时间戳正好对上两次红的 `just test`——`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 就没机会跑。全绿的运行零残留（今天的几次都验过）
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 

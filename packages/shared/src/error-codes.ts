@@ -196,19 +196,21 @@ export type TaskErrorCode = (typeof TASK_ERROR_CODES)[number];
  * Two are shared with the other domains on purpose: a file that ffprobe or
  * ffmpeg rejects is `FFMPEG_FAILED` wherever it happens, and anything else
  * that escapes is `INTERNAL_ERROR`.
+ *
+ * A type rather than a `readonly []` like the two above: those are iterated at
+ * runtime (a status table, an exit map, a narrowing guard), and nothing ever
+ * checks an incoming string against this one — these codes only come OUT of
+ * core's own classifier.
  */
-export const IMPORT_FILE_ERROR_CODES = [
+export type ImportFileErrorCode =
   /** Extension or codec outside what the shipped ffmpeg can read. */
-  'IMPORT_UNSUPPORTED_FORMAT',
+  | 'IMPORT_UNSUPPORTED_FORMAT'
   /** A real video track (cover art does not count). */
-  'IMPORT_HAS_VIDEO',
+  | 'IMPORT_HAS_VIDEO'
   /** Readable, but carries no audio stream at all. */
-  'IMPORT_NO_AUDIO',
-  'FFMPEG_FAILED',
-  'INTERNAL_ERROR',
-] as const;
-
-export type ImportFileErrorCode = (typeof IMPORT_FILE_ERROR_CODES)[number];
+  | 'IMPORT_NO_AUDIO'
+  | 'FFMPEG_FAILED'
+  | 'INTERNAL_ERROR';
 
 const ENVELOPE_SET: ReadonlySet<string> = new Set(DAEMON_ENVELOPE_ERROR_CODES);
 const TASK_SET: ReadonlySet<string> = new Set(TASK_ERROR_CODES);

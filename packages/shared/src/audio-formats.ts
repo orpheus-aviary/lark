@@ -75,8 +75,6 @@ export const IMPORT_AUDIO_CODECS = [
   'pcm_f32le',
 ] as const;
 
-export type ImportAudioCodec = (typeof IMPORT_AUDIO_CODECS)[number];
-
 /**
  * Codecs that carry every bit of the original, so re-encoding them to AAC is
  * a one-way loss worth saying out loud. The rest are already lossy — the
