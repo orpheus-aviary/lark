@@ -107,6 +107,10 @@ export const DAEMON_ENVELOPE_ERROR_CODES = [
   'SYNC_SCHEMA_VERSION_MISMATCH',
   'SYNC_UNAVAILABLE',
   'CONFLICT_NOT_FOUND',
+  // "Keep mine" on a record that kept no copy of mine (§7 F3). Its own code
+  // because the fix is different: not "reload and decide again" but "this
+  // decision is not available at all".
+  'CONFLICT_PAYLOAD_UNAVAILABLE',
   'CONFLICT_VERSION_MISMATCH',
   'FILE_OP_BUSY',
   'FILE_OP_NOT_FOUND',
@@ -135,6 +139,7 @@ export const TASK_ERROR_CODES = [
   // Raised when a conflict is answered against a record that moved on, or one
   // that is not there at all — neither of which a task calls today.
   'CONFLICT_NOT_FOUND',
+  'CONFLICT_PAYLOAD_UNAVAILABLE',
   'CONFLICT_VERSION_MISMATCH',
   'DOWNLOAD_COMMIT_FAILED',
   'DOWNLOAD_QUEUE_FULL',

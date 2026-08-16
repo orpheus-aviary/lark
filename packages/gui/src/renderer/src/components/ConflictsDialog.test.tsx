@@ -181,3 +181,45 @@ describe('answering', () => {
     error.mockRestore();
   });
 });
+
+// ─── The diff table (§7 F2/F3 — criteria 36, 37) ────────
+
+describe('what the card shows before it asks', () => {
+  it('lists the source fields, which the conflict test also compares', async () => {
+    // A conflict about the LINK alone. Before this the table compared five
+    // fields and the source triple was not among them, so this rendered as a
+    // header row and two buttons.
+    served = [
+      conflict({
+        local_payload: payload({ source_key: 'BV1:100' }),
+        remote_payload: payload({ source_key: 'BV9:900', source_url: 'https://b/BV9' }),
+      }),
+    ];
+    render(<ConflictsDialog open onClose={() => {}} />);
+
+    expect(await screen.findByText('来源标识')).toBeDefined();
+    expect(screen.getByText('BV1:100')).toBeDefined();
+    expect(screen.getByText('BV9:900')).toBeDefined();
+  });
+
+  it('says so when the two sides differ in nothing it can show', async () => {
+    const same = payload();
+    served = [conflict({ local_payload: same, remote_payload: { ...same } })];
+    render(<ConflictsDialog open onClose={() => {}} />);
+
+    expect(await screen.findByText(/两边的内容相同/)).toBeDefined();
+  });
+
+  // Criterion 37. The daemon refuses it (criterion 54); this is the half that
+  // stops the user finding out by clicking.
+  it('offers only "keep theirs" when there is no local copy', async () => {
+    served = [conflict({ local_payload: null })];
+    render(<ConflictsDialog open onClose={() => {}} />);
+
+    const keepMine = await screen.findByRole('button', { name: /保留本机版本/ });
+    expect(keepMine.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: /保留远端版本/ }).hasAttribute('disabled')).toBe(
+      false,
+    );
+  });
+});

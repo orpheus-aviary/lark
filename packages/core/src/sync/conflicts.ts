@@ -17,7 +17,11 @@ import { randomUUID } from 'node:crypto';
 import type { LwwKey, SongSyncPayload } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { LarkDatabase } from '../db/index.js';
-import { ConflictNotFoundError, ConflictVersionMismatchError } from '../errors.js';
+import {
+  ConflictNotFoundError,
+  ConflictPayloadUnavailableError,
+  ConflictVersionMismatchError,
+} from '../errors.js';
 import { updateSongInTx } from '../library/songs.js';
 import { readSongLww } from './lww.js';
 
@@ -148,6 +152,21 @@ export interface ResolveConflictInput {
  * would silently undo a change nobody ever saw. So the row must still hold
  * exactly the version this conflict says won.
  */
+/**
+ * The local side of a conflict, or a refusal.
+ *
+ * `null` and `'{}'` are the same thing here: a record that kept no copy of
+ * what this device had. Both are reachable — the column is nullable, and a
+ * row written before the payload was recorded carries the empty object.
+ */
+function parsePayload(raw: string | null): SongSyncPayload {
+  const parsed = raw === null ? null : (JSON.parse(raw) as unknown);
+  if (parsed === null || typeof parsed !== 'object' || Object.keys(parsed).length === 0) {
+    throw new ConflictPayloadUnavailableError();
+  }
+  return parsed as SongSyncPayload;
+}
+
 export function resolveConflict(
   db: LarkDatabase,
   sqlite: BetterSqlite3.Database,
@@ -178,7 +197,13 @@ export function resolveConflict(
       }
 
       if (input.strategy === 'local') {
-        const local = JSON.parse(conflict.local_payload ?? '{}') as SongSyncPayload;
+        // Refused HERE, not in a dialog (§7 F3): "keep mine" needs a `mine` to
+        // keep, and without a readable payload the restore below writes seven
+        // undefineds — every field falls back to what is already there, the
+        // LWW stamp bumps, and the device publishes an update that changes
+        // nothing while telling the user it put their version back. A GUI can
+        // grey the button out; only this can stop every other client.
+        const local = parsePayload(conflict.local_payload);
         // Through the ordinary write path: a restore is an edit, and it has to
         // be published like one.
         updateSongInTx(db, conflict.entity_id, {

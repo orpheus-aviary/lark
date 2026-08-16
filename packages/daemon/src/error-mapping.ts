@@ -123,6 +123,9 @@ const STATUS_BY_CODE: Record<DaemonEnvelopeErrorCode, number> = {
   SYNC_UNAVAILABLE: 502,
   CONFLICT_NOT_FOUND: 404,
   CONFLICT_VERSION_MISMATCH: 409,
+  // 409 too, and for the same family of reason: the request is well-formed,
+  // the record is current, and this particular resolution is not available.
+  CONFLICT_PAYLOAD_UNAVAILABLE: 409,
   FILE_OP_NOT_FOUND: 404,
   FILE_OP_BUSY: 409,
   AMBIGUOUS_SOURCE_KEY: 409,

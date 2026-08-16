@@ -576,6 +576,21 @@ export class ConflictVersionMismatchError extends CodedError {
 }
 
 /** The conflict id in the request does not name a record. */
+/**
+ * "Keep mine" on a conflict whose local copy was never recorded (§7 F3).
+ *
+ * Not a version mismatch and not a missing conflict: the record is there and
+ * current, it just has nothing to restore FROM. Answering anything else would
+ * send the caller back to reload a record that will say the same thing.
+ */
+export class ConflictPayloadUnavailableError extends CodedError {
+  readonly code = 'CONFLICT_PAYLOAD_UNAVAILABLE';
+  constructor(message = '这条冲突没有保存本机版本，无法「保留本机」——只能保留远端版本') {
+    super(message);
+    this.name = 'ConflictPayloadUnavailableError';
+  }
+}
+
 export class ConflictNotFoundError extends CodedError {
   readonly code = 'CONFLICT_NOT_FOUND';
   constructor(id: string) {

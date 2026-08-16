@@ -94,6 +94,46 @@ describe('resolveConflict', () => {
     expect(emittedOps(songId)).toEqual(['create', 'update']);
   });
 
+  // Criterion 54 / §7 F3. The dialog can grey the button out; this is what
+  // stops the CLI, an older GUI and anything else that asks.
+  it('refuses "keep mine" when there is no mine to keep', () => {
+    const { songId, conflictId } = makeConflict();
+    const expected = conflictWinnerKey(listConflicts(sq())[0]);
+    // A record that kept no copy — the column is nullable, and rows written
+    // before the payload existed carry the empty object.
+    for (const payload of [null, '{}']) {
+      sq()
+        .prepare('UPDATE conflict_record SET local_payload = ? WHERE id = ?')
+        .run(payload, conflictId);
+
+      let caught: unknown;
+      try {
+        resolveConflict(db(), sq(), conflictId, { strategy: 'local', expected_current: expected });
+      } catch (err) {
+        caught = err;
+      }
+      expect((caught as { code?: string })?.code).toBe('CONFLICT_PAYLOAD_UNAVAILABLE');
+    }
+
+    // Nothing happened: the conflict is still open, the song still holds what
+    // the workspace decided, and no empty update was published.
+    expect(listConflicts(sq())).toHaveLength(1);
+    expect(songName(songId)).toBe('远端名字');
+    expect(emittedOps(songId)).toEqual(['create']);
+  });
+
+  it('still lets the same conflict be resolved the other way', () => {
+    const { songId, conflictId } = makeConflict();
+    const expected = conflictWinnerKey(listConflicts(sq())[0]);
+    sq().prepare('UPDATE conflict_record SET local_payload = NULL WHERE id = ?').run(conflictId);
+
+    // "Keep theirs" needs no payload — it files the receipt for what is
+    // already there, which is exactly why only one of the two is refused.
+    resolveConflict(db(), sq(), conflictId, { strategy: 'remote', expected_current: expected });
+    expect(listConflicts(sq())).toHaveLength(0);
+    expect(songName(songId)).toBe('远端名字');
+  });
+
   it('refuses when the song moved on again', () => {
     const { songId, conflictId } = makeConflict();
     const stale = conflictWinnerKey(listConflicts(sq())[0]);

@@ -42,6 +42,12 @@ const FIELDS: readonly {
   { key: 'name', label: '歌曲名称', show: (p) => p.name },
   { key: 'artist', label: '歌手', show: (p) => p.artist },
   { key: 'source_url', label: '来源链接', show: (p) => p.source_url ?? '—' },
+  // The two the table used to leave out (§7 F2). They are part of the SEVEN
+  // fields `apply.ts` compares to decide there is a conflict at all, so a
+  // conflict about nothing else rendered as an empty table with two buttons
+  // under it — a decision with no visible subject.
+  { key: 'source_provider', label: '来源平台', show: (p) => p.source_provider ?? '—' },
+  { key: 'source_key', label: '来源标识', show: (p) => p.source_key ?? '—' },
   { key: 'duration', label: '时长', show: (p) => formatDuration(p.duration) },
   { key: 'lyrics_offset', label: '歌词偏移', show: (p) => `${p.lyrics_offset}s` },
 ];
@@ -82,6 +88,14 @@ function ConflictCard({
           <span />
           <span className="text-muted-foreground">本机的版本</span>
           <span className="text-muted-foreground">已生效（远端）</span>
+          {/* Both sides can carry every field and still be a conflict: the
+              write was concurrent, and the loser is recorded whether or not
+              the two disagree about anything a person can see. */}
+          {differing.length === 0 && (
+            <span className="col-span-3 text-muted-foreground">
+              两边的内容相同，只是同时改过——保留哪个都不会改变这首歌。
+            </span>
+          )}
           {differing.map((field) => (
             <Fragment key={field.key}>
               <span className="text-muted-foreground">{field.label}</span>
@@ -95,7 +109,11 @@ function ConflictCard({
       <div className="flex gap-2">
         <Button
           size="sm"
-          disabled={busy}
+          // §7 F3: with no local payload there is nothing to restore, and the
+          // daemon refuses it. Disabling here is the courtesy; the refusal is
+          // core's, so the CLI and an older GUI are covered too.
+          disabled={busy || local === null}
+          title={local === null ? '这条记录没有保存本机版本' : undefined}
           aria-label={`保留本机版本：${songTitle(conflict)}`}
           onClick={() => onResolve('local')}
         >
