@@ -374,6 +374,15 @@ export interface CapabilitiesData {
    * let the user pick something that will be rejected.
    */
   llm_available: boolean;
+  /**
+   * The one format the library stores (0.3.0). A constant for this build, and
+   * on the wire anyway: a client that shows what it is about to play — or that
+   * writes a file name — should read it rather than assume, and the assumption
+   * it would otherwise carry is the one 0.2.x was built on.
+   */
+  audio_format: 'm4a';
+  /** Extensions `POST /songs/import` accepts, without the dot (§3.4). */
+  import_formats: readonly string[];
 }
 
 // ─── Cache (M5) ────────────────────────────────────────

@@ -35,8 +35,17 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *   5 (v0.2): the `/sync/*` and `/conflicts/*` surface, and the three sync SSE
  *     events. A 4 daemon answers 404 to every one of them, which a badge
  *     cannot tell from "sync is off" — hence a version, not feature detection.
+ *   6 (0.3.0): m4a is the library's one format, and the download surface says
+ *     more about itself. `GET /api/capabilities` carries `audio_format`,
+ *     `import_formats` and `llm_available`; `POST /download/song` REQUIRES
+ *     `naming_mode` on a link and a batch video item requires `naming`; the
+ *     task snapshot and `download:status` carry byte progress; there is a
+ *     `naming` stage and a `POST /download/cancel-all`; and `/api/audio-
+ *     migration` exists at all. A 5 daemon rejects the naming fields as
+ *     unknown body keys — a client written against 6 cannot download through
+ *     one, which is exactly what a version gate is for.
  */
-export const LOCAL_API_VERSION = 5;
+export const LOCAL_API_VERSION = 6;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {

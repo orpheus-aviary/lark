@@ -167,6 +167,15 @@ describe('resolveIdentity — the M6 shape', () => {
     });
   });
 
+  // Criterion 32, named rather than derived: 5 is what 0.2.x answers, and a
+  // 0.3.0 CLI cannot download through it — `naming_mode` is an unknown body
+  // field there, and the refusal would arrive per request instead of once.
+  it('refuses a 0.2.x daemon (protocol 5) on the same nest', async () => {
+    const identity = await resolveIdentity(deps({ status: statusBody({ local_api_version: 5 }) }));
+    expect(identity).toMatchObject({ state: 'same-nest-incompatible', remoteApiVersion: 5 });
+    expect(LOCAL_API_VERSION).toBeGreaterThan(5);
+  });
+
   it('is unverifiable when there is no readable token', async () => {
     const identity = await resolveIdentity(deps({ status: statusBody(), token: null }));
     expect(identity).toMatchObject({ state: 'occupied-unverifiable', reason: 'token-unreadable' });

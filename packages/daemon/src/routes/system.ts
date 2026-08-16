@@ -10,6 +10,7 @@ import {
   API_PATHS,
   type CapabilitiesData,
   type CapabilityEndpoint,
+  IMPORT_AUDIO_EXTENSIONS,
   type InstanceData,
   LOCAL_API_VERSION,
   PLAYER_COMMANDS,
@@ -324,6 +325,8 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
       // shared config is a working LLM, and a client that greyed out keyword
       // search because lark's own file is empty would be wrong about it.
       llm_available: isLlmConfigured(resolveLlmConfig(ctx.config)),
+      audio_format: 'm4a',
+      import_formats: [...IMPORT_AUDIO_EXTENSIONS],
     } satisfies CapabilitiesData);
   });
 }

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { nestFingerprint } from '@lark/core';
 import { fakeMediaTools } from '@lark/core/testing';
+import { IMPORT_AUDIO_EXTENSIONS } from '@lark/shared';
 import type { ApiResponse, CapabilitiesData, InstanceData, StatusData } from '@lark/shared';
 import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -174,6 +175,20 @@ describe('GET /api/capabilities', () => {
   // The same shape of promise for the other refusable feature (§3.6-1):
   // keyword search and clean naming both need a model, and a client that
   // offers either has to be able to grey it out before the 400.
+  // The rest of the v6 additions (§3.5): what the library stores, and what it
+  // takes in. Constants for a build, and on the wire so a client renders what
+  // this daemon does rather than what its own version assumes.
+  describe('formats', () => {
+    it('names the one stored format and the ones import accepts', async () => {
+      const data = await capabilities();
+      expect(data.audio_format).toBe('m4a');
+      expect(data.import_formats).toEqual([...IMPORT_AUDIO_EXTENSIONS]);
+      // Without the dot: it is Electron's filter shape, and the picker and the
+      // gate read the same list (§3.4).
+      expect(data.import_formats.every((format) => !format.startsWith('.'))).toBe(true);
+    });
+  });
+
   describe('llm_available', () => {
     it('is false with no config, and true once one is set', async () => {
       expect((await capabilities()).llm_available).toBe(false);
