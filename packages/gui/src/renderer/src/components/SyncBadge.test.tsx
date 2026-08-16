@@ -208,6 +208,9 @@ describe('opening the popover', () => {
     );
     await user.click(screen.getByRole('button', { name: '去登录…' }));
     expect(useSettingsUi.getState().open).toBe(true);
+    // §7 F4 / criterion 38: the door decides the room. This button exists
+    // because sync said something, so it opens on the sync tab.
+    expect(useSettingsUi.getState().tab).toBe('sync');
   });
 
   it('runs a round on demand and reports what moved', async () => {
@@ -220,7 +223,9 @@ describe('opening the popover', () => {
     await user.click(await screen.findByRole('button', { name: '立即同步' }));
 
     await waitFor(() => expect(urls('POST').some((url) => url.endsWith('/sync/run'))).toBe(true));
-    await waitFor(() => expect(success).toHaveBeenCalledWith('同步完成：拉取 3 项，推送 2 项'));
+    // §7 F9: the number is `applied`, so the word is "应用". The fixture had
+    // pulled === applied, which is exactly why the old label read as true.
+    await waitFor(() => expect(success).toHaveBeenCalledWith('同步完成：应用 3 项，推送 2 项'));
     success.mockRestore();
   });
 });

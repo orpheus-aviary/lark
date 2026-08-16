@@ -28,6 +28,16 @@ export interface BatchActions {
   pin: (pinned: boolean) => void;
   addTo: (playlist: PlaylistData) => void;
   removeFromCurrent: () => void;
+  /**
+   * The three that used to act on the right-clicked row alone (§7 F17).
+   *
+   * They are queue-and-forget on the daemon side (a redownload is a task), so
+   * unlike pin/remove they change nothing the list is showing — the toast is
+   * the whole feedback, and the selection stays as it was.
+   */
+  redownload: () => void;
+  redownloadLyrics: () => void;
+  deleteLyrics: () => void;
   /** Deletes without asking — the caller owns the confirmation (B-8). */
   deleteSelected: () => void;
 }
@@ -37,6 +47,9 @@ export function useBatchActions(): BatchActions {
   const clearSelection = useLibrary((s) => s.clearSelection);
   const setPinned = useLibrary((s) => s.setPinned);
   const deleteSong = useLibrary((s) => s.deleteSong);
+  const redownload = useLibrary((s) => s.redownload);
+  const redownloadLyrics = useLibrary((s) => s.redownloadLyrics);
+  const deleteLyrics = useLibrary((s) => s.deleteLyrics);
   const playlistId = useLibrary((s) => s.playlistId);
   const search = useLibrary((s) => s.search);
   const playlists = usePlaylists((s) => s.playlists);
@@ -91,6 +104,10 @@ export function useBatchActions(): BatchActions {
       if (removableFrom === null) return;
       run('已移除', (id) => removeSong(removableFrom, id), { clearAfter: true });
     },
+
+    redownload: () => run('已重新下载', redownload),
+    redownloadLyrics: () => run('已重新下载歌词', redownloadLyrics),
+    deleteLyrics: () => run('已删除歌词', deleteLyrics),
 
     deleteSelected: () => run('已删除', deleteSong, { clearAfter: true }),
   };

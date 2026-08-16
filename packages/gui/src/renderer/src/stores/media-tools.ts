@@ -26,12 +26,18 @@ interface MediaToolsState {
    * simply has not answered yet would be the same lie in the other direction.
    */
   llmAvailable: boolean | null;
+  /**
+   * Which protocol the daemon's LLM client would speak right now (§7 F5).
+   * `null` until asked; `''` means the daemon has no format either.
+   */
+  llmEffectiveFormat: string | null;
   refresh: () => void;
 }
 
 export const useMediaTools = create<MediaToolsState>((set) => ({
   info: null,
   llmAvailable: null,
+  llmEffectiveFormat: null,
 
   refresh: () => {
     void lane
@@ -47,6 +53,8 @@ export const useMediaTools = create<MediaToolsState>((set) => ({
         if (isMediaToolsInfo(info)) set({ info });
         const llm = envelope.data?.llm_available;
         if (typeof llm === 'boolean') set({ llmAvailable: llm });
+        const format = envelope.data?.llm_effective_format;
+        if (typeof format === 'string') set({ llmEffectiveFormat: format });
       })
       .catch(() => {
         // Leave the last known answer in place. A failed capabilities fetch

@@ -572,6 +572,50 @@ describe('batch actions from the row menu (S3/B-4)', () => {
     });
   });
 
+  // Criterion 47 / §7 F17: three items used to act on the right-clicked row
+  // even with two selected, and said nothing about it.
+  it('redownloads every selected row, and says how many', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await selectTwo(user);
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    await user.click(screen.getByRole('menuitem', { name: '重新下载 2 首' }));
+
+    await waitFor(() => {
+      const posts = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/redownload'));
+      expect(posts.map((c) => c.url.split('/songs/')[1])).toEqual([
+        'song-1/redownload',
+        'song-3/redownload',
+      ]);
+    });
+  });
+
+  it('does the same for the two lyrics actions', async () => {
+    const user = userEvent.setup();
+    renderList();
+    await selectTwo(user);
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    await user.click(screen.getByRole('menuitem', { name: '重新下载歌词 2 首' }));
+    await waitFor(() =>
+      expect(
+        calls.filter((c) => c.method === 'POST' && c.url.includes('/download/lyrics/')),
+      ).toHaveLength(2),
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    await user.click(screen.getByRole('menuitem', { name: '删除歌词 2 首' }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === 'DELETE' && c.url.includes('/lyrics/'))).toHaveLength(
+        2,
+      ),
+    );
+  });
+
   it('stays single-row when only one is selected', async () => {
     const user = userEvent.setup();
     renderList();

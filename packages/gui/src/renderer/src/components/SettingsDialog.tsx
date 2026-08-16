@@ -24,7 +24,7 @@ import { errorMessage } from '../lib/errors.js';
 import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
 import { useMediaTools } from '../stores/media-tools.js';
-import { useSettingsUi } from '../stores/settings-ui.js';
+import { type SettingsTab, useSettingsUi } from '../stores/settings-ui.js';
 import { useSync } from '../stores/sync.js';
 import { GeneralTab } from './settings/GeneralTab.js';
 import { SyncTab } from './settings/SyncTab.js';
@@ -55,6 +55,8 @@ export function SettingsDialog(): React.JSX.Element {
   // `useState`.
   const open = useSettingsUi((s) => s.open);
   const setOpen = useSettingsUi((s) => s.setOpen);
+  const tab = useSettingsUi((s) => s.tab);
+  const setTab = useSettingsUi((s) => s.setTab);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
   /** Field path → message, straight from the daemon's `details.path` (M5-20). */
@@ -147,7 +149,7 @@ export function SettingsDialog(): React.JSX.Element {
           {draft === null || config === null ? (
             <p className="text-muted-foreground text-sm">正在读取配置…</p>
           ) : (
-            <Tabs defaultValue="general">
+            <Tabs value={tab} onValueChange={(next) => setTab(next as SettingsTab)}>
               <TabsList>
                 <TabsTrigger value="general">常规</TabsTrigger>
                 <TabsTrigger value="sync">同步</TabsTrigger>

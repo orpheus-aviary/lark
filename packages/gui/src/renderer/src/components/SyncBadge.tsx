@@ -60,7 +60,10 @@ export function SyncBadge(): React.JSX.Element {
   const syncNow = async (): Promise<void> => {
     try {
       const result = await run();
-      toast.success(`同步完成：拉取 ${result.applied} 项，推送 ${result.pushed} 项`);
+      // §7 F9: `applied` is what this device WROTE from the pull, which is not
+      // the same as what it pulled — a change it had already seen arrives and
+      // applies to nothing. Say the field's own name.
+      toast.success(`同步完成：应用 ${result.applied} 项，推送 ${result.pushed} 项`);
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -213,7 +216,9 @@ export function SyncBadge(): React.JSX.Element {
                   variant={needsLogin ? 'default' : 'secondary'}
                   onClick={() => {
                     setOpen(false);
-                    openSettings();
+                    // Both doors lead to the sync tab: this button exists
+                    // because of something the badge just said (§7 F4).
+                    openSettings('sync');
                   }}
                 >
                   {needsLogin ? '去登录…' : '同步设置…'}

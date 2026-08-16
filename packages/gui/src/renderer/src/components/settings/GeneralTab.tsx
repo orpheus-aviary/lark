@@ -4,6 +4,7 @@
 
 import type { LogLevel, PublicLarkConfig, ThemeMode } from '@lark/shared';
 import { LOG_LEVELS, THEME_MODES } from '@lark/shared';
+import { useMediaTools } from '../../stores/media-tools.js';
 import { Button } from '../ui/button.js';
 import { Input } from '../ui/input.js';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select.js';
@@ -27,7 +28,25 @@ const LOG_LEVEL_LABELS: Record<LogLevel, string> = {
   fatal: 'fatal',
 };
 
-const API_FORMATS = ['openai', 'anthropic'] as const;
+/**
+ * The domain, with `''` first (§7 F5).
+ *
+ * `''` is a real choice — "follow aviary's shared config" — and it used to be
+ * rendered as `openai`: the field lied about what was stored, and picking
+ * anything wrote a concrete value that could never be un-picked from here.
+ */
+/**
+ * Radix refuses `value=""` on a `Select.Item` — the empty string is how it
+ * CLEARS a selection — so the "follow aviary" choice needs a stand-in, and the
+ * translation happens at the two edges of this Select and nowhere else.
+ */
+const INHERIT = 'inherit';
+
+const API_FORMAT_ITEMS: readonly { value: string; label: (effective: string) => string }[] = [
+  { value: INHERIT, label: (effective) => `跟随 aviary（当前：${effective || '未配置'}）` },
+  { value: 'openai', label: () => 'openai' },
+  { value: 'anthropic', label: () => 'anthropic' },
+];
 
 /** The cache-limit choices, in MiB — 0 is "no limit" (M5-18). */
 const CACHE_LIMITS = [
@@ -54,6 +73,11 @@ export function GeneralTab({
   update,
   errorFor,
 }: GeneralTabProps): React.JSX.Element {
+  // What the daemon would actually speak right now. `GET /config` cannot
+  // answer this — it only knows lark's own file, where `''` means "ask
+  // aviary" — so it comes from capabilities (§7 F5).
+  const effectiveFormat = useMediaTools((s) => s.llmEffectiveFormat);
+
   return (
     <>
       <Section title="LLM" hint="留空的字段会回退到 aviary 的共享配置">
@@ -73,16 +97,16 @@ export function GeneralTab({
         </Field>
         <Field label="接口格式" htmlFor="llm-format" error={errorFor('llm.api_format')}>
           <Select
-            value={draft.llmFormat === '' ? 'openai' : draft.llmFormat}
-            onValueChange={(value) => update({ llmFormat: value })}
+            value={draft.llmFormat === '' ? INHERIT : draft.llmFormat}
+            onValueChange={(value) => update({ llmFormat: value === INHERIT ? '' : value })}
           >
             <SelectTrigger id="llm-format">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {API_FORMATS.map((format) => (
-                <SelectItem key={format} value={format}>
-                  {format}
+              {API_FORMAT_ITEMS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label(effectiveFormat ?? '')}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -95,7 +119,15 @@ export function GeneralTab({
               type="password"
               value={draft.apiKey}
               disabled={draft.clearApiKey}
-              placeholder={config.llm.has_api_key ? '已设置（留空保持不变）' : '未设置'}
+              // §7 F6: an empty key here does not mean no key. `resolveLlmConfig`
+              // falls back to aviary's shared config field by field, so the model
+              // can keep working after a "clear" — and the placeholder said the
+              // opposite.
+              placeholder={
+                config.llm.has_api_key
+                  ? '已设置（留空保持不变）'
+                  : '未设置（将回退 aviary 共享配置）'
+              }
               onChange={(e) => update({ apiKey: e.target.value })}
             />
             <Button
@@ -136,7 +168,16 @@ export function GeneralTab({
             onChange={(e) => update({ globalFontSize: e.target.value })}
           />
         </Field>
-        <Field label="歌词字号" htmlFor="font-lyrics" error={errorFor('font.lyrics_font_size')}>
+        {/* §7's "record, do not change": the lyrics panel is a fixed height by
+          design, so the current line is capped at 1.75rem and the other lines
+          do not scale at all. Saying so beats a number that appears to do
+          nothing past a point. */}
+        <Field
+          label="歌词字号"
+          htmlFor="font-lyrics"
+          hint="只作用于歌词面板的当前行，且最大 28px（面板高度固定）"
+          error={errorFor('font.lyrics_font_size')}
+        >
           <Input
             id="font-lyrics"
             type="number"

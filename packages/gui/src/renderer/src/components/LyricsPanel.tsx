@@ -41,7 +41,13 @@ export function LyricsPanel(): React.JSX.Element {
   // The badge is a transient acknowledgement of the last adjustment, so it
   // keys off the offset value rather than the click.
   useEffect(() => {
-    if (offset === 0) return;
+    // Zero is a value, not an absence (§7 F8): stepping the offset back to 0
+    // used to return early and leave the badge showing the number before it,
+    // which then stayed on screen until the next adjustment.
+    if (offset === 0) {
+      setShowOffset(false);
+      return;
+    }
     setShowOffset(true);
     const timer = setTimeout(() => setShowOffset(false), OFFSET_BADGE_MS);
     return () => clearTimeout(timer);

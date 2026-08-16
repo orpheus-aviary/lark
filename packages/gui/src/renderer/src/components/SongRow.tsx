@@ -230,8 +230,17 @@ function SongContextMenu({
             从当前列表移除{suffix}
           </ContextMenuItem>
         )}
-        <ContextMenuItem onSelect={actions.redownloadLyrics}>重新下载歌词</ContextMenuItem>
-        <ContextMenuItem onSelect={actions.deleteLyrics}>删除歌词</ContextMenuItem>
+        {/* §7 F17: these three used to act on the right-clicked row even with
+          twelve selected, and said nothing about it — every other action here
+          has a `many` branch. */}
+        <ContextMenuItem
+          onSelect={() => (many ? batch.redownloadLyrics() : actions.redownloadLyrics())}
+        >
+          重新下载歌词{suffix}
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => (many ? batch.deleteLyrics() : actions.deleteLyrics())}>
+          删除歌词{suffix}
+        </ContextMenuItem>
         <ContextMenuItem onSelect={actions.copyId}>复制歌曲 ID</ContextMenuItem>
         <ContextMenuSeparator />
         {/* The link three (M5-10). Copy/open need a link to work with; editing
@@ -253,7 +262,9 @@ function SongContextMenu({
             {song.pinned ? '取消固定' : '固定'}
           </ContextMenuItem>
         )}
-        <ContextMenuItem onSelect={actions.redownload}>重新下载</ContextMenuItem>
+        <ContextMenuItem onSelect={() => (many ? batch.redownload() : actions.redownload())}>
+          重新下载{suffix}
+        </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem
           variant="destructive"

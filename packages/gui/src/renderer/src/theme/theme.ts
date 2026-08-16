@@ -32,9 +32,12 @@ export function watchTheme(mode: ThemeMode): () => void {
 }
 
 /**
- * Font-size variables (M4-12, Go-parity scopes): the global size is applied
- * to <body> via `--lark-global-font-size`; the lyrics size only ever reaches
- * the lyrics current line (T4) via `--lark-lyrics-font-size`.
+ * Font-size variables (M4-12, Go-parity scopes). Both are set on <html> — the
+ * same element the dark class lives on — and it is the STYLESHEET that decides
+ * how far each one reaches: `--lark-global-font-size` is read by the body
+ * rule, `--lark-lyrics-font-size` only by the lyrics current line (§7 F16: the
+ * comment used to say these were applied to <body>, which is not where any of
+ * it happens).
  */
 export function applyFontSizes(globalPx: number, lyricsPx: number): void {
   const root = document.documentElement;

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCache } from '../stores/cache.js';
 import { useConfig } from '../stores/config.js';
+import { useMediaTools } from '../stores/media-tools.js';
 import { useSettingsUi } from '../stores/settings-ui.js';
 import { SettingsDialog } from './SettingsDialog.js';
 
@@ -239,5 +240,63 @@ describe('the about block', () => {
     await user.click(await screen.findByRole('button', { name: '第三方软件声明' }));
 
     expect(await screen.findByText(/不在应用包内/)).toBeTruthy();
+  });
+});
+
+// ─── The LLM block (§7 F5/F6 — criteria 39, 40) ─────────
+
+describe('the LLM block', () => {
+  it('shows "follow aviary" as itself, with what that currently resolves to', async () => {
+    config = publicConfig({
+      llm: { url: '', model: '', api_format: '', has_api_key: false },
+    });
+    // Both: the store is what the first render draws, the fetch stub is what
+    // the open refetches (the dialog does both, and this test is about neither).
+    useConfig.setState({ config });
+    useMediaTools.setState({ llmEffectiveFormat: 'anthropic' });
+    render(<SettingsDialog />);
+    useSettingsUi.getState().openSettings();
+
+    // The trigger renders the SELECTED item's label, so this is the mapping
+    // under test: `''` on the wire reads as "follow aviary", with what it
+    // currently resolves to — not as the protocol it used to claim.
+    const trigger = await screen.findByLabelText('接口格式');
+    await waitFor(() => expect(trigger.textContent).toBe('跟随 aviary（当前：anthropic）'));
+  });
+
+  it('says an empty key is not the same as no key', async () => {
+    config = publicConfig({
+      llm: { url: '', model: '', api_format: '', has_api_key: false },
+    });
+    useConfig.setState({ config });
+    render(<SettingsDialog />);
+    useSettingsUi.getState().openSettings();
+
+    const key = (await screen.findByLabelText('API Key')) as HTMLInputElement;
+    // The aviary fallback keeps the model working, so "未设置" alone was the
+    // opposite of what happens (§7 F6).
+    expect(key.placeholder).toContain('aviary');
+  });
+});
+
+// ─── Which tab it opens on (§7 F4 — criterion 38) ───────
+
+describe('the tab it lands on', () => {
+  it('opens where the caller asked, and stays there across opens', async () => {
+    render(<SettingsDialog />);
+
+    useSettingsUi.getState().openSettings('sync');
+    expect((await screen.findByRole('tab', { name: '同步' })).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+
+    // Closed and reopened from the gear icon: back to the general tab. The
+    // Tabs are controlled, so this is a state change rather than a remount —
+    // which is exactly what `defaultValue` could not do.
+    useSettingsUi.getState().setOpen(false);
+    useSettingsUi.getState().openSettings();
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: '常规' }).getAttribute('aria-selected')).toBe('true'),
+    );
   });
 });
