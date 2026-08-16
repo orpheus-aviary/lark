@@ -326,7 +326,15 @@ export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.El
         title="同步"
         hint="后台还会在收到服务器推送和本机改动后立刻同步，这里只是兜底的轮询间隔"
       >
-        <Field label="轮询间隔" htmlFor="sync-interval" error={errorFor('sync.interval_min')}>
+        {/* §7 F1: the timer is rebuilt on save now, so the hint can promise
+          when it takes effect — the honest version of a promise nobody made
+          while the daemon went on using the interval it read at boot. */}
+        <Field
+          label="轮询间隔"
+          htmlFor="sync-interval"
+          hint="保存后立即生效，新的周期从保存那一刻开始算"
+          error={errorFor('sync.interval_min')}
+        >
           <Select
             value={String(draft.syncIntervalMin)}
             onValueChange={(value) => update({ syncIntervalMin: Number(value) })}

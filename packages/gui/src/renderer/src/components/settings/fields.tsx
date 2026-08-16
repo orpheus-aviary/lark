@@ -27,11 +27,14 @@ export function Field({
   label,
   htmlFor,
   error,
+  hint,
   children,
 }: {
   label: string;
   htmlFor: string;
   error?: string | undefined;
+  /** One line under the control, for a setting whose scope is not obvious. */
+  hint?: string;
   children: React.ReactNode;
 }): React.JSX.Element {
   return (
@@ -41,6 +44,7 @@ export function Field({
       </Label>
       <div className="space-y-1">
         {children}
+        {hint !== undefined && <p className="text-muted-foreground text-xs">{hint}</p>}
         {error !== undefined && <p className="text-destructive text-xs">{error}</p>}
       </div>
     </div>

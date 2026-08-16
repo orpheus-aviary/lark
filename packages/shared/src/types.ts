@@ -383,6 +383,16 @@ export interface CapabilitiesData {
   audio_format: 'm4a';
   /** Extensions `POST /songs/import` accepts, without the dot (§3.4). */
   import_formats: readonly string[];
+  /**
+   * Which protocol the LLM client will actually speak (§7 F5).
+   *
+   * `GET /config` can only report what lark's OWN file says, and `''` there
+   * means "follow aviary's shared config" — a settings page that rendered that
+   * as a protocol would be guessing, and the guess it used to make was
+   * `openai`. This is the resolved answer, so the field can say
+   * "follow aviary (currently: anthropic)" and be right.
+   */
+  llm_effective_format: string;
 }
 
 // ─── Cache (M5) ────────────────────────────────────────

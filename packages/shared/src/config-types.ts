@@ -17,6 +17,17 @@ export interface LlmConfig {
   api_format: string;
 }
 
+/**
+ * The closed domain of `llm.api_format` (§7 F5).
+ *
+ * `''` first because it is the default and the one that means something other
+ * than a protocol: follow aviary's shared config. The client branches on
+ * `anthropic` and treats everything else as OpenAI, so an unvalidated string
+ * here is a request that silently speaks the wrong protocol.
+ */
+export const LLM_API_FORMATS = ['', 'openai', 'anthropic'] as const;
+export type LlmApiFormat = (typeof LLM_API_FORMATS)[number];
+
 export interface WindowConfig {
   width: number;
   height: number;

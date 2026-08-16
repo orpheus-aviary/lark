@@ -68,6 +68,8 @@ export class SyncHandles implements SyncBackgroundHandles {
 
   #stopped = false;
   #timers: NodeJS.Timeout[] = [];
+  /** The clock trigger specifically: it is the one that can be re-armed (F1). */
+  #scheduler: NodeJS.Timeout | null = null;
 
   // ── coalescer ──
   #inflight: Promise<RunSyncResult | null> | null = null;
@@ -99,19 +101,47 @@ export class SyncHandles implements SyncBackgroundHandles {
     if (!this.#ctx.sync.triggersEnabled || this.#stopped) return;
     this.#every(POLL_MS, () => this.tickOutbox());
     this.#every(REFRESH_POLL_MS, () => void this.tickRefresh());
+    this.rearmScheduler();
+    this.#ctx.logger.info(
+      { interval_min: this.#ctx.config.sync.interval_min, poll_ms: POLL_MS },
+      'sync triggers started',
+    );
+  }
+
+  /**
+   * Re-read `[sync] interval_min` and put the clock trigger on the new one
+   * (F1).
+   *
+   * Called by `PATCH /config`, because the interval used to be read exactly
+   * once — at boot. Changing it in the settings page wrote the file, updated
+   * the in-memory config and re-rendered the field, and the timer went on
+   * firing at the old cadence until the next restart, with nothing on any
+   * screen saying so.
+   *
+   * Re-arming restarts the period rather than shortening the current one: a
+   * user who just moved 60 minutes to 5 waits 5 from now, which is both what
+   * they meant and the easier promise to keep.
+   */
+  rearmScheduler(): void {
+    if (this.#scheduler !== null) {
+      clearInterval(this.#scheduler);
+      this.#timers = this.#timers.filter((timer) => timer !== this.#scheduler);
+      this.#scheduler = null;
+    }
+    if (this.#stopped || !this.#ctx.sync.triggersEnabled) return;
     // The config validator floors this at 1, so there is no "disabled" value to
     // handle — the guard is against a hand-edited file that got past a loader.
     const minutes = this.#ctx.config.sync.interval_min;
-    if (minutes > 0) this.#every(minutes * 60_000, () => this.tickScheduler());
-    this.#ctx.logger.info({ interval_min: minutes, poll_ms: POLL_MS }, 'sync triggers started');
+    if (minutes > 0) this.#scheduler = this.#every(minutes * 60_000, () => this.tickScheduler());
   }
 
-  #every(ms: number, fn: () => void): void {
+  #every(ms: number, fn: () => void): NodeJS.Timeout {
     const timer = setInterval(fn, ms);
     // Without unref a daemon shutting down would wait out the longest interval
     // before the event loop could drain.
     timer.unref?.();
     this.#timers.push(timer);
+    return timer;
   }
 
   /**
@@ -158,6 +188,7 @@ export class SyncHandles implements SyncBackgroundHandles {
     this.#stopped = true;
     for (const timer of this.#timers) clearInterval(timer);
     this.#timers = [];
+    this.#scheduler = null;
     this.#dropSubscription();
   }
 

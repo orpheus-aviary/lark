@@ -20,8 +20,9 @@
 // the teardown, which would deadlock against this very request).
 
 import { loadConfig, redactConfig, saveConfig } from '@lark/core';
-import { API_PATHS, LOG_LEVELS, type LarkConfig, THEME_MODES } from '@lark/shared';
+import { API_PATHS, LLM_API_FORMATS, LOG_LEVELS, type LarkConfig, THEME_MODES } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
+import { scheduleEvictionInBackground } from '../cache.js';
 import type { AppContext } from '../context.js';
 import { fail, ok } from '../response.js';
 import { InvalidRequestError } from '../validation.js';
@@ -90,7 +91,11 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
     model: text(STRING_MAX),
     // '' clears the key — the only way to remove it through the API.
     api_key: text(STRING_MAX),
-    api_format: text(STRING_MAX),
+    // A closed domain (§7 F5): the LLM client branches on `anthropic` and
+    // treats EVERYTHING else as OpenAI, so a typo used to be accepted, saved,
+    // and then silently talk the wrong protocol. `''` is a real value — it
+    // means "whatever aviary's shared config says".
+    api_format: oneOf(LLM_API_FORMATS),
   },
   window: { width: number({ min: 1 }), height: number({ min: 1 }) },
   theme: { mode: oneOf(THEME_MODES) },
@@ -133,6 +138,16 @@ function applyPatch(target: LarkConfig, patch: unknown): void {
   }
 }
 
+/**
+ * Did the cache limit get tighter? `0` is "unlimited", so it is the largest
+ * value there is — and moving OFF it is the one shrink that a plain `<`
+ * comparison would read as growth.
+ */
+function isSmallerLimit(next: number, previous: number): boolean {
+  if (next === 0) return false;
+  return previous === 0 || next < previous;
+}
+
 export function registerConfigRoutes(app: FastifyInstance, ctx: AppContext): void {
   const save = (config: LarkConfig): void =>
     (ctx.saveConfigImpl ?? saveConfig)(config, ctx.configPath);
@@ -173,7 +188,21 @@ export function registerConfigRoutes(app: FastifyInstance, ctx: AppContext): voi
       );
     }
 
+    const previous = ctx.config;
     ctx.config = next;
+
+    // Settings that something is ALREADY holding have to be handed over, or
+    // the field, the file and the running daemon disagree with each other and
+    // only a restart resolves it (§7 F1/F7).
+    if (next.sync.interval_min !== previous.sync.interval_min) {
+      ctx.sync.rearmScheduler();
+    }
+    // Only when it SHRANK: raising the limit cannot make the library over it,
+    // and an eviction run that has nothing to do is still a disk walk.
+    if (isSmallerLimit(next.storage.cache_limit_mb, previous.storage.cache_limit_mb)) {
+      scheduleEvictionInBackground(ctx, 'config-changed');
+    }
+
     // log.* only takes effect on the next boot: the logger was built at start-up.
     ok(reply, redactConfig(ctx.config), 'config saved (log settings apply after a restart)');
   });

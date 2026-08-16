@@ -209,3 +209,79 @@ describe('stop', () => {
     expect(pulls()).toBe(0);
   });
 });
+
+// ─── The clock trigger's cadence (§7 F1 — criterion 35) ─
+
+describe('rearmScheduler', () => {
+  /**
+   * Its own context, with the timers really running: this is the one
+   * behaviour that IS a timer, so the tick seam the rest of the suite uses
+   * would prove nothing about it.
+   *
+   * The assertion counts `tickScheduler` calls rather than sync rounds. What
+   * is under test is the cadence — whether a round comes of it is the gate
+   * inside the tick (a session has to exist), and that is another test's job.
+   */
+  async function withTimers(
+    body: (handles: SyncHandles, own: TestContext) => Promise<void>,
+  ): Promise<void> {
+    vi.useFakeTimers();
+    const own = createTestContext({ skybridge: createFakeSkybridge().api, syncTriggers: true });
+    const started = attachSyncHandles(own);
+    own.config.sync.interval_min = 1;
+    started.rearmScheduler();
+    try {
+      await body(started, own);
+    } finally {
+      started.stop();
+      await closeTestContext(own);
+      vi.useRealTimers();
+    }
+  }
+
+  it('fires at the new interval, not the one boot read', async () => {
+    await withTimers(async (started, own) => {
+      const ticks = vi.spyOn(started, 'tickScheduler').mockImplementation(() => {});
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(ticks).toHaveBeenCalledTimes(1);
+
+      // …and now the user changes it in the settings page.
+      own.config.sync.interval_min = 5;
+      started.rearmScheduler();
+      await vi.advanceTimersByTimeAsync(60_000);
+      // Nothing at the OLD cadence: the minute that just passed was the first
+      // fifth of the new period.
+      expect(ticks).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(4 * 60_000);
+      expect(ticks).toHaveBeenCalledTimes(2);
+      ticks.mockRestore();
+    });
+  });
+
+  it('leaves no timer behind when it re-arms', async () => {
+    await withTimers(async (started) => {
+      const ticks = vi.spyOn(started, 'tickScheduler').mockImplementation(() => {});
+      started.rearmScheduler();
+      started.rearmScheduler();
+      await vi.advanceTimersByTimeAsync(60_000);
+      // Three arms, one clock: an implementation that only ADDED a timer would
+      // sync three times a minute and never say why.
+      expect(ticks).toHaveBeenCalledTimes(1);
+      ticks.mockRestore();
+    });
+  });
+
+  it('stops firing after stop()', async () => {
+    await withTimers(async (started) => {
+      const ticks = vi.spyOn(started, 'tickScheduler').mockImplementation(() => {});
+      started.stop();
+      // Re-arming a stopped set of handles must stay stopped: teardown is the
+      // one state a later config patch cannot undo.
+      started.rearmScheduler();
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      expect(ticks).not.toHaveBeenCalled();
+      ticks.mockRestore();
+    });
+  });
+});

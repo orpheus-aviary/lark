@@ -316,6 +316,10 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
   // its floor. That makes "install ffmpeg, reopen settings" work without a
   // restart, and keeps a settings page that polls from forking processes.
   app.get(API_PATHS.capabilities, async (_req, reply) => {
+    // Resolved once: `llm_available` and `llm_effective_format` are two
+    // questions about the same answer, and asking twice could read the aviary
+    // file twice and disagree with itself.
+    const llm = resolveLlmConfig(ctx.config);
     ok(reply, {
       name: 'lark',
       version: ctx.version,
@@ -324,9 +328,10 @@ export function registerSystemRoutes(app: FastifyInstance, ctx: AppContext): voi
       // The EFFECTIVE config (0.3.0 §3.6-1): a key inherited from aviary's
       // shared config is a working LLM, and a client that greyed out keyword
       // search because lark's own file is empty would be wrong about it.
-      llm_available: isLlmConfigured(resolveLlmConfig(ctx.config)),
+      llm_available: isLlmConfigured(llm),
       audio_format: 'm4a',
       import_formats: [...IMPORT_AUDIO_EXTENSIONS],
+      llm_effective_format: llm.api_format,
     } satisfies CapabilitiesData);
   });
 }

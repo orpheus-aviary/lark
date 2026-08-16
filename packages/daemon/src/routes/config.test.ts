@@ -222,3 +222,63 @@ describe('PATCH /config', () => {
     chmodSync(unreadable, 0o755); // loadConfig tightened it; restore for cleanup
   });
 });
+
+// ─── Settings something is already holding (§7 F1/F5/F7) ─
+
+describe('a patch that changes a live setting', () => {
+  // Criterion 35: the route's half. That the timer really moves is
+  // triggers.test.ts's.
+  it('hands the new sync cadence to the trigger that owns it', async () => {
+    const rearm = vi.spyOn(ctx.sync, 'rearmScheduler');
+
+    expect((await patch({ sync: { interval_min: 30 } })).statusCode).toBe(200);
+    expect(rearm).toHaveBeenCalledTimes(1);
+
+    // The same value again is not a change, and re-arming would silently
+    // restart the period every time the settings page saved.
+    await patch({ sync: { interval_min: 30 } });
+    expect(rearm).toHaveBeenCalledTimes(1);
+    rearm.mockRestore();
+  });
+
+  // Criterion 41. The limit had three triggers and none of them was "the user
+  // just lowered it", so the library stayed over the new limit until a
+  // download finished or the daemon restarted.
+  it('starts an eviction when the cache limit shrinks', async () => {
+    const schedule = vi.spyOn(ctx.cacheScheduler, 'schedule').mockResolvedValue({
+      evicted_count: 0,
+      freed_bytes: 0,
+      skipped_unverified_count: 0,
+      skipped_unverified_bytes: 0,
+    });
+
+    await patch({ storage: { cache_limit_mb: 500 } });
+    expect(schedule).toHaveBeenCalledTimes(1);
+
+    // Raising it cannot put the library over the limit…
+    await patch({ storage: { cache_limit_mb: 900 } });
+    expect(schedule).toHaveBeenCalledTimes(1);
+    // …and 0 is "unlimited", which is the largest value there is.
+    await patch({ storage: { cache_limit_mb: 0 } });
+    expect(schedule).toHaveBeenCalledTimes(1);
+    // Coming OFF unlimited is a shrink, whatever a numeric comparison says.
+    await patch({ storage: { cache_limit_mb: 900 } });
+    expect(schedule).toHaveBeenCalledTimes(2);
+    schedule.mockRestore();
+  });
+
+  // Criterion 39: the domain. The client branches on `anthropic` and treats
+  // everything else as OpenAI, so an accepted typo talks the wrong protocol.
+  it('refuses an api_format outside the three it can speak', async () => {
+    const res = await patch({ llm: { api_format: 'openai-compatible' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error_code).toBe('INVALID_CONFIG');
+
+    for (const format of ['openai', 'anthropic', '']) {
+      expect((await patch({ llm: { api_format: format } })).statusCode).toBe(200);
+    }
+    // `''` is last on purpose: it survives the round trip as itself, because
+    // it is "follow aviary" rather than "unset me".
+    expect((await getConfig()).llm.api_format).toBe('');
+  });
+});

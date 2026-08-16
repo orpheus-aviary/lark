@@ -34,6 +34,8 @@ import type { SyncSession } from './session.js';
 export interface SyncBackgroundHandles {
   /** Ask for a round through the coalescer. Every caller goes through this. */
   run(trigger: SyncTrigger): Promise<RunSyncResult | null>;
+  /** Re-read `[sync] interval_min` and put the clock trigger on it (F1). */
+  rearmScheduler(): void;
   stop(): void;
   abortAndDrain(): Promise<void>;
 }
@@ -90,6 +92,16 @@ export class SyncRuntime {
 
   attachHandles(handles: SyncBackgroundHandles): void {
     this.#handles = handles;
+  }
+
+  /**
+   * The cadence in the config changed; put the clock trigger on the new one.
+   *
+   * A no-op when nothing is attached — a context built without triggers has no
+   * clock to re-arm, and a config patch must not care which kind it is.
+   */
+  rearmScheduler(): void {
+    this.#handles?.rearmScheduler();
   }
 
   /**

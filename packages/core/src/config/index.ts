@@ -19,6 +19,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  LLM_API_FORMATS,
   LOG_LEVELS,
   type LarkConfig,
   type LlmConfig,
@@ -260,6 +261,9 @@ const LOG_LEVEL_SET: ReadonlySet<string> = new Set(LOG_LEVELS);
 /** Same arrangement for the theme mode (M5-2). */
 const THEME_MODE_SET: ReadonlySet<string> = new Set(THEME_MODES);
 
+/** …and for `llm.api_format`, which is a closed domain from 0.3.0 (§7 F5). */
+const LLM_API_FORMAT_SET: ReadonlySet<string> = new Set(LLM_API_FORMATS);
+
 function str(v: unknown, dflt: string): string {
   return typeof v === 'string' ? v : dflt;
 }
@@ -281,7 +285,11 @@ function sanitize(cfg: LarkConfig): LarkConfig {
   cfg.llm.url = str(cfg.llm.url, d.llm.url);
   cfg.llm.model = str(cfg.llm.model, d.llm.model);
   cfg.llm.api_key = str(cfg.llm.api_key, d.llm.api_key);
-  cfg.llm.api_format = str(cfg.llm.api_format, d.llm.api_format);
+  // An out-of-domain value converges to `''` — "follow aviary" — rather than
+  // to a protocol nobody chose. Before 0.3.0 anything was accepted here and
+  // everything that was not `anthropic` silently spoke OpenAI (§7 F5).
+  const format = str(cfg.llm.api_format, d.llm.api_format);
+  cfg.llm.api_format = LLM_API_FORMAT_SET.has(format) ? format : d.llm.api_format;
   cfg.window.width = num(cfg.window.width, d.window.width, { min: 1 });
   cfg.window.height = num(cfg.window.height, d.window.height, { min: 1 });
   cfg.theme.mode = (
