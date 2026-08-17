@@ -9,6 +9,7 @@
   "dependencies": {
     "@lark/core": "workspace:*",
     "@lark/shared": "workspace:*",
+    "@noble/hashes": "2.3.0",
     "@orpheus-aviary/skybridge-client": "0.1.4",
     "@orpheus-aviary/skybridge-proto": "0.1.4",
     "drizzle-orm": "0.38.4",

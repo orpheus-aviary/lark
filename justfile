@@ -527,6 +527,12 @@ spike-media-check: spike-media-fixture
 # belongs in a config plugin instead.
 
 _jdk17 := `/usr/libexec/java_home -v 17 2>/dev/null || echo ""`
+# The SDK location is pinned the same way JAVA_HOME is, and for the same
+# reason: it lives in the user's interactive shell profile, so a recipe that
+# only inherits it works by hand and fails from anything else with
+# "spawn adb ENOENT" several minutes into a Gradle build.
+_android_home := env_var_or_default("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
+_adb := _android_home / "platform-tools/adb"
 
 # Types only — the spike is deliberately NOT in the root tsconfig references
 # (`tsc -b` would drag React Native's types into every desktop build).
@@ -538,18 +544,37 @@ spike-mobile-typecheck: build-shared build-core
 # only sanctioned way that directory comes into existence.
 [group('spike')]
 spike-mobile-prebuild:
-    JAVA_HOME="{{_jdk17}}" pnpm --filter @lark/spike-mobile-foundation exec expo prebuild --platform android --clean
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/spike-mobile-foundation exec expo prebuild --platform android --clean
 
 # Build + install the dev client on the connected device, then serve Metro.
 # Debug variant: development only. Every NUMERIC criterion (§3.2a) uses
 # `spike-mobile-android-release` instead — a debug build measures the debugger.
 [group('spike')]
 spike-mobile-android: build-shared build-core
-    JAVA_HOME="{{_jdk17}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android
 
+# The build every NUMERIC criterion is measured on (§3.2a). `--no-bundler`
+# because a release APK carries its own bytecode: starting a dev server would
+# only fight the one a debug session may already have on 8081, and a release
+# measurement must not be able to attach to it by accident.
 [group('spike')]
 spike-mobile-android-release: build-shared build-core
-    JAVA_HOME="{{_jdk17}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android --variant release
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android --variant release --no-bundler
+
+# The desktop peer for criterion 21's fetch rows, and the sink the panels POST
+# their numbers to (a release build has no Metro to print them to). `adb
+# reverse` is what makes `http://localhost:8099` on the phone arrive here.
+[group('spike')]
+spike-mobile-probe-host:
+    {{_adb}} reverse tcp:8099 tcp:8099
+    node spikes/mobile-foundation/scripts/probe-host.mjs
+
+# Recompute the expected digests / byte lengths / base64 decodes that the phone
+# is checked against, using node:crypto and Buffer — the implementations core
+# itself calls. Committed output; run it when a sample changes.
+[group('spike')]
+spike-mobile-fixtures:
+    node spikes/mobile-foundation/scripts/make-desktop-fixtures.mjs
 
 # ─── Live probes (M3) ───────────────────────────────────
 

@@ -215,13 +215,17 @@ justfile 加 `core-portable` recipe 进 `check:` 依赖列表。
 
 **播放（D17 判定组）**
 19. **raw fMP4 直存达标判定**。夹具与探针（不 import core 业务模块）：
-   - 夹具：桌面脚本用 core bilibili client 取选定 AAC 流**原始字节**落文件、adb push——短曲 ~1min + **长曲 ≥35min**（后台判据要 ≥30min，夹具必须有余量；不足就循环播放并注明）。
+   - 夹具：桌面脚本用 core bilibili client 取选定 AAC 流**原始字节**落文件、adb push——短曲 ~1min + **长曲 ≥35min**（长曲留着不是为了后台时长——那条已缩到 5min，见下——而是 seek 偏差与 duration 误差要在一个长文件上才有意义，且 §3.2a 的 remux 内存峰值口径按 30 分钟曲目全程算；不足就循环播放并注明）。
    - 流探针（v4 修 header 集，E-1.3）：桌面夹具同时输出 `openAudio()` 的**实际全量 header 集**（User-Agent + Referer + buvid Cookie，`bilibili.ts:145,335`）与带签 URL；真机 `expo/fetch` **先完全复现该 header 集**拉流成功，**再逐项删除**定位最低要求（矩阵记 §9）——失败时才分得清 RN 能力缺失与探针输入不一致。
-   - **通过条件**：duration 误差 ≤1s；seek 0%/25%/50%/95% 各偏差 ≤1s；暂停恢复不漂；后台 + 锁屏连续 ≥30min 不断（行为判据，跑 1 次）且锁屏元数据/控制可用（人工清单）；音频焦点瞬时抢占自动恢复、永久抢占停住（人工清单）；耳机拔出暂停（人工清单）；**单 player 与 playlist 两种驱动形态各测一遍**。
+   - **通过条件**：duration 误差 ≤1s；seek 0%/25%/50%/95% 各偏差 ≤1s；暂停恢复不漂；后台 + 锁屏连续 **≥5min** 不断（行为判据，跑 1 次）且锁屏元数据/控制可用（人工清单）；音频焦点瞬时抢占自动恢复、永久抢占停住（人工清单）；**蓝牙耳机断连**暂停（人工清单）；**单 player 与 playlist 两种驱动形态各测一遍**。
+   - **两处口径修订（2026-08-17，用户决定）与它们的代价**：
+     - 后台时长 **30min → 5min**。5 分钟到不了 vivo OriginOS 收后台的时间尺度（§9 设备档案里那条风险原样成立），所以这条从此**只证明「不是一开始就断」**，不构成耐久证据；真正的耐久证据是 **N3 的整晚 soak**，它因此从「顺带做」升为必须做。
+     - 耳机拔出 → **蓝牙断连**。测量设备没有耳机孔。两者在 Android 上不是同一条路径（有线走 `ACTION_AUDIO_BECOMING_NOISY`，蓝牙 A2DP 断开也发同一个广播，但还叠加设备路由变更），所以这条**只覆盖蓝牙**；有线拔出未验，N3 若要声称覆盖需另找设备。
    - 不达标 → JS remux 候选（§3.2a 的 PSS 峰值口径）→ **原生 remux 兜底的绿条件（v4）**：真机原型跑通并**重跑本判据同一套播放通过条件**全绿——「调研」不构成出口 → 仍不行 **NO-GO**。
 
 **移植地基**
-20. crypto 端口定案（决策 d2）：按 §3.2a 跑分——WBI 短串 md5 p95 ≤5ms、256KB sha256 p95 ≤50ms、`expo-crypto.randomUUID` 与 **`getRandomValues`**（`randomBuvid3` 要用，`wbi.ts:147-153`）可用。**超阈转向分支的绿条件（v4）**：digest 改走 expo-crypto async 时，必须给出 **WBI 与 file-ops 两条真实调用图的 async 化方案**并原型过测——特别是 `discard()` 在**同步事务内**算 digest 的那处（digest 前移到事务外的方案要成立）；两个出口都拿不到绿 = 第三候选（自建 native 同步 digest module）进入讨论。
+20. crypto 端口定案（决策 d2）：按 §3.2a 跑分——WBI 短串 md5 p95 ≤5ms、**真实歌词尺寸（≤8KB）sha256 p95 ≤10ms**、`expo-crypto.randomUUID` 与 **`getRandomValues`**（`randomBuvid3` 要用，`wbi.ts:147-153`）可用。
+   - **阈值口径修订（2026-08-17，用户拍板，出口 C）**：原文是「256KB sha256 p95 ≤50ms」，实测 **83.66ms**——纯 JS 同步 digest 在这个尺寸上过不去。改绑**真实尺寸**的理由是调用图：`inlineDigest`（`file-ops.ts:337-343`）唯一的大输入来自内联歌词，真实 LRC 是 5.7KB（**1.83ms**），256KB 是 `SYNC_FILE_OP_INLINE_MAX` 这个**上限**而不是常态。**256KB 仍然测、仍然记录，但作为标注的最坏值而非阈值**——它的代价是明确的：用户真把一首 256KB 歌词卡在待办里、又去开 file-ops 列表时，每行 83ms（`listFileOps` 每行算一次）。同步端口因此保持全同步，core 不改。**超阈转向分支的绿条件（v4）**：digest 改走 expo-crypto async 时，必须给出 **WBI 与 file-ops 两条真实调用图的 async 化方案**并原型过测——特别是 `discard()` 在**同步事务内**算 digest 的那处（digest 前移到事务外的方案要成立）；两个出口都拿不到绿 = 第三候选（自建 native 同步 digest module）进入讨论。
 21. **Web 标准全局面清查**（§1.3-A 全清单）：真机逐项验原生有/无，产出三栏清单写回 §9（产出型：清单没产出 = 未完成）。
 22. **skybridge SDK RN 判定**：Metro 解析 + **`login/refresh/pullChanges/pushChanges` 对 LAN server 走通（四项硬 gate）**；`subscribeEvents` SSE 流式读 / abort / 断网重连是软判据（触发模型轮询为主，失败记录并降级）。
 23. bilibili 平台/网络探针（v4 重做，评审 R3-P1-2——spike 内做 WBI 签名必然复制 mixin/排序/过滤逻辑，违反边界原则）：
@@ -290,9 +294,10 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
   4. **收敛过程各崩溃点**（写意图后 / 写 DB 后 / 确认前 kill）：重启均收敛、binding/credentials **只清一次**。
   另：移动端 config 宿主定案、曲库/歌单读写、四 tab 骨架。
 - **N3 播放**：PlayerDriver + minibar + 全屏歌词 + 队列 + 后台/锁屏/焦点；整晚 soak；行为判据不锁 API。
-- **N4 下载**：AAC 选流 + AudioLanding RN 实现（判据 19 形态）+ 添加页 + 分享 intent（R2 解析接上）+ ensure-file + 缓存管理（探活 fail-closed 不变量原样）。**TLS 死线**（D15）。
+- **N4 下载**：AAC 选流 + AudioLanding RN 实现（判据 19 形态）+ 添加页 + 分享 intent（R2 解析接上）+ ensure-file + 缓存管理（探活 fail-closed 不变量原样）+ **歌单导出 → 系统分享面板**（2026-08-17 主计划 §4.5 修订：cache 目录 + `expo-sharing`，不碰 SAF；与分享 intent 的接收侧同一片原生区域）。**TLS 死线**（D15）。
 - **N5 同步**：SyncCoordinator 接线 + 徽章/冲突页/file-ops UI；前置 TLS 验收全过；与桌面双端真机 soak（登录前验库身份的教训照搬）。
-- **N6 收尾**：多选批量 + 设置 + 签名 APK + developer verification go/no-go。
+- **N6 收尾**：多选批量 + 设置 + **歌单导入（桌面导出的去 id 文件）** + 签名 APK + developer verification go/no-go。
+  - 导入这条 2026-08-17 才进 v1（主计划 §4.5 修订），**必须排在 N4 之后**：没有下载链路，导入进来的是一库点不响的行。子计划要单列一节，因为成本在预览/提交 UI（suspects 逐条合并、整文件 SHA-256 咬合、提交重跑匹配），不在文件 IO；同时评估 §9 N0b-3 留下的「出口 B」——2MB 的上限文件按实测 ~3MB/s 要一来一回约 1.3s。
 
 ---
 
@@ -372,7 +377,9 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 **编译目标与设备的差**：compileSdk/target **36**（Android 16），设备是 **35**。targetSdk 36 的包在 35 上正常运行，但**任何按设备 API level 分支的 Android 16 行为在这台机器上到不了**——N0 不依赖这类行为；将来若有，要单独说明。
 
-**⚠️ vivo 的后台策略是判据 19 的具体风险**：OriginOS 会杀后台进程，而判据 19 要「后台 + 锁屏连续 ≥30min 不断」。开工前要把 spike app 加进电池白名单，并且**这条不是测试环境的将就**——真实 vivo 用户会撞上同一件事，N3 的后台播放要按同样的口径处理。
+**⚠️ vivo 的后台策略是判据 19 的具体风险**：OriginOS 会杀后台进程。判据 19 的后台时长已按用户决定缩到 **≥5min**（§3.2 有修订记录），而 5 分钟**到不了** OriginOS 动手的尺度——所以这条风险没有被这次测试消掉，只是被推到了 N3 的整晚 soak。开工前仍要把 spike app 加进电池白名单，并且**这不是测试环境的将就**：真实 vivo 用户会撞上同一件事。
+
+**⚠️ 这台机器没有耳机孔**：判据 19 的「耳机拔出暂停」因此改为**蓝牙耳机断连**（同上，§3.2 有记录）。有线路径在本设备上不可测。
 
 **宿主工具链**（2026-08-17 装定）：`adb` 37.0.1（platform-tools 37.0.1）· `platforms;android-36` · `build-tools;36.0.0` · JDK **Temurin 17.0.20**（`/Library/Java/JavaVirtualMachines/temurin-17.jdk`，**不设全局 `JAVA_HOME`**——本机默认仍是 OpenJDK 25，17 只在 spike 的 just recipe 里生效）· `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`。首次构建时 Gradle 自动补装：**Gradle 9.3.1 · NDK 27.1.12297006**（RN 0.86 钉版；另拉了 27.0.12077973）· **CMake 3.22.1** · build-tools 35.0.0 · Kotlin 2.1.20 / KSP 2.1.20-2.0.1。LAN skybridge server 走兄弟仓 `../skybridge/packages/server/dist/src/index.js`（已在）。
 
@@ -472,6 +479,87 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 | patch 的兜底 | 双重：pnpm 把补丁**键控到 `drizzle-orm@0.38.4`**（升版则补丁不适用、安装报错，不会静默失效）+ 面板里的计数断言每批复跑 | §1.3-C 第 6 条 |
 
 **仍待 N0b-3 起**：判据 18 的卡顿数值必须跑 **release 构建**（本批全部是 debug，§3.2a 只认 release）。
+
+### N0b-3（2026-08-17）判据 18、20–21
+
+落点：`src/measure.ts`（§3.2a 的协议：预热/nearest-rank p95/冷启动判 max）+ `src/panels/{workload,crypto,globals}.ts` + `src/desktop-fixtures.ts`（生成物）+ 三个宿主脚本 `scripts/{probe-host,drive,make-desktop-fixtures}.mjs` + 依赖 `@noble/hashes@2.3.0` + 三条 just recipe。**全部数值取自 release 构建**，设备 vivo V2408A（§9 冻结设备）。
+
+**先说两件让数字算数的事**：
+
+1. 🔴 **release APK 会跑 debug bundle**。spike 的依赖里有 `expo-dev-client`，所以 `expo run:android --variant release` 装完之后**打开的是 dev-client 的 URL**（日志里那句 `Opening exp+…://expo-development-client/?url=http://…:8081`）——Metro 只要还开着，release 外壳就照常加载 Metro 的 JS，而 APK 是 release 的这件事一点也没错。分辨它只能靠 `__DEV__`（打包时烙进 bundle）：面板顶上现在印 `release bundle · Hermes · performance.now()`，`measure.ts` 的 `judge()` 在 dev bundle 上一律返回 `null`——**debug 跑出来的东西连 PASS 都渲染不出来**。本批的 release 数与同一份代码的 debug 数差 2–5 倍（apply 500：debug p50 651ms → release 164ms；sha256 256KB：169ms → 82.8ms），§3.2a 那条「debug 测的是调试器」不是修辞。
+2. **卡顿夹具必须开 WAL**。第一版没设 `journal_mode`，量到的是 DELETE 模式：500 首那一段 p95 是自己 p50 的 4 倍（226 → 927ms）。核心对每个曲库都设 WAL（`db/index.ts:75-93`），照它的**顺序**补上之后（`busy_timeout`/`foreign_keys` → 读 `user_version` → WAL，M1 的「判定前零写入」），同一段变成 p50 220.88 / p95 227.13。量一个产品不会用的模式，得到的分批尺寸没人该信。
+
+#### 判据 18（gate）：release 实测
+
+| 场景 | 测量单位 | p50 | p95 | max | 判 |
+|---|---|---|---|---|---|
+| 冷启动 | 全新装：open + 0001→0003 + `assertCurrentSchema` + 清 pending | 6.24 | 19.02 | **19.02** | ✅ max < 3s |
+| 冷启动 | 2,000 首库：open + 版本校验 + 首屏（读全表 + 歌单 + 成员计数） | 29.24 | 29.93 | **29.93** | ✅ max < 3s |
+| 冷启动 | 同一屏改按名字排序（`Intl.Collator('zh-CN')`，2,000 行） | 40.59 | 46.16 | 46.16 | 证据 |
+| 登录 backfill | 整库 2,000 首一个事务（生产形态） | 249.09 | 576.60 | 576.60 | 证据 |
+| 登录 backfill | 分段 50 / 100 / 200 / **500** | 5.92 / 11.95 / 24.01 / **59.84** | 6.97 / 13.46 / 30.37 / **64.36** | — | ✅ 四档全 ≤100ms |
+| 前台同步一轮 | 批 50 / 100 / **200** | 15.85 / 31.75 / **64.55** | 19.63 / 35.56 / **72.98** | — | ✅ |
+| 前台同步一轮 | 批 **500**（`SYNC_PULL_LIMIT`，生产值） | 164.03 | 790.72 | 790.72 | ❌ |
+| 前台同步一轮 | 批 1,000（stress，生产不可达） | 329.10 | 704.81 | 704.81 | 证据 |
+
+**判据 18 的出口不是「过/不过」而是分批尺寸**（§3.2 原话「超则得出分批尺寸」），所以：
+
+- **冷启动全过**，且余量是两个数量级——3s 的预算里最坏用掉 30ms。
+- **backfill：一段 500 首（59.84/64.36ms）稳过**，整库 2,000 一次 249ms 也没到冻屏的程度，但它是 p95 577ms 的那一档，分段没有代价，所以移动端按 500 分段。
+- **apply：生产的 500/批过不去**（p50 就 164ms），**暂定 200/批**（64.55/72.98ms）。R5 用真 `applyChangesInTx` 定稿。
+- **500 与 1000 两档的 p95 是 p50 的 4–5 倍，200 及以下没有这个尾巴**。最像的解释是某次 COMMIT 撞上 WAL 自动 checkpoint（默认 1000 页），**但没有验证**——写在这里是因为它影响的是「尾巴归谁」，不影响本批的结论（200 在两种解释下都够）。
+
+#### 判据 20：crypto 端口
+
+| 项 | 结果 | 阈值 | 判 |
+|---|---|---|---|
+| md5(WBI query, 166B) | p50/p95/max **0.02ms** | p95 ≤5ms | ✅（余量 250×） |
+| sha256(**5,680B** 真实歌词，多字节) | p50 1.88 / p95 **1.94** / max 1.94ms | p95 ≤10ms（**改后**） | ✅ |
+| sha256(**262,145B** = `SYNC_FILE_OP_INLINE_MAX`) | p50 86.19 / p95 **86.81ms** | 不设阈值（最坏值） | 证据 |
+| 正确性（md5/sha256 × WBI 串 / 多字节歌词 / 256KB） | 5/5 与桌面 `node:crypto` 逐字节相同 | — | ✅ |
+| `expo-crypto.digestStringAsync` 参照 | WBI 串 **0.42ms/await**；256KB **1.86ms/await** | — | 证据 |
+| `expo-crypto.randomUUID` | 1000/1000 互异、全过 `isUuidV4` | — | ✅ |
+| `expo-crypto.getRandomValues` | 两次抽样互异、形状对 | — | ✅ |
+| **core 现写的裸 `crypto.getRandomValues`（`wbi.ts:147-153`）** | 全局上**不存在** | — | ❌（原样搬过去就抛） |
+
+**定案（判据 20 关闭）**：
+
+1. **同步 digest 端口 = `@noble/hashes`**（md5 走 `legacy.js`、sha256 走 `sha2.js`），**全同步，core 的两个调用图不动**。md5 那一侧是压倒性的：0.02ms vs async 的 0.42ms，而 WBI 每个请求都签一次。
+2. **随机数走 expo-crypto**（`randomUUID` / `getRandomValues`）。`wbi.ts:147-153` 的裸 `crypto.getRandomValues` 必须改走端口——评审 P2-2 把 RandomBytes 放进端口面是对的，这里是实证。
+3. **sha256 的阈值改绑真实尺寸（出口 C，用户 2026-08-17 拍板）**：原文「256KB p95 ≤50ms」实测 86.81ms 过不去，但那是 `SYNC_FILE_OP_INLINE_MAX` 这个**上限**；`inlineDigest`（`file-ops.ts:337-343`）唯一的大输入是内联歌词，真实 LRC 5.7KB → 1.94ms。判据改成「真实尺寸 p95 ≤10ms」，**256KB 继续测、继续记，作为标注的最坏值**——代价是明确的：一首 256KB 歌词卡在待办里、用户又去开 file-ops 列表时，每行 86ms（`listFileOps` 每行算一次；`discard()` 同一函数但在同步事务内，`file-ops.ts:481-497`）。
+   - **同一轮里，这条修订是先改代码再重测的**：阈值常量与「最坏值不判红绿」都落在 `crypto.ts` 里，然后重打 release、重跑一次，上表是改后代码产出的结果。拿旧数字重新解释一遍会得到同样的结论和一份没人跑过的判据。
+   - 未走的出口 B（sha256 转 async：`inlineDigest`/`listFileOps` 变 async、`discard()` 把 digest 提到事务外——`row` 本来就在事务前读好，语义上成立）留在这里，供 N5 真遇到大歌词时回头取用。
+
+#### 判据 21：Web 标准全局面三栏清单（产出型，release 实测）
+
+| API | core 里的依赖点 | 结论 | 实测 |
+|---|---|---|---|
+| `TextEncoder` | `Buffer.byteLength` 的替身（`changes.ts:87` 等五处） | **原生** | 6/6 样本字节数与 `Buffer.byteLength` 相同，含孤代理 |
+| `Intl.Collator('zh-CN')`（§1.3-A 之外补的） | `library/songs.ts:75,314` | **原生** | 安静 < 不了情 < 西游记 |
+| `performance.now` | 测量协议自己 | **原生** | 分辨率 ~0.001ms |
+| `new URL` + `searchParams` | `link.ts:179,226,258`、`server-url.ts:44` | **polyfill** | 建串正确、b23 路径正确、**非 URL 照常抛**（`link.ts` 靠这个抛分辨关键词） |
+| `URLSearchParams` | 歌词三 client | **polyfill** | 顺序与百分号编码与桌面一致 |
+| `TextDecoder` | skybridge `sse.ts:93` | **polyfill** | 从中间劈开的多字节 chunk 流式解码后完好 |
+| `structuredClone` | `config/index.ts:71,80,104,113` | **polyfill** | 真深拷贝 |
+| `AbortSignal.timeout` / `.any` | `timeouts.ts:62`、`engine.ts:793` | **polyfill** | 会触发；成员一个 abort 整体 abort |
+| `fetch` | 所有 `fetchImpl` 注入点 | **polyfill，且 `globalThis.fetch` 就是 `expo/fetch` 同一个函数** | `redirect:'manual'` 拿得到 302 + Location · 204 空体 · **`res.body` 分 5 个 chunk 流式到达** |
+| `Buffer`（全局） | — | **不存在**（如期） | 上下两行就是它的替代 |
+| `atob` | `lyrics/shared.ts:93` 的 `Buffer.from(x,'base64')` | **需要端口** | 原生存在，但 **7 个样本里 2 个发散**：非法字符与 url-safe 字母表上 `atob` 抛，而 `Buffer.from` 照常解出字节 |
+| `crypto.getRandomValues`（全局） | `wbi.ts:147-153` | **需要端口** | 不存在 |
+| digest（md5/sha256） | `wbi.ts:67`、`file-ops.ts:342` | **需要端口** | 见判据 20 |
+
+**两条清单本身给出的结论**：① **N1 不必为 fetch 做注入选型**——SDK 57 的全局 fetch 就是 `expo/fetch`，三条行为（manual redirect / 204 / 流式 body）全过，skybridge SSE 的 `res.body` 要求在平台上成立；② **base64 端口的规格要按 `Buffer.from` 的宽松语义写**，不能直接包 `atob`——`decodeBase64` 的 try/catch 会把「抛」变成 `null`，于是一条本来能解出歌词的响应会静默变成「没有歌词」。
+
+#### 本批实测锁定
+
+- **release APK ≠ release bundle**（上文 1）：判据要自带「我是哪个 bundle」的证据，否则两份数字长得一模一样。
+- **夹具的 journal 模式是判据的一部分**（上文 2）：不是调优，是「量的是不是同一个东西」。
+- **`sync_cursor` 在 v2 被 DROP 重建**（0002）：proxy 第一版按 v1 的 `(endpoint, server_seq)` 写，真机报 `table sync_cursor has no column named endpoint`。**写语句形状 proxy 就得照当前 schema 抄**，v1 的记忆会骗人。
+- 🔴 **release 构建的 `console.log` 到不了 logcat**（实测：六个前缀零命中，连 `ReactNativeJS` 标签都没有）：RN 把 console 接到原生日志是**开发工具链的一部分**，于是「每个数值判据必须用的那个构建」恰好是唯一打印不出来的那个。结果回传（POST 给桌面 probe host）因此不是方便，是**唯一**的机读通道；debug 构建照常有 logcat，N0b-2 就是那么读的。
+- **面板的报错在滚动到底之前看不见**：那次失败的 apply 面板什么也没输出，`crashed` 文案在十几屏之下——`drive.mjs` 的「按标签找」因此不只是方便，它是唯一能可靠翻到底的办法。
+- **`ANDROID_HOME` 只活在用户的交互 shell 里**：release 构建从别的进程跑就在 Gradle 之后死于 `spawn adb ENOENT`。已按 `JAVA_HOME` 的同一形态钉进 recipe（`_android_home`）。
+- **`git push | tail` 那条坑换了个身**：`just … | tail -30` 让后台任务报了 exit 0，而 recipe 其实失败了。管道吞退出码不分场合。
+- **`spikes/**/fixtures/` 在仓库 .gitignore 里**（M0 spike 的二进制夹具）：桌面产的期望值文件必须提交，所以它是 `src/desktop-fixtures.ts` 而不是 `src/fixtures/desktop.ts`。
 
 ## §10 评审修订对照
 

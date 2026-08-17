@@ -1,19 +1,35 @@
-// The judgement panel (N0b-1 boot probes, N0b-2 contract + bootstrap).
+// The judgement panel (N0b-1 boot probes, N0b-2 contract + bootstrap, N0b-3
+// jank / crypto / globals).
 //
 // Everything runs on demand rather than on mount: the contract's lifecycle
 // group does 13k statement executions synchronously, and a panel that froze for
 // several seconds every time Metro reloaded would be unusable. The freeze while
 // it runs is expected — that is what "the sync API blocks the JS thread" means,
 // and criterion 18 is where it gets measured properly.
+//
+// Every N0b-3 panel also POSTs its result to the desktop probe host, because
+// its numbers only count on a release build and a release build has no Metro to
+// print to (see `report.ts`).
 
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BUILD_IS_DEV, RUNTIME_LABEL } from './measure';
 import { type BootstrapStep, rehearseFreshLibrary } from './panels/bootstrap';
 import { type ContractRun, runContract } from './panels/contract';
+import { type CryptoRow, runCryptoPanel } from './panels/crypto';
 import { type LifecycleProbe, probeDrizzleLifecycle } from './panels/drizzle-lifecycle';
 import { type MatrixRun, runDrizzleMatrix } from './panels/drizzle-matrix';
+import { type GlobalRow, runGlobalsPanel } from './panels/globals';
+import {
+  type WorkloadRow,
+  derivedBatchSize,
+  measureApply,
+  measureBackfill,
+  measureColdStarts,
+} from './panels/workload';
 import { bootProbes } from './probes';
+import { reportToHost } from './report';
 import { expoSqliteHooks } from './sqlite/hooks';
 import { opSqliteHooks } from './sqlite/op-sqlite-hooks';
 
@@ -23,12 +39,25 @@ const STATUS_COLOR = {
   skip: '#a1a1aa',
 } as const;
 
+// A polyfill is as good as native for our purposes — both mean "nothing to do".
+// `port` and `unverified` are the two that create work, and they read
+// differently on purpose: one is an answer, the other is a missing one.
+const VERDICT_COLOR = {
+  native: '#22c55e',
+  polyfill: '#38bdf8',
+  port: '#f59e0b',
+  unverified: '#ef4444',
+} as const;
+
 export function App() {
   const probes = bootProbes();
   const [contract, setContract] = useState<ContractRun | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapStep[] | null>(null);
   const [drizzle, setDrizzle] = useState<LifecycleProbe | null>(null);
   const [matrix, setMatrix] = useState<MatrixRun | null>(null);
+  const [workload, setWorkload] = useState<WorkloadRow[] | null>(null);
+  const [crypto, setCrypto] = useState<CryptoRow[] | null>(null);
+  const [globals, setGlobals] = useState<GlobalRow[] | null>(null);
   const [crashed, setCrashed] = useState<string | null>(null);
 
   const run = (fn: () => void) => () => {
@@ -40,6 +69,24 @@ export function App() {
       // failing, and it must not look like "nothing happened".
       setCrashed(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
     }
+  };
+
+  const runAsync = (fn: () => Promise<void>) => () => {
+    setCrashed(null);
+    fn().catch((err: unknown) => {
+      setCrashed(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+    });
+  };
+
+  const workloadRun = (label: string, fn: () => WorkloadRow[]) => () => {
+    const rows = fn();
+    setWorkload(rows);
+    for (const r of rows) {
+      console.log(
+        `WORKLOAD ${r.ok === null ? '·' : r.ok ? 'PASS' : 'FAIL'} | ${r.scenario} | ${r.timing.label} | p50 ${r.timing.p50}ms p95 ${r.timing.p95}ms max ${r.timing.max}ms over ${r.timing.samples} | ${r.note}`,
+      );
+    }
+    reportToHost(`workload-${label}`, { runtime: RUNTIME_LABEL, dev: BUILD_IS_DEV, rows });
   };
 
   return (
@@ -176,6 +223,123 @@ export function App() {
           </>
         ) : null}
 
+        <Text style={styles.section}>jank proxy (criterion 18) — release builds only</Text>
+        <Text style={[styles.detail, BUILD_IS_DEV ? styles.warning : null]}>
+          Statement-shape proxies, not core. {RUNTIME_LABEL}
+        </Text>
+        <Pressable
+          style={styles.button}
+          onPress={run(workloadRun('cold-start', measureColdStarts))}
+        >
+          <Text style={styles.buttonText}>Cold start (max of 5)</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={run(workloadRun('backfill', measureBackfill))}>
+          <Text style={styles.buttonText}>Login backfill (2k songs, whole + segments)</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={run(workloadRun('apply', measureApply))}>
+          <Text style={styles.buttonText}>Foreground sync round (apply batches)</Text>
+        </Pressable>
+        {workload?.map((r) => (
+          <View key={r.timing.label} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.timing.label}
+            </Text>
+            <Text style={styles.detail}>
+              p50 {r.timing.p50}ms · p95 {r.timing.p95}ms · max {r.timing.max}ms · n=
+              {r.timing.samples} · {r.note}
+            </Text>
+          </View>
+        ))}
+        {workload ? (
+          <Text style={styles.summary}>
+            largest batch inside the 100ms budget:{' '}
+            {['login backfill', 'foreground sync round']
+              .map((s) => `${s} ${derivedBatchSize(workload, s) ?? 'none'}`)
+              .join(' · ')}
+          </Text>
+        ) : null}
+
+        <Text style={styles.section}>crypto port (criterion 20)</Text>
+        <Pressable
+          style={styles.button}
+          onPress={runAsync(async () => {
+            setCrypto(null);
+            const rows = await runCryptoPanel();
+            setCrypto(rows);
+            for (const r of rows) {
+              console.log(
+                `CRYPTO ${r.ok === null ? '·' : r.ok ? 'PASS' : 'FAIL'} | ${r.name} | ${r.detail}${r.perCallMs === null ? '' : ` | ${r.perCallMs}ms per call`}`,
+              );
+            }
+            reportToHost('crypto', { runtime: RUNTIME_LABEL, dev: BUILD_IS_DEV, rows });
+          })}
+        >
+          <Text style={styles.buttonText}>Run crypto (noble vs the desktop's digests)</Text>
+        </Pressable>
+        {crypto?.map((r) => (
+          <View key={r.name} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.name}
+            </Text>
+            <Text style={styles.detail}>
+              {r.detail}
+              {r.perCallMs === null ? '' : ` · ${r.perCallMs}ms per call (batch)`}
+            </Text>
+          </View>
+        ))}
+
+        <Text style={styles.section}>web standard surface (criterion 21)</Text>
+        <Text style={styles.detail}>
+          The fetch rows need `just spike-mobile-probe-host`; without it they report unverified.
+        </Text>
+        <Pressable
+          style={styles.button}
+          onPress={runAsync(async () => {
+            setGlobals(null);
+            const rows = await runGlobalsPanel();
+            setGlobals(rows);
+            for (const r of rows) {
+              console.log(`GLOBALS ${r.verdict.toUpperCase()} | ${r.api} | ${r.detail}`);
+            }
+            reportToHost('globals', { runtime: RUNTIME_LABEL, dev: BUILD_IS_DEV, rows });
+          })}
+        >
+          <Text style={styles.buttonText}>Sweep the globals</Text>
+        </Pressable>
+        {globals?.map((r) => (
+          <View key={r.api} style={styles.row}>
+            <Text style={[styles.rowTitle, { color: VERDICT_COLOR[r.verdict] }]}>
+              [{r.verdict}] {r.api}
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+            <Text style={styles.ms}>{r.usedBy}</Text>
+          </View>
+        ))}
+
         {crashed ? <Text style={styles.crashed}>runner threw: {crashed}</Text> : null}
       </ScrollView>
     </View>
@@ -193,6 +357,7 @@ const styles = StyleSheet.create({
   detail: { color: '#a1a1aa', fontSize: 12 },
   ms: { color: '#52525b', fontSize: 11 },
   crashed: { color: '#ef4444', fontSize: 13, marginTop: 12 },
+  warning: { color: '#f59e0b' },
   button: {
     backgroundColor: '#27272a',
     paddingVertical: 10,

@@ -53,8 +53,19 @@ Criteria fall into three kinds, and only the first is self-checking:
   `src/sqlite/hooks.ts` feeds it to the contract (and carries `leakOnError`, the
   on-device half of criterion 6). `src/sqlite/op-sqlite-hooks.ts` is the
   criterion 16 comparison.
-- `src/panels/` — bootstrap rehearsal (15), contract driver (14), and the two
-  drizzle probes (17a/17b) over a shared counting Proxy.
+- `src/panels/` — bootstrap rehearsal (15), contract driver (14), the two
+  drizzle probes (17a/17b) over a shared counting Proxy, and N0b-3's three:
+  `workload.ts` (18, statement-shape proxies), `crypto.ts` (20), `globals.ts` (21).
+- `src/measure.ts` — §3.2a in code: warmup, nearest-rank p95, cold-start max —
+  and `judge()`, which returns `null` on a dev bundle so that a debug run
+  cannot render a verdict at all.
+- `src/desktop-fixtures.ts` — GENERATED (`just spike-mobile-fixtures`). The
+  expected digests, UTF-8 byte lengths and base64 decodes, computed on the
+  desktop by `node:crypto` and `Buffer` — the implementations core calls. A
+  device that produced its own expectations would only be agreeing with itself.
+- `scripts/` — host-side, never bundled: `probe-host.mjs` (the fetch peer and
+  the results sink), `drive.mjs` (press the panel's buttons by label),
+  `make-desktop-fixtures.mjs`.
 - `app.config.ts` — the whole native configuration (CNG). `android/` is
   generated and untracked; anything that can only be said by hand-editing it
   belongs in a config plugin.
@@ -72,13 +83,35 @@ backstop. Full reasoning: subplan §9, criterion 17.
 
 ## Driving it from the host
 
-`adb` works, with two ways to accidentally leave the app: the dev menu closes on
-ONE back press and exits on the second, and fast repeated swipes register as the
-home gesture. Confirm the spike is foreground with `dumpsys activity activities`
-before `screencap` — `pidof` says yes for a backgrounded app too.
+```
+node scripts/drive.mjs tap "Run contract"   # finds the button by label, scrolls, taps
+node scripts/drive.mjs dump                 # every visible label
+node scripts/drive.mjs shot out.png         # screencap, refuses unless we are in front
+```
 
-Results also go to logcat (`CONTRACT`, `MATRIX`, `DRIZZLE` prefixes), which is
-how to read a run without scrolling fifty rows on a phone.
+It looks the button up in the accessibility tree instead of tapping fixed
+coordinates, because the panel grows and a stale coordinate presses whatever
+moved into its place. It also refuses to act unless the spike is the resumed
+activity — `pidof` says yes for a backgrounded app, and twice during N0b the
+evidence captured was of one of the user's own apps.
+
+Two ways to leave the app by accident: the dev menu closes on ONE back press and
+exits on the second, and fast repeated swipes register as the home gesture (so
+`drive.mjs` scrolls slowly and away from the edges).
+
+Results go to the screen, and:
+
+- **debug builds** also print to logcat (`CONTRACT`, `MATRIX`, `DRIZZLE`,
+  `WORKLOAD`, `CRYPTO`, `GLOBALS` prefixes);
+- **release builds do not** — MEASURED in N0b-3: zero lines for any prefix, and
+  no `ReactNativeJS` tag at all. RN wires `console` to native logging as part of
+  its dev tooling, so the build every numeric criterion must use is exactly the
+  one that cannot print. That is why the panels POST to
+  `scripts/probe-host.mjs`, which writes JSON into `.runtime/` — and why the
+  POST is not a convenience.
+
+Transcribing p95s off a screenshot is how a plan document acquires a number
+nobody can trace.
 
 ## Running it
 
@@ -87,7 +120,16 @@ just spike-mobile-typecheck        # types only; not in the root tsc -b
 just spike-mobile-prebuild         # regenerate android/ from app.config.ts
 just spike-mobile-android          # debug build + install + Metro
 just spike-mobile-android-release  # release build — REQUIRED for every numeric criterion
+just spike-mobile-probe-host       # adb reverse + the fetch peer / results sink
+just spike-mobile-fixtures         # regenerate src/desktop-fixtures.ts
 ```
+
+**A release APK can still run the debug bundle.** `expo-dev-client` is in this
+spike's dependencies, so `expo run:android --variant release` launches it
+pointing at the dev server; if Metro is up, the release shell happily loads
+Metro's JS. The panel prints which bundle it is (`release bundle · Hermes ·
+performance.now()`) from `__DEV__`, and every numeric verdict is withheld on a
+dev bundle. Check that line before quoting a number.
 
 `JAVA_HOME` is pinned to Temurin 17 inside those recipes. It is deliberately not
 exported globally: this machine's default is JDK 25, which the rest of the repo
