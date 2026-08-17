@@ -12,7 +12,7 @@ import type {
   ParsedItem,
 } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
@@ -122,6 +122,8 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
       })),
   );
   const [submitting, setSubmitting] = useState(false);
+  const [confirmButton, setConfirmButton] = useState<HTMLButtonElement | null>(null);
+  const focusedConfirm = useRef(false);
   const [editing, setEditing] = useState<string | null>(null);
   // One answer for every link item in this submission (§3.6-1). The list
   // groups keep their own, because a favourites folder and a pasted link are
@@ -213,6 +215,22 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
       : activeGroups.length > BATCH_GROUPS_MAX
         ? `一次最多 ${BATCH_GROUPS_MAX} 个列表（当前 ${activeGroups.length}），请分批提交`
         : null;
+  const canConfirm = total > 0 && !loading && submitting === false && overLimit === null;
+
+  /**
+   * Confirm takes the focus, so a list that arrives ready is one Enter away —
+   * the same keyboard path the single-link question has.
+   *
+   * ONCE per opening, and only once it is usable: a favourites folder is still
+   * loading when the dialog opens (a disabled button cannot hold focus), and
+   * re-focusing on every change would yank the caret out of whatever checkbox
+   * the user just reached for.
+   */
+  useEffect(() => {
+    if (!canConfirm || focusedConfirm.current) return;
+    focusedConfirm.current = true;
+    confirmButton?.focus();
+  }, [canConfirm, confirmButton]);
 
   /** One request, all-or-nothing: every list group rides in the same batch. */
   async function submitListGroups(): Promise<void> {
@@ -281,7 +299,23 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
         if (!open) onClose();
       }}
     >
-      <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-160">
+      <DialogContent
+        className="flex max-h-[80vh] flex-col sm:max-w-160"
+        onOpenAutoFocus={(event) => {
+          // Radix focuses the first tabbable child, which is the 原标题
+          // checkbox. For links that need no fetching the button is usable on
+          // the first render, and taking focus HERE rather than in the effect
+          // below is what makes it stick — FocusScope's own pass runs after a
+          // mount effect and would put it straight back.
+          //
+          // While a list is still loading the button is disabled and cannot
+          // hold focus, so Radix keeps it inside the dialog and the effect
+          // hands it over when the items arrive.
+          if (confirmButton === null || confirmButton.disabled) return;
+          event.preventDefault();
+          confirmButton.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>批量下载（{total} 项）</DialogTitle>
           <DialogDescription>
@@ -442,8 +476,9 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
             取消
           </Button>
           <Button
+            ref={setConfirmButton}
             size="sm"
-            disabled={total === 0 || loading || submitting || overLimit !== null}
+            disabled={!canConfirm}
             onClick={() => void confirm()}
           >
             {submitting ? '提交中…' : `确认下载（${total}）`}

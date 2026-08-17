@@ -44,6 +44,8 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
     result: null,
     received_bytes: 0,
     total_bytes: null,
+    title: null,
+    artist: null,
     ...overrides,
   };
 }
@@ -132,6 +134,54 @@ describe('one line of input', () => {
         naming_mode: 'clean',
       }),
     );
+  });
+
+  // Paste, Enter, Enter. The remembered answer holds FOCUS, not just the
+  // highlight — Radix would otherwise focus 取消, and the second Enter would
+  // throw the submission away.
+  it('opens with the remembered answer focused, so Enter takes it', async () => {
+    const user = userEvent.setup();
+    await askOne(user);
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '清洗命名' }));
+    await user.keyboard('{Enter}');
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: 'https://www.bilibili.com/video/BV1?p=2',
+        naming_mode: 'clean',
+      }),
+    );
+  });
+
+  it('moves between the two answers with the arrow keys', async () => {
+    const user = userEvent.setup();
+    await askOne(user);
+
+    await user.keyboard('{ArrowLeft}');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '原标题' }));
+    await user.keyboard('{ArrowRight}');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '清洗命名' }));
+
+    await user.keyboard('{ArrowLeft}{Enter}');
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: 'https://www.bilibili.com/video/BV1?p=2',
+        naming_mode: 'original',
+      }),
+    );
+  });
+
+  // A remembered answer the machine cannot honour is not a default, and the
+  // arrow key must not park focus on a disabled button either.
+  it('falls back to the answer that works when there is no LLM', async () => {
+    const user = userEvent.setup();
+    useMediaTools.setState({ llmAvailable: false });
+    await askOne(user);
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '原标题' }));
+    await user.keyboard('{ArrowRight}');
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '原标题' }));
   });
 
   it('cancelling the question queues nothing', async () => {
@@ -240,6 +290,47 @@ describe('status line', () => {
 
     expect(await screen.findByText('下载音频')).toBeDefined();
     expect(screen.getByText('1/3')).toBeDefined();
+  });
+
+  // One line, three questions: which song, how far, and is anything behind it.
+  it('names the song and counts what is waiting behind it', async () => {
+    useDownloads.setState({
+      tasks: [
+        task({ id: 'run', title: '稻香', state: 'running', stage: 'downloading' }),
+        task({ id: 'q1', state: 'queued', stage: null, started_at: null }),
+        task({ id: 'q2', state: 'queued', stage: null, started_at: null }),
+      ],
+    });
+    render(<DownloadBar />);
+
+    expect(await screen.findByText('稻香')).toBeDefined();
+    expect(screen.getByText('还有 2 个排队')).toBeDefined();
+  });
+
+  // The head of the queue is what the line is already showing; counting it as
+  // waiting would say "3 waiting" while naming one of the three.
+  it('does not count the task it is showing', async () => {
+    useDownloads.setState({
+      tasks: [
+        task({ id: 'q1', state: 'queued', stage: null, started_at: null, created_at: 1 }),
+        task({ id: 'q2', state: 'queued', stage: null, started_at: null, created_at: 2 }),
+      ],
+    });
+    render(<DownloadBar />);
+
+    expect(await screen.findByText('还有 1 个排队')).toBeDefined();
+  });
+
+  // A queued link has no name yet, and a bilibili URL is long enough to push
+  // everything else off a fixed-height row.
+  it('caps the width of an unnamed link instead of letting it size the row', () => {
+    const url = 'https://www.bilibili.com/video/BV1Ki4y1y7HC?p=2&spm_id_from=333.1007.top_right';
+    useDownloads.setState({ tasks: [task({ title: null, input: { type: 'url', url } })] });
+    render(<DownloadBar />);
+
+    const label = screen.getByText(url);
+    expect(label.className).toContain('truncate');
+    expect(label.className).toContain('max-w-56');
   });
 
   it('disables cancel once the task is saving', () => {

@@ -108,6 +108,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('the keyboard path', () => {
+  // The same shape the single-link question has: the answer holds focus, so a
+  // list that came back ready is one Enter away.
+  it('gives the confirm button focus once the list has arrived, and Enter submits', async () => {
+    const user = userEvent.setup();
+    open([favorites]);
+    await screen.findByText('我的收藏夹');
+
+    const confirm = screen.getByRole('button', { name: /确认下载/ });
+    await waitFor(() => expect(document.activeElement).toBe(confirm));
+
+    // Behavioural, because a focus assertion alone passes on the frame BEFORE
+    // Radix's own focus pass takes it back to the first checkbox.
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(batchBody()).toBeDefined());
+    expect(document.activeElement).toBe(confirm);
+  });
+
+  // Plain links need no fetch, so the button is usable on the very first
+  // render — and that is the case where Radix's own focus pass runs AFTER a
+  // mount effect and puts focus back on the 原标题 checkbox. Taking it in
+  // `onOpenAutoFocus` is what makes it stick.
+  it('keeps focus on confirm for links that need no fetching', async () => {
+    const user = userEvent.setup();
+    open([video, { ...video, bvid: 'BV8', url: 'https://www.bilibili.com/video/BV8' }]);
+
+    const confirm = screen.getByRole('button', { name: /确认下载/ });
+    expect(document.activeElement).toBe(confirm);
+
+    await user.keyboard('{Enter}');
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.endsWith('/download/song'))).toBe(true),
+    );
+  });
+
+  // A disabled button cannot hold focus, and the list is still loading when
+  // the dialog opens — so "focus on open" alone would have missed.
+  it('does not take focus while the list is still loading', () => {
+    open([favorites]);
+    expect(screen.getByRole('button', { name: /确认下载/ }).hasAttribute('disabled')).toBe(true);
+    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: /确认下载/ }));
+  });
+});
+
 describe('list groups', () => {
   it('submits one batch whose group creates a playlist named after the title', async () => {
     const user = userEvent.setup();

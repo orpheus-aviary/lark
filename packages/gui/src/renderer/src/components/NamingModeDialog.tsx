@@ -9,8 +9,15 @@
 // No "remember my choice" checkbox: the choice IS remembered as the default
 // (§4-e), and a submission that queues 200 downloads under a name policy the
 // user last picked days ago is worth one keypress.
+//
+// That keypress is the whole keyboard story here: the remembered answer takes
+// FOCUS when the dialog opens, not just a highlight, so paste-enter-enter is
+// the fast path and ←/→ is how you take the other one. Radix would otherwise
+// focus the first child, which is 取消 — the one answer nobody arrives here
+// wanting.
 
 import type { DownloadNamingMode } from '@lark/shared';
+import { useState } from 'react';
 import { Button } from './ui/button.js';
 import {
   Dialog,
@@ -41,6 +48,25 @@ export function NamingModeDialog({
   onConfirm,
   onCancel,
 }: NamingModeDialogProps): React.JSX.Element {
+  // A remembered answer this machine cannot honour is not a default.
+  const preferred: DownloadNamingMode = value === 'clean' && !llmAvailable ? 'original' : value;
+  const [focused, setFocused] = useState<DownloadNamingMode>(preferred);
+  const [originalButton, setOriginalButton] = useState<HTMLButtonElement | null>(null);
+  const [cleanButton, setCleanButton] = useState<HTMLButtonElement | null>(null);
+
+  /**
+   * ←/→ move between the two answers. Focus is the state — the highlight
+   * follows it through `onFocus` — so there is one place to be wrong about
+   * which one Enter will take, and it is the one the browser already draws a
+   * ring around.
+   */
+  function onArrow(event: React.KeyboardEvent): void {
+    if (event.key === 'ArrowRight' && llmAvailable) cleanButton?.focus();
+    else if (event.key === 'ArrowLeft') originalButton?.focus();
+    else return;
+    event.preventDefault();
+  }
+
   return (
     <Dialog
       open={open}
@@ -48,7 +74,13 @@ export function NamingModeDialog({
         if (!next) onCancel();
       }}
     >
-      <DialogContent className="sm:max-w-110">
+      <DialogContent
+        className="sm:max-w-110"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          (preferred === 'clean' ? cleanButton : originalButton)?.focus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>怎么命名？</DialogTitle>
           <DialogDescription>
@@ -78,15 +110,21 @@ export function NamingModeDialog({
             取消
           </Button>
           <Button
-            variant={value === 'original' ? 'default' : 'secondary'}
+            ref={setOriginalButton}
+            variant={focused === 'original' ? 'default' : 'secondary'}
+            onFocus={() => setFocused('original')}
+            onKeyDown={onArrow}
             onClick={() => onConfirm('original')}
           >
             原标题
           </Button>
           <Button
-            variant={value === 'clean' ? 'default' : 'secondary'}
+            ref={setCleanButton}
+            variant={focused === 'clean' ? 'default' : 'secondary'}
             disabled={!llmAvailable}
             title={llmAvailable ? undefined : '需要先配置 LLM'}
+            onFocus={() => setFocused('clean')}
+            onKeyDown={onArrow}
             onClick={() => onConfirm('clean')}
           >
             清洗命名
