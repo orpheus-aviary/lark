@@ -53,6 +53,14 @@ shared-node-free:
 core-portable:
     bash scripts/check-core-portable.sh
 
+# The mobile spike is a PLATFORM spike (N0b): of our own packages it may only
+# reach for portable / shared / the skybridge SDK. Third-party deps are out of
+# this guard's scope on purpose.
+
+[group('lint')]
+spike-mobile-imports:
+    bash scripts/check-spike-mobile-imports.sh
+
 # The CLI's module graph (M6-21): no daemon / gui / electron, and no STATIC
 # import of the core barrel — that one would drag better-sqlite3 into commands
 # that never open a database.
@@ -70,7 +78,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free spike-mobile-imports log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
@@ -507,6 +515,41 @@ spike-media-test:
 [group('spike')]
 spike-media-check: spike-media-fixture
     node spikes/media-protocol/harness.mjs --full
+
+# ─── Mobile foundation spike (Phase B N0b) ──────────────
+#
+# JAVA_HOME is pinned HERE and not exported globally: this machine's default
+# JDK is 25, which the rest of the repo is happy with and which React Native's
+# Gradle line is not. Every recipe that shells into Gradle sets it itself.
+#
+# `android/` is generated (CNG) and untracked — `prebuild` is cheap and
+# reproducible, and anything that can only be expressed by hand-editing it
+# belongs in a config plugin instead.
+
+_jdk17 := `/usr/libexec/java_home -v 17 2>/dev/null || echo ""`
+
+# Types only — the spike is deliberately NOT in the root tsconfig references
+# (`tsc -b` would drag React Native's types into every desktop build).
+[group('spike')]
+spike-mobile-typecheck: build-shared build-core
+    pnpm --filter @lark/spike-mobile-foundation exec tsc --noEmit
+
+# Regenerate `android/` from app.config.ts. Safe to run at any time; it is the
+# only sanctioned way that directory comes into existence.
+[group('spike')]
+spike-mobile-prebuild:
+    JAVA_HOME="{{_jdk17}}" pnpm --filter @lark/spike-mobile-foundation exec expo prebuild --platform android --clean
+
+# Build + install the dev client on the connected device, then serve Metro.
+# Debug variant: development only. Every NUMERIC criterion (§3.2a) uses
+# `spike-mobile-android-release` instead — a debug build measures the debugger.
+[group('spike')]
+spike-mobile-android: build-shared build-core
+    JAVA_HOME="{{_jdk17}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android
+
+[group('spike')]
+spike-mobile-android-release: build-shared build-core
+    JAVA_HOME="{{_jdk17}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android --variant release
 
 # ─── Live probes (M3) ───────────────────────────────────
 

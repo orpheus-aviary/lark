@@ -78,7 +78,9 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **一个 fail-closed 的分支，先确认没有别人替它兜底**（T5/T5b 共同教训）：判据 27 的第一版测试在没有修复时也是绿的（下游的 signal 兜住了），判据 42 的 badge 同理要断言「归零后消失」而不是「显示过」。写完先把修复去掉跑一遍——绿的就是没测到
 - **残留的测试 nest 多半是「跑挂的测试」而不是漏了 `rmSync`**：`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 没机会跑。数一下前缀与时间戳能分清是漏清理还是被打断
 
-🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a 已完成**（`@lark/core/portable` + 第五条守卫 + `SqliteLike` + DatabaseContract harness 52 例，测试 2480），下一步 **N0b-1**（需要 Android 真机 + 本机构建链）。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果与实测见子计划 §9。
+🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a + N0b-1 已完成**（`@lark/core/portable` + DatabaseContract harness 52 例 + `spikes/mobile-foundation/` 真机起动，桌面测试 2480），下一步 **N0b-2**（expo-sqlite shim 跑契约 + drizzle 定案）。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果、版本冻结与设备档案见子计划 §9。
+
+**spike 的两条常驻规矩**：① 它只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（第六条守卫 `check-spike-mobile-imports.sh`），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**（判据 13）。
 
 ### Phase B 实测锁定（随批次追加）
 
@@ -90,6 +92,9 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **FK 默认值是宿主差异，不许进契约**（N0a-2）：better-sqlite3 开连接时自己就把 `foreign_keys` 打开（读到 1），而 SQLite 与 expo-sqlite 的默认是关。契约只断言「显式 `foreign_keys = ON` 之后强制与级联都对」——core 依赖的是 `db/index.ts` 里那句**按连接**设置，不是任何一家的默认
 - **破法选错会得到一个安静的绿**（N0a-2）：验 fail-closed 时把 `PRAGMA user_version` 挪到 `COMMIT` 之后，61/61 全绿——迁移 SQL 抛错时根本走不到 COMMIT，「提交顺序」不崩溃就观测不到。真能证伪的是「去掉事务」与「版本戳提到 DDL 之前」。**反测没红的时候，先怀疑破法而不是判据**
 - **契约夹具不许假设空表**（N0a-2）：迁移链自己会往 `local_metadata` 写（0003 的 `audio_migration_pending`），数整张表的用例一上来就红
+- **RN 版本要读 Expo 的 `bundledNativeModules.json`，不是 npm latest**（N0b-1）：SDK 57 钉 **react-native 0.86.2**，而 npm 上 latest 是 0.87.0。同理 spike 的 react 要**与 gui 逐字节相同**（19.2.4 / @types 19.2.18）——hoisted 之后全仓只有一份副本，这是判据 13 一次就绿的原因
+- **`android/` 是 CNG 产物，不进仓**（N0b-1）：一切影响原生工程的东西都写在 `app.config.ts`；只能靠手改 gradle 表达的，属于 config plugin。spike 的 applicationId 是 `…lark.spike` 而**不是** D14 的产品 id——戴着产品 id 的 spike 会让第一次装真包继承它的 data 目录
+- **dev menu 一次 BACK，两次退出 app**（N0b-1 踩过）：`screencap` 之前先确认 spike 在**前台**（`pidof` 不够，后台也有 pid），否则拍到的是手机上别的应用
 
 🚨 **开发版碰到 v2 库就会升 schema v3（单向）并当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库仍是 schema v2**（2026-08-17 复验：7 个 `song.mp3`、`--direct` 读它报 `MIGRATION_PENDING`）——0.3.0 发版前的全部验收都跑在 `just backup-nest` 的副本上，真库一次没被碰过。用户装上 0.3.0 后它才会升 v3 并转音频。

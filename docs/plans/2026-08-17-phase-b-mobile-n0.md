@@ -374,7 +374,7 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 **⚠️ vivo 的后台策略是判据 19 的具体风险**：OriginOS 会杀后台进程，而判据 19 要「后台 + 锁屏连续 ≥30min 不断」。开工前要把 spike app 加进电池白名单，并且**这条不是测试环境的将就**——真实 vivo 用户会撞上同一件事，N3 的后台播放要按同样的口径处理。
 
-**宿主工具链**（2026-08-17 装定）：`adb` 37.0.1（platform-tools 37.0.1）· `platforms;android-36` · `build-tools;36.0.0` · JDK **Temurin 17.0.20**（`/Library/Java/JavaVirtualMachines/temurin-17.jdk`，**不设全局 `JAVA_HOME`**——本机默认仍是 OpenJDK 25，17 只在 spike 的 just recipe 里生效）· `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`。NDK 未装：按 `expo prebuild` 报出的 RN 0.86 钉版安装，与 E3「Expo 57.0.x 开工当天取最新并写死」同一条规矩。LAN skybridge server 走兄弟仓 `../skybridge/packages/server/dist/src/index.js`（已在）。
+**宿主工具链**（2026-08-17 装定）：`adb` 37.0.1（platform-tools 37.0.1）· `platforms;android-36` · `build-tools;36.0.0` · JDK **Temurin 17.0.20**（`/Library/Java/JavaVirtualMachines/temurin-17.jdk`，**不设全局 `JAVA_HOME`**——本机默认仍是 OpenJDK 25，17 只在 spike 的 just recipe 里生效）· `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`。首次构建时 Gradle 自动补装：**Gradle 9.3.1 · NDK 27.1.12297006**（RN 0.86 钉版；另拉了 27.0.12077973）· **CMake 3.22.1** · build-tools 35.0.0 · Kotlin 2.1.20 / KSP 2.1.20-2.0.1。LAN skybridge server 走兄弟仓 `../skybridge/packages/server/dist/src/index.js`（已在）。
 
 ### Stage-1（2026-08-17）
 
@@ -406,6 +406,32 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 - **实测：FK 默认值是宿主差异，不能进契约**。用例原本断言 `foreign_keys` 默认 0，实跑 better-sqlite3 报 1——它开连接时自己就打开了，而 SQLite 与 expo-sqlite 的默认是关。改成只断言「显式 `foreign_keys = ON` 之后强制与级联都对」，并在注释里写明默认值属于宿主便利、core 依赖的是 `db/index.ts` 里那句**按连接**设置。
 - **实测：契约用例不许假设空表**。GLOB 用例原本数整张 `local_metadata`，而迁移链自己会往里写（0003 的 `audio_migration_pending`）——夹具只能数自己写的那几行。
 - **守卫的越界规则改成「按深度计数」**（**与 §2.4 的偏离，理由如下**）：原方案 `(\.\./)+(db|library|…)/` 在 portable 长出子目录后就分不清了——从 `contract/cases/` 看，合法的 `../../errors.js`（portable 自己的）与越界的 `../../../errors.js`（core 的）是同一个 pattern。改成「`../` 的个数 > 文件在 portable 下的深度 = 越界」，精确、且**捕获到任何位置的逃逸**，顺带删掉了「core 新增顶层目录要来改这个脚本」那条维护义务。反测：`migrations/probe.ts` 里的 `../../db/index.js` 红、`cases/probe.ts` 里的 `../../errors.js` 绿、`../../../errors.js` 红。
+
+### N0b-1（2026-08-17）判据 11–13
+
+落点 `spikes/mobile-foundation/`（10 个 tracked 文件；`android/` 是 CNG 产物，不进仓）+ 守卫 `scripts/check-spike-mobile-imports.sh`（进 `just check`）+ 四条 just recipe。
+
+**版本冻结**（E3：开工当天取 57.0.x 最新且 ≥57.0.9）：
+
+| | |
+|---|---|
+| expo | **57.0.13**（57.0.x 最新） |
+| react-native | **0.86.2** —— 取自 `expo@57.0.13` 的 `bundledNativeModules.json`，**不是** npm 上的 latest（0.87.0） |
+| react / react-dom / @types/react | **19.2.4 / 19.2.4 / 19.2.18**——**故意与 gui 逐字节相同**，hoisted 之后全仓只有一份副本 |
+| expo-sqlite / expo-audio / expo-crypto / expo-secure-store | 57.0.1 / **57.0.3** / 57.0.1 / 57.0.1 |
+| expo-dev-client / expo-build-properties / expo-constants / expo-status-bar | 57.0.12 / 57.0.11 / 57.0.11 / 57.0.1 |
+| op-sqlite（仅对照，devDep） | 18.0.0 |
+
+**prebuild 实测值**：minSdk **24**（Expo 57 默认，`ExpoRootProjectPlugin.kt:53` 的 fallback，构建日志也打印了）· compileSdk/targetSdk **36** · buildTools 36.0.0 · newArch + Hermes 开 · applicationId **`com.orpheusaviary.lark.spike`**（**没有**占用 D14 的 `com.orpheusaviary.lark`——spike 若戴着产品 id，第一次装真包就会继承它的 data 目录，连同 D16 实验留下的半成品 SecureStore 条目）。
+
+- **判据 11 绿**：lockfile 只多一个 importer（`spikes/mobile-foundation`），新增 341 个包。逐包核过：**既有解析零删除、零替换**——30 处看似 drift 的全部是「新增一个并存版本，原版本仍在」（`debug` / `commander` / `glob` 一类的传递依赖）。`overrides: vite 7.3.6` 原样。react / react-dom / @types/react / typescript / @types/node **各只有一份 hoisted 副本**，版本与 gui 逐一相同。
+- **判据 12 绿（gate）**：`BUILD SUCCESSFUL in 23m 51s`（首次，含自动补装 NDK/CMake）→ 装 `app-debug.apk` → **`Android Bundled 2300ms spikes/mobile-foundation/index.ts (868 modules)`** → 真机渲染三行探针，值与桌面逐一相同：`@lark/core/portable` **schema v3 · migrations 1→2→3 · 12 tables** · `@lark/shared` **local api v6 · isUuidV4 true** · `@orpheus-aviary/skybridge-client` **client 0.1.4**。logcat 无 RN 错误。截图留在 `.runtime/n0b1-boot.png`（gitignored）。
+  - 判据要的是「Metro 解析了这三个包」，所以探针**用**它们算出值再显示——解析不到就是 bundling 失败，比屏幕上一个错数字响亮得多。
+- **判据 13 绿（常驻）**：装 Expo 前后 `just check` + `just test` 各跑一遍，**2480** 逐包相等；`android/` 生成之后再跑一次，仍绿。
+- **守卫反测三连**：`@lark/core`（barrel）/ `@lark/daemon` / `@orpheus-aviary/skybridge-server` 各拦一次，撤掉回绿。守卫**只约束 `@lark/*` 与 `@orpheus-aviary/*`**，Expo/RN 生态不在其范围（设计如此）。
+- **操作规则（踩过一次）**：dev menu 用**一次** BACK 关闭，**两次会退出 app**——第二次截屏因此拍到了手机上正在前台的别的应用。凡 `screencap` 之前先确认 spike 在前台（`adb shell pidof` 不够，它在后台也有 pid）。
+
+**⚠️ 与 E4 冲突的实测**：E4 记「expo-audio 的 release-后仍在播（#47569）已由 PR #47828 修复」。实查 **expo-audio 57.0.3（2026-07-22）是 SDK 57 线最新的稳定版，其 CHANGELOG 里既无 #47828 也无 #47569，且不存在 57.0.4+**。也就是说该修复**未进入任何已发布的 SDK 57 版本**。后果：判据 19 里「pause-before-release」从习惯提为**硬要求**，并显式增加一条「`release()` 之后必须真的没有声音」的行为断言；§6 风险表那一行随 N0b-4 一并改写。
 
 ## §10 评审修订对照
 

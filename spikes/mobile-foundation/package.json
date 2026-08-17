@@ -1,0 +1,31 @@
+{
+  "name": "@lark/spike-mobile-foundation",
+  "version": "0.0.0",
+  "private": true,
+  "description": "N0b spike: prove the Android platform can carry lark (expo-sqlite + drizzle statement lifecycle, migrations, jank, expo-audio on raw fMP4, crypto, skybridge SDK, share intent, D14/D16) before N1 ports core",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lark/core": "workspace:*",
+    "@lark/shared": "workspace:*",
+    "@orpheus-aviary/skybridge-client": "0.1.4",
+    "@orpheus-aviary/skybridge-proto": "0.1.4",
+    "expo": "57.0.13",
+    "expo-audio": "57.0.3",
+    "expo-build-properties": "57.0.11",
+    "expo-constants": "57.0.11",
+    "expo-crypto": "57.0.1",
+    "expo-dev-client": "57.0.12",
+    "expo-secure-store": "57.0.1",
+    "expo-sqlite": "57.0.1",
+    "expo-status-bar": "57.0.1",
+    "react": "19.2.4",
+    "react-native": "0.86.2"
+  },
+  "devDependencies": {
+    "@op-engineering/op-sqlite": "18.0.0",
+    "@types/react": "19.2.18",
+    "typescript": "5.9.3"
+  }
+}
