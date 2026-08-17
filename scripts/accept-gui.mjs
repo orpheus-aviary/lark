@@ -42,7 +42,7 @@ const CDP_PORT = 9333;
  * measuring dial-up, not the product.
  */
 const AUDIO_THROTTLE_BPS = 192 * 1024;
-const FIXTURE = join(ROOT, 'spikes/media-protocol/fixtures/fixture.mp3');
+const FIXTURE = join(ROOT, 'spikes/media-protocol/fixtures/fixture.m4a');
 
 const keep = process.argv.includes('--keep');
 const results = [];

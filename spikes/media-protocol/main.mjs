@@ -155,8 +155,8 @@ async function runSmoke() {
       res.headers.get('accept-ranges'),
     ],
     [
-      'Content-Type: audio/mpeg',
-      res.headers.get('content-type') === 'audio/mpeg',
+      'Content-Type: audio/mp4',
+      res.headers.get('content-type') === 'audio/mp4',
       res.headers.get('content-type'),
     ],
   ];

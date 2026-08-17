@@ -36,7 +36,7 @@ const SPIKE_DIR = dirname(fileURLToPath(import.meta.url));
 const RUNTIME_DIR = join(SPIKE_DIR, '.runtime');
 const TOKEN_PATH = join(RUNTIME_DIR, 'daemon-token');
 const GENERATION_PATH = join(RUNTIME_DIR, 'generation');
-const DEFAULT_FIXTURE = join(SPIKE_DIR, 'fixtures', 'fixture.mp3');
+const DEFAULT_FIXTURE = join(SPIKE_DIR, 'fixtures', 'fixture.m4a');
 
 const HOST = '127.0.0.1';
 const PORT = 47190; // 471xx band, deliberately clear of the real daemon's 47100
@@ -227,7 +227,8 @@ function handleAudio(req, res) {
 
   const parsed = parseRange(range, fixtureSize);
   const common = {
-    'Content-Type': 'audio/mpeg',
+    // Canonical audio is m4a since 0.3.0; the real daemon answers the same.
+    'Content-Type': 'audio/mp4',
     'Accept-Ranges': 'bytes',
     'Cache-Control': 'no-store',
   };

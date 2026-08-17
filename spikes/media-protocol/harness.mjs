@@ -31,7 +31,7 @@ const FIXTURES_DIR = join(SPIKE_DIR, 'fixtures');
 const TOKEN_PATH = join(RUNTIME_DIR, 'daemon-token');
 const GENERATION_PATH = join(RUNTIME_DIR, 'generation');
 const FAST_FIXTURE = join(FIXTURES_DIR, 'fast-fixture.bin');
-const REAL_FIXTURE = join(FIXTURES_DIR, 'fixture.mp3');
+const REAL_FIXTURE = join(FIXTURES_DIR, 'fixture.m4a');
 
 const BASE = 'http://127.0.0.1:47190';
 const SONG_ID = '9e107d9d-372b-4e39-a3ee-8b2f3d1c4a5b';
@@ -121,7 +121,7 @@ async function assertHttpContract(token, size, { expectBody }) {
   check('no Range → 200', full.status === 200, full.status);
   check('200 carries Content-Length', full.headers.get('content-length') === String(size));
   check('200 carries Accept-Ranges: bytes', full.headers.get('accept-ranges') === 'bytes');
-  check('200 is audio/mpeg', full.headers.get('content-type') === 'audio/mpeg');
+  check('200 is audio/mp4', full.headers.get('content-type') === 'audio/mp4');
   check('200 is no-store', full.headers.get('cache-control') === 'no-store');
   if (expectBody) check('200 body is the whole fixture', full.bytes === size, full.bytes);
 

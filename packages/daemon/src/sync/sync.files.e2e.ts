@@ -50,6 +50,7 @@ import {
   stampDeviceIdInTx,
   writeBindingInTx,
 } from '@lark/core';
+import { fixturePath } from '@lark/core/testing';
 import { SYNC_WORKSPACE_NAME, SYNC_WORKSPACE_TOOL } from '@lark/shared';
 import { CLIENT_VERSION, createSkybridgeClient, login } from '@orpheus-aviary/skybridge-client';
 import BetterSqlite3 from 'better-sqlite3';
@@ -65,7 +66,10 @@ const serverModule = await resolveSkybridgeServer();
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BOOT_CHILD = join(HERE, '../../dist/testing/boot-child.js');
-const FIXTURE_MP3 = join(HERE, '../../../../spikes/media-protocol/fixtures/fixture.mp3');
+// A TRACKED fixture: the spike's 30-minute file this used to point at is
+// gitignored, and since T6 it is m4a — an import fixture that only exists after
+// someone ran a spike recipe is a suite that fails for the wrong reason.
+const FIXTURE_AUDIO = fixturePath('tone-1s.m4a');
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -316,7 +320,7 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
   // survive a restart, or nobody would ever look in that directory.
   it('quarantines an imported song a peer deleted, and still says so after a restart', async () => {
     const imported = await api<{ imported: { song_id: string }[] }>(b, 'POST', '/songs/import', {
-      file_paths: [FIXTURE_MP3],
+      file_paths: [FIXTURE_AUDIO],
     });
     const songId = imported.data?.imported[0]?.song_id as string;
     expect(songId, 'the fixture should import').toBeDefined();

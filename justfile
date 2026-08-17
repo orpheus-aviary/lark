@@ -453,18 +453,24 @@ unpackage: ensure-node-abi
 # GUI. It is kept (not deleted after M0) as the porting reference and as the
 # regression rig for Electron upgrades — hence two anti-rot layers below.
 
-# Real fixture: 320kbps CBR / 30 min, so the throttled stream always has an
-# unbuffered far end. Idempotent; the file is gitignored. Needs system ffmpeg.
+# Real fixture: 30 min of AAC in mp4, so the throttled stream always has an
+# unbuffered far end. It is m4a and not mp3 because the spike must validate the
+# protocol lark actually speaks — canonical audio has been m4a since 0.3.0, and
+# an mp3 fixture would have the harness assert a Content-Type nothing serves
+# (§4-j). `+faststart` for the same reason the pipeline uses it: with `moov` at
+# the end, a media element reading over HTTP cannot even report a duration.
+# Idempotent; the file is gitignored. Needs system ffmpeg.
 [group('spike')]
 spike-media-fixture:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p spikes/media-protocol/fixtures
-    if [ -f spikes/media-protocol/fixtures/fixture.mp3 ]; then
+    if [ -f spikes/media-protocol/fixtures/fixture.m4a ]; then
         echo "[fixture] already present — skip"
     else
-        ffmpeg -v error -f lavfi -i "sine=frequency=440:duration=1800" -b:a 320k -ac 2 \
-            spikes/media-protocol/fixtures/fixture.mp3
+        ffmpeg -v error -f lavfi -i "sine=frequency=440:duration=1800" \
+            -c:a aac -b:a 192k -ac 2 -movflags +faststart \
+            spikes/media-protocol/fixtures/fixture.m4a
         echo "[fixture] generated"
     fi
 
