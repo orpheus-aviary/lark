@@ -7,6 +7,11 @@ settings:
 overrides:
   vite: 7.3.6
 
+patchedDependencies:
+  drizzle-orm@0.38.4:
+    hash: 9bf61c43fbdeef6ab231e868285b9c2e2e78d2a8f86040dc476015ce171581b7
+    path: patches/drizzle-orm@0.38.4.patch
+
 importers:
 
   .:
@@ -56,7 +61,7 @@ importers:
         version: 12.11.1
       drizzle-orm:
         specifier: 0.38.4
-        version: 0.38.4(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4)
+        version: 0.38.4(patch_hash=9bf61c43fbdeef6ab231e868285b9c2e2e78d2a8f86040dc476015ce171581b7)(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4)
       pino:
         specifier: 9.14.0
         version: 9.14.0
@@ -233,7 +238,7 @@ importers:
         version: 0.1.4
       drizzle-orm:
         specifier: 0.38.4
-        version: 0.38.4(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4)
+        version: 0.38.4(patch_hash=9bf61c43fbdeef6ab231e868285b9c2e2e78d2a8f86040dc476015ce171581b7)(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4)
       expo:
         specifier: 57.0.13
         version: 57.0.13(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(react-dom@19.2.4(react@19.2.4))(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
@@ -8906,7 +8911,7 @@ snapshots:
 
   dotenv@16.6.1: {}
 
-  drizzle-orm@0.38.4(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4):
+  drizzle-orm@0.38.4(patch_hash=9bf61c43fbdeef6ab231e868285b9c2e2e78d2a8f86040dc476015ce171581b7)(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4):
     optionalDependencies:
       '@op-engineering/op-sqlite': 18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
       '@types/better-sqlite3': 9.6.0

@@ -378,7 +378,7 @@
 
 **版本口径**：APK 独立版本线 0.1.0 / versionCode=1（D14）。桌面 Phase B 期间不必发版；N1 的重构落 main、随下个桌面版本自然发出。中途若发桌面 0.3.x，先复跑 accept 全系列。
 
-**当前状态（2026-08-17）**：**N0a 全部 + N0b-1 已完成**。桌面测试 **2480**；spike 已在真机跑起来（vivo V2408A / Android 15，档案见子计划 §9），Metro 解析 `@lark/core/portable` / `@lark/shared` / skybridge SDK 全部通过。**N0b-2 进行中**：判据 14（契约 56/0/0 + 漏版反测红）、15（bootstrap 6/6）、17a（drizzle 10k 查询漏 10000 条语句）已绿；剩判据 16（op-sqlite 对照）与 17b/c（drizzle patch 与 fallback），D4 出口待写定。
+**当前状态（2026-08-17）**：**N0a 全部 + N0b-1 已完成**。桌面测试 **2480**；spike 已在真机跑起来（vivo V2408A / Android 15，档案见子计划 §9），Metro 解析 `@lark/core/portable` / `@lark/shared` / skybridge SDK 全部通过。**N0b-2 已完成**：判据 14（契约 56/0/0，漏版 shim 反测红）· 15（bootstrap 6/6）· 16（op-sqlite 对照 50/0/6，裁决维持 expo-sqlite）· 17（patch 前漏 10000 条 → patch 后 leaked 0，矩阵 9/9）。**D4 出口已冻结**（expo-sqlite + per-call transient shim + drizzle 走 `pnpm patch`），见子计划 §9。下一步 **N0b-3**（卡顿 proxy + crypto + Web 全局面），**必须 release 构建**。
 
 | 批 | 内容 | 本批 gate | 状态 |
 |---|---|---|---|
@@ -386,7 +386,7 @@
 | N0a-1 | `portable/` 搬迁（schema + migrations + migrate + schema-signature + errors 三类 + `migration/pending.ts`）+ `SqliteLike` + exports + 守卫（判据 1–4、7–10） | `just check` + `just test` 绿 | ✅ 2026-08-17 |
 | N0a-2 | DatabaseContract harness（52 例 / 6 组）+ better-sqlite3 文件库包壳 + fake-leaky 反测（判据 5–6） | core 测试绿，假绿检查记录在案 | ✅ 2026-08-17 |
 | N0b-1 | spike 脚手架 + 内部包白名单守卫 + workspace 共存（判据 11–13） | **12、13 绿** | ✅ 2026-08-17 |
-| N0b-2 | expo-sqlite shim + harness 真机 + migrations/pending + op-sqlite 对照 + drizzle 定案（判据 14–17） | **14、15、17 绿**，D4 出口写定 | 🔶 14/15/17a 绿，余 16 · 17b/c |
+| N0b-2 | expo-sqlite shim + harness 真机 + migrations/pending + op-sqlite 对照 + drizzle 定案（判据 14–17） | **14、15、17 绿**，D4 出口写定 | ✅ 2026-08-17 |
 | N0b-3 | 卡顿 proxy + crypto 定案 + Web 标准全局面清查（判据 18、20–21） | **18 绿** + 20 定案 + 21 清单产出 | ⏳ |
 | N0b-4 | 播放判定 + skybridge / bilibili 探针 / 分享 intent（判据 19、22–24） | **19 绿、22 基本 API 绿**，D17 判定写定 | ⏳ |
 | N0b-5 | D14 + D16 落定 + GO/NO-GO 汇总（判据 25–26）+ **Stage-2 主计划修订** | **25、26 绿** | ⏳ |

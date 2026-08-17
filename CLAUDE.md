@@ -78,7 +78,7 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **一个 fail-closed 的分支，先确认没有别人替它兜底**（T5/T5b 共同教训）：判据 27 的第一版测试在没有修复时也是绿的（下游的 signal 兜住了），判据 42 的 badge 同理要断言「归零后消失」而不是「显示过」。写完先把修复去掉跑一遍——绿的就是没测到
 - **残留的测试 nest 多半是「跑挂的测试」而不是漏了 `rmSync`**：`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 没机会跑。数一下前缀与时间戳能分清是漏清理还是被打断
 
-🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a + N0b-1 已完成**（`@lark/core/portable` + DatabaseContract harness 52 例 + `spikes/mobile-foundation/` 真机起动，桌面测试 2480），下一步 **N0b-2**（expo-sqlite shim 跑契约 + drizzle 定案）。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果、版本冻结与设备档案见子计划 §9。
+🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a + N0b-1 + N0b-2 已完成**（`@lark/core/portable` + DatabaseContract 56 例 + `spikes/mobile-foundation/` 真机跑通契约 / bootstrap / drizzle 定案，桌面测试 2480）。**D4 出口已冻结**：expo-sqlite 57.0.1 + per-call transient shim + drizzle 走 `pnpm patch`（`patches/drizzle-orm@0.38.4.patch`，未打补丁时 10k 查询漏 10000 条语句）。下一步 **N0b-3**（卡顿 proxy + crypto + Web 全局面），**数值判据必须 release 构建**。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果、版本冻结与设备档案见子计划 §9。
 
 **spike 的两条常驻规矩**：① 它只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（第六条守卫 `check-spike-mobile-imports.sh`），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**（判据 13）。
 
@@ -95,6 +95,11 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **RN 版本要读 Expo 的 `bundledNativeModules.json`，不是 npm latest**（N0b-1）：SDK 57 钉 **react-native 0.86.2**，而 npm 上 latest 是 0.87.0。同理 spike 的 react 要**与 gui 逐字节相同**（19.2.4 / @types 19.2.18）——hoisted 之后全仓只有一份副本，这是判据 13 一次就绿的原因
 - **`android/` 是 CNG 产物，不进仓**（N0b-1）：一切影响原生工程的东西都写在 `app.config.ts`；只能靠手改 gradle 表达的，属于 config plugin。spike 的 applicationId 是 `…lark.spike` 而**不是** D14 的产品 id——戴着产品 id 的 spike 会让第一次装真包继承它的 data 目录
 - **dev menu 一次 BACK，两次退出 app**（N0b-1 踩过）：`screencap` 之前先确认 spike 在**前台**（`pidof` 不够，后台也有 pid），否则拍到的是手机上别的应用
+- **`finalizeSync()` 在执行失败后会抛，抛的是那条语句自己的错**（N0b-2）：`sqlite3_finalize()` 返回最近一次求值的错误码，**但无论如何都销毁语句**——所以它不是泄漏，是把正在传播的错又报了一遍。放它从 `finally` 逃出去，`UNIQUE constraint failed` 就变成一句关于 finalizeSync 的话。shim 与 drizzle patch 都**只在 execute 已失败时**吞掉它并照常计数
+- **`json_set` 绑定数字的存储类型是宿主差异**（N0b-2）：better-sqlite3 存 `real`，expo-sqlite 存 `integer`，同一份 SQL 同一个 JS number。`rebase.ts` 的 `IN ('integer','real')` 门原本是防御性的，**在第二个宿主上是必需的**。跟 FK 默认值同一类：一家的行为不是契约
+- **命名参数三家三种方言**（N0b-2）：core 写 better-sqlite3 形（`@name` + 裸键），expo-sqlite 要键带 sigil，op-sqlite **只有位置参数**。翻译前必须剥掉单引号字面量，否则 `'$.updated_at_ms'` 会被当成参数名
+- **spike 经 dist 消费 core**（N0b-2）：改了 core 源码不 `pnpm --filter @lark/core build`，真机重载跑的还是旧代码——与 M2 的「`just test-*` 一律前置 build」同一条
+- **`finally` 里不许 `return`**（N0b-2）：它会吞掉正在传播的异常。漏版 shim 的反测若用 `return` 跳过释放，量到的就是「不抛了」而不是「不释放了」
 
 🚨 **开发版碰到 v2 库就会升 schema v3（单向）并当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库仍是 schema v2**（2026-08-17 复验：7 个 `song.mp3`、`--direct` 读它报 `MIGRATION_PENDING`）——0.3.0 发版前的全部验收都跑在 `just backup-nest` 的副本上，真库一次没被碰过。用户装上 0.3.0 后它才会升 v3 并转音频。

@@ -12,8 +12,10 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { type BootstrapStep, rehearseFreshLibrary } from './panels/bootstrap';
 import { type ContractRun, runContract } from './panels/contract';
 import { type LifecycleProbe, probeDrizzleLifecycle } from './panels/drizzle-lifecycle';
+import { type MatrixRun, runDrizzleMatrix } from './panels/drizzle-matrix';
 import { bootProbes } from './probes';
 import { expoSqliteHooks } from './sqlite/hooks';
+import { opSqliteHooks } from './sqlite/op-sqlite-hooks';
 
 const STATUS_COLOR = {
   pass: '#22c55e',
@@ -26,6 +28,7 @@ export function App() {
   const [contract, setContract] = useState<ContractRun | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapStep[] | null>(null);
   const [drizzle, setDrizzle] = useState<LifecycleProbe | null>(null);
+  const [matrix, setMatrix] = useState<MatrixRun | null>(null);
   const [crashed, setCrashed] = useState<string | null>(null);
 
   const run = (fn: () => void) => () => {
@@ -84,6 +87,12 @@ export function App() {
         >
           <Text style={styles.buttonText}>Run contract (leaky shim — must fail)</Text>
         </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={run(() => setContract(runContract(opSqliteHooks())))}
+        >
+          <Text style={styles.buttonText}>Run contract on op-sqlite (criterion 16)</Text>
+        </Pressable>
         {contract ? (
           <>
             <Text style={styles.summary}>
@@ -130,6 +139,41 @@ export function App() {
               {drizzle.finalized} · {drizzle.ms}ms
             </Text>
           </View>
+        ) : null}
+
+        <Text style={styles.section}>patched drizzle driver (criterion 17b)</Text>
+        <Pressable
+          style={styles.button}
+          onPress={run(() => {
+            const result = runDrizzleMatrix();
+            setMatrix(result);
+            for (const r of result.rows) {
+              console.log(`MATRIX ${r.ok ? 'PASS' : 'FAIL'} | ${r.name} | ${r.detail}`);
+            }
+            console.log(
+              `MATRIX SUMMARY | ${result.rows.filter((r) => r.ok).length}/${result.rows.length} | prepared ${result.prepared} | finalized ${result.finalized} | leaked ${result.leaked}`,
+            );
+          })}
+        >
+          <Text style={styles.buttonText}>Run drizzle matrix</Text>
+        </Pressable>
+        {matrix ? (
+          <>
+            <Text style={styles.summary}>
+              {matrix.rows.filter((r) => r.ok).length}/{matrix.rows.length} · prepared{' '}
+              {matrix.prepared} · finalized {matrix.finalized} · leaked {matrix.leaked}
+            </Text>
+            {matrix.rows.map((r) => (
+              <View key={r.name} style={styles.row}>
+                <Text
+                  style={[styles.rowTitle, { color: r.ok ? STATUS_COLOR.pass : STATUS_COLOR.fail }]}
+                >
+                  {r.ok ? '✓' : '✗'} {r.name}
+                </Text>
+                <Text style={styles.detail}>{r.detail}</Text>
+              </View>
+            ))}
+          </>
         ) : null}
 
         {crashed ? <Text style={styles.crashed}>runner threw: {crashed}</Text> : null}

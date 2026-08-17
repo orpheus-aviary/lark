@@ -450,7 +450,28 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 **两条操作教训**：① spike 经 **dist** 消费 `@lark/core/portable`，改了 core 源码不 `pnpm --filter @lark/core build` 就重载，真机跑的还是旧用例（与 M2 的「`just test-*` 一律前置 build」同一条）；② `finally` 里不许写 `return`——它会吞掉正在传播的异常，那样漏版 shim 的反测量到的是「不抛了」而不是「不释放了」。
 
-**尚未完成**（N0b-2 剩余）：判据 16（op-sqlite 对照，软）· 判据 17b（`pnpm patch` 按 §1.3-C 落地 + 四方法矩阵 + 三路径解析验证 + 计数归零 + 桌面不受扰）· 17c（fallback 映射表）· **D4 出口写定**。
+### N0b-2 续（2026-08-17）判据 16、17b/c 与 **D4 出口冻结**
+
+- **判据 17b 绿**：`patches/drizzle-orm@0.38.4.patch` 按 §1.3-C 冻结的实现落地——`ExpoSQLitePreparedQuery` 存 **client + SQL**（不存 statement）· `run/get/all/values` 各自方法内 `prepareSync` · **完整消费后 `finally` 释放** · `session.js` + `session.cjs` 双载体 · `session.d.ts` + `session.d.cts` 同步（`private stmt` → `private client`，构造签名换 `SQLiteDatabase`，不再 import `SQLiteStatement`）。
+  - **解析路径**：ESM `import.meta.resolve` 与 CJS `require.resolve` 落到的 `index.js` / `index.cjs` 旁的 session 文件都是 patched；全仓只有一份副本（hoisted），无未打补丁的残留。Metro 那条由真机结果证明。
+  - **四方法 × 三形态矩阵 9/9**（真机）：`run` 报 changes+rowid · **同一 prepared query 连续执行两次** · `all` 映射字段（走 `values()` 路径）· `all` 空结果 · `get` 映射 · `get` 空结果为 `undefined` · `values` 原始行 · **错误路径保住原始错误**（断言消息里有 `UNIQUE`，不是一句关于 finalizeSync 的话）· 失败之后库仍可用。**prepared 11 / finalized 11 / leaked 0**。
+  - **10k 复探**：patch 前 `prepared 10000 / finalized 0 / leaked 10000`（4563ms）→ patch 后 **`10000 / 10000 / leaked 0`**（4002ms）。
+  - **桌面不受扰**：`just check` 绿 + `just test` **2480**（桌面走 `drizzle-orm/better-sqlite3`，加载不到被 patch 的文件）。
+- **判据 16（软，对照）**：同一 harness 在 op-sqlite 18.0.0 上 **50 passed / 0 failed / 6 skipped / 552ms**。skip 的 6 条是它**表达不了**的：4 条计数用例（公开同步 API 里既无 prepare 也无 finalize）+ 2 条共享连接用例（drizzle 没有 op-sqlite driver）。**时间不可比**——expo 那 3191ms 里有 13k 条语句的计数用例，op 直接跳过了。
+  - **三处结构性差异**（都是 expo 不需要的 shim 工作）：① `Scalar` 无对象形态 → 只支持位置参数，命名绑定要自己把 `@name` 重写成 `?`；② `PreparedStatement.execute()` **只有异步**，同步路径只能一次性 `executeSync`，因而**无法计量生命周期**；③ **同步 API 没有多语句 exec**，迁移链要靠自建分割器——**第一版按 `;` 切，0002 的一行注释里正好有分号（「…entity tables; comparison reads NULL as ''.」），迁移全组当场红**。补上「跳过字面量与注释」的分割器之后才全绿。这正是「多一层 shim 逻辑就多一处会错」的现场演示。
+  - **裁决（规则事先写定）**：expo-sqlite 56/56 全绿，**不存在「expo 红而 op 绿」的项** → 维持 expo-sqlite，不触发换选讨论。
+- **判据 17c（fallback ③）未执行**，理由记在这里而不是省略：③ 的绿条件（16 处调用点映射表 + 两处最难原型）是**选择 ③ 时**才需要满足的，而 ② 已经绿。将来若 drizzle 升级导致 patch 失效，重新走 ③ 的绿条件。
+
+#### D4 出口（冻结）
+
+| 子项 | 结论 | 证据 |
+|---|---|---|
+| SQLite 选型 | **expo-sqlite 57.0.1** | 判据 14（56/56）+ 判据 16 裁决规则 |
+| statement 生命周期 | **per-call transient shim**：`prepareSync → executeSync → 完整消费 → finally finalizeSync`；执行失败时 finalize 会抛（它抛的是那条语句自己的错），**只在这种情况下吞掉并照常计数** | 判据 14 + fake-leaky 反测 |
+| drizzle | **出口 ②：`pnpm patch` drizzle-orm@0.38.4**，实现按 §1.3-C；①（升级到已修版）不存在，③ 不执行 | 判据 17a/17b |
+| patch 的兜底 | 双重：pnpm 把补丁**键控到 `drizzle-orm@0.38.4`**（升版则补丁不适用、安装报错，不会静默失效）+ 面板里的计数断言每批复跑 | §1.3-C 第 6 条 |
+
+**仍待 N0b-3 起**：判据 18 的卡顿数值必须跑 **release 构建**（本批全部是 debug，§3.2a 只认 release）。
 
 ## §10 评审修订对照
 
