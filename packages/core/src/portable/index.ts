@@ -11,6 +11,7 @@
 // The desktop keeps consuming these modules by relative path (`db/index.ts`
 // and friends); this barrel is the entry point OUTSIDE the package.
 
+export * from './contract/index.js';
 export * from './errors.js';
 export * from './migrate.js';
 export * from './migrations/index.js';

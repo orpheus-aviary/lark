@@ -18,9 +18,14 @@
 # CASES are not tests — they are plain functions under `portable/contract/`,
 # and they stay guarded.
 #
-# OBLIGATION: the escape patterns below enumerate core's top-level directories
-# and root modules. Adding one to `packages/core/src` means adding it here, or
-# portable gains a hole exactly where the newest code is.
+# The relative-escape half is DEPTH-COUNTED, not a list of core's directories.
+# The first draft matched `(\.\./)+(db|library|…)/`, which reads fine until
+# portable grows subdirectories: from `portable/contract/cases/`, the legal
+# `../../errors.js` (portable's own) and the illegal `../../../errors.js`
+# (core's) are the same pattern at different depths. Counting `../` against how
+# deep the file sits below `portable/` decides it exactly — and it catches an
+# escape to ANYWHERE, so nobody has to remember to extend a list when core
+# grows a new top-level directory.
 
 set -euo pipefail
 
@@ -45,16 +50,21 @@ module_hits=$(rg -n \
   --glob '!**/*.test.ts' \
   || true)
 
-# Relative escapes, depth-independent: `../db/index.js` and
-# `../../../db/index.js` are the same mistake written from different depths.
-CORE_DIRS="config|daemon-control|db|download|library|logger|media-tools|migration|sync|testing"
-CORE_ROOT_MODULES="backup-nest|errors|index|native-probe|paths"
-
-escape_hits=$(rg -n \
-  -e "from '(\.\./)+($CORE_DIRS)/" \
-  -e "from '(\.\./)+($CORE_ROOT_MODULES)\.js'" \
-  -e "import\('(\.\./)+($CORE_DIRS)/" \
-  -e "import\('(\.\./)+($CORE_ROOT_MODULES)\.js'" \
+# A relative specifier escapes when it climbs further than the file sits below
+# `portable/`. `portable/contract/cases/x.ts` is two levels down, so `../../`
+# lands on `portable/` (fine) and `../../../` lands on `src/` (not fine).
+escape_hits=""
+while IFS=: read -r file lineno spec; do
+  [ -n "$file" ] || continue
+  rel=${file#packages/core/src/portable/}
+  depth=$(printf '%s' "$rel" | tr -cd '/' | wc -c | tr -d ' ')
+  ups=$(printf '%s' "$spec" | grep -o '\.\./' | wc -l | tr -d ' ')
+  if [ "$ups" -gt "$depth" ]; then
+    escape_hits="${escape_hits}${file}:${lineno}: escapes portable/ -> ${spec}"$'\n'
+  fi
+done < <(rg -n --no-heading -o -r '$1' \
+  -e "from '(\.\./[^']*)'" \
+  -e "import\('(\.\./[^']*)'\)" \
   packages/core/src/portable \
   --glob '!**/*.test.ts' \
   || true)

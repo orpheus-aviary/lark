@@ -78,13 +78,18 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **一个 fail-closed 的分支，先确认没有别人替它兜底**（T5/T5b 共同教训）：判据 27 的第一版测试在没有修复时也是绿的（下游的 signal 兜住了），判据 42 的 badge 同理要断言「归零后消失」而不是「显示过」。写完先把修复去掉跑一遍——绿的就是没测到
 - **残留的测试 nest 多半是「跑挂的测试」而不是漏了 `rmSync`**：`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 没机会跑。数一下前缀与时间戳能分清是漏清理还是被打断
 
-🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a-1 已完成**（`@lark/core/portable` 就位 + 第五条守卫 + `SqliteLike`），下一步 N0a-2 契约 harness。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果与实测见子计划 §9。
+🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a 已完成**（`@lark/core/portable` + 第五条守卫 + `SqliteLike` + DatabaseContract harness 52 例，测试 2480），下一步 **N0b-1**（需要 Android 真机 + 本机构建链）。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果与实测见子计划 §9。
 
 ### Phase B 实测锁定（随批次追加）
 
 - **`SqliteLike` 的绑定参数只能是 `unknown[]`**（N0a-1）：better-sqlite3 的 `prepare` 是条件泛型（`BindParameters extends unknown[] | {}`），按约束实例化得到 `Statement<[{}],…> | Statement<unknown[],…>` 的联合——参数收窄成 `null|number|bigint|string|Uint8Array` 时 `{}` 与 `null` 双向都不可赋值，`satisfies` 当场红。**窄类型在这里不是更严格而是更假**：better-sqlite3 自己就是 `unknown[]`，坏值两端都是运行时错误。绑定的三种形态写进 doc 注释而不是类型
 - **portable 的测试跟着主体走、被守卫排除**（N0a-1，与 shared 守卫同形态）：它们跑在桌面运行时，合法地用 `node:fs` / better-sqlite3 / `createDatabase` 造夹具；发到手机上的是从 `portable/index.ts` 可达的模块图，没有任何测试在里面。**契约 cases 不是测试**（纯函数），照常受守卫约束
 - **re-export 不是重新定义**（N0a-1）：三个迁移 error 移进 `portable/errors.ts` 后由 `errors.ts` re-export，daemon 的 `instanceof` 与 CLI 的 `err.name` 两种消费都不受影响——实证 `core.SchemaMismatchError === portable.SchemaMismatchError`
+- **守卫的越界规则按深度计数，不按目录名清单**（N0a-2）：portable 长出子目录之后，`(\.\./)+errors\.js` 分不清合法的 `../../errors.js`（从 `contract/cases/` 看是 portable 自己的）与越界的 `../../../errors.js`。改成「`../` 个数 > 文件在 portable 下的深度 = 越界」——精确、捕获任何逃逸，且不再需要「core 新增顶层目录要来改脚本」
+- **「提交后可见」只证明同一个文件，不证明同一条连接**（N0a-2 实证）：把 drizzle 换到第二条连接上，共享连接组两条序列都红；再把两处**未提交窗口断言**删掉，**序列 2 当场变绿**。序列 2 的保护全部来自那一条断言（序列 1 是被写锁本身挡下的）
+- **FK 默认值是宿主差异，不许进契约**（N0a-2）：better-sqlite3 开连接时自己就把 `foreign_keys` 打开（读到 1），而 SQLite 与 expo-sqlite 的默认是关。契约只断言「显式 `foreign_keys = ON` 之后强制与级联都对」——core 依赖的是 `db/index.ts` 里那句**按连接**设置，不是任何一家的默认
+- **破法选错会得到一个安静的绿**（N0a-2）：验 fail-closed 时把 `PRAGMA user_version` 挪到 `COMMIT` 之后，61/61 全绿——迁移 SQL 抛错时根本走不到 COMMIT，「提交顺序」不崩溃就观测不到。真能证伪的是「去掉事务」与「版本戳提到 DDL 之前」。**反测没红的时候，先怀疑破法而不是判据**
+- **契约夹具不许假设空表**（N0a-2）：迁移链自己会往 `local_metadata` 写（0003 的 `audio_migration_pending`），数整张表的用例一上来就红
 
 🚨 **开发版碰到 v2 库就会升 schema v3（单向）并当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库仍是 schema v2**（2026-08-17 复验：7 个 `song.mp3`、`--direct` 读它报 `MIGRATION_PENDING`）——0.3.0 发版前的全部验收都跑在 `just backup-nest` 的副本上，真库一次没被碰过。用户装上 0.3.0 后它才会升 v3 并转音频。

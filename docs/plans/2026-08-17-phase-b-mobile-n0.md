@@ -367,6 +367,20 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 - **判据 10**：CLAUDE.md 仓库结构段加 `src/portable/`，依赖方向段改「五条守卫」并写明 portable 是 core 内部的一层（core 反向 import 它，它不许 import 任何 core）。
 - **测试文件跟着主体走，并被守卫排除**（与 shared 守卫同一形态，理由写进脚本头）：它们跑在桌面运行时，合法地用 `node:fs` / better-sqlite3 / `createDatabase` 造夹具，而发到手机上的是从 `portable/index.ts` 可达的模块图，没有任何测试在里面。**契约 cases 不是测试**（N0a-2 的纯函数），照常受守卫约束。
 
+### N0a-2（2026-08-17）判据 5–6
+
+落点：`portable/contract/{index,types,assert}.ts` + `contract/cases/{support,api,transactions,sql,migrations,lifecycle,shared-connection,index}.ts`；桌面包壳 `packages/core/src/db/contract.test.ts`（better-sqlite3 文件库 + drizzle hook + 两个计数 adapter）。**52 个用例、6 组**，core 测试 985 → **1046**（+61），全仓 **2480**。
+
+- **判据 5**：better-sqlite3 文件库 hook 上全绿。drizzle hook 的共享连接组两条顺序序列都跑（不是 skip）；counters 组 4 条在桌面 **skipped 并带原因**（`prepare/finalize`），包壳里有断言逼它「skip 必须说明理由」且「skip 的只能是 lifecycle」。
+- **判据 6 假绿反测四组**，每组都实跑：
+  1. **counters 组（fake adapter）**：同一个 per-call-transient 假实现，诚实版（`finally` 里释放）4/4 绿；漏版（只在成功路径释放）**恰好红在两条错误路径**（bind error / constraint error），成功路径两条仍绿——这正是「会发出去的那种 bug」的形状。真 shim 的红/绿归 N0b-2。
+  2. **CAST**：把用例自己 SQL 里的 `CAST(? AS INTEGER)` 去掉 → 红在 `CAST keeps it an integer`。
+  3. **migration fail-closed**：**第一种破法没红，记下来**——把 `PRAGMA user_version` 挪到 `COMMIT` 之后仍然 61/61 绿，因为迁移 SQL 抛错时根本走不到 COMMIT，「提交顺序」不崩溃就观测不到。换两种真能证伪的：去掉事务（不回滚）→ 多条红，含「the half-applied table is gone」；把版本戳提到 DDL 之前且在事务外 → 红在「stopped at the last good version」。**用例真正钉住的是「失败要回滚」与「版本戳不许跑在 DDL 前面」**，措辞已按这个改。
+  4. **共享连接（P0-1 的实证）**：把 drizzle 换到**第二条连接**上 → 两条序列都红（序列 1 是 `database is locked`，序列 2 是断言）。再把两处「未提交窗口断言」删掉重跑 → **序列 2 当场变绿**。三轮评审说的假绿是真的存在的：序列 2 的保护**全部**来自那一条未提交窗口断言，而序列 1 是被锁本身挡下的。
+- **实测：FK 默认值是宿主差异，不能进契约**。用例原本断言 `foreign_keys` 默认 0，实跑 better-sqlite3 报 1——它开连接时自己就打开了，而 SQLite 与 expo-sqlite 的默认是关。改成只断言「显式 `foreign_keys = ON` 之后强制与级联都对」，并在注释里写明默认值属于宿主便利、core 依赖的是 `db/index.ts` 里那句**按连接**设置。
+- **实测：契约用例不许假设空表**。GLOB 用例原本数整张 `local_metadata`，而迁移链自己会往里写（0003 的 `audio_migration_pending`）——夹具只能数自己写的那几行。
+- **守卫的越界规则改成「按深度计数」**（**与 §2.4 的偏离，理由如下**）：原方案 `(\.\./)+(db|library|…)/` 在 portable 长出子目录后就分不清了——从 `contract/cases/` 看，合法的 `../../errors.js`（portable 自己的）与越界的 `../../../errors.js`（core 的）是同一个 pattern。改成「`../` 的个数 > 文件在 portable 下的深度 = 越界」，精确、且**捕获到任何位置的逃逸**，顺带删掉了「core 新增顶层目录要来改这个脚本」那条维护义务。反测：`migrations/probe.ts` 里的 `../../db/index.js` 红、`cases/probe.ts` 里的 `../../errors.js` 绿、`../../../errors.js` 红。
+
 ## §10 评审修订对照
 
 ### 一轮（v1 → v2）
