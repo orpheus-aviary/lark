@@ -11,6 +11,7 @@
     "@lark/shared": "workspace:*",
     "@orpheus-aviary/skybridge-client": "0.1.4",
     "@orpheus-aviary/skybridge-proto": "0.1.4",
+    "drizzle-orm": "0.38.4",
     "expo": "57.0.13",
     "expo-audio": "57.0.3",
     "expo-build-properties": "57.0.11",

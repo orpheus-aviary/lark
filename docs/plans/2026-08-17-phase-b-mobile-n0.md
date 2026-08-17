@@ -433,6 +433,25 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 **⚠️ 与 E4 冲突的实测**：E4 记「expo-audio 的 release-后仍在播（#47569）已由 PR #47828 修复」。实查 **expo-audio 57.0.3（2026-07-22）是 SDK 57 线最新的稳定版，其 CHANGELOG 里既无 #47828 也无 #47569，且不存在 57.0.4+**。也就是说该修复**未进入任何已发布的 SDK 57 版本**。后果：判据 19 里「pause-before-release」从习惯提为**硬要求**，并显式增加一条「`release()` 之后必须真的没有声音」的行为断言；§6 风险表那一行随 N0b-4 一并改写。
 
+### N0b-2（2026-08-17，进行中）判据 14、15、17a
+
+落点：`src/sqlite/{shim,hooks}.ts`（expo-sqlite 的 `SqliteLike`，per-call transient）+ `src/panels/{contract,bootstrap,drizzle-lifecycle}.ts` + 面板按钮。真机 vivo V2408A / Android 15，debug 构建（数值判据仍待 release 构建，§3.2a）。
+
+- **判据 14 绿**：契约 **56 passed / 0 failed / 0 skipped / 3276ms**（桌面 skip 的 4 条 counters 用例在真机上全跑）。**fake-leaky 反测同机复跑**：漏版 shim（错误路径上跳过释放）**恰好红在两条错误路径**（54/2），与桌面 criterion 6 的形状一致。
+- **判据 15 绿（6/6）**：`user_version 0` → 链 0001→0003 → `user_version 3` → `assertCurrentSchema` 过 → 0003 留下 `audio_migration_pending='1'` → **`clearAudioMigrationPending` 真实现**清成 `'0'`（行保留不删）→ reopen 后仍是 v3 且 not pending。
+- **判据 17a 实证（D4 的输入）**：counting Proxy 夹在 drizzle 与真库之间，10,000 次 `db.select().from(songs).all()` → **prepared 10000 / finalized 0 / leaked 10000 / 4563ms**。#4519 属实，出口①不存在。
+
+**四条实测锁定**（每条都是先红后修）：
+
+1. **命名参数的方言不同，shim 必须翻译**：core 写 better-sqlite3 的形（SQL 里 `@object_key`，对象里**裸键**），expo-sqlite 要求键**自带 sigil**（`{ $value: … }`）。不翻译的话 `migration/scanner.ts` 那种全命名参数的写入在 Android 上全废。sigil 从 SQL 里读而不是猜（`@`/`:`/`$` 都合法）。
+2. **翻译前必须剥掉单引号字面量**：`json_extract(payload, '$.updated_at_ms')` 会被扫成一个叫 `updated_at_ms` 的参数——而 `sync/rebase.ts` 通篇都是这个形状。
+3. 🔴 **`finalizeSync()` 在执行失败后会抛，抛的是那条语句自己的错**：实测 `Call to function 'NativeStatement.finalizeSync' has been rejected. → Caused by: Error code : UNIQUE constraint failed: songs.id`。这是 `sqlite3_finalize()` 的文档行为——返回最近一次求值的错误码，**但无论如何都销毁语句**。所以它不是泄漏，是把正在传播的错又报了一遍；让它从 `finally` 逃出去，调用方看到的就会是关于 finalizeSync 的话而不是约束冲突。shim 因此**只在 execute 已经失败时**吞掉 finalize 的异常并照常计数；execute 成功后 finalize 还抛，属于没人解释过的情况，原样抛出。**判据 17b 的 patch 有完全相同的陷阱。**
+4. 🔴 **`json_set` 绑定数字的存储类型是宿主差异**：同样的 SQL、同样的 JS number，better-sqlite3 存成 `real`，**expo-sqlite 存成 `integer`**。契约第一版断言 `'real'`，在 Android 上当场红——这跟 FK 默认值是同一种病（把一家的行为当契约）。已改成断言 core 真正依赖的东西：CAST 形**永远**是 integer，未 CAST 形只要求仍是数值，而 `rebase.ts` 的 `IN ('integer','real')` 门**两行都找得到且值不变**。**那道门原本是防御性的，现在它在第二个宿主上是必需的。**
+
+**两条操作教训**：① spike 经 **dist** 消费 `@lark/core/portable`，改了 core 源码不 `pnpm --filter @lark/core build` 就重载，真机跑的还是旧用例（与 M2 的「`just test-*` 一律前置 build」同一条）；② `finally` 里不许写 `return`——它会吞掉正在传播的异常，那样漏版 shim 的反测量到的是「不抛了」而不是「不释放了」。
+
+**尚未完成**（N0b-2 剩余）：判据 16（op-sqlite 对照，软）· 判据 17b（`pnpm patch` 按 §1.3-C 落地 + 四方法矩阵 + 三路径解析验证 + 计数归零 + 桌面不受扰）· 17c（fallback 映射表）· **D4 出口写定**。
+
 ## §10 评审修订对照
 
 ### 一轮（v1 → v2）

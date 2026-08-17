@@ -41,11 +41,21 @@ export const SQL_CASES: readonly ContractCase[] = [
   },
   {
     group: GROUP,
-    name: 'json_set stores a bound number as real unless it is CAST',
+    name: 'json_set keeps a bound millisecond value readable, with or without CAST',
     run(db) {
-      // `sync/rebase.ts` — and the reason its gate accepts ('integer','real').
-      // Both halves are asserted, exactly as `rebase.test.ts` does it: the
-      // stored type, AND a second pass actually finding the row again.
+      // `sync/rebase.ts` writes `json_set(payload, '$.updated_at_ms',
+      // CAST(? AS INTEGER))` and gates later reads on
+      // `json_type(...) IN ('integer','real')`. Both halves are asserted here,
+      // as `rebase.test.ts` does: the stored type, AND a second pass actually
+      // finding the rows again.
+      //
+      // MEASURED (N0b-2): the UNCAST form's type is HOST-DEPENDENT — 'real' on
+      // better-sqlite3, 'integer' on expo-sqlite, from identical SQL and an
+      // identical JS number. So the contract pins what core relies on (CAST is
+      // always integer; the gate finds the row either way) and NOT which of the
+      // two numeric types a host happens to pick. The first draft asserted
+      // 'real' and went red on Android — which is the gate in `rebase.ts`
+      // earning its keep on a second host, for a second reason.
       const sqlite = migrate(db.sqlite);
       seedChange(sqlite, 'plain', JSON.stringify({ updated_at_ms: 1 }), { clientChangeId: 'c1' });
       seedChange(sqlite, 'cast', JSON.stringify({ updated_at_ms: 1 }), { clientChangeId: 'c2' });
@@ -67,31 +77,36 @@ export const SQL_CASES: readonly ContractCase[] = [
         scalar(
           sqlite,
           `SELECT json_type(payload, '$.updated_at_ms') AS t
-             FROM sync_changes WHERE entity_id = 'plain'`,
-        ),
-        'real',
-        'a bound number lands as real',
-      );
-      equal(
-        scalar(
-          sqlite,
-          `SELECT json_type(payload, '$.updated_at_ms') AS t
              FROM sync_changes WHERE entity_id = 'cast'`,
         ),
         'integer',
-        'CAST keeps it an integer',
+        'CAST always stores an integer',
       );
 
-      // The half that matters downstream: a later pass with an integer-only
-      // gate must still find the CAST row, and must not find the other one.
+      const uncast = scalar(
+        sqlite,
+        `SELECT json_type(payload, '$.updated_at_ms') AS t
+           FROM sync_changes WHERE entity_id = 'plain'`,
+      );
+      check(
+        uncast === 'integer' || uncast === 'real',
+        `an uncast bound number must stay numeric, got ${String(uncast)}`,
+      );
+
+      // The half that matters downstream: rebase's gate must find BOTH rows,
+      // whichever numeric type this host chose, and the value must be intact.
       const found = sqlite
         .prepare(
-          `SELECT entity_id FROM sync_changes
-             WHERE json_type(payload, '$.updated_at_ms') = 'integer'`,
+          `SELECT entity_id, json_extract(payload, '$.updated_at_ms') AS ms
+             FROM sync_changes
+             WHERE json_type(payload, '$.updated_at_ms') IN ('integer', 'real')
+             ORDER BY entity_id`,
         )
-        .all() as { entity_id: string }[];
-      equal(found.length, 1, 'one row survives an integer-only gate');
-      equal(found[0].entity_id, 'cast', 'and it is the CAST one');
+        .all() as { entity_id: string; ms: number }[];
+      equal(found.length, 2, "rebase's gate finds both rows");
+      equal(found[0].entity_id, 'cast', 'the CAST row');
+      equal(found[0].ms, T0, 'with its value intact');
+      equal(found[1].ms, T0, 'and so does the uncast one');
     },
   },
   {
