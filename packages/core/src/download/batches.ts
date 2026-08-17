@@ -11,8 +11,8 @@
 import type { DownloadBatchData, DownloadBatchGroupInput } from '@lark/shared';
 import { eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { playlists } from '../db/schema.js';
 import { NotFoundError } from '../errors.js';
+import { playlists } from '../portable/schema.js';
 import type { DownloadTarget } from './pipeline.js';
 import { type TaskRecord, isTerminal } from './task-data.js';
 

@@ -354,6 +354,18 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 主计划 §4.3 两处语义修订已落（N0a 行决策 c2 收窄 · N0b/N1 行平台 spike ↔ R1–R5 与 D5 分段冻结），PROCESS.md 开 Phase B 段（批次表 + 前置条件 + 常驻义务）。此后 N0a 才开工。
 
+### N0a-1（2026-08-17）判据 1–4、7–10
+
+- **判据 1**：`portable/` 之外的 diff 只有三类——import 路径改写、`errors.ts` 的 re-export、`db/index.ts` 那一行 `satisfies`。逐行核过（`git diff --diff-filter=M`），零语义变更。
+- **判据 2**：`just check` 全绿（六守卫，`core-portable` 已进 `check:` 依赖）；`just test` **2419**（shared 79 / core 985 / cli 417 / daemon 495 / gui 443），与 0.3.0 基线逐包相等。
+- **判据 3**：三个类整体移入 `portable/errors.ts`，`errors.ts` re-export。**两种消费都验了**：daemon 的 `instanceof`（`boot.ts:168-171`）与 CLI 的 `err.name`（`direct-errors.ts`）测试原样绿，另在 Node 里实证 `core.SchemaMismatchError === portable.SchemaMismatchError`（re-export 不是重新定义，三个类都 `true`）。
+- **判据 4**：`pending.ts` 移入 portable，语义零变。**`migration/` 里没有一个文件 import 过它**——消费者是 `db/index.ts`（相对路径）与 daemon/CLI（走 barrel），所以「反向 import」这一句在实现上是空的；既有 pending 测试（0003 迁移 + daemon runner 七处断言 + CLI direct）全绿。
+- **判据 7**：`satisfies` 落在 `db/index.ts` 唯一创建真实 handle 的那一行（`new BetterSqlite3(dbPath) satisfies SqliteLike`）——不narrow，桌面专有面照常可用。
+  - **实测：`SqliteStatement` 的绑定参数只能是 `unknown[]`**。better-sqlite3 的 `prepare` 是条件泛型（`BindParameters extends unknown[] | {}`），按约束实例化会得到 `Statement<[{}], …> | Statement<unknown[], …>` 的联合；把参数收窄成 `null|number|bigint|string|Uint8Array` 时，`{}` 与 `null` 双向都不可赋值，**`satisfies` 当场红**。窄类型在这里不是更严格而是更假：better-sqlite3 自己的签名就是 `unknown[]`，两端的坏值都是运行时错误。绑定的三种形态改写进 doc 注释。
+- **判据 8**：守卫反向测试三连各红一次（`node:fs` / `../../../db/index.js` 深层越界 / `@lark/core/config` 子路径自引），撤掉后回绿。
+- **判据 9**：`@lark/core/portable` 从包外 import 成功（在 `packages/daemon` 下实跑），15 个导出齐全、`MIGRATIONS = 1,2,3`。**CLI 守卫的放行文案没加它**——CLI 不需要 portable。
+- **判据 10**：CLAUDE.md 仓库结构段加 `src/portable/`，依赖方向段改「五条守卫」并写明 portable 是 core 内部的一层（core 反向 import 它，它不许 import 任何 core）。
+- **测试文件跟着主体走，并被守卫排除**（与 shared 守卫同一形态，理由写进脚本头）：它们跑在桌面运行时，合法地用 `node:fs` / better-sqlite3 / `createDatabase` 造夹具，而发到手机上的是从 `portable/index.ts` 可达的模块图，没有任何测试在里面。**契约 cases 不是测试**（N0a-2 的纯函数），照常受守卫约束。
 
 ## §10 评审修订对照
 

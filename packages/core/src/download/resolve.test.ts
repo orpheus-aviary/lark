@@ -14,10 +14,10 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
-import { local_metadata } from '../db/schema.js';
 import { DownloadCommitError } from '../errors.js';
 import { createFileBackedSongInTx, getSong, listSongs } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
+import { local_metadata } from '../portable/schema.js';
 import { landSongFile, recoverSongsStore, stagePaths } from './resolve.js';
 
 const SONG_ID = '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001';

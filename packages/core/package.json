@@ -8,6 +8,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./portable": {
+      "import": "./dist/portable/index.js",
+      "types": "./dist/portable/index.d.ts"
+    },
     "./testing": {
       "import": "./dist/testing/index.js",
       "types": "./dist/testing/index.d.ts"

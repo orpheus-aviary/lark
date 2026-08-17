@@ -14,8 +14,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { SchemaMismatchError } from '../../errors.js';
-import { createDatabase } from '../index.js';
+import { createDatabase } from '../../db/index.js';
+import { SchemaMismatchError } from '../errors.js';
 import { LATEST_KNOWN_VERSION, applyForwardMigrations } from '../migrate.js';
 import * as m0001 from './0001-init.js';
 

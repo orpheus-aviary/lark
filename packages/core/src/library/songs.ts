@@ -24,9 +24,9 @@ import {
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
-import { type SongRow, songs } from '../db/schema.js';
 import { InvalidIdError, NotFoundError, SourceKeyConflictError } from '../errors.js';
 import { songsDir } from '../paths.js';
+import { type SongRow, songs } from '../portable/schema.js';
 import { emitSyncChange } from '../sync/changes.js';
 import { readSkybridgeDeviceId } from '../sync/device.js';
 import { FileEffectRuntime, enqueueLocalDelete } from '../sync/file-ops.js';

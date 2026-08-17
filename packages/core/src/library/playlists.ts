@@ -8,14 +8,14 @@ import { type PlaylistData, type SongData, membershipEntityId } from '@lark/shar
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, count, eq } from 'drizzle-orm';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
+import { InvalidReorderError, NotFoundError } from '../errors.js';
 import {
   type PlaylistRow,
   type PlaylistSongRow,
   playlist_songs,
   playlists,
   songs,
-} from '../db/schema.js';
-import { InvalidReorderError, NotFoundError } from '../errors.js';
+} from '../portable/schema.js';
 import { emitSyncChange } from '../sync/changes.js';
 import { readSkybridgeDeviceId } from '../sync/device.js';
 import { nextSyncStamp } from '../sync/hlc.js';

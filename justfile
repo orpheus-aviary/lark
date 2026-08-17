@@ -46,6 +46,13 @@ daemon-no-gui-electron:
 shared-node-free:
     bash scripts/check-shared-node-free.sh
 
+# `@lark/core/portable` is the slice the Android client links (N0a): no Node
+# builtins, no better-sqlite3, no reaching back into the rest of core.
+
+[group('lint')]
+core-portable:
+    bash scripts/check-core-portable.sh
+
 # The CLI's module graph (M6-21): no daemon / gui / electron, and no STATIC
 # import of the core barrel — that one would drag better-sqlite3 into commands
 # that never open a database.
@@ -63,7 +70,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron daemon-no-gui-electron cli-no-daemon-gui shared-node-free log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

@@ -1,8 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
-import { playlist_songs } from '../db/schema.js';
 import { InvalidReorderError, NotFoundError } from '../errors.js';
+import { playlist_songs } from '../portable/schema.js';
 import {
   addSongsToPlaylist,
   addSongsToPlaylistInTx,

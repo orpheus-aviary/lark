@@ -378,12 +378,12 @@
 
 **版本口径**：APK 独立版本线 0.1.0 / versionCode=1（D14）。桌面 Phase B 期间不必发版；N1 的重构落 main、随下个桌面版本自然发出。中途若发桌面 0.3.x，先复跑 accept 全系列。
 
-**当前状态（2026-08-17）**：Stage-1 已落，N0a 开工。
+**当前状态（2026-08-17）**：Stage-1 已落，**N0a-1 已完成**（`portable/` 就位，测试 2419 与 0.3.0 基线逐包相等），下一步 N0a-2 契约 harness。
 
 | 批 | 内容 | 本批 gate | 状态 |
 |---|---|---|---|
 | Stage-1 | 主计划 §4.3 两处语义修订（N0a 行 c2 收窄 / N0b 收窄为平台 spike ↔ N1 加 R1–R5 与 D5 分段冻结）+ 本段开张 | 单事实源：Stage-1 不做完，N0a 不开工 | ✅ 2026-08-17 |
-| N0a-1 | `portable/` 搬迁（schema + migrations + migrate + schema-signature + errors 三类 + `migration/pending.ts`）+ `SqliteLike` + exports + 守卫（判据 1–4、7–10） | `just check` + `just test` 绿 | ⏳ |
+| N0a-1 | `portable/` 搬迁（schema + migrations + migrate + schema-signature + errors 三类 + `migration/pending.ts`）+ `SqliteLike` + exports + 守卫（判据 1–4、7–10） | `just check` + `just test` 绿 | ✅ 2026-08-17 |
 | N0a-2 | DatabaseContract harness + better-sqlite3 文件库包壳 + fake-leaky 反测（判据 5–6） | core 测试绿，假绿检查记录在案 | ⏳ |
 | N0b-1 | spike 脚手架 + 内部包白名单守卫 + workspace 共存（判据 11–13） | **12、13 绿** | ⏳ |
 | N0b-2 | expo-sqlite shim + harness 真机 + migrations/pending + op-sqlite 对照 + drizzle 定案（判据 14–17） | **14、15、17 绿**，D4 出口写定 | ⏳ |

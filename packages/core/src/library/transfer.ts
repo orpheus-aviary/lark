@@ -37,7 +37,6 @@ import {
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { type SongRow, playlist_songs, playlists, songs } from '../db/schema.js';
 import { findSongByKey } from '../download/pipeline.js';
 import {
   InvalidImportFileError,
@@ -46,6 +45,7 @@ import {
   NotFoundError,
   UnsupportedFormatVersionError,
 } from '../errors.js';
+import { type SongRow, playlist_songs, playlists, songs } from '../portable/schema.js';
 import { addSongsToPlaylistInTx, createPlaylistInTx } from './playlists.js';
 import { createSongInTx, songFileInfo } from './songs.js';
 import { normalizeSource } from './source.js';

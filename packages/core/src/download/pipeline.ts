@@ -22,7 +22,6 @@ import type { DownloadNamingMode, DownloadStage, LlmConfig, SongData } from '@la
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { songs } from '../db/schema.js';
 import {
   AmbiguousSourceKeyError,
   BilibiliApiError,
@@ -31,6 +30,7 @@ import {
 } from '../errors.js';
 import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
+import { songs } from '../portable/schema.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
 import { probeAudio, processAudio } from './ffmpeg.js';
 import { type NormalizedSource, normalizeSourceOnline } from './link.js';

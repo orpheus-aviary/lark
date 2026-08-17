@@ -13,7 +13,6 @@ import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
-import { songs } from '../db/schema.js';
 import { MediaToolsUnavailableError } from '../errors.js';
 import { songLyricsPath } from '../library/lyrics.js';
 import {
@@ -26,6 +25,7 @@ import { getSong, listSongs } from '../library/songs.js';
 import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
 import { resolveMediaTools } from '../media-tools/resolve.js';
 import { songsDir } from '../paths.js';
+import { songs } from '../portable/schema.js';
 import { fakeMediaTools } from '../testing/fake-media-tools.js';
 import type { FakeUpstream } from '../testing/fake-upstream.js';
 import { startFakeUpstream } from '../testing/fake-upstream.js';

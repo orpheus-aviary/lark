@@ -11,7 +11,7 @@ export * from './native-probe.js';
 export * from './db/index.js';
 export * from './db/readonly.js';
 export * from './db/writer-lock.js';
-export { LATEST_KNOWN_VERSION } from './db/migrate.js';
+export { LATEST_KNOWN_VERSION } from './portable/migrate.js';
 export * from './db/backup.js';
 export * from './backup-nest.js';
 // The one-time mp3 → m4a migration (0.3.0). The daemon owns the runner; core
@@ -21,7 +21,7 @@ export * from './migration/backup.js';
 export * from './migration/converter.js';
 export * from './migration/error-class.js';
 export * from './migration/ledger.js';
-export * from './migration/pending.js';
+export * from './portable/pending.js';
 export * from './migration/preflight.js';
 export * from './migration/scanner.js';
 export * from './migration/verify.js';

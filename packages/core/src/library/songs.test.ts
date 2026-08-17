@@ -4,13 +4,13 @@ import { join } from 'node:path';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
-import { songs } from '../db/schema.js';
 import {
   InvalidIdError,
   InvalidSourceError,
   NotFoundError,
   SourceKeyConflictError,
 } from '../errors.js';
+import { songs } from '../portable/schema.js';
 import { setSkybridgeDeviceId } from '../sync/device.js';
 import { readTombstone } from '../sync/tombstones.js';
 import {

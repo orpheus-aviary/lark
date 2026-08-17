@@ -17,10 +17,10 @@ import {
   MigrationResidueError,
   SchemaMismatchError,
 } from '../errors.js';
+import { LATEST_KNOWN_VERSION, applyForwardMigrations } from '../portable/migrate.js';
+import * as m0001 from '../portable/migrations/0001-init.js';
 import { createDatabase, ensureDeviceUuid } from './index.js';
 import { acquireMigrateLock } from './migrate-lock.js';
-import { LATEST_KNOWN_VERSION, applyForwardMigrations } from './migrate.js';
-import * as m0001 from './migrations/0001-init.js';
 
 let dir: string;
 

@@ -14,8 +14,8 @@
 // adds a table and forgets this file now fails there, without anyone having
 // to remember a renaming ritual.
 
-import type BetterSqlite3 from 'better-sqlite3';
-import { SchemaMismatchError } from '../errors.js';
+import { SchemaMismatchError } from './errors.js';
+import type { SqliteLike } from './sqlite.js';
 
 /** Exported for the completeness test, which is what keeps this list honest. */
 export const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
@@ -188,7 +188,7 @@ function normalizeSql(sql: string): string {
   return sql.replace(/\s+/g, ' ').toLowerCase().trim();
 }
 
-function tableSql(sqlite: BetterSqlite3.Database, table: string): string {
+function tableSql(sqlite: SqliteLike, table: string): string {
   const row = sqlite
     .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?")
     .get(table) as { sql: string | null } | undefined;
@@ -201,7 +201,7 @@ function tableSql(sqlite: BetterSqlite3.Database, table: string): string {
  * WHERE verified, not just the name), and the load-bearing CHECKs.
  * Throws SchemaMismatchError with the first discrepancy.
  */
-export function assertCurrentSchema(sqlite: BetterSqlite3.Database, dbPath: string): void {
+export function assertCurrentSchema(sqlite: SqliteLike, dbPath: string): void {
   for (const [table, cols] of Object.entries(REQUIRED_COLUMNS)) {
     const info = sqlite.pragma(`table_info(${table})`) as { name: string }[];
     if (info.length === 0) {

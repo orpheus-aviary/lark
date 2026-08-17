@@ -11,7 +11,7 @@
 import { REORDER_SYNC_MAX, membershipEntityId } from '@lark/shared';
 import { and, eq } from 'drizzle-orm';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
-import { playlist_songs } from '../db/schema.js';
+import { playlist_songs } from '../portable/schema.js';
 import { emitSyncChange } from '../sync/changes.js';
 
 export const RANK_STEP = 1024;

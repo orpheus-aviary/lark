@@ -2,12 +2,12 @@
 // db/index.ts; this module owns the forward chain over the explicit registry
 // and the version predicates.
 //
-// NOTE: every `.exec(...)` in this file is better-sqlite3's synchronous
-// Database#exec (SQL text), NOT child_process.exec — no shell is involved.
+// NOTE: every `.exec(...)` in this file is SQLite's synchronous multi-statement
+// exec (SQL text). No shell, no child process.
 
-import type BetterSqlite3 from 'better-sqlite3';
-import { DestructiveForwardMigrationError, ForwardMigrationError } from '../errors.js';
+import { DestructiveForwardMigrationError, ForwardMigrationError } from './errors.js';
 import { MIGRATIONS, type Migration } from './migrations/index.js';
+import type { SqliteLike } from './sqlite.js';
 
 export const LATEST_KNOWN_VERSION = 3;
 
@@ -49,7 +49,7 @@ function resolveMigration(version: number, migrations: readonly Migration[]): Mi
  * `migrations` is injectable for runner tests only.
  */
 export function applyForwardMigrations(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   fromV: number,
   toV: number,
   migrations: readonly Migration[] = MIGRATIONS,
@@ -75,7 +75,7 @@ export function applyForwardMigrations(
 }
 
 /** A database with no user tables (sqlite_* shadow tables ignored). */
-export function isSchemaEmpty(sqlite: BetterSqlite3.Database): boolean {
+export function isSchemaEmpty(sqlite: SqliteLike): boolean {
   const row = sqlite
     .prepare(
       "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
@@ -90,7 +90,7 @@ export function isSchemaEmpty(sqlite: BetterSqlite3.Database): boolean {
  * TS schema dropped (all went virtual, R3). Caller has already established
  * user_version=0 and non-emptiness; this checks the distinguishing column.
  */
-export function isGoLegacyDb(sqlite: BetterSqlite3.Database): boolean {
+export function isGoLegacyDb(sqlite: SqliteLike): boolean {
   const cols = sqlite.pragma('table_info(playlists)') as { name: string }[];
   return cols.some((c) => c.name === 'is_system');
 }

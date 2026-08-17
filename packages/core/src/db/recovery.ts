@@ -26,9 +26,9 @@
 import { existsSync, renameSync, unlinkSync } from 'node:fs';
 import BetterSqlite3 from 'better-sqlite3';
 import { MigrationResidueError } from '../errors.js';
+import { LATEST_KNOWN_VERSION } from '../portable/migrate.js';
+import { assertCurrentSchema } from '../portable/schema-signature.js';
 import { acquireMigrateLock } from './migrate-lock.js';
-import { LATEST_KNOWN_VERSION } from './migrate.js';
-import { assertCurrentSchema } from './schema-signature.js';
 
 export function migratingPath(dbPath: string): string {
   return `${dbPath}.migrating`;

@@ -27,7 +27,7 @@
 import { statSync, unlinkSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { type SongRow, songs } from '../db/schema.js';
+import { type SongRow, songs } from '../portable/schema.js';
 import { songAudioPath } from './lyrics.js';
 
 /** Bytes in one MiB — the unit every `*_mb` config field and wire field uses. */

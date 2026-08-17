@@ -78,6 +78,14 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **一个 fail-closed 的分支，先确认没有别人替它兜底**（T5/T5b 共同教训）：判据 27 的第一版测试在没有修复时也是绿的（下游的 signal 兜住了），判据 42 的 badge 同理要断言「归零后消失」而不是「显示过」。写完先把修复去掉跑一遍——绿的就是没测到
 - **残留的测试 nest 多半是「跑挂的测试」而不是漏了 `rmSync`**：`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 没机会跑。数一下前缀与时间戳能分清是漏清理还是被打断
 
+🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（**§4.3 已于 2026-08-17 Stage-1 修订两处**）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（v4，判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → …；**N0a-1 已完成**（`@lark/core/portable` 就位 + 第五条守卫 + `SqliteLike`），下一步 N0a-2 契约 harness。逐批状态见 `PROCESS.md` 的 Phase B 段，判据结果与实测见子计划 §9。
+
+### Phase B 实测锁定（随批次追加）
+
+- **`SqliteLike` 的绑定参数只能是 `unknown[]`**（N0a-1）：better-sqlite3 的 `prepare` 是条件泛型（`BindParameters extends unknown[] | {}`），按约束实例化得到 `Statement<[{}],…> | Statement<unknown[],…>` 的联合——参数收窄成 `null|number|bigint|string|Uint8Array` 时 `{}` 与 `null` 双向都不可赋值，`satisfies` 当场红。**窄类型在这里不是更严格而是更假**：better-sqlite3 自己就是 `unknown[]`，坏值两端都是运行时错误。绑定的三种形态写进 doc 注释而不是类型
+- **portable 的测试跟着主体走、被守卫排除**（N0a-1，与 shared 守卫同形态）：它们跑在桌面运行时，合法地用 `node:fs` / better-sqlite3 / `createDatabase` 造夹具；发到手机上的是从 `portable/index.ts` 可达的模块图，没有任何测试在里面。**契约 cases 不是测试**（纯函数），照常受守卫约束
+- **re-export 不是重新定义**（N0a-1）：三个迁移 error 移进 `portable/errors.ts` 后由 `errors.ts` re-export，daemon 的 `instanceof` 与 CLI 的 `err.name` 两种消费都不受影响——实证 `core.SchemaMismatchError === portable.SchemaMismatchError`
+
 🚨 **开发版碰到 v2 库就会升 schema v3（单向）并当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
 ⚠️ **本机真实曲库仍是 schema v2**（2026-08-17 复验：7 个 `song.mp3`、`--direct` 读它报 `MIGRATION_PENDING`）——0.3.0 发版前的全部验收都跑在 `just backup-nest` 的副本上，真库一次没被碰过。用户装上 0.3.0 后它才会升 v3 并转音频。
 ⚠️ **曲库内容 2026-08-13 变过**：不再是「21 首 / 4 歌单、20 首 Go 迁移 imported」——用户当天清库重下，现为 **7 首全 `downloaded` / 1 个歌单 / 0 首 imported**。**验收夹具一律自造**：`accept-m5` 与 `accept-sync`（E5 的 imported、D3 的 backfill 口径）都因为借用户的库而红过，见 `PROCESS.md` 的 T6a。
@@ -102,6 +110,8 @@ lark/
 ├── packages/
 │   ├── shared/     # @lark/shared — Node-free 线协议（类型、HTTP client、SSE、api-paths）
 │   ├── core/       # @lark/core — 业务逻辑（db、songs/playlists、下载、歌词、缓存、migration、config、logger）
+│   │   └── src/portable/  # @lark/core/portable — 宿主无关切面（schema / migrations / migrate /
+│   │                      #   schema-signature / pending / 三个迁移 errors / SqliteLike）
 │   ├── daemon/     # @lark/daemon — Fastify server + `lark daemon` 入口
 │   └── gui/        # @lark/gui — Electron main/preload/renderer
 ├── apps/
@@ -112,7 +122,7 @@ lark/
 └── docs/
 ```
 
-依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。四条守卫进 `just check`：core 禁 daemon/gui/electron、daemon 禁 gui/electron、shared 禁一切 Node builtin（`node:` 前缀与裸名都拦）、cli 禁 daemon/gui/electron **且禁静态 import core barrel**。
+依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。**`core/portable` 是 core 内部的一层**：core 的 `db/` 与 `library/` 反向 import 它，它不许 import 任何 core（Phase B N0a 起，移动端只链这一块——`@lark/core/portable`，**CLI 不需要它，守卫的放行清单里也不加**）。五条守卫进 `just check`：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · 任意深度的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**。
 
 **已决定**（主计划 §1）：不抽 `@orpheus-aviary/daemon-kit`，v0.1 直接复制 owl 模式，出现明显重复再重构。
 

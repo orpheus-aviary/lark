@@ -10,7 +10,7 @@
 // and the daemon reads it exactly once — the request gate reads an in-memory
 // state machine, not this (master plan §3.2-3).
 
-import type BetterSqlite3 from 'better-sqlite3';
+import type { SqliteLike } from './sqlite.js';
 
 export const AUDIO_MIGRATION_PENDING_KEY = 'audio_migration_pending';
 
@@ -21,7 +21,7 @@ export const AUDIO_MIGRATION_PENDING_KEY = 'audio_migration_pending';
  * key is one that never reached v3 — and such a library is refused long before
  * anybody asks this.
  */
-export function isAudioMigrationPending(sqlite: BetterSqlite3.Database): boolean {
+export function isAudioMigrationPending(sqlite: SqliteLike): boolean {
   const row = sqlite
     .prepare('SELECT value FROM local_metadata WHERE key = ?')
     .get(AUDIO_MIGRATION_PENDING_KEY) as { value: string } | undefined;
@@ -35,7 +35,7 @@ export function isAudioMigrationPending(sqlite: BetterSqlite3.Database): boolean
  * key/value log of what has happened to this library, and "we cleared this"
  * and "this was never set" are different facts.
  */
-export function clearAudioMigrationPending(sqlite: BetterSqlite3.Database): void {
+export function clearAudioMigrationPending(sqlite: SqliteLike): void {
   sqlite
     .prepare('UPDATE local_metadata SET value = ? WHERE key = ?')
     .run('0', AUDIO_MIGRATION_PENDING_KEY);

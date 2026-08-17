@@ -16,10 +16,10 @@ import {
   MigrationPendingError,
   SchemaMismatchError,
 } from '../errors.js';
+import { LATEST_KNOWN_VERSION, applyForwardMigrations } from '../portable/migrate.js';
+import * as m0001 from '../portable/migrations/0001-init.js';
 import { seedGoLegacyDb } from './fixture-go-db.js';
 import { createDatabase } from './index.js';
-import { LATEST_KNOWN_VERSION, applyForwardMigrations } from './migrate.js';
-import * as m0001 from './migrations/0001-init.js';
 import { openDatabaseReadonly } from './readonly.js';
 
 let dir: string;

@@ -11,13 +11,13 @@ import type { PlaylistExportData } from '@lark/shared';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
-import { songs } from '../db/schema.js';
 import {
   InvalidImportFileError,
   InvalidReuseError,
   NotFoundError,
   UnsupportedFormatVersionError,
 } from '../errors.js';
+import { songs } from '../portable/schema.js';
 import { songAudioPath, songDirPath } from './lyrics.js';
 import { addSongsToPlaylist, createPlaylist, getPlaylistSongs } from './playlists.js';
 import { createSong } from './songs.js';

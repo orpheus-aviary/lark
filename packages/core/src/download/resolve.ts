@@ -46,11 +46,11 @@ import { isUuidV4 } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { eq, like } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { local_metadata, songs } from '../db/schema.js';
 import { DownloadCommitError, InvalidIdError } from '../errors.js';
 import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE, songDirPath } from '../library/lyrics.js';
 import { touchLastAccessed } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
+import { local_metadata, songs } from '../portable/schema.js';
 
 const LOG_KEY_PREFIX = 'download.commit.';
 

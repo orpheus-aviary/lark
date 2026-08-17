@@ -27,10 +27,10 @@ import {
   IncompatibleDbError,
   MigrationPendingError,
 } from '../errors.js';
+import { LATEST_KNOWN_VERSION, isGoLegacyDb, isSchemaEmpty } from '../portable/migrate.js';
+import { assertCurrentSchema } from '../portable/schema-signature.js';
+import * as schema from '../portable/schema.js';
 import type { LarkDatabase } from './index.js';
-import { LATEST_KNOWN_VERSION, isGoLegacyDb, isSchemaEmpty } from './migrate.js';
-import { assertCurrentSchema } from './schema-signature.js';
-import * as schema from './schema.js';
 
 export interface ReadonlyDatabaseOptions {
   dbPath: string;

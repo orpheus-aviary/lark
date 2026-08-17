@@ -41,7 +41,6 @@ import type {
 import type BetterSqlite3 from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { playlists, songs } from '../db/schema.js';
 import {
   DownloadQueueFullError,
   InvalidSourceError,
@@ -59,6 +58,7 @@ import {
   updateSongInTx,
 } from '../library/songs.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
+import { playlists, songs } from '../portable/schema.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
 import { type BilibiliClient, createBilibiliClient } from './bilibili.js';
 import { ClaimRegistry } from './claims.js';

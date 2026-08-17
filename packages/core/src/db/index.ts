@@ -12,16 +12,17 @@ import BetterSqlite3 from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { GoMigrationRequiredError, IncompatibleDbError } from '../errors.js';
 import type { Logger } from '../logger/index.js';
-import { clearAudioMigrationPending } from '../migration/pending.js';
 import {
   LATEST_KNOWN_VERSION,
   applyForwardMigrations,
   isGoLegacyDb,
   isSchemaEmpty,
-} from './migrate.js';
+} from '../portable/migrate.js';
+import { clearAudioMigrationPending } from '../portable/pending.js';
+import { assertCurrentSchema } from '../portable/schema-signature.js';
+import * as schema from '../portable/schema.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { recoverFromMigrationResidue } from './recovery.js';
-import { assertCurrentSchema } from './schema-signature.js';
-import * as schema from './schema.js';
 
 export type LarkDatabase = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -63,7 +64,12 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandles {
     recoverFromMigrationResidue(dbPath);
   }
 
-  const sqlite = new BetterSqlite3(dbPath);
+  // `satisfies` and not a cast: it proves better-sqlite3 still covers the
+  // portable surface WITHOUT narrowing `sqlite`, which the desktop-only calls
+  // below (backup, WAL pragmas, writer locks) still need in full. If the shim
+  // contract ever grows a method better-sqlite3 lacks, this line is where it
+  // is noticed — not on a phone.
+  const sqlite = new BetterSqlite3(dbPath) satisfies SqliteLike;
   try {
     // Connection-level pragmas only — neither persists to the file.
     sqlite.pragma('busy_timeout = 5000');
