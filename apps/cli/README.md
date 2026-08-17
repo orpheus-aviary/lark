@@ -18,7 +18,7 @@ npm i -g @orpheus-aviary/lark-cli
 lark status                 # daemon 在不在，曲库在哪
 lark daemon                 # 起一个 daemon
 lark songs list             # 曲库
-lark download <链接或关键词> # 下载
+lark download <链接或关键词> # 下载（链接加 --clean-name 让 LLM 从标题里读出歌名与歌手）
 lark play <歌名>            # 播放（必要时拉起桌面端）
 lark sync status            # 同步状态
 lark skill export           # 导出给 agent 用的技能说明
@@ -43,9 +43,11 @@ lark sync unbind            # 解绑本机（要先 stop-daemon；会说明丢�
 密码只从静音输入或 `--password-stdin` 读，没有 `--password` 参数。服务器必须是 HTTPS；
 明文 HTTP 要同时给 `--allow-insecure-http` 和全局 `--yes`。
 
-> ⚠️ **0.2 会把曲库升到 schema v2，且不可逆**：升级后 0.1.x 将拒绝打开它。迁移只发生在 daemon
-> 启动时，所以 v1 曲库在 0.2 下即使只读 `--direct` 也会先报 `MIGRATION_PENDING`——起一次
-> `lark daemon` 即可。想留退路请先备份 `~/orpheus-aviary-nest/lark/`。
+> ⚠️ **0.3 会把曲库升到 schema v3，并把已有的 mp3 一次性转成 m4a，两者都不可逆**：升级后 0.2.x
+> 将拒绝打开它。迁移只发生在 daemon 启动时，所以旧曲库即使只读 `--direct` 也会先报
+> `MIGRATION_PENDING`——起一次 `lark daemon` 让它跑完（转换期间业务命令答 `AUDIO_MIGRATION_PENDING`，
+> `lark status` 会说它在做什么）。导入的原始文件会移进 `migration-backup/` 留给你处置，下载来的
+> 原件在产物验证通过后删除。想留退路请先备份 `~/orpheus-aviary-nest/lark/`。
 
 ## 退出码
 

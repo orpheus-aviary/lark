@@ -6,18 +6,24 @@
 
 ## 状态
 
-当前版本 **0.2.0**（2026-08-12；首发 0.1.0 在 2026-08-10）。
+当前版本 **0.3.0**（2026-08-17；首发 0.1.0 在 2026-08-10，0.2.0 在 2026-08-12）。
 - 仅 macOS Apple Silicon（arm64）
 - GUI 为 ad-hoc 签名（未 notarize），首次运行需绕过 Gatekeeper
 - 无自动更新
 
 v0.1 是本地全功能版：曲库 / 播放器 / 下载管线 / 歌词 / 缓存模型 / 歌单导入导出 / CLI。
 v0.2 接入 **skybridge 多设备同步**：歌曲与歌单的元数据、歌词跨设备同步（音频本体不同步，
-各设备凭来源按需下载），冲突由你来判，GUI 状态栏与 `lark sync` 都能看到同步状态。
+各设备凭来源按需下载），冲突由你来判。
+v0.3 把曲库统一成 **m4a（AAC）**：下载 bilibili 的 AAC 不再转码而是原样重封装，导入收下
+自带 ffmpeg 读得开的一切（m4a/mp4 · aac · mp3 · flac · wav · ogg/oga/opus，按文件内容判定而不是
+扩展名）。另外三项：下载可选**清洗命名**（让 LLM 从视频标题里读出歌名与歌手）、下载有了
+字节级进度与独立的任务面板。
 
-> ⚠️ **0.2.0 会把曲库升到 schema v2，且不可逆**——升级后 0.1.0 将拒绝打开
-> `~/orpheus-aviary-nest/lark/songs.db`。想留退路就先 `just backup-nest <目录>`（或整目录复制）。
-> 不登录同步也会升级：迁移发生在 daemon 启动时，与是否使用同步无关。
+> ⚠️ **0.3.0 会把曲库升到 schema v3，并把已有的 mp3 一次性转成 m4a，两者都不可逆**。
+> 升级后 0.2.x 将拒绝打开 `~/orpheus-aviary-nest/lark/songs.db`；转换全程在窗口里可见、可中断续跑，
+> 导入的（不可重新下载的）原始文件会移进 `~/orpheus-aviary-nest/lark/migration-backup/` 留给你处置，
+> 而下载来的原件在产物验证通过后删除。**想留退路就先 `just backup-nest <目录>`（或整目录复制）。**
+> 不登录同步也会升级：迁移发生在 daemon 启动时。
 
 整体计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`，同步的设计与决策见
 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`，进度见 `PROCESS.md`。
@@ -32,7 +38,7 @@ v0.2 接入 **skybridge 多设备同步**：歌曲与歌单的元数据、歌词
 
 | | 自带 ffmpeg | 你要做的 |
 |---|---|---|
-| `bundled`（0.1.0 / 0.2.0 发的都是这种） | 是（自建 LGPL 构建，见 License） | 无 |
+| `bundled`（0.1.0 / 0.2.0 / 0.3.0 发的都是这种） | 是（自建 LGPL 构建，见 License） | 无 |
 | `system` | 否 | **下载前**先 `brew install ffmpeg`——没有它下载与导入都不可用 |
 
 装完在「设置 → 媒体工具」能看到当前用的是哪一份 ffmpeg。
