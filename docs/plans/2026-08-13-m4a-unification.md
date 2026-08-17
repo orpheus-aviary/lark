@@ -90,7 +90,7 @@
 
 ## §3 批次划分
 
-> **进度（2026-08-15）**：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）· **T3 ✅**（四个提交：三层 context + 阶段机 + runner → 迁移三路由 + file-ops 白名单 → GUI 迁移屏 + 备份区块 → CLI 口径；判据 15–22、51、59、61 + 真机副本演练）· **T4 ✅**（两个提交：九个真容器夹具 + `toneWav` 扩 PCM → 矩阵本体；判据 31、53）· **T5 ✅**（四个提交 + 一个工具修复：命名清洗 → 阶段与字节进度 → 面板与 cancel-all → 协议升 6；判据 23–30、32）· **T5b ✅**（五个提交，按「谁在撒谎」分组：daemon 三个活设置 → 冲突恢复 → GUI 设置页与右键菜单 → CLI 空转 flag 与 stderr 承诺 → 唯一没解码的标题；F1–F17 全关闭，判据 35–47、54）。逐批实测见 `PROCESS.md`。下一批 **T6**。
+> **进度（2026-08-17）**：**T6 的验收与手测已完成**（判据 33/34/55 全过；四处验收脚本自身的缺陷与六处产品问题见 `PROCESS.md` 的 T6a–T6d），剩九步发版。以下为逐批记录：T0a ✅ · T1 ✅ · T1b ✅ · **T2 ✅**（六个提交：附表 A + 分型 → 删 Go 迁移 → schema v3 + ledger → recovery 版本化 + `migration-backup/` → scanner → converter）· **T3 ✅**（四个提交：三层 context + 阶段机 + runner → 迁移三路由 + file-ops 白名单 → GUI 迁移屏 + 备份区块 → CLI 口径；判据 15–22、51、59、61 + 真机副本演练）· **T4 ✅**（两个提交：九个真容器夹具 + `toneWav` 扩 PCM → 矩阵本体；判据 31、53）· **T5 ✅**（四个提交 + 一个工具修复：命名清洗 → 阶段与字节进度 → 面板与 cancel-all → 协议升 6；判据 23–30、32）· **T5b ✅**（五个提交，按「谁在撒谎」分组：daemon 三个活设置 → 冲突恢复 → GUI 设置页与右键菜单 → CLI 空转 flag 与 stderr 承诺 → 唯一没解码的标题；F1–F17 全关闭，判据 35–47、54）。逐批实测见 `PROCESS.md`。下一批 **T6**。
 >
 > **T4 与本表的两处出入**：① `pickAudio` 的格式清单落在 `@lark/shared`（core 的闸门、GUI 主进程的对话框过滤器、将来 capabilities 的 `import_formats` 是同一份），不是各自写一遍；② **capabilities 的 `audio_format` / `import_formats` / `llm_available` 仍留在 T5**（D8：中间批次不自称 v6，且这三个字段今天没有消费者——GUI 静态 import 那份清单）。
 >

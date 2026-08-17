@@ -37,10 +37,17 @@ v0.1.0 基线测试 1697（shared 74 / core 569 / cli 371 / daemon 337 / gui 346
 
 v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / gui 378）+ **e2e 19**（`just test-sync-e2e`）+ **accept-sync 34**（`just accept-sync`）。两者都需要 skybridge server：e2e 找不到就 skip，accept-sync 找不到就**失败**。每批的实施记录、判断与实测锁定见 `PROCESS.md` 的 v0.2 段；手动 soak 清单见 `docs/plans/2026-08-12-v0.2-soak-checklist.md`。
 
-🛠 **v0.3.0 开发中（m4a 统一 + 一次性迁移 + PC 三项）**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a ✅ → T1 ✅ → T1b ✅ → T2 ✅ → T3 ✅ → T4 ✅ → T5 ✅ → T5b ✅ → T6（发 0.3.0）**；之后是 Phase B（Android，`apps/mobile`）。canonical 已是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema 已升 v3**，迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在能自己走完转换并把窗口交回曲库**（副本真机演练已过）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器；PC 三项已交付，**协议已定稿在 `LOCAL_API_VERSION = 6`**。「已实现未实装」的 F1–F17 也已全部修完。当前测试 **2396**（shared 79 / core 981 / cli 417 / daemon 495 / gui 424）。下一批 **T6**：验收脚本复核 + 真实副本库迁移闭环 + 收藏夹人工 smoke + 九步发版 0.3.0。
+🚀 **v0.3.0 已发布（2026-08-17）——m4a 统一 + 一次性迁移 + PC 三项**。主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3 + **§9 附表 A 错误分型表**，判据 1–61、决策 a–n 全定）。批次 **T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6 全部完成**；之后是 Phase B（Android，`apps/mobile`）。canonical 是 `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`；**schema v3**，迁移从 core 一路接到 daemon / GUI / CLI——**一个 0.2.x 曲库能自己走完转换并把窗口交回曲库**（判据 33 真实副本闭环：7/7 done、0 lost、0 blocked）；导入收 **shipped profile 读得开的一切**（m4a/mp4·aac·mp3·flac·wav·ogg/oga/opus），扩展名只当过滤器；PC 三项已交付，**协议定稿在 `LOCAL_API_VERSION = 6`**。发版时测试 **2419**（shared 79 / core 985 / cli 417 / daemon 495 / gui 443）+ e2e 19 + accept 系列全绿。**schema v3 与 mp3→m4a 都是单向的**：0.3 开过的库，0.2.x 不再打开，音频也回不去。
 
 ### v0.3.0 实测锁定（随批次追加）
 
+- **「应答」不等于「服务」**（T6）：五个 accept harness 全跑在真库副本上，而副本是 v2——daemon 一开它就当场转音频，这段时间 `/status`、`/api/instance`、`/api/capabilities` 答 200 而业务路由全 503。就绪判定要等 `phase === 'normal'`（`scripts/lib/library-ready.mjs`），`blocked_environment` / `needs_attention` 直接抛。**`lark daemon` 在服务之前几分钟就返回了**，照旧 `stop-daemon` 会把库停在半程
+- **验收夹具不许借用户的曲库**（T6）：`accept-sync` 的 E5 要一首 imported（不可重下），用户清一次库它就变成在测别人的听歌习惯；D3 断言 `backfill == 全库`，而真实副本里本就躺着未推送的 `create`（正常写入都 emit，与绑定无关）——判据要断言「**没有歌被漏下**」，不是一个恰好成立的数字。同一种病在 accept-m5 早修过一次，晚了一个版本才走到 sync
+- **LLM 精修要有自己的短超时**（T6d 实测）：歌词选优在 deepseek-v4-flash 上是 2.3 / 16.6 / 22.8 秒，而它的兜底 `pickByHeuristic` 是 1ms 且三次都选了同一个。这种「可选的精修」挂在通用 `llm: 60s` 上是错配比 → 独立 `lyricsSelect: 10s`。三个歌词平台本身只要 1–3 秒，**不是瓶颈**
+- **续作属于它那首歌，不属于队尾**（T6c）：单 worker FIFO 下，下载成功后 `push` 歌词任务 = 先跑完所有下载再跑所有歌词，第一首歌要等最后一首下完才算齐。续作 `unshift`（`runNext`），手动排的歌词任务照常排尾。**先写断言再改代码**：红的那次直接打印出了真实顺序
+- **Radix 的 FocusScope 会在 mount effect 之后再抢一次焦点**（T6c）：所以「打开时聚焦某个按钮」只能写在 `onOpenAutoFocus` 里，写在 effect 里只有「那个按钮此刻还禁用、稍后才可用」的路径上看着是对的。两种路径要分别测——批量弹框第一版就是这么假绿的
+- **store 的就地更新必须复制事件带的每个字段**（T6c）：`download:status` 的处理只写了 state/stage/revision，把 T5.2 的 `received_bytes`/`total_bytes` 丢了——daemon 一直在发，GUI 从来没显示过。凡是「事件里新加了字段」，接收端的 `{...task, …}` 就是第二处要改的地方
+- **全宽的可编辑按钮会把空白变成编辑目标**（T6c）：`block w-full` 让短标题右边的空白也能双击改名，而那里应该是行的双击（播放）。收敛成 `inline-block max-w-full`。同理复选框那一列：整格都要是勾选的命中区，否则点在框外会冒泡到行、把多选塌成单选。**断言 class 要按 token 比**——`max-w-full` 包含子串 `w-full`
 - **MP4 必须 `-movflags +faststart`**：默认索引（`moov`）写在音频之后，媒体元素经 HTTP 拿到这种文件连 duration 都报不出来（accept-gui 实测：唯一请求落在文件最后 0.1%）。判据要断言**真文件里 moov 在 mdat 之前**，别断言参数里有没有那个 flag
 - **媒体流与 API 必须分 session**：Chromium 每 origin 六条 socket，SSE + API + 每条 range 音频都指向 daemon 同一个 origin，播 m4a 时稳定占满——renderer 连 `/status` 都发不出去，表现成「daemon 重启后 GUI 不再注册」而音频一切正常。`lark-media://` 的上游走独立 partition（`session.fromPartition(…).fetch`）。**`net.fetch` 没有 session 选项**，多传一个字段类型检查不拦、运行时静默无效
 - **`songFileInfo(id, { audioMode })` 的 mode 必须显式传**：`canonical` 只认 m4a，`migration-pending` 才兼容 legacy mp3。路径函数不读 DB——谁知道自己的库在不在迁移期，谁负责传
@@ -71,9 +78,9 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **一个 fail-closed 的分支，先确认没有别人替它兜底**（T5/T5b 共同教训）：判据 27 的第一版测试在没有修复时也是绿的（下游的 signal 兜住了），判据 42 的 badge 同理要断言「归零后消失」而不是「显示过」。写完先把修复去掉跑一遍——绿的就是没测到
 - **残留的测试 nest 多半是「跑挂的测试」而不是漏了 `rmSync`**：`pnpm -r` 一个包失败会杀掉并行的其它包，它们的 `afterAll` 没机会跑。数一下前缀与时间戳能分清是漏清理还是被打断
 
-🚨 **T2c 起开发版会把曲库升到 schema v3（单向），T3 起还会当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
-⚠️ **本机真实曲库是 schema v2**（2026-08-12 soak 时被 v0.2 GUI 开过一次，用户拍板不还原）——0.1.0 拒绝打开它，0.2.0 发版后这不再是限制；`/Applications/Lark.app` 已是 0.2.0。
-⚠️ **曲库内容已变（2026-08-13 实测）**：不再是「21 首 / 4 歌单、20 首 Go 迁移 imported」——用户当天清库重下，现为 **7 首全 `downloaded` / 1 个歌单 / 0 首 imported**。`accept-m5` 已改成自造 imported 夹具（不再借用户的库，22/22 复跑通过）；但**迁移判据 33 的 A 类（imported）在真实库里已无样本**，要测 A 类分支得自己造。
+🚨 **开发版碰到 v2 库就会升 schema v3（单向）并当场转换音频**：任何 `createDatabase`——dev daemon、`--direct` 写、跑测试时指错 `LARK_NEST_DIR`——碰到 v2 库都会当场升级并置 `audio_migration_pending`；随后 dev daemon 一起来就把 mp3 转成 m4a。**装在 `/Applications` 的 0.2.0 从此拒绝打开它**（`user_version > LATEST`），而音频也回不去了。开发期一律 `just backup-nest <目录>` + `LARK_NEST_DIR` 用副本。**验副本的可靠做法（T3 演练用的就是它）**：先自己带 `LARK_NEST_DIR` 起 daemon、用 `/api/instance` 核对 `nest_dir`，再开 GUI——GUI 认领时会比对 nest，环境变量没生效就**弹框中止**（不 spawn、不碰真库），这比「开了之后再看」早一步。
+⚠️ **本机真实曲库仍是 schema v2**（2026-08-17 复验：7 个 `song.mp3`、`--direct` 读它报 `MIGRATION_PENDING`）——0.3.0 发版前的全部验收都跑在 `just backup-nest` 的副本上，真库一次没被碰过。用户装上 0.3.0 后它才会升 v3 并转音频。
+⚠️ **曲库内容 2026-08-13 变过**：不再是「21 首 / 4 歌单、20 首 Go 迁移 imported」——用户当天清库重下，现为 **7 首全 `downloaded` / 1 个歌单 / 0 首 imported**。**验收夹具一律自造**：`accept-m5` 与 `accept-sync`（E5 的 imported、D3 的 backfill 口径）都因为借用户的库而红过，见 `PROCESS.md` 的 T6a。
 
 **每个里程碑先出子计划**（`docs/plans/<日期>-<里程碑>.md`）经用户过目再动手，实现按任务分批、每批提交前给用户看 commit 信息。
 

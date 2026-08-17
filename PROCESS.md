@@ -173,7 +173,7 @@
 
 主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`（v11，九轮评审）+ 子计划 `docs/plans/2026-08-13-m4a-unification.md`（v3，判据 1–61 / 决策 a–n）。批次 T0a → T1 → T1b → T2 → T3 → T4 → T5 → T5b → T6。
 
-**当前状态（2026-08-16）**：**T0a / T1 / T1b / T2 / T3 / T4 / T5 / T5b 已完成并提交**。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（真机演练见 T3 末条）；导入收 **shipped profile 读得开的一切**；PC 三项（命名清洗 / 阶段+字节进度 / 下载面板）已交付，**协议定稿在 `LOCAL_API_VERSION = 6`**。「已实现未实装」的 F1–F17 也全部修完。测试 **2396**（shared 79 / core 981 / cli 417 / daemon 495 / gui 424）。下一批 **T6**：验收脚本复核（accept-m5 / pack / gui / sync）+ 真实副本库迁移闭环 + 收藏夹人工 smoke + 九步发版 0.3.0。
+**当前状态（2026-08-17）**：**T0a → T5b 已完成并提交，T6 的验收与手测已完成**，剩九步发版。canonical 是 `songs/<id>/song.m4a`，vendored ffmpeg 零外部库、不能再产 mp3；迁移从 core 一路接到了 daemon / GUI / CLI——**一个 0.2.x 曲库现在可以自己走完转换并把窗口交回曲库**（判据 33 的真实副本闭环见 T6b）；导入收 **shipped profile 读得开的一切**；PC 三项已交付，**协议定稿在 `LOCAL_API_VERSION = 6`**。测试 **2419**（shared 79 / core 985 / cli 417 / daemon 495 / gui 443）+ e2e 19 + accept 系列全绿。
 
 **T2（迁移 core）已完成**：T2a 错误分型表 → T2b 删 Go 迁移 → T2c schema v3 + ledger → T2d recovery 版本化 + `migration-backup/` → T2e scanner → T2f converter。
 
@@ -185,7 +185,7 @@
 
 **T5b（「已实现未实装」修复批）已完成**：五个提交，按「谁在撒谎」分组——daemon 的三个活设置（`fa5b6b0`）→ 冲突恢复（`2c490f6`）→ GUI 的设置页与右键菜单（`444fe7c`）→ CLI 的空转 flag 与 stderr 承诺（`ba187f1`）→ 唯一没解码的标题（`916d750`）。F1–F17 全关闭，判据 35–47、54 已落测试。
 
-**开工前要知道的两件事**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**，core 测试要自己造，判据 33 到 T6 时也得先往副本里 import 几首；② `accept-pack` 的 `LOCAL_API_VERSION` 仍写死 5，按计划由 T5 协议定稿批统一改。
+**开工前要知道的两件事（T6 已各自了结）**：① 真实曲库现在是 7 首全 `downloaded` / 0 首 imported，**A 类（imported 永不删除）在真机上没有样本**——`accept-m5` 早已自造夹具，`accept-sync` 的 E5 到 T6 才发现同病（见 T6a）；② `accept-pack` 的 `LOCAL_API_VERSION` 由 T5.4 统一改成 6。
 
 - [x] **T0a 供应链前半**（2026-08-13）— 先入库 mp3 夹具，再给 vendored ffmpeg 加 AAC 编码器与 ipod 封装器，**LAME 暂留**（生产 `ensureMp3` 要到 T1 才切 m4a，先删就是断链）
   - **`scripts/fixtures/tone-1s.mp3` 入库**（25748 字节，sha256 `25d43ca2…`）：`toneWav(1)` → 当前 vendored ffmpeg 的 libmp3lame，参数与彼时的 `ensureMp3()` 逐字一致（192k / 44.1kHz / `-f mp3`），所以它就是「0.2.x 写进 `songs/<id>/song.mp3` 的那种文件」——迁移链闭环拿它当输入。同一构建跑两次字节相同（实测）。**顺序不可倒**：T1b 删掉 LAME 之后本仓再没有任何 mp3 编码器，配方就只剩历史价值。来历与 sha256 记在新增的 `scripts/fixtures/README.md`
@@ -340,8 +340,35 @@
 - [x] **`accept-m5` 自造 imported 夹具**（2026-08-13）— 缓存段测的是「导入永不被回收」这条不变量，夹具却一直借用户库里的 imported 歌，于是一次清库就把产品验收变成了别人听歌习惯的人质。改成自己 `POST /songs/import` 两份入库 mp3 夹具（一份 pin 一份不 pin，后者证明「不 pin 也没被动」），**seed 失败直接 throw 而不是判据红**——0/22 看起来像产品坏了，实际是 harness 没起步。仍是 **22/22**（实跑：evicted 8 / freed 50.9MiB / 2 个 import 全活）
   - ⚠️ **`accept-pack` §3f 仍是 M4A→MP3 闭环**，用的是 libmp3lame：T1b 删 LAME 之后它必红。子计划 §1.2 已把 accept 系列字面量归到 T5 定稿批 + T6 复核，别等到发版当天才发现
 
+- [x] **T6a 验收脚本复核**（2026-08-17）— 四处**真问题**，都是「判据没跟着协议走」的同一种病，只是发作点不同
+  - **判据 55（spike 换 m4a）根本没做过**：spike 的 fixture 还是 30 分钟 mp3、harness 还在断言 `audio/mpeg`——它在验证一个 lark 已经不说的协议。换成 AAC/mp4（`+faststart`，实测 `moov@32 / mdat@311063`），server 的 Content-Type、harness、`--smoke`、accept-gui 的 FIXTURE 四处跟着走。`just spike-media-check` 全层过（真 fixture + 节流 + Electron smoke）
+  - 🐛 **五个 accept harness 全都会在迁移窗口里开始断言**：它们都跑在真库副本上，而副本是 schema v2——daemon 一开它就当场转音频，这段时间 `/status`、`/api/instance`、`/api/capabilities` 答 200 而**业务路由全 503**。新增 `scripts/lib/library-ready.mjs`：等到 `phase === 'normal'` 才往下走，`blocked_environment` / `needs_attention` 直接抛（这两个状态自己变不成 normal，等下去只会耗光超时）。accept-cli 的「一次 daemon 启动完成升级」尤其要它——`lark daemon` 在**服务之前几分钟**就返回了，原样 `stop-daemon` 会把副本停在半程
+  - 🐛 **accept-m5 的下载请求还是 v5 形状**：T5.1 之后 `/download/song` 对链接必填 `naming_mode`，它没带，实跑当场炸在 `task_id undefined`。这正是 0.2.0 那条「写死在验收脚本里的协议版本只会在发版当天红」的第二次发作，只是这次是**字段**不是版本号
+  - 🐛 **accept-sync 有两条判据在拿用户的听歌习惯当夹具**：E5 要一首「不可重下」的歌（imported），而 8-13 清库之后一首都没有了；D3 断言 `backfill == 全库`，可副本里本来就躺着 6 首歌的**未推送 `create`**（正常写入都会 emit，与绑定无关）。E5 改成自造两个 imported 夹具（accept-m5 §5 的教训晚了一个版本才走到这里），D3 改成断言**没有歌被漏下**（`backfill.songs == 缺 create 的数量`，且登录后每首都有 create）——F3 是 E5 的下游，跟着回绿
+  - `sync.files.e2e.ts` 的导入夹具原来指着 spike 那个 **gitignored** 的 30 分钟文件，改用 tracked 的 `tone-1s.m4a`
+  - 🐛 **发版当天门禁复跑又抓到两处**：① `accept-cli` 的 §6-13 把**真实收藏夹的条目数写死成 4**，而那个收藏夹现在有 5 个视频——`0 5/4`，全部成功却判红；判据真正要说的是「一个 URL 展开成了若干项且每项都落到终态」。② `accept-gui` 判据 6 偶发 `t=2.7`：**harness 只等 9 秒，而恢复状态机自己的截止时间是 10 秒**（`RECOVERY_TIMEOUT_MS`），慢一次的重挂（限速链路上重读 `moov`）就会被量在半路。改成轮询「位置回到重启前」而不是猜秒数——复跑报 `t=1127.2 (was 1127.0)`，恢复其实是精确的
+  - **两条都是同一类**：判据不该把「此刻恰好如此」当成契约——远端列表的条数、一次重挂要花多久，都是环境而不是产品的承诺
+  - gate：`just check` · `just test` **2396** · accept-cli 27/27 · accept-m5 22/22 · accept-gui 15/15 · `test-sync-e2e` 19/19（真 server，没 skip）· `accept-sync` 33/33 · `fetch-ffmpeg --verify` 三条闭环
+- [x] **T6b 判据 33：真实副本库迁移闭环**（2026-08-17）— `just backup-nest` 复制真库（7 首全 R 类）→ 带 `LARK_NEST_DIR` 起 daemon → **7/7 done**，`lost / blocked / kept_unconverted / asset_missing` 全 0
+  - 磁盘复验：**0 个 mp3 / 7 个 song.m4a**，歌词全在，`migration-backup/` 空（R 类的原件是验证过产物之后删的，本就不留备份）；schema **v3**、ledger 七行全 done；逐首时长对得上（`219.05068 → 219.050000`）；`/audio` 回 `audio/mp4`，200 与 206 都对
+  - **真库复验**：仍是 7 个 `song.mp3`，`--direct` 读它仍报 `MIGRATION_PENDING`（`user_version` 未动）
+  - 顺手把 **F7 的另一半**验了（判据 41 此前只有单测）：上限从「不限」改成 10MB，**不重启、几秒内** 128.9MB/29 文件 → 7.8MB/11 文件，导入与歌词那 111KB 不可回收部分一动不动
+- [x] **T6c 用户手测 T4 / T5 / T5b**（2026-08-17）— 清单 `docs/plans/2026-08-16-v0.3-manual-test-checklist.md`（导入矩阵 16 条 + 命名 7 条 + 进度 3 条 + 面板 4 条 + T5b 六处 + 收藏夹 smoke），环境是真库副本 + 14 个编号夹具。功能全过，**但用出来六处产品问题**，逐条修完
+  - **下载列表说不出自己在下什么**：行首是「已有歌曲」或一条裸链接。wire 给任务加 `title` / `artist`（快照与 `download:status` 都带）——从歌曲出发的任务**入队即有名**，链接在 `naming` 解析出结果那一刻有名；命中库里已有歌时显示**那首歌自己的名字**（下载不改名，列表也不该说它会）
+  - 🐛 **顺手抓到 T5.2 的漏装**：GUI store 处理 `download:status` 时只写 state/stage/revision，**把 `received_bytes` / `total_bytes` 丢了**——字节进度只有整表刷新时才动，正常下载全程不显示数字。这正是清单 3.2 想验的东西，而它一直是隐形的
+  - **同一首歌两行长得一样**：下载与它派生的歌词是两个任务，统一名字之后就成了同一行出现两次。行首加类型标签（`歌词` / `重新下载` / `按需下载`），普通下载不带标签——每行都挂个标签等于没标
+  - **面板排序**：进行中 / 排队中按队列顺序（先提交在上，一批四十个不会在你看的时候自己动），已结束**最新在最上**；取消掉、没有 `finished_at` 的按提交时间排
+  - 🐛 **队列顺序是「先跑完所有下载，再跑所有歌词」**（用户怀疑，实测证实：先写断言再改代码，红的那次打印 `['download','download','lyrics']`）——单 worker FIFO，而歌词续作是在下载成功后 `push` 到队尾的。改成**续作插队首**（`runNext`）：每首歌音频+歌词齐了才轮到下一首；手动排的歌词任务不插队
+  - **键盘路径**：命名弹框打开时焦点落在记忆的那个选项上（Radix 默认聚焦第一个可聚焦子元素 = 取消，第二次回车会把提交扔掉），←/→ 切换且高亮跟着焦点走；批量弹框焦点给「确认下载」。**批量那处第一版没修对**——收藏夹路径下列表还在加载、按钮禁用，effect 在加载完成后放焦点所以看着是对的；而**粘多个链接**不需要请求，按钮开局就可用，于是 Radix 的 FocusScope 在 mount effect **之后**又抢了回去。改在 `onOpenAutoFocus` 里接管，并把测试改到那条路径上（去掉修复即红）
+  - **横条状态行**：加任务名（`max-w-56` + `truncate`，一条没解析出名字的长链接不许把阶段与取消按钮挤出行）与「还有 N 个排队」（N 不含正在显示的那一个）
+  - **点击判定两处**：第一列整格都是复选框的目标（以前点格子空白会冒泡到行，把二十行的多选塌成一行）；歌名/歌手**只有文字本身**可双击改名（那个按钮原来 `block w-full` 撑满整格，短标题右边的空白也成了改名区），空白重新归行——双击 = 播放
+- [x] **T6d 歌词慢：瓶颈实测**（2026-08-17）— 用户报「下载歌词很慢」。分段计时（deepseek-v4-flash，9 个候选）：三平台并发抓取 **1.0 / 1.8 / 3.3 秒**，**LLM 选优 2.3 / 16.6 / 22.8 秒**，启发式 **1–2ms 且三次都与 LLM 选了同一个**
+  - 它用的是通用 `llm` 超时 **60 秒**，而这一步的兜底（`pickByHeuristic`）是确定性的、1ms 出结果——配比本来就错，而 T6c 把歌词插到每首歌后面之后它才成为必经路上的等待。新增独立超时 `lyricsSelect = 10s`；测试用一个永不回应的 fetch 验「40ms 后拿到启发式结果且总耗时 < 2s」（仍挂在 60s 预算上这条会红）
+  - **记录不改**：每个歌词平台内部是 `for … await`（搜索 + 最多 3 条逐条取），并发化约省 0.5–2 秒，但它不是瓶颈，而且要对人家接口多开三倍并发——单独开批再说
+
 ## 后续
 - [ ] **v0.3+ 移动版设计 doc**
+- [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
 - 归用户手动、尚未做的：**skill 的「agent 实际可调用」验收**（M6 起挂着，M7 也没做——需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令）
 
