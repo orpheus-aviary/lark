@@ -19,6 +19,17 @@ export interface DownloadTimeouts {
   audioStream: number;
   /** One LLM completion. */
   llm: number;
+  /**
+   * The LLM's turn at picking a lyrics candidate — much shorter than `llm`,
+   * because this call is a REFINEMENT with a deterministic fallback that costs
+   * a millisecond (`pickByHeuristic`).
+   *
+   * Measured 2026-08-17 against deepseek-v4-flash, nine candidates: 2.3s, 16.6s
+   * and 22.8s on three consecutive runs, agreeing with the heuristic every
+   * time. Waiting a minute for a maybe-better answer is the wrong trade when
+   * every song's lyrics now run between two downloads (§3.6-3).
+   */
+  lyricsSelect: number;
   /** One lyrics platform, search + fetch combined. */
   lyricsPlatform: number;
   ffprobe: number;
@@ -32,6 +43,7 @@ export const DEFAULT_TIMEOUTS: DownloadTimeouts = {
   b23Expand: 10_000,
   audioStream: 5 * 60_000,
   llm: 60_000,
+  lyricsSelect: 10_000,
   lyricsPlatform: 20_000,
   ffprobe: 30_000,
   ffmpeg: 10 * 60_000,

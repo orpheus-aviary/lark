@@ -145,7 +145,7 @@ async function pickWithLlm(
     {
       signal: options.signal,
       fetchImpl: options.fetchImpl,
-      timeoutMs: (options.timeouts ?? DEFAULT_TIMEOUTS).llm,
+      timeoutMs: (options.timeouts ?? DEFAULT_TIMEOUTS).lyricsSelect,
     },
   );
 

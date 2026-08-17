@@ -4,6 +4,7 @@
 
 import type { LlmConfig } from '@lark/shared';
 import { describe, expect, it, vi } from 'vitest';
+import { DEFAULT_TIMEOUTS } from '../timeouts.js';
 import type { LyricsCandidate, LyricsPlatform } from './lrc.js';
 import {
   collectLyricsCandidates,
@@ -173,6 +174,27 @@ describe('selectLyricsCandidate', () => {
     }) as unknown as typeof fetch;
     const best = await selectLyricsCandidate(pool, QUERY, { llmConfig: LLM, fetchImpl: failing });
     expect(best?.platform).toBe('qq');
+  });
+
+  // The refinement may not hold the task open: its fallback is instant and, in
+  // the measurements behind `lyricsSelect`, picked the same candidate anyway.
+  it('gives up on a model that will not answer, and answers from the heuristic', async () => {
+    const hanging = ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as unknown as typeof fetch;
+
+    const started = Date.now();
+    const best = await selectLyricsCandidate(pool, QUERY, {
+      llmConfig: LLM,
+      fetchImpl: hanging,
+      timeouts: { ...DEFAULT_TIMEOUTS, lyricsSelect: 40 },
+    });
+
+    expect(best?.platform).toBe('qq');
+    // The deadline that ran out is the SELECTION one, not the 60s general LLM
+    // budget: a green here with `llm` wired in would take a minute.
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it('uses the heuristic with no LLM configured at all', async () => {
