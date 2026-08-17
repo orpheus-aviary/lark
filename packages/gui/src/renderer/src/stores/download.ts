@@ -129,7 +129,21 @@ export const useDownloads = create<DownloadState>((set, get) => ({
         set({
           tasks: get().tasks.map((task) =>
             task.id === event.task_id
-              ? { ...task, state: event.state, stage: event.stage, revision: event.revision }
+              ? {
+                  ...task,
+                  state: event.state,
+                  stage: event.stage,
+                  revision: event.revision,
+                  // Every field the event carries has to be copied here. These
+                  // four were the whole point of two events — byte progress
+                  // (§3.5) and the resolved name (§3.6-1) — and a task updated
+                  // in place from a snapshot's values would report the transfer
+                  // that was running when the panel last refetched.
+                  received_bytes: event.received_bytes,
+                  total_bytes: event.total_bytes,
+                  title: event.title,
+                  artist: event.artist,
+                }
               : task,
           ),
         });

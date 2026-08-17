@@ -301,6 +301,77 @@ describe('naming mode', () => {
     expect(song.artist).toBe('音乐私藏馆');
   }, 60_000);
 
+  // Per SONG, not per kind. A queue of ten links should hand back finished
+  // songs one at a time; the alternative is ten silent files followed by ten
+  // lyrics fetches, and the first song is only done when the last one is.
+  it("fetches one song's lyrics before starting the next song", async () => {
+    // Two parts of one video = two songs from two links, which is the smallest
+    // "queue of several" this upstream can produce.
+    await upstream.close();
+    upstream = await startFakeUpstream({
+      audio: audioFixture,
+      videos: new Map([
+        [
+          BVID,
+          {
+            title: '【私藏馆】周杰伦《稻香》',
+            owner: '音乐私藏馆',
+            ownerMid: 229733301,
+            duration: 223,
+            pages: [
+              { page: 1, part: 'P1', duration: 111, cid: 550103819 },
+              { page: 2, part: 'P2', duration: 112, cid: 550103820 },
+            ],
+          },
+        ],
+      ]),
+    });
+
+    const started: string[] = [];
+    const seen = new Set<string>();
+    const e = build({
+      callbacks: {
+        onStatus: (task) => {
+          if (task.state !== 'running' || seen.has(task.id)) return;
+          seen.add(task.id);
+          started.push(task.kind);
+        },
+      },
+    });
+    e.enqueueDownload({ target: videoTarget(1) });
+    e.enqueueDownload({ target: videoTarget(2) });
+    await settleAll(e);
+
+    expect(started).toEqual(['download', 'lyrics', 'download', 'lyrics']);
+  }, 90_000);
+
+  // What a task list can call this task (§3.6-3). The link is all a queued
+  // task has; the naming mode's answer is the first thing anyone can show.
+  it('names the task after the song the naming mode produced', async () => {
+    inferAs({ song_name: '稻香', artist: '周杰伦' });
+    const e = build({ llm: llmConfig() });
+    const { id, title } = e.enqueueDownload({ target: videoTarget(null, null, 'clean') });
+    expect(title).toBeNull();
+    await settle(e, id);
+
+    expect(taskOf(e, id).title).toBe('稻香');
+    expect(taskOf(e, id).artist).toBe('周杰伦');
+  }, 60_000);
+
+  it('names a task that starts from a song before it has run at all', async () => {
+    const e = build({ llm: NO_LLM });
+    const { id } = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, id);
+    const songId = taskOf(e, id).result?.song_id as string;
+
+    // Enqueue only — no `settle`: the label has to be there while it waits,
+    // which is the whole complaint about a queue full of "已有歌曲".
+    const again = e.enqueueRedownload(songId);
+    expect(again.title).toBe(getSong(db, sqlite, songId).name);
+    expect(again.artist).toBe(getSong(db, sqlite, songId).artist);
+    await settle(e, again.id);
+  }, 60_000);
+
   it('falls back to the title the submission carried when the model fails', async () => {
     inferAs('fail');
     const e = build({ llm: llmConfig() });

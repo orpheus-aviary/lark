@@ -272,8 +272,17 @@ export class DownloadEngine {
     });
   }
 
-  /** Queue a lyrics fetch. Also how a finished download spawns its own. */
-  enqueueLyrics(songId: string, options: { exemptFromCapacity?: boolean } = {}): DownloadTaskData {
+  /**
+   * Queue a lyrics fetch. Also how a finished download spawns its own.
+   *
+   * The two callers want different queue positions, which is what `runNext`
+   * is: a continuation finishes the song the queue is already in the middle
+   * of, while a hand-queued fetch takes its turn like everything else.
+   */
+  enqueueLyrics(
+    songId: string,
+    options: { exemptFromCapacity?: boolean; runNext?: boolean } = {},
+  ): DownloadTaskData {
     const key = `lyrics:${songId}`;
     const merged = this.#mergeInto(key, []);
     if (merged !== null) return merged;
@@ -287,6 +296,7 @@ export class DownloadEngine {
       songId,
       input: { type: 'song', song_id: songId },
       playlistIds: [],
+      ...(options.runNext === true ? { runNext: true } : {}),
     });
   }
 
@@ -539,6 +549,8 @@ export class DownloadEngine {
     playlistIds: string[];
     target?: DownloadTarget;
     songId?: string;
+    /** Run before whatever is already waiting; see `enqueueLyrics`. */
+    runNext?: boolean;
   }): DownloadTaskData {
     const task: TaskRecord = {
       id: randomUUID(),
@@ -548,6 +560,7 @@ export class DownloadEngine {
       revision: 1,
       input: seed.input,
       songId: seed.songId ?? null,
+      ...this.#songLabel(seed.songId ?? null),
       playlistIds: seed.playlistIds,
       latePlaylistIds: [],
       failedPlaylistIds: [],
@@ -572,10 +585,35 @@ export class DownloadEngine {
 
     this.#tasks.set(task.id, task);
     this.#dedupe.set(task.dedupeKey, task.id);
-    this.#queue.push(task.id);
+    // A lyrics continuation belongs to the song that just finished, not behind
+    // the other thirty-nine links someone pasted: it runs NEXT, so each song
+    // is done — audio and lyrics — before the next one starts. Queued by hand
+    // (`POST /songs/:id/download-lyrics`) it is an ordinary task and waits.
+    if (seed.runNext === true) this.#queue.unshift(task.id);
+    else this.#queue.push(task.id);
     this.#options.callbacks?.onStatus?.(toTaskData(task));
     this.#pump();
     return toTaskData(task);
+  }
+
+  /**
+   * What to call a task that starts from a song — a redownload, an ensure-file
+   * or a lyrics fetch, all of which would otherwise show up in a list as "已有
+   * 歌曲" forty times over.
+   *
+   * Tolerant by design: `enqueueLyrics` is also how a finished download spawns
+   * its own continuation, and a queued task can outlive a song someone deleted
+   * while it waited. Neither is a reason to fail an enqueue over a label.
+   */
+  #songLabel(songId: string | null): { title: string | null; artist: string | null } {
+    if (songId === null) return { title: null, artist: null };
+    try {
+      const song = getSong(this.#options.db, this.#options.sqlite, songId);
+      return { title: song.name, artist: song.artist };
+    } catch (err) {
+      if (err instanceof NotFoundError) return { title: null, artist: null };
+      throw err;
+    }
   }
 
   #bump(task: TaskRecord): void {
@@ -795,9 +833,20 @@ export class DownloadEngine {
     if (hit !== undefined) {
       task.songId = hit.id;
       task.claims.push(this.claims.acquire(hit.id, 'file', task.id));
+      const existing = getSong(db, sqlite, hit.id);
+      // The song's OWN name, not the one we just resolved: a download that
+      // lands on a song already in the library does not rename it, and a list
+      // saying otherwise would be describing a rename that never happens.
+      task.title = existing.name;
+      task.artist = existing.artist;
       this.#bump(task);
-      return { needsSource: true, resolved, existing: getSong(db, sqlite, hit.id) };
+      return { needsSource: true, resolved, existing };
     }
+
+    // A new song: the name the submitter's naming mode produced is what this
+    // task is about, and it is the first moment anyone can say so.
+    task.title = resolved.name;
+    task.artist = resolved.artist;
 
     // A brand-new song's id has to exist before the file does — the file lands
     // at songs/<id>/ (R22). It takes a claim too, even though nothing else
@@ -919,7 +968,7 @@ export class DownloadEngine {
   /** Spawn the lyrics continuation. A failure here is a warning, never a fail. */
   #deriveLyrics(task: TaskRecord, songId: string): void {
     try {
-      this.enqueueLyrics(songId, { exemptFromCapacity: true });
+      this.enqueueLyrics(songId, { exemptFromCapacity: true, runNext: true });
     } catch (err) {
       this.#logger.warn({ task: task.id, err }, 'could not queue the lyrics continuation');
     }

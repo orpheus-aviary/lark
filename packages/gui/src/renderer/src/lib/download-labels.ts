@@ -2,7 +2,13 @@
 // ready-made Chinese progress strings; M3 split state from stage and left the
 // wording to the front-end, so the table lives here.
 
-import type { DownloadStage, DownloadTaskData, DownloadTaskInput, TaskState } from '@lark/shared';
+import type {
+  DownloadStage,
+  DownloadTaskData,
+  DownloadTaskInput,
+  DownloadTaskKind,
+  TaskState,
+} from '@lark/shared';
 
 /**
  * §3.6-2's wording, shared with the CLI's. `converting` is "processing"
@@ -18,6 +24,21 @@ export const STAGE_LABELS: Record<DownloadStage, string> = {
   converting: '处理音频',
   saving: '落盘',
   lyrics: '匹配歌词',
+};
+
+/**
+ * What KIND of work this is, for the rows where the name is not enough.
+ *
+ * A finished download and the lyrics fetch it spawned are two tasks about one
+ * song (§3.6-3), so since they started carrying the song's name they read as
+ * the same row twice. `download` has no tag on purpose: it is what this panel
+ * is for, and tagging every row would only make the exceptions harder to spot.
+ */
+export const KIND_LABELS: Record<DownloadTaskKind, string | null> = {
+  download: null,
+  redownload: '重新下载',
+  'ensure-file': '按需下载',
+  lyrics: '歌词',
 };
 
 export const STATE_LABELS: Record<TaskState, string> = {
@@ -38,6 +59,24 @@ export function inputLabel(input: DownloadTaskInput): string {
     case 'song':
       return '已有歌曲';
   }
+}
+
+/**
+ * What to call this task in a list.
+ *
+ * The daemon fills `title` as soon as anyone can name the song — at enqueue for
+ * a task that starts from one, at `naming` for a link. Before that the input IS
+ * the honest answer: a queued link has no name yet, and inventing one would be
+ * worse than showing the URL.
+ */
+export function taskTitle(task: DownloadTaskData): string {
+  return task.title ?? inputLabel(task.input);
+}
+
+/** The title with its kind, for places that get one string: labels, tooltips. */
+export function taskDescription(task: DownloadTaskData): string {
+  const kind = KIND_LABELS[task.kind];
+  return kind === null ? taskTitle(task) : `${kind} ${taskTitle(task)}`;
 }
 
 /**

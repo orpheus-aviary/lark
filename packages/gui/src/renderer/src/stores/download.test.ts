@@ -25,6 +25,8 @@ function task(id: string, overrides: Partial<DownloadTaskData> = {}): DownloadTa
     result: null,
     received_bytes: 0,
     total_bytes: null,
+    title: null,
+    artist: null,
     ...overrides,
   };
 }
@@ -93,11 +95,41 @@ describe('status events', () => {
       revision: 2,
       received_bytes: 0,
       total_bytes: null,
+      title: null,
+      artist: null,
     });
     await flush();
 
     expect(useDownloads.getState().tasks[0]?.stage).toBe('downloading');
     expect(calls.filter((call) => call.url.endsWith('/download/tasks'))).toHaveLength(0);
+  });
+
+  // The in-place update has to copy EVERY field the event carries. Both of
+  // these exist only because the snapshot is too late to answer them: the
+  // transfer moves between refetches (§3.5), and a link is named halfway
+  // through its own task (§3.6-1).
+  it('carries byte progress and the resolved name into the known task', async () => {
+    useDownloads.setState({
+      tasks: [task('t1', { stage: 'resolving', revision: 1, title: null, artist: null })],
+    });
+    useDownloads.getState().applyEvent({
+      type: 'download:status',
+      task_id: 't1',
+      state: 'running',
+      stage: 'downloading',
+      revision: 2,
+      received_bytes: 4096,
+      total_bytes: 8192,
+      title: '稻香',
+      artist: '周杰伦',
+    });
+    await flush();
+
+    const updated = useDownloads.getState().tasks[0];
+    expect(updated?.received_bytes).toBe(4096);
+    expect(updated?.total_bytes).toBe(8192);
+    expect(updated?.title).toBe('稻香');
+    expect(updated?.artist).toBe('周杰伦');
   });
 
   it('refetches when the task id is unknown', async () => {
@@ -109,6 +141,8 @@ describe('status events', () => {
       revision: 1,
       received_bytes: 0,
       total_bytes: null,
+      title: null,
+      artist: null,
     });
     await flush();
     expect(calls.some((call) => call.url.endsWith('/download/tasks'))).toBe(true);
@@ -127,6 +161,8 @@ describe('status events', () => {
       revision: 2,
       received_bytes: 0,
       total_bytes: null,
+      title: null,
+      artist: null,
     } as const;
     for (const id of ['a', 'b']) {
       useDownloads.getState().applyEvent({ type: 'download:status', task_id: id, ...shared });

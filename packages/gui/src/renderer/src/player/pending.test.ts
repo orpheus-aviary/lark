@@ -64,6 +64,8 @@ function task(id: string, state: DownloadTaskData['state'], songId: string): Dow
     result: state === 'succeeded' ? { song_id: songId } : null,
     received_bytes: 0,
     total_bytes: null,
+    title: null,
+    artist: null,
   };
 }
 

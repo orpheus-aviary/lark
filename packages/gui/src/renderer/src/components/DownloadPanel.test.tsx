@@ -42,6 +42,8 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
     result: null,
     received_bytes: 0,
     total_bytes: null,
+    title: null,
+    artist: null,
     ...overrides,
   };
 }
@@ -104,6 +106,125 @@ describe('the three sections', () => {
     });
     open();
     expect(screen.getByText('下载音频 40%')).toBeDefined();
+  });
+});
+
+describe('what a row is called', () => {
+  it('says the song once it has a name, and the link until then', () => {
+    useDownloads.setState({
+      tasks: [
+        task({ id: 'named', title: '稻香', artist: '周杰伦' }),
+        task({ id: 'unnamed', state: 'queued', stage: null }),
+      ],
+    });
+    open();
+
+    // The name replaces the URL — that is the whole point — but the URL is
+    // still the honest answer for a link nobody has resolved yet.
+    expect(screen.getByText('稻香')).toBeDefined();
+    expect(screen.getByText('· 周杰伦')).toBeDefined();
+    expect(screen.getByText('https://www.bilibili.com/video/BV1')).toBeDefined();
+  });
+
+  // One link produces two tasks — the download and the lyrics fetch it spawns
+  // — and since both carry the song's name, the name alone makes them the same
+  // row twice.
+  it('tells a download apart from the lyrics fetch it spawned', () => {
+    const finished = {
+      state: 'succeeded',
+      stage: null,
+      title: '稻香',
+      artist: '周杰伦',
+    } as const;
+    useDownloads.setState({
+      tasks: [
+        task({ id: 'dl', kind: 'download', finished_at: 2, ...finished }),
+        task({
+          id: 'lrc',
+          kind: 'lyrics',
+          input: { type: 'song', song_id: 's1' },
+          finished_at: 3,
+          ...finished,
+        }),
+      ],
+    });
+    open();
+
+    expect(screen.getAllByText('稻香')).toHaveLength(2);
+    expect(screen.getByText('歌词')).toBeDefined();
+    // The plain download carries no tag: it is what this panel is about.
+    expect(screen.queryByText('下载')).toBeNull();
+  });
+
+  it('does not print an empty artist as a bare separator', () => {
+    useDownloads.setState({ tasks: [task({ title: '无人声', artist: '' })] });
+    open();
+    expect(screen.queryByText('·', { exact: false })).toBeNull();
+  });
+});
+
+describe('the order within each section', () => {
+  /** The first line of each row, which is where the title lives. */
+  const names = (): string[] =>
+    screen.getAllByRole('listitem').map((row) => row.querySelector('p')?.textContent ?? '');
+
+  it('runs the live sections as a queue and the finished one as a log', () => {
+    useDownloads.setState({
+      tasks: [
+        // Deliberately shuffled: the store holds them in arrival order, which
+        // is not the order any of the three sections wants.
+        task({ id: 'f-old', title: 'f-old', state: 'succeeded', stage: null, finished_at: 10 }),
+        // A queued task has no `started_at` — that is what makes `created_at`
+        // the queue's own order.
+        task({
+          id: 'q-late',
+          title: 'q-late',
+          state: 'queued',
+          stage: null,
+          created_at: 40,
+          started_at: null,
+        }),
+        task({ id: 'f-new', title: 'f-new', state: 'failed', stage: null, finished_at: 30 }),
+        task({
+          id: 'q-early',
+          title: 'q-early',
+          state: 'queued',
+          stage: null,
+          created_at: 20,
+          started_at: null,
+        }),
+        task({ id: 'r-late', title: 'r-late', state: 'running', started_at: 15 }),
+        task({ id: 'r-early', title: 'r-early', state: 'running', started_at: 5 }),
+      ],
+    });
+    open();
+
+    expect(names()).toEqual(['r-early', 'r-late', 'q-early', 'q-late', 'f-new', 'f-old']);
+  });
+
+  it('orders a cancelled task that never finished by when it was submitted', () => {
+    useDownloads.setState({
+      tasks: [
+        task({
+          id: 'a',
+          title: 'a',
+          state: 'cancelled',
+          stage: null,
+          created_at: 1,
+          finished_at: null,
+        }),
+        task({
+          id: 'b',
+          title: 'b',
+          state: 'succeeded',
+          stage: null,
+          created_at: 2,
+          finished_at: 2,
+        }),
+      ],
+    });
+    open();
+    expect(names()).toEqual(['b', 'a']);
   });
 });
 

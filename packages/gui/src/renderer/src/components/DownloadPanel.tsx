@@ -14,7 +14,13 @@
 import type { DownloadTaskData } from '@lark/shared';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
-import { inputLabel, taskLabel } from '../lib/download-labels.js';
+import {
+  KIND_LABELS,
+  inputLabel,
+  taskDescription,
+  taskLabel,
+  taskTitle,
+} from '../lib/download-labels.js';
 import { errorMessage } from '../lib/errors.js';
 import { batchProgress, useDownloads } from '../stores/download.js';
 import { usePlaylists } from '../stores/playlists.js';
@@ -30,6 +36,24 @@ import {
 function isActive(task: DownloadTaskData): boolean {
   return task.state === 'queued' || task.state === 'running';
 }
+
+/**
+ * Each section is ordered by the question it answers.
+ *
+ * The two live sections read as a queue — first in, top of the list — so a
+ * batch of forty appears in the order it was submitted and a row does not move
+ * while you look at it. The terminal section is a log instead: the thing you
+ * just did is the thing you want to see, so it runs newest first.
+ *
+ * The fallbacks matter for the tie: a queued task has no `started_at` and a
+ * cancelled one may have no `finished_at`, and `created_at` keeps those in
+ * submission order rather than collapsing them all to zero.
+ */
+const byQueueOrder = (a: DownloadTaskData, b: DownloadTaskData): number =>
+  (a.started_at ?? a.created_at) - (b.started_at ?? b.created_at);
+
+const byNewestFirst = (a: DownloadTaskData, b: DownloadTaskData): number =>
+  (b.finished_at ?? b.created_at) - (a.finished_at ?? a.created_at);
 
 interface DownloadPanelProps {
   open: boolean;
@@ -50,9 +74,9 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
     playlists.find((playlist) => playlist.id === id)?.name ?? id;
 
   const visible = tasks.filter((task) => !dismissed.includes(task.id));
-  const running = visible.filter((task) => task.state === 'running');
-  const queued = visible.filter((task) => task.state === 'queued');
-  const finished = visible.filter((task) => !isActive(task));
+  const running = visible.filter((task) => task.state === 'running').sort(byQueueOrder);
+  const queued = visible.filter((task) => task.state === 'queued').sort(byQueueOrder);
+  const finished = visible.filter((task) => !isActive(task)).sort(byNewestFirst);
 
   async function onCancel(taskId: string): Promise<void> {
     try {
@@ -85,9 +109,28 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
     const progress = batchProgress(batches, task.id);
     const pendingCancel = cancelling.includes(task.id);
     return (
-      <li key={task.id} className="flex items-start gap-2 px-3 py-2 text-xs">
+      // The input stays reachable as the tooltip: once a link has a name, the
+      // name is what the row is about, but "which link was that?" is still a
+      // fair question.
+      <li
+        key={task.id}
+        title={inputLabel(task.input)}
+        className="flex items-start gap-2 px-3 py-2 text-xs"
+      >
         <div className="min-w-0 flex-1">
-          <p className="truncate">{inputLabel(task.input)}</p>
+          <p className="truncate">
+            {KIND_LABELS[task.kind] !== null && (
+              // A download and the lyrics fetch it spawns are two tasks about
+              // one song: without this they are the same row twice.
+              <span className="mr-1 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">
+                {KIND_LABELS[task.kind]}
+              </span>
+            )}
+            {taskTitle(task)}
+            {task.artist !== null && task.artist !== '' && (
+              <span className="text-muted-foreground"> · {task.artist}</span>
+            )}
+          </p>
           <p className="text-muted-foreground tabular-nums">
             {taskLabel(task)}
             {pendingCancel && isActive(task) && ' · 取消中'}
@@ -106,7 +149,7 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label={`取消任务 ${inputLabel(task.input)}`}
+            aria-label={`取消任务 ${taskDescription(task)}`}
             title={task.stage === 'saving' ? '当前阶段不可取消' : '取消任务'}
             disabled={task.stage === 'saving' || pendingCancel}
             onClick={() => void onCancel(task.id)}

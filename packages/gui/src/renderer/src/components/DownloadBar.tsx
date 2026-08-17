@@ -10,7 +10,7 @@ import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { ListChecks, Loader2, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { taskLabel } from '../lib/download-labels.js';
+import { inputLabel, taskDescription, taskLabel } from '../lib/download-labels.js';
 import { errorMessage } from '../lib/errors.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { activeTask, batchProgress, useDownloads } from '../stores/download.js';
@@ -113,6 +113,11 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
 
   const current = activeTask(tasks);
   const progress = current ? batchProgress(batches, current.id) : null;
+  // "Behind this one": when nothing is running, `activeTask` shows the head of
+  // the queue, and counting it as waiting would say 3 while showing one of the
+  // three.
+  const queuedAhead =
+    tasks.filter((task) => task.state === 'queued').length - (current?.state === 'queued' ? 1 : 0);
   const isCancelling = current !== null && cancelling.includes(current.id);
   const toolsWarning = mediaToolsWarning(mediaTools);
   const showsError = notice?.error === true || (!busy && current === null && toolsWarning !== null);
@@ -198,6 +203,15 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
             own: this row has a fixed height on purpose, and every download
             from here fails without it, so an empty status line is the wrong
             thing to show (M7-18). Anything actually happening outranks it. */}
+        {current && (
+          // Which song, in a FIXED width. A queued link has no name yet, so
+          // this is a raw bilibili URL often enough that letting it size itself
+          // would push the stage, the queue count and the cancel button off the
+          // row. The whole input stays in the tooltip.
+          <span className="max-w-56 shrink-0 truncate" title={inputLabel(current.input)}>
+            {taskDescription(current)}
+          </span>
+        )}
         <span className={`truncate ${showsError ? 'text-destructive' : 'text-muted-foreground'}`}>
           {busy
             ? '正在解析输入…'
@@ -208,6 +222,13 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         {progress && (
           <span className="shrink-0 text-muted-foreground tabular-nums">
             {progress.done}/{progress.batch.total}
+          </span>
+        )}
+        {queuedAhead > 0 && (
+          // What the row cannot show otherwise: one line reports one task, and
+          // "is anything else waiting?" is the other question people have.
+          <span className="shrink-0 text-muted-foreground tabular-nums">
+            还有 {queuedAhead} 个排队
           </span>
         )}
         {current && (

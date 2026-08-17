@@ -141,6 +141,8 @@ export function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskDat
     result: null,
     received_bytes: 0,
     total_bytes: null,
+    title: null,
+    artist: null,
     ...overrides,
   };
 }

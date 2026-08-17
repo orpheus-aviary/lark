@@ -741,6 +741,20 @@ export interface DownloadTaskData {
    * different things.
    */
   total_bytes: number | null;
+  /**
+   * The song this task is about, as soon as anyone can name it.
+   *
+   * A task that starts from a song (redownload / ensure-file / lyrics) has it
+   * from the moment it is queued; a link has it once the target resolves —
+   * which is the point of `naming`, and the only place the choice between the
+   * original title and a cleaned one becomes visible.
+   *
+   * `null` until then, and a client must fall back to the input rather than
+   * invent one: a queued link genuinely has no name yet.
+   */
+  title: string | null;
+  /** The artist beside `title`, blank when the source gave none. */
+  artist: string | null;
 }
 
 // Batch targets are two types, not one: the request may ask for a playlist
@@ -982,6 +996,14 @@ export type LarkEvent =
       /** Same contract as the snapshot's: `downloading` only, zeroed between. */
       received_bytes: number;
       total_bytes: number | null;
+      /**
+       * The snapshot's `title` / `artist`, repeated here because a client
+       * applies these events IN PLACE: a link is named halfway through its
+       * task, and a receiver that only learns names from `GET /download/tasks`
+       * would show the raw URL until something unrelated made it refetch.
+       */
+      title: string | null;
+      artist: string | null;
     }
   | { type: 'download:complete'; task_id: string; song_id: string }
   | { type: 'download:error'; task_id: string; error_code: string; message: string }

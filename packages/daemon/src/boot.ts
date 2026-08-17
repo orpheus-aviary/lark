@@ -487,6 +487,8 @@ export async function boot(options: BootOptions = {}): Promise<void> {
               revision: task.revision,
               received_bytes: task.received_bytes,
               total_bytes: task.total_bytes,
+              title: task.title,
+              artist: task.artist,
             }),
           onSucceeded: (task) => {
             if (task.result !== null) {

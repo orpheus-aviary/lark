@@ -40,8 +40,9 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     `import_formats` and `llm_available`; `POST /download/song` REQUIRES
  *     `naming_mode` on a link and a batch video item requires `naming`; the
  *     task snapshot and `download:status` carry byte progress; there is a
- *     `naming` stage and a `POST /download/cancel-all`; and `/api/audio-
- *     migration` exists at all. A 5 daemon rejects the naming fields as
+ *     `naming` stage and a `POST /download/cancel-all`; a task snapshot names
+ *     the song it is about (`title` / `artist`) instead of leaving a client to
+ *     show the raw link; and `/api/audio-migration` exists at all. A 5 daemon rejects the naming fields as
  *     unknown body keys — a client written against 6 cannot download through
  *     one, which is exactly what a version gate is for.
  */

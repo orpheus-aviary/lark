@@ -42,6 +42,9 @@ export interface TaskRecord {
   revision: number;
   input: DownloadTaskInput;
   songId: string | null;
+  /** What to call this task in a list; see `DownloadTaskData.title`. */
+  title: string | null;
+  artist: string | null;
   playlistIds: string[];
   /** Targets merged in after the freeze; applied after the commit. */
   latePlaylistIds: string[];
@@ -87,6 +90,8 @@ export function toTaskData(task: TaskRecord): DownloadTaskData {
     result: task.result,
     received_bytes: task.receivedBytes,
     total_bytes: task.totalBytes,
+    title: task.title,
+    artist: task.artist,
   };
 }
 
