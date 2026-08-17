@@ -366,7 +366,14 @@
   - 它用的是通用 `llm` 超时 **60 秒**，而这一步的兜底（`pickByHeuristic`）是确定性的、1ms 出结果——配比本来就错，而 T6c 把歌词插到每首歌后面之后它才成为必经路上的等待。新增独立超时 `lyricsSelect = 10s`；测试用一个永不回应的 fetch 验「40ms 后拿到启发式结果且总耗时 < 2s」（仍挂在 60s 预算上这条会红）
   - **记录不改**：每个歌词平台内部是 `for … await`（搜索 + 最多 3 条逐条取），并发化约省 0.5–2 秒，但它不是瓶颈，而且要对人家接口多开三倍并发——单独开批再说
 
+- [x] **T6e 发版 0.3.0**（2026-08-17）— 九步照 M7 §3.5 走完，零偏离。[Release](https://github.com/orpheus-aviary/lark/releases/tag/v0.3.0) + [`@orpheus-aviary/lark-cli@0.3.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)，tag → **`9cf9d97`**
+  - 门禁（全部跑在**将要发布的那个 HEAD** 上）：`just check` · `just test` **2419** · accept-cli 27/27 · accept-m5 22/22 · `test-sync-e2e` 19/19 · accept-sync 33/33 · accept-gui 15/15 · `fetch-ffmpeg --verify` 三条闭环 · **accept-pack 28/28**（对着固定产物）
+  - 产物：`Lark-0.3.0-arm64.dmg` 147,776,045 字节 sha256 `0dfd78c0950b492c5d11113fa46945cadda480d6b6afb8ea5edc0ceb3481a59f` · `orpheus-aviary-lark-cli-0.3.0.tgz` 517,752 字节 sha256 `1c938ed9bb3dd968817910a9bbc88fce7b7df97661d437b1eca59993761043c9`（npm 上的 shasum `f4b3617a…` 与 dry-run 一致）
+  - **复跑门禁不是形式**：accept 系列是在 T6c/T6d 的改动之前跑过的，复跑当场红了两条（收藏夹条数、9 秒等待），修完才允许打包——「发布物与已验收 HEAD 严格绑定」这条规矩今天真的拦下了东西
+  - 记录同步：`README.md`（版本 / 两种单向升级 / m4a 与导入 / 清洗命名）· `apps/cli/README.md`（升级警告 + `--clean-name`）· CLAUDE.md 状态段与实测锁定 · 本文件。**跨仓文档（`../aviary/docs/{ROADMAP,DESIGN}.md`、`../.github/profile/README.md`）仍写 0.2.0，待另仓单独提交**
+
 ## 后续
+- [ ] **跨仓文档跟进 0.3.0**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md`
 - [ ] **v0.3+ 移动版设计 doc**
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
