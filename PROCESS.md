@@ -372,9 +372,36 @@
   - **复跑门禁不是形式**：accept 系列是在 T6c/T6d 的改动之前跑过的，复跑当场红了两条（收藏夹条数、9 秒等待），修完才允许打包——「发布物与已验收 HEAD 严格绑定」这条规矩今天真的拦下了东西
   - 记录同步：`README.md`（版本 / 两种单向升级 / m4a 与导入 / 清洗命名）· `apps/cli/README.md`（升级警告 + `--clean-name`）· CLAUDE.md 状态段与实测锁定 · 本文件。**跨仓同日跟进**：`../aviary/docs/{ROADMAP,DESIGN}.md`（主线图多一步 Phase B 移动端）与 `../.github/profile/README.md`，各自单独提交
 
+## Phase B Android 移动版（`apps/mobile`）
+
+主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4（D1–D17）+ N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md`（**v4**，三轮评审定稿：判据 1–26 / 决策 a–l / R1–R5）。批次 N0a → N0b → N1 → N2 → N3 → N4 → N5 → N6；**N1 起每批开工前另出子计划**。
+
+**版本口径**：APK 独立版本线 0.1.0 / versionCode=1（D14）。桌面 Phase B 期间不必发版；N1 的重构落 main、随下个桌面版本自然发出。中途若发桌面 0.3.x，先复跑 accept 全系列。
+
+**当前状态（2026-08-17）**：Stage-1 已落，N0a 开工。
+
+| 批 | 内容 | 本批 gate | 状态 |
+|---|---|---|---|
+| Stage-1 | 主计划 §4.3 两处语义修订（N0a 行 c2 收窄 / N0b 收窄为平台 spike ↔ N1 加 R1–R5 与 D5 分段冻结）+ 本段开张 | 单事实源：Stage-1 不做完，N0a 不开工 | ✅ 2026-08-17 |
+| N0a-1 | `portable/` 搬迁（schema + migrations + migrate + schema-signature + errors 三类 + `migration/pending.ts`）+ `SqliteLike` + exports + 守卫（判据 1–4、7–10） | `just check` + `just test` 绿 | ⏳ |
+| N0a-2 | DatabaseContract harness + better-sqlite3 文件库包壳 + fake-leaky 反测（判据 5–6） | core 测试绿，假绿检查记录在案 | ⏳ |
+| N0b-1 | spike 脚手架 + 内部包白名单守卫 + workspace 共存（判据 11–13） | **12、13 绿** | ⏳ |
+| N0b-2 | expo-sqlite shim + harness 真机 + migrations/pending + op-sqlite 对照 + drizzle 定案（判据 14–17） | **14、15、17 绿**，D4 出口写定 | ⏳ |
+| N0b-3 | 卡顿 proxy + crypto 定案 + Web 标准全局面清查（判据 18、20–21） | **18 绿** + 20 定案 + 21 清单产出 | ⏳ |
+| N0b-4 | 播放判定 + skybridge / bilibili 探针 / 分享 intent（判据 19、22–24） | **19 绿、22 基本 API 绿**，D17 判定写定 | ⏳ |
+| N0b-5 | D14 + D16 落定 + GO/NO-GO 汇总（判据 25–26）+ **Stage-2 主计划修订** | **25、26 绿** | ⏳ |
+| N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
+
+**开工前要知道的**：
+
+- **N0b 是平台 spike，不是业务图验证**：core 业务模块（bilibili client、link、歌词、backfill、apply、file-ops）要到 N1 端口化后才能被 Metro 解析（`wbi.ts:21` 直接 `node:crypto`、`backfill.ts:29` 直接 `node:fs/promises`）。spike 内**禁止复制 core 实现来假装验证 core**——凡探针需要 core 才能算出的输入（WBI 签名、带签流 URL、header 集），一律由桌面用真 core 产出成 fixture。真实业务图归 N1 出口的 **R1–R5**
+- **前置条件三件**：一台 Android 真机（同时是测量协议的**冻结设备**，换设备 = 数值判据全部重测）· 本机 Android 构建链（JDK + SDK + adb，`expo run:android` 本地构建不依赖 EAS）· TLS（D15）与 N0 无耦合（spike 允许 LAN 明文 HTTP，产品线 https-only 不动，死线仍是 N4）
+- 🚨 **N0b 起 Expo 进桌面 workspace**：每次 `pnpm install` 变动后必须复跑桌面 `just check` + `just test`（判据 13，常驻义务）
+- **待用户拍板**：决策 g（keystore 加密凭证库选择），N0b-5 前定；其余 a–l 已按建议关闭
+
 ## 后续
 - [x] **跨仓文档跟进 0.3.0**（2026-08-17）：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md`
-- [ ] **Phase B 移动版设计 doc**（`apps/mobile`，Android 优先）——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` 的 N 系列
+- [x] **Phase B 移动版子计划**（2026-08-17，`aa63eac`）：N0 详案 + 全期框架 → 上面的 Phase B 段
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
 - 归用户手动、尚未做的：**skill 的「agent 实际可调用」验收**（M6 起挂着，M7 也没做——需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令）
