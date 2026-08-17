@@ -35,6 +35,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { waitForLibraryReady } from './lib/library-ready.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const DAEMON_URL = 'http://127.0.0.1:47100';
@@ -366,7 +367,12 @@ async function waitForDaemon(up, timeoutMs = 20_000) {
   while (Date.now() - started < timeoutMs) {
     try {
       const res = await fetch(`${DAEMON_URL}/status`, { signal: AbortSignal.timeout(1000) });
-      if (up && res.ok) return await res.json();
+      if (up && res.ok) {
+        // The nest copy may still be at schema v2: this daemon answers while it
+        // converts the library's audio, and refuses everything else (§3.2-3).
+        const data = await waitForLibraryReady(DAEMON_URL, { log: (line) => console.log(line) });
+        return { data };
+      }
     } catch {
       if (!up) return null;
     }

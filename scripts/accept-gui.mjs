@@ -25,6 +25,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backupNest } from '../packages/core/dist/index.js';
+import { waitForLibraryReady } from './lib/library-ready.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -85,6 +86,9 @@ async function waitForDaemon(nestDir, timeoutMs = 20_000) {
     try {
       const status = await fetch(`${DAEMON_URL}/status`, { signal: AbortSignal.timeout(1000) });
       if (status.ok) {
+        // The copy may still be at schema v2, in which case this daemon is
+        // converting its audio and every business route answers 503.
+        await waitForLibraryReady(DAEMON_URL, { log: (line) => console.log(line) });
         const token = (await readFile(join(nestDir, 'lark/daemon-token'), 'utf8')).trim();
         const instance = await fetch(`${DAEMON_URL}/api/instance`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -364,8 +368,17 @@ try {
   const rotated = await waitForDaemon(copy.nestDir);
   check('6 · the restart rotated the token', rotated.token !== token);
 
-  await sleep(9000);
-  const recovered = await cdp.evaluate(audioState);
+  // Recovery has its own deadline (RECOVERY_TIMEOUT_MS, 10s) and it remounts
+  // the element, so a fixed 9s wait can measure a player that is still coming
+  // back — this criterion once reported `t=2.7` that way, on a run where the
+  // fresh element had not finished reading `moov` over the throttle yet. Wait
+  // for the position recovery is restoring, not for a number of seconds.
+  let recovered = await cdp.evaluate(audioState);
+  for (let i = 0; i < 30; i++) {
+    if (recovered.error !== null || recovered.time >= positionBefore - 5) break;
+    await sleep(1000);
+    recovered = await cdp.evaluate(audioState);
+  }
   check(
     '6 · playback survived the restart without a reload',
     recovered.error === null,

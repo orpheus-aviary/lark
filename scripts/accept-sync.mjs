@@ -27,6 +27,7 @@
 
 import { spawn, spawnSync } from 'node:child_process';
 import {
+  copyFileSync,
   existsSync,
   mkdtempSync,
   readFileSync,
@@ -42,6 +43,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backupNest } from '../packages/core/dist/index.js';
+import { waitForLibraryReady } from './lib/library-ready.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -165,6 +167,24 @@ function apiFor(baseUrl, larkDir) {
   };
 }
 
+/**
+ * The songs the outbox already carries a `create` for.
+ *
+ * A READ-ONLY open, which takes no lock (M6) while both daemons hold the file;
+ * opened and closed per question because login is what changes the answer.
+ */
+function songsWithCreateChange(larkDir) {
+  const db = require('better-sqlite3')(join(larkDir, 'songs.db'), { readonly: true });
+  try {
+    const rows = db
+      .prepare("SELECT entity_id FROM sync_changes WHERE entity_type = 'song' AND op = 'create'")
+      .all();
+    return new Set(rows.map((row) => row.entity_id));
+  } finally {
+    db.close();
+  }
+}
+
 async function daemonIsUp(baseUrl) {
   try {
     const res = await fetch(`${baseUrl}/status`, { signal: AbortSignal.timeout(500) });
@@ -177,7 +197,12 @@ async function daemonIsUp(baseUrl) {
 async function waitForDaemon(baseUrl, timeoutMs = 30_000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    if (await daemonIsUp(baseUrl)) return true;
+    if (await daemonIsUp(baseUrl)) {
+      // Device A runs on a copy of the real nest, which may still be at schema
+      // v2 — answering is not the same as serving (0.3.0 §3.2-3).
+      await waitForLibraryReady(baseUrl, { log: (line) => console.log(line) });
+      return true;
+    }
     await sleep(300);
   }
   throw new Error(`no daemon answered on ${baseUrl}`);
@@ -583,16 +608,40 @@ try {
     `${freshConfig.code} ${freshConfig.out.trim().slice(0, 40)}`,
   );
 
+  // Two imported songs of our own, seeded BEFORE the library is measured.
+  // E5 needs a file that cannot be re-downloaded, and borrowing one from the
+  // user's library made this suite a hostage of what they happen to own — the
+  // day that library became seven downloaded songs, E5 stopped measuring
+  // quarantine and started measuring their listening habits (accept-m5 §5's
+  // lesson, arriving here one release later).
+  const seeds = ['accept-sync-import-a.m4a', 'accept-sync-import-b.m4a'].map((name) =>
+    join(nestA, name),
+  );
+  for (const path of seeds) copyFileSync(join(ROOT, 'scripts/fixtures/tone-1s.m4a'), path);
+  const seeded = await apiA('POST', '/songs/import', { file_paths: seeds });
+  if ((seeded.json?.data?.imported ?? []).length !== 2) {
+    throw new Error(`the import seed failed: ${JSON.stringify(seeded.json)}`);
+  }
+
   const songsBefore = lark(['--json', 'songs', 'list', '--limit', '500'], nestA).json?.data ?? [];
+  // What the backfill actually owes: a song whose `create` is still sitting in
+  // the outbox is already published — the first round pushes it. A copy of a
+  // REAL library arrives with such rows (every write emits one, bound or not),
+  // so "backfill.songs === every song" was only ever true of a library nobody
+  // had used. What must hold is that no song is left without one.
+  const publishedBefore = songsWithCreateChange(larkA);
+  const unpublished = songsBefore.filter((song) => !publishedBefore.has(song.id)).length;
   const loggedIn = login(nestA);
   const loginData = loggedIn.json?.data;
+  const publishedAfter = songsWithCreateChange(larkA);
   check(
-    'D3 · login registers a device, binds a workspace and queues the whole library',
+    'D3 · login registers a device, binds a workspace and leaves no song unpublished',
     loggedIn.code === 0 &&
       typeof loginData?.device_id === 'string' &&
       typeof loginData?.workspace_id === 'string' &&
-      loginData?.backfill?.songs === songsBefore.length,
-    `${loginData?.backfill?.songs}/${songsBefore.length} songs, device ${loginData?.device_reused ? 'reused' : 'new'}`,
+      loginData?.backfill?.songs === unpublished &&
+      songsBefore.every((song) => publishedAfter.has(song.id)),
+    `${loginData?.backfill?.songs}/${unpublished} owed of ${songsBefore.length} songs, device ${loginData?.device_reused ? 'reused' : 'new'}`,
   );
 
   const mode = statSync(credentialsA).mode & 0o777;

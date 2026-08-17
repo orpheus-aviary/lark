@@ -22,6 +22,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backupNest } from '../packages/core/dist/index.js';
+import { waitForLibraryReady } from './lib/library-ready.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const DAEMON_URL = 'http://127.0.0.1:47100';
@@ -63,6 +64,9 @@ async function waitForDaemon(nestDir, timeoutMs = 20_000) {
     try {
       const status = await fetch(`${DAEMON_URL}/status`, { signal: AbortSignal.timeout(1000) });
       if (status.ok) {
+        // The copy may still be at schema v2, in which case this daemon is
+        // converting its audio and every business route answers 503.
+        await waitForLibraryReady(DAEMON_URL, { log: (line) => console.log(line) });
         const token = (await readFile(join(nestDir, 'lark/daemon-token'), 'utf8')).trim();
         const instance = await fetch(`${DAEMON_URL}/api/instance`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -153,7 +157,13 @@ try {
   // ── 3 · a real download, which is what the cache is a cache OF ──
 
   console.log('[3/5] downloading one real song…');
-  const queued = await data('POST', '/download/song', { input: VIDEO_URL });
+  // `naming_mode` is required for a link since v6 (T5.1): the mode is the
+  // submitter's choice, and a daemon that guessed one would be storing a name
+  // nobody asked for.
+  const queued = await data('POST', '/download/song', {
+    input: VIDEO_URL,
+    naming_mode: 'original',
+  });
   const task = await settle(queued.task_id);
   check(
     'a link download succeeds end to end',

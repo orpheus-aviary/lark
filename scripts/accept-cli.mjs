@@ -30,6 +30,7 @@ import {
   nestFingerprint,
   realpathMissingOk,
 } from '../packages/core/dist/index.js';
+import { waitForLibraryReady } from './lib/library-ready.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI = join(ROOT, 'apps/cli/dist/index.js');
@@ -200,8 +201,14 @@ try {
   // So the copy is brought to the current schema the same way a user does it:
   // one daemon start. Without this the whole "no daemon" phase below fails
   // with MIGRATION_PENDING and says nothing about the CLI.
+  //
+  // Since 0.3.0 that same start also converts the library's audio, and THAT is
+  // why the wait below is not optional: `lark daemon` returns as soon as the
+  // daemon answers, which is minutes before it serves. Stopping it there would
+  // leave the copy half-converted and every `--direct` write refused.
   console.log('      upgrading the copy to the current schema (one daemon start)…');
   lark(['daemon'], nest);
+  await waitForLibraryReady(DAEMON_URL, { log: (line) => console.log(line) });
   lark(['stop-daemon'], nest);
   await waitForDaemonGone();
 
@@ -422,13 +429,16 @@ try {
   const favourites = lark(['--json', '--yes', 'download', FAVOURITES_URL, '--wait'], nest, {
     timeoutMs: 600_000,
   });
-  const batch = favourites.json?.data;
+  // Not pinned to a count: this is a real folder on a real account, and the
+  // day it grew from four videos to five, a green suite went red about
+  // something nobody changed. What the criterion is actually about is that one
+  // URL expanded into several items and every one of them settled.
+  const items = favourites.json?.data?.items ?? [];
+  const succeeded = items.filter((item) => item.final?.state === 'succeeded').length;
   check(
     '§6-13 · a favourites folder expands, asks, and every item reaches a terminal state',
-    favourites.code === 0 &&
-      batch?.items?.length === 4 &&
-      batch.items.every((item) => item.final?.state === 'succeeded'),
-    `${favourites.code} ${batch?.items?.filter((i) => i.final?.state === 'succeeded').length}/4`,
+    favourites.code === 0 && items.length > 1 && succeeded === items.length,
+    `${favourites.code} ${succeeded}/${items.length}`,
   );
 
   const waiting = larkAsync(['download', VIDEO_URL], nest);
