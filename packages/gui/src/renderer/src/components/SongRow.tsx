@@ -129,7 +129,11 @@ function EditableCell({ value, display, onCommit }: EditableCellProps): React.JS
     return (
       <button
         type="button"
-        className="block w-full truncate text-left"
+        // Wraps the TEXT, not the cell: a full-width button turned the empty
+        // half of a short title into an edit target, so a double-click meant
+        // "rename" in the one part of the row where it should mean "play".
+        // The cell's own emptiness belongs to the row again.
+        className="inline-block max-w-full truncate text-left align-middle"
         onDoubleClick={(e) => {
           e.stopPropagation();
           setDraft(value);
@@ -494,16 +498,31 @@ export function SongRow({
           {/* The selection bar rides on the first CELL, not the row: a <tr>
               border is at the mercy of border-collapse. Always 2px, so
               selecting a row never shifts its contents sideways. */}
+          {/* biome-ignore lint/a11y/useKeyWithClickEvents: the control is the
+              Checkbox inside — labelled, focusable and operable by keyboard.
+              This handler only widens its MOUSE target to the whole column; a
+              key handler on a non-focusable <td> could never fire, and giving
+              the cell a tabIndex would add a second tab stop for one action. */}
           <td
             className={`border-l-2 px-2 py-1.5 text-center ${
               isSelected ? 'border-l-primary' : 'border-l-transparent'
             }`}
+            // The whole column is the checkbox's target. A click on the padding
+            // beside the box used to reach the row and collapse a selection of
+            // twenty down to this one — the exact opposite of what someone
+            // aiming at a checkbox is doing.
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleSelected();
+            }}
+            // Two quick clicks here are two toggles, not "play this song".
+            onDoubleClick={(event) => event.stopPropagation()}
           >
             <Checkbox
               checked={isSelected}
               aria-label={`选择 ${song.name}`}
-              // Without this the row's own onClick fires too and collapses the
-              // selection to this one row — the exact opposite of ticking it.
+              // Without this the cell's handler above toggles a second time and
+              // the box lands back where it started.
               onClick={(event) => event.stopPropagation()}
               onCheckedChange={onToggleSelected}
             />

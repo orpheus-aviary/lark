@@ -307,6 +307,32 @@ describe('inline edit (D7)', () => {
     await waitFor(() => expect(screen.getByText('第一首')).toBeDefined());
     expect(calls.some((c) => c.method === 'PUT')).toBe(false);
   });
+
+  // The editable target is the TEXT. A short title leaves most of its column
+  // empty, and that emptiness belongs to the row: double-clicking it means
+  // "play", the same as everywhere else on the row.
+  it('plays instead of editing when the double click misses the text', async () => {
+    const { onPlay } = renderList();
+    const nameCell = screen.getByRole('button', { name: '第一首' }).parentElement as HTMLElement;
+
+    fireEvent.doubleClick(nameCell);
+
+    await waitFor(() =>
+      expect(onPlay).toHaveBeenCalledWith(expect.objectContaining({ id: 'song-1' })),
+    );
+    expect(screen.queryByDisplayValue('第一首')).toBeNull();
+  });
+
+  // jsdom has no layout, so the behavioural test above can only prove which
+  // element the event reached. This is the other half: the button is sized to
+  // its text. Compared as CLASS TOKENS — `max-w-full` contains `w-full`.
+  it('does not fill its cell, so the empty half is not an edit target', () => {
+    renderList();
+    const classes = screen.getByRole('button', { name: '第一首' }).className.split(/\s+/);
+    expect(classes).not.toContain('w-full');
+    expect(classes).toContain('max-w-full');
+    expect(classes).toContain('inline-block');
+  });
 });
 
 describe('delete confirmation (D9)', () => {
@@ -488,6 +514,36 @@ describe('multi-selection (S2)', () => {
 
     // Ticking must not collapse the selection the way a row click would.
     expect(selected()).toEqual(['song-1', 'song-3']);
+  });
+
+  // The box is 16px in a 40px column, and the miss used to cost the whole
+  // selection: the click reached the row, which collapses to one.
+  it('treats the padding beside the box as the box', async () => {
+    const user = userEvent.setup();
+    renderList();
+    const cellOf = (id: string): HTMLElement =>
+      screen.getByTestId(`song-row-${id}`).firstElementChild as HTMLElement;
+
+    await user.click(screen.getByLabelText('选择 第一首'));
+    await user.click(cellOf('song-3'));
+
+    expect(selected()).toEqual(['song-1', 'song-3']);
+  });
+
+  it('untoggles from the padding too, and never plays on a double miss', async () => {
+    const user = userEvent.setup();
+    const { onPlay } = renderList();
+    const cell = (): HTMLElement =>
+      screen.getByTestId('song-row-song-1').firstElementChild as HTMLElement;
+
+    await user.click(cell());
+    expect(selected()).toEqual(['song-1']);
+    await user.dblClick(cell());
+
+    // Two more toggles — back to ticked — and no playback from the row's own
+    // double-click handler.
+    expect(selected()).toEqual(['song-1']);
+    expect(onPlay).not.toHaveBeenCalled();
   });
 
   it('the header checkbox reports all / some / none of what is on screen', async () => {
