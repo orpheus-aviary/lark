@@ -11,13 +11,7 @@
 // because the number on the screen looks the same.
 
 import { CONTRACT_CASES } from './cases/index.js';
-import type {
-  ContractCase,
-  ContractDatabase,
-  ContractHooks,
-  ContractReport,
-  DrizzleContractDatabase,
-} from './types.js';
+import type { ContractCase, ContractDatabase, ContractHooks, ContractReport } from './types.js';
 
 export * from './assert.js';
 export * from './types.js';
@@ -75,5 +69,3 @@ export function runDatabaseContract(hooks: ContractHooks, report: ContractReport
     runOne(c, hooks.open(), report);
   }
 }
-
-export type { DrizzleContractDatabase };

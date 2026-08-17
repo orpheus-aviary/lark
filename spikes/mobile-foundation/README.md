@@ -43,16 +43,42 @@ Criteria fall into three kinds, and only the first is self-checking:
 
 ## Layout
 
-- `index.ts` / `src/App.tsx` — the judgement panel. N0b-1 renders boot probes;
-  later batches hang their panels off the same shell.
+- `index.ts` / `src/App.tsx` — the judgement panel. Every panel runs on a
+  button, not on mount: the contract executes ~13k statements synchronously and
+  a screen that froze on every Metro reload would be unusable.
 - `src/probes.ts` — what criterion 12 actually proves: each entry USES something
   from one of the three allowed packages, so a resolution failure is a bundling
   failure rather than a wrong number on screen.
+- `src/sqlite/shim.ts` — `SqliteLike` over expo-sqlite, per-call transient.
+  `src/sqlite/hooks.ts` feeds it to the contract (and carries `leakOnError`, the
+  on-device half of criterion 6). `src/sqlite/op-sqlite-hooks.ts` is the
+  criterion 16 comparison.
+- `src/panels/` — bootstrap rehearsal (15), contract driver (14), and the two
+  drizzle probes (17a/17b) over a shared counting Proxy.
 - `app.config.ts` — the whole native configuration (CNG). `android/` is
   generated and untracked; anything that can only be said by hand-editing it
   belongs in a config plugin.
 - `metro.config.js` — monorepo roots, with hierarchical lookup disabled so a
   package that resolves only by accident of hoisting fails here, not on a phone.
+
+## The drizzle patch
+
+`patches/drizzle-orm@0.38.4.patch` (repo root) fixes the Expo driver's missing
+`finalizeSync` — unpatched, 10,000 selects prepare 10,000 statements and release
+none. It only touches `expo-sqlite/session.*`, which the desktop never loads.
+pnpm keys it to `drizzle-orm@0.38.4`, so a version bump makes the install fail
+rather than silently dropping it; the panel's counting assertions are the second
+backstop. Full reasoning: subplan §9, criterion 17.
+
+## Driving it from the host
+
+`adb` works, with two ways to accidentally leave the app: the dev menu closes on
+ONE back press and exits on the second, and fast repeated swipes register as the
+home gesture. Confirm the spike is foreground with `dumpsys activity activities`
+before `screencap` — `pidof` says yes for a backgrounded app too.
+
+Results also go to logcat (`CONTRACT`, `MATRIX`, `DRIZZLE` prefixes), which is
+how to read a run without scrolling fifty rows on a phone.
 
 ## Running it
 
@@ -76,3 +102,7 @@ Expo lives in the desktop workspace now. **After any `pnpm install` change,
 re-run `just check` and `just test`** (criterion 13). The install that created
 this directory added 341 packages and changed no existing resolution; that is a
 fact about one install, not a guarantee about the next.
+
+The spike consumes `@lark/core/portable` through its **dist**, so a change to
+core's source is invisible here until `pnpm --filter @lark/core build` — the
+`just spike-mobile-*` recipes do it, a bare Metro reload does not.

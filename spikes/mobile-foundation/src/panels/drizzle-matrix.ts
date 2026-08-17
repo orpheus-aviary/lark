@@ -15,8 +15,8 @@
 import { schema } from '@lark/core/portable';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
-import { type SQLiteDatabase, deleteDatabaseSync, openDatabaseSync } from 'expo-sqlite';
 import { ExpoSqliteShim } from '../sqlite/shim';
+import { SONGS_DDL, countingProxy, openFresh } from './counting-proxy';
 
 export interface MatrixRow {
   name: string;
@@ -31,61 +31,8 @@ export interface MatrixRun {
   leaked: number;
 }
 
-interface Counting {
-  db: SQLiteDatabase;
-  prepared(): number;
-  finalized(): number;
-}
-
-function countingProxy(real: SQLiteDatabase): Counting {
-  let prepared = 0;
-  let finalized = 0;
-  const proxy = new Proxy(real, {
-    get(target, prop, receiver) {
-      if (prop === 'prepareSync') {
-        return (source: string) => {
-          const statement = target.prepareSync(source);
-          prepared += 1;
-          return new Proxy(statement, {
-            get(st, stProp, stReceiver) {
-              if (stProp === 'finalizeSync') {
-                return () => {
-                  finalized += 1;
-                  return st.finalizeSync();
-                };
-              }
-              const value = Reflect.get(st, stProp, stReceiver);
-              return typeof value === 'function' ? value.bind(st) : value;
-            },
-          });
-        };
-      }
-      const value = Reflect.get(target, prop, receiver);
-      return typeof value === 'function' ? value.bind(target) : value;
-    },
-  });
-  return { db: proxy, prepared: () => prepared, finalized: () => finalized };
-}
-
-const SONGS_DDL = `CREATE TABLE songs (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, artist TEXT NOT NULL DEFAULT '',
-  source_url TEXT, source_provider TEXT, source_key TEXT,
-  file_origin TEXT NOT NULL DEFAULT 'downloaded',
-  lyrics_offset REAL NOT NULL DEFAULT 0, duration REAL NOT NULL DEFAULT 0,
-  pinned INTEGER NOT NULL DEFAULT 0, last_accessed_at INTEGER,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  device_id TEXT, lww_counter INTEGER NOT NULL DEFAULT 0
-);`;
-
 export function runDrizzleMatrix(): MatrixRun {
-  const name = 'drizzle-matrix.db';
-  try {
-    deleteDatabaseSync(name);
-  } catch {
-    // Nothing to delete.
-  }
-
-  const real = openDatabaseSync(name);
+  const { db: real, dispose } = openFresh('drizzle-matrix.db');
   const rows: MatrixRow[] = [];
 
   const check = (label: string, fn: () => string): void => {
@@ -198,15 +145,6 @@ export function runDrizzleMatrix(): MatrixRun {
     const finalized = counting.finalized();
     return { rows, prepared, finalized, leaked: prepared - finalized };
   } finally {
-    try {
-      real.closeSync();
-    } catch {
-      // Already closed.
-    }
-    try {
-      deleteDatabaseSync(name);
-    } catch {
-      // Nothing to delete.
-    }
+    dispose();
   }
 }

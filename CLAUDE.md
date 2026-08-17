@@ -94,7 +94,7 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 - **契约夹具不许假设空表**（N0a-2）：迁移链自己会往 `local_metadata` 写（0003 的 `audio_migration_pending`），数整张表的用例一上来就红
 - **RN 版本要读 Expo 的 `bundledNativeModules.json`，不是 npm latest**（N0b-1）：SDK 57 钉 **react-native 0.86.2**，而 npm 上 latest 是 0.87.0。同理 spike 的 react 要**与 gui 逐字节相同**（19.2.4 / @types 19.2.18）——hoisted 之后全仓只有一份副本，这是判据 13 一次就绿的原因
 - **`android/` 是 CNG 产物，不进仓**（N0b-1）：一切影响原生工程的东西都写在 `app.config.ts`；只能靠手改 gradle 表达的，属于 config plugin。spike 的 applicationId 是 `…lark.spike` 而**不是** D14 的产品 id——戴着产品 id 的 spike 会让第一次装真包继承它的 data 目录
-- **dev menu 一次 BACK，两次退出 app**（N0b-1 踩过）：`screencap` 之前先确认 spike 在**前台**（`pidof` 不够，后台也有 pid），否则拍到的是手机上别的应用
+- **adb 驱动真机时，先确认 spike 在前台再截屏**（N0b-1/2 各踩一次，两次都拍到了用户自己的应用）：`pidof` 不够（后台也有 pid），要 `dumpsys activity activities`。两种把自己弄出 app 的手势：**dev menu 用一次 BACK 关，第二次就退出**；**连续快速上滑会被当成 home 手势**——滚动要慢（`swipe … 400ms`）且**不要从屏幕边缘起手**
 - **`finalizeSync()` 在执行失败后会抛，抛的是那条语句自己的错**（N0b-2）：`sqlite3_finalize()` 返回最近一次求值的错误码，**但无论如何都销毁语句**——所以它不是泄漏，是把正在传播的错又报了一遍。放它从 `finally` 逃出去，`UNIQUE constraint failed` 就变成一句关于 finalizeSync 的话。shim 与 drizzle patch 都**只在 execute 已失败时**吞掉它并照常计数
 - **`json_set` 绑定数字的存储类型是宿主差异**（N0b-2）：better-sqlite3 存 `real`，expo-sqlite 存 `integer`，同一份 SQL 同一个 JS number。`rebase.ts` 的 `IN ('integer','real')` 门原本是防御性的，**在第二个宿主上是必需的**。跟 FK 默认值同一类：一家的行为不是契约
 - **命名参数三家三种方言**（N0b-2）：core 写 better-sqlite3 形（`@name` + 裸键），expo-sqlite 要键带 sigil，op-sqlite **只有位置参数**。翻译前必须剥掉单引号字面量，否则 `'$.updated_at_ms'` 会被当成参数名
@@ -137,7 +137,7 @@ lark/
 └── docs/
 ```
 
-依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。**`core/portable` 是 core 内部的一层**：core 的 `db/` 与 `library/` 反向 import 它，它不许 import 任何 core（Phase B N0a 起，移动端只链这一块——`@lark/core/portable`，**CLI 不需要它，守卫的放行清单里也不加**）。五条守卫进 `just check`：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · 任意深度的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**。
+依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。**`core/portable` 是 core 内部的一层**：core 的 `db/` 与 `library/` 反向 import 它，它不许 import 任何 core（Phase B N0a 起，移动端只链这一块——`@lark/core/portable`，**CLI 不需要它，守卫的放行清单里也不加**）。**六条守卫**进 `just check`：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · **按深度计数**的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**、**spike 只许 import portable/shared/skybridge SDK**（`check-spike-mobile-imports.sh`，只约束 `@lark/*` 与 `@orpheus-aviary/*`）。
 
 **已决定**（主计划 §1）：不抽 `@orpheus-aviary/daemon-kit`，v0.1 直接复制 owl 模式，出现明显重复再重构。
 
