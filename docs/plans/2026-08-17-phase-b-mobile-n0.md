@@ -350,6 +350,32 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 （判据结果、测量设备档案、D4/D16/D17 定案文本、三栏 polyfill 清单、header 删减矩阵、人工行为清单、GO/NO-GO 记录与两段主计划修订提交号都落在这里——**全文只有这一处实施记录段**；批次状态另按仓库规范同步 PROCESS.md。）
 
+### 冻结测量设备与宿主工具链（2026-08-17，N0b 前置）
+
+**设备**（§3.2a 的冻结设备，换机 = 数值判据 14/17/18/20/26 全部重测）：
+
+| 项 | 值 |
+|---|---|
+| 型号 | vivo **V2408A**（`ro.product.name` = PD2408） |
+| 系统 | Android **15**，API level **35**，`PD2408_A_15.0.22.7.W10.V000L1`，安全补丁 2025-02-01 |
+| SoC / ABI | **SM8750**（Snapdragon 8 Elite）· **arm64-v8a 单 ABI** |
+| RAM | 15,479,660 kB ≈ **14.8 GiB** |
+| 存储 | `/data` 933G，可用 681G |
+| 屏幕 | 1080×2376，density 480（override 528） |
+| backup transports | `localtransport/.LocalTransport` · gms `D2dTransport` · gms `BackupTransportService`（当前生效） |
+
+**三条随档案确定的事**：
+
+1. **API 35 ≥ 12 → 走 `dataExtractionRules`**（判据 26）。`fullBackupContent`（≤11 的老路）在这台机器上**跑不到**，只能做 manifest 静态检查——判据 26 的三层客观判据里，②（两份 XML 内容断言）与①（manifest 属性）覆盖它，③（`bmgr` 实跑）只证明新路。这个缺口要在 §9 如实记，不能宣称两套规则都验过。
+2. **`LocalTransport` 与 `D2dTransport` 都在**：判据 26 的 `bmgr backupnow` + restore 可以走 local transport（不需要 Google 账号），而 **D2D 那条 N2 要用的 transport 这台机器也有**——D16 的完整 D2D restore 验收不必再找第二台设备。
+3. **它是旗舰**（8 Elite / 15 GB）。§3.2a 的阈值（前台单段 p95 ≤100ms、冷启动 2k 五轮 max <3s）在这台机器上**过了不等于中低端过**——三轮评审已经删掉「与设备档位无关」那句过强表述，这里再钉一次：判据 18/R5 的数值**只绑定这台设备**，是下限证据不是普适结论。
+
+**编译目标与设备的差**：compileSdk/target **36**（Android 16），设备是 **35**。targetSdk 36 的包在 35 上正常运行，但**任何按设备 API level 分支的 Android 16 行为在这台机器上到不了**——N0 不依赖这类行为；将来若有，要单独说明。
+
+**⚠️ vivo 的后台策略是判据 19 的具体风险**：OriginOS 会杀后台进程，而判据 19 要「后台 + 锁屏连续 ≥30min 不断」。开工前要把 spike app 加进电池白名单，并且**这条不是测试环境的将就**——真实 vivo 用户会撞上同一件事，N3 的后台播放要按同样的口径处理。
+
+**宿主工具链**（2026-08-17 装定）：`adb` 37.0.1（platform-tools 37.0.1）· `platforms;android-36` · `build-tools;36.0.0` · JDK **Temurin 17.0.20**（`/Library/Java/JavaVirtualMachines/temurin-17.jdk`，**不设全局 `JAVA_HOME`**——本机默认仍是 OpenJDK 25，17 只在 spike 的 just recipe 里生效）· `ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`。NDK 未装：按 `expo prebuild` 报出的 RN 0.86 钉版安装，与 E3「Expo 57.0.x 开工当天取最新并写死」同一条规矩。LAN skybridge server 走兄弟仓 `../skybridge/packages/server/dist/src/index.js`（已在）。
+
 ### Stage-1（2026-08-17）
 
 主计划 §4.3 两处语义修订已落（N0a 行决策 c2 收窄 · N0b/N1 行平台 spike ↔ R1–R5 与 D5 分段冻结），PROCESS.md 开 Phase B 段（批次表 + 前置条件 + 常驻义务）。此后 N0a 才开工。
