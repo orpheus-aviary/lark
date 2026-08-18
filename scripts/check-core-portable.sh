@@ -18,6 +18,21 @@
 # CASES are not tests — they are plain functions under `portable/contract/`,
 # and they stay guarded.
 #
+# The GLOBAL half (N1) catches what an import list cannot see. `Buffer`,
+# `process`, `NodeJS.*` and `__dirname` are ambient on the desktop: they need no
+# import, they typecheck, every desktop test passes — and on a phone they are
+# `undefined`. There is no compiler setting that removes them, because core's
+# NON-portable half legitimately uses all four.
+#
+# Matched by CODE SHAPE rather than as bare words, deliberately. A bare
+# `\bBuffer\b` also hits "better-sqlite3 hands back a Buffer" in a comment
+# explaining a host difference, and `\bprocess\.` hits an English sentence that
+# ends in "no child process." — both are true statements this codebase should
+# be able to make. So the patterns match how the identifiers are USED (a method
+# call, a type position, an errno cast), which is exactly what has to be caught:
+# `Buffer.byteLength(x)`, `buffer: Buffer`, `(err as NodeJS.ErrnoException)`,
+# `process.env.X`.
+#
 # The relative-escape half is DEPTH-COUNTED, not a list of core's directories.
 # The first draft matched `(\.\./)+(db|library|…)/`, which reads fine until
 # portable grows subdirectories: from `portable/contract/cases/`, the legal
@@ -69,10 +84,22 @@ done < <(rg -n --no-heading -o -r '$1' \
   --glob '!**/*.test.ts' \
   || true)
 
-if [ -n "$module_hits" ] || [ -n "$escape_hits" ]; then
-  echo "✗ @lark/core/portable must stay host-free (no node builtins / better-sqlite3 / electron / node-only libs / core itself)"
+global_hits=$(rg -n \
+  -e '(^|[^A-Za-z])Buffer\s*\.' \
+  -e '(:|<|as)\s*Buffer\b' \
+  -e '\bprocess\.[A-Za-z_$]' \
+  -e '\bNodeJS\.[A-Za-z_$]' \
+  -e '\b__dirname\b' \
+  -e '\brequire\(' \
+  packages/core/src/portable \
+  --glob '!**/*.test.ts' \
+  || true)
+
+if [ -n "$module_hits" ] || [ -n "$escape_hits" ] || [ -n "$global_hits" ]; then
+  echo "✗ @lark/core/portable must stay host-free (no node builtins / better-sqlite3 / electron / node-only libs / core itself / ambient Node globals)"
   [ -n "$module_hits" ] && echo "$module_hits"
   [ -n "$escape_hits" ] && echo "$escape_hits"
+  [ -n "$global_hits" ] && echo "$global_hits"
   exit 1
 fi
 

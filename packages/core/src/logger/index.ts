@@ -22,13 +22,11 @@ export type Logger = pino.Logger;
  * without a cast. Asking for pino's full surface where only `warn` is called
  * would push a lie into the one place that must not have one: a component that
  * takes a logger it will never use as pino.
+ *
+ * Declared in `portable/logger.ts` since N1a and re-exported here, which is
+ * where every consumer already imports it from.
  */
-export interface StructuredLogger {
-  debug(fields: Record<string, unknown>, msg: string): void;
-  info(fields: Record<string, unknown>, msg: string): void;
-  warn(fields: Record<string, unknown>, msg: string): void;
-  error(fields: Record<string, unknown>, msg: string): void;
-}
+export type { StructuredLogger } from '../portable/logger.js';
 
 export interface LoggerOptions {
   /** Log file path (nest layout: `lark/logs/lark.log`, single file). */

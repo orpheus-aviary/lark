@@ -13,6 +13,7 @@
 
 export * from './contract/index.js';
 export * from './errors.js';
+export * from './logger.js';
 export * from './migrate.js';
 export * from './migrations/index.js';
 export * from './pending.js';

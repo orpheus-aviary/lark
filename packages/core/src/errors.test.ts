@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { describeTaskError } from './download/task-data.js';
 import * as errors from './errors.js';
 import { CodedError, InvalidSourceError, NotFoundError, SourceKeyConflictError } from './errors.js';
+import * as portableErrors from './portable/errors.js';
 
 /** Every exported class extending CodedError, with a throwaway instance. */
 function codedErrorInstances(): { name: string; instance: CodedError }[] {
@@ -30,6 +31,33 @@ function codedErrorInstances(): { name: string; instance: CodedError }[] {
   }
   return out;
 }
+
+// The whole vocabulary lives in `portable/errors.ts` since N1a and is
+// re-exported from here. That only holds together because a re-export is not a
+// redefinition: a second class object with the same name would pass every
+// `err.name` check in the CLI and fail every `instanceof` in the daemon, which
+// is the worst possible failure mode — it looks fine until a route has to
+// decide a status code.
+describe('the portable re-export', () => {
+  it('hands back the SAME class objects, one for one', () => {
+    const names = Object.keys(portableErrors);
+    expect(names.length).toBeGreaterThanOrEqual(45);
+    for (const name of names) {
+      expect(errors[name as keyof typeof errors]).toBe(
+        portableErrors[name as keyof typeof portableErrors],
+      );
+    }
+  });
+
+  it('is identical across all three kinds of error', () => {
+    // One thrown by portable code since N0a, one desktop-only, one coded.
+    expect(errors.SchemaMismatchError).toBe(portableErrors.SchemaMismatchError);
+    expect(errors.WriterLockBusyError).toBe(portableErrors.WriterLockBusyError);
+    expect(errors.SyncUnavailableError).toBe(portableErrors.SyncUnavailableError);
+    // …and an instance built through one path answers `instanceof` on the other.
+    expect(new portableErrors.NotFoundError('song', 'x')).toBeInstanceOf(errors.NotFoundError);
+  });
+});
 
 describe('coded error registries', () => {
   it('finds the coded error classes at all', () => {
