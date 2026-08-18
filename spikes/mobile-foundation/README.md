@@ -266,3 +266,11 @@ fact about one install, not a guarantee about the next.
 The spike consumes `@lark/core/portable` through its **dist**, so a change to
 core's source is invisible here until `pnpm --filter @lark/core build` — the
 `just spike-mobile-*` recipes do it, a bare Metro reload does not.
+
+And one level worse (MEASURED, N0b-5b): **rebuilding core is not enough for a
+release APK.** Gradle's bundle task hashes the app's own inputs, and core's dist
+arrives through a workspace symlink outside them, so the task stays up to date
+and the APK ships yesterday's core. It looks like a fix that did not work — the
+panel even shows the OLD assertion text. `spike-mobile-android-release` deletes
+`android/app/build/generated/assets/react/release` before building for exactly
+this reason.

@@ -335,7 +335,7 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 | d2 | Crypto 端口（**含 RandomBytes**）：纯 JS 同步 md5/sha256 + expo-crypto randomUUID/getRandomValues；阈值 p95：md5 短串 ≤5ms、256KB sha256 ≤50ms；超阈转 async digest 分支（绿条件 = WBI/file-ops 调用图方案 + discard digest 前移原型） | 按建议，判据 20 背书 |
 | e | 卡顿阈值：前台单段 p95 ≤100ms、冷启动 2k 5 轮 max <3s——proxy 暂定（判据 18），R5 真实代码定稿 | 按建议 |
 | f | spike 允许 LAN 明文 HTTP（仅 spike） | 按建议 |
-| g | keystore 加密凭证库选择 | **归用户**，N0b-5 前定 |
+| g | keystore 加密凭证库选择 | **已定（用户 2026-08-18）**：不进钥匙串、不进任何凭证管理器——keystore 与密码同放 `orpheus-aviary/android-keystore/`（git 仓之外，0700/0600），每次构建现读，备份由用户拷 U 盘。代价与恢复演练记在 §9 的 N0b-5b 段 |
 | h | harness 形态：纯函数 runner + `ContractHooks`（`ContractDatabase` 带 reopen/cleanup/counters；drizzle 行为回调；共享连接两条顺序序列；文件库强制、:memory: 禁用；缺省显式 skipped） | 按建议 |
 | i | errors 落点：三类移入 `portable/errors.ts`，原 `errors.ts` re-export | 按建议 |
 | j | `migration/pending.ts` 随 N0a 入 portable | 按建议 |
@@ -701,6 +701,56 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 - **操作**：vivo 在连续多次 `adb install` 之后会弹安装确认框，装不上时构建会以 `expo run:android` 失败告终——重跑即可，别把它读成构建错误。
 
 **判据 26 的一个缺口，如实记**：设备是 API 35，`fullBackupContent`（API ≤30 的老路）**在这台机器上永远跑不到**，第 2 层的内容断言是它唯一的证据；`bmgr` 那层只证明了新路。完整 D2D restore 与 fail-closed 分支（强制半恢复夹具、ID 失配、收敛崩溃点）按计划归 **N2 gate 的四组**，本批不宣称。
+
+### N0b-5b（2026-08-18）判据 25 + GO/NO-GO 汇总 + Stage-2
+
+**判据 25（D14，gate）绿**
+
+| 项 | 值 |
+|---|---|
+| applicationId | **`com.orpheusaviary.lark`**（spike 用 `…lark.spike`，从 N0b-1 起就没占过产品 id） |
+| 版本线 | APK **0.1.0 / versionCode 1**，每次发布 +1 |
+| keystore | `lark-release.jks`（PKCS12）· alias **`lark`** · RSA **4096** · SHA384withRSA · `CN=lark, O=orpheus-aviary` 自签 · serial `bafe1259682f58f7` · **2026-08-18 → 2054-01-03** |
+| 证书 SHA-256 | `38:54:4C:9F:69:A3:9E:13:1E:F8:79:C9:EE:C9:61:21:E0:AA:10:96:AD:94:04:7B:14:1F:BD:5E:EC:BA:F6:3D` |
+| 位置（决策 g，用户 2026-08-18 拍板） | `/Users/jayncp/Desktop/jayncp_mac/orpheus-aviary/android-keystore/`（目录 0700，三个文件 0600，**在所有 git 仓之外**）。**密码与 keystore 同目录**（`keystore-password.txt`，无尾换行，整份文件即密码），**不进本机钥匙串**、不进仓库、不进 CI；每次构建从该路径现读。备份 = 用户自行把整个目录拷到 U 盘 |
+| 恢复演练 | **过**。整个目录拷到 scratch，**只用副本**签一个 APK，`apksigner verify --print-certs` 回 `CN=lark, O=orpheus-aviary` + SHA-256 `38544c9f…f63d`，与上表逐字符相同；副本用毕删除 |
+
+**密码同目录的代价，写在这里而不是留给以后想起来**：拿到该目录的人就能以 lark 的身份签名。换来的是「一个目录 = 一份完整可用的备份」——密码若只在钥匙串里，U 盘上的 `.jks` 单独毫无用处，而换机/丢机正是备份唯一要应付的场景。目录 0700、文件 0600、README 里写明这条。
+
+**developer verification 政策快照（2026-08-18，查 `developer.android.com/developer-verification` 与其 FAQ）**——主计划 D14 那句「直接侧载暂不受影响」仍成立，但要补三点：
+
+- **2026-09-30** 起，**巴西 / 印尼 / 新加坡 / 泰国**的认证设备上、**参与商店**（Google Play · HONOR · OPPO · Galaxy Store · Palm Store · V-Appstore · GetApps）只装已验证开发者的应用；
+- **adb 安装明确豁免**（FAQ 原话），开发流程不受任何影响；这条对我们尤其重要，因为 spike 与产品 APK 都是这么装的；
+- **2027 全球扩大**才是与 lark 相关的日期——测量设备 SIM 国家 `cn`、时区 `Asia/Shanghai`，**不在那四个首发市场**；若届时要注册，**limited distribution account**（2026-08 上线：免费、无需政府 ID、**上限 20 台设备**、可升级为完整账号但不可降级）正是「作者自用 + 侧载」这种形态，注册的东西是**包名 + 证书 SHA-256**——也就是上表那一行。N6 的正式 go/no-go 照旧。
+
+**判据 14/16 复跑（契约扩了一条用例，旧数字作废）**：expo shim **57/0/0** · 漏版反测 **55/2**（仍恰好红在两条错误路径）· op-sqlite **51/0/6**（6 条 skip 不变：4 条计数 + 2 条共享连接）。
+
+**本批实测锁定**
+
+- 🔴 **Gradle 的 bundle 任务看不见 `packages/core/dist` 的变化**：`build-core` 明明重建了，release APK 里却还是旧 core——桌面已修好的契约用例在手机上继续红，**面板里连断言文案都还是旧的**（这是唯一的线索）。原因是 core 的 dist 经 workspace 符号链接落在任务声明的输入之外，Gradle 判定 up-to-date。`spike-mobile-android-release` 因此先 `rm -rf` 生成的 bundle 目录再构建。**这比 N0b-2 那条「改了 core 要先 build」更隐蔽**：build 做了，只是没人用它。
+- 🔴 **同一个歧义把两个适配器都咬了**：op-sqlite 对照适配器有一模一样的 `isPlainObject` 判断，症状却更安静——SQL 里没有命名参数，于是名字表为空、blob **什么也没绑上**，列读回来是 NULL，报的是「BLOB 没回来」而不是「参数形态判错了」。两个宿主、同一个坑，正好说明这条**该由契约说一次**而不是各家自己猜。
+- **契约不许把一家的容器当规矩**：第一版断言 BLOB 读回来是「字节视图」（better-sqlite3 给 Buffer、expo 给 Uint8Array），而这在第三个宿主上会红。改成「ArrayBuffer 或其视图皆可，只断言字节往返」——与 FK 默认值、`json_set` 存储类那两条是同一条教训的第三次出现。
+
+#### GO/NO-GO 汇总（2026-08-18）：**GO**
+
+| 判据 | 结果 | 判据 | 结果 |
+|---|---|---|---|
+| 11 lockfile | ✅（三次依赖变动逐次复核，零替换） | 19 播放 **gate** | ✅ D17 达标 |
+| 12 Metro/dev client **gate** | ✅ | 20 crypto | ✅ 定案（阈值改绑真实尺寸） |
+| 13 桌面回归 **gate**（常驻） | ✅ **2481** | 21 全局面 | ✅ 三栏清单产出 |
+| 14 契约 **gate** | ✅ 57/0/0 | 22 skybridge **gate** | ✅ 四条硬 gate + SSE |
+| 15 migrations/pending **gate** | ✅ 6/6 | 23 bilibili 双网络 | ✅ |
+| 16 op-sqlite 对照（软） | ✅ 51/0/6，裁决维持 expo | 24 分享 intent（软） | ✅ D13 不降级 |
+| 17 drizzle **gate** | ✅ 出口② | 25 D14 **gate** | ✅ 本批 |
+| 18 卡顿 **gate** | ✅ + apply 暂定 200/批 | 26 D16 **gate** | ✅ N0b-5a |
+
+**NO-GO 线一条都没碰到**：19 没进任何兜底、23 双网络都通、26 第一候选就成立。
+
+**N0b 冻结输出（§3.4 的「有真机证据的子项」）**：SQLite 选型 + statement 生命周期出口 + 分批暂定值 → N2 · crypto 形态与端口三栏清单 → N1 · raw 直存判定 → N4 · D14 三件套 → N6 · D16 机制 → N2。**剩下的仍不冻结**：D5 的端口切面、fetch 注入在真链路的充分性、卡顿阈值定稿——凭 R1–R5 在 N1 出口补。
+
+**Stage-2 主计划修订已落**：`docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4.3 新增 Stage-2 段（D4/D16/D17 三个出口 + D14 + D13 的两条设计输入），N0b 行 gate 标 GO，D14/D16/D17 三行各加实测结论指针。
+
+**N0b 之后**：N1 开工前另出子计划（§5 的框架 + file:line 搬迁表）。
 
 ## §10 评审修订对照
 

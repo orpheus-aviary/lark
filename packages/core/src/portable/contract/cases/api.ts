@@ -57,12 +57,19 @@ export const API_CASES: readonly ContractCase[] = [
       sqlite.prepare('INSERT INTO contract_bytes (payload) VALUES (?)').run(bytes);
 
       const row = getRow(sqlite, 'SELECT payload FROM contract_bytes') as { payload: unknown };
-      // better-sqlite3 hands back a Buffer, expo-sqlite a Uint8Array. Both are
-      // views over the same bytes, and which one is a host detail — the
-      // contract is about the round trip.
-      check(ArrayBuffer.isView(row.payload), 'a BLOB comes back as a byte view');
-      const source = row.payload as ArrayBufferView;
-      const view = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+      // WHICH byte container is a host detail and stays out of the contract:
+      // better-sqlite3 hands back a Buffer, expo-sqlite a Uint8Array, op-sqlite
+      // a bare ArrayBuffer. Demanding a view of all three would be the FK-default
+      // mistake again — promoting one host's convenience into a rule. What is
+      // asserted is the round trip.
+      const payload = row.payload;
+      check(
+        ArrayBuffer.isView(payload) || payload instanceof ArrayBuffer,
+        'a BLOB comes back as bytes',
+      );
+      const view = ArrayBuffer.isView(payload)
+        ? new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength)
+        : new Uint8Array(payload as ArrayBuffer);
       equal(view.byteLength, bytes.byteLength, 'byte length round trip');
       equal(Array.from(view).join(','), Array.from(bytes).join(','), 'bytes round trip');
     },

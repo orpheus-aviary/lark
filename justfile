@@ -557,8 +557,16 @@ spike-mobile-android: build-shared build-core
 # because a release APK carries its own bytecode: starting a dev server would
 # only fight the one a debug session may already have on 8081, and a release
 # measurement must not be able to attach to it by accident.
+#
+# The `rm` is not tidiness. Gradle's bundle task hashes the app's own inputs,
+# and `@lark/core`'s dist is reached through a workspace symlink OUTSIDE them:
+# rebuilding core (which `build-core` just did) leaves the task up to date and
+# the APK carries YESTERDAY'S core (MEASURED, N0b-5b — a contract case fixed on
+# the desktop kept failing on the phone, with the old assertion text still in
+# the panel). Deleting the bundle is what makes "build" mean it.
 [group('spike')]
 spike-mobile-android-release: build-shared build-core
+    rm -rf spikes/mobile-foundation/android/app/build/generated/assets/react/release
     JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/spike-mobile-foundation exec expo run:android --variant release --no-bundler
 
 # The desktop peer for criterion 21's fetch rows, and the sink the panels POST

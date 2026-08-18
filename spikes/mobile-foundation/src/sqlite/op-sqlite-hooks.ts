@@ -70,8 +70,23 @@ function toPositional(sql: string): { sql: string; names: string[] } {
   return { sql: out, names };
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/**
+ * One argument: named-parameter map, or one positional value?
+ *
+ * The same ambiguity the expo shim got wrong (N0b-5a), and this adapter had it
+ * too — bytes are a value AND an object. Here it failed more quietly: with no
+ * named parameters in the SQL the map is empty, so the blob was bound as
+ * NOTHING and the column came back NULL. Two adapters, the same trap, which is
+ * why the contract states the answer rather than each of them guessing.
+ */
+function isNamedParams(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !ArrayBuffer.isView(value) &&
+    !(value instanceof ArrayBuffer)
+  );
 }
 
 /**
@@ -134,7 +149,7 @@ class OpStatement implements SqliteStatement {
   }
 
   #params(params: unknown[]): Scalar[] {
-    if (params.length === 1 && isPlainObject(params[0])) {
+    if (params.length === 1 && isNamedParams(params[0])) {
       const source = params[0];
       return this.#names.map((name) => {
         if (!(name in source)) {
