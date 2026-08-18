@@ -500,7 +500,10 @@ export async function runBackgroundSoak(
   }
 
   const rows = summarize(true);
-  reportToHost('playback-soak', { rows, samples, minutes });
+  // A distinct name from the panel wrapper's own POST (which carries the rows
+  // and the runtime label but no samples): two files under one name is how an
+  // analysis ends up reading the wrong one.
+  reportToHost('playback-soak-samples', { rows, samples, minutes });
   player.pause();
   await sleep(200);
   player.clearLockScreenControls();
