@@ -6,6 +6,8 @@
 // continues on whatever the other two found. Lyrics are the one part of a
 // download allowed to come back empty.
 
+import { base64ToBytes } from '../../portable/runtime/base64.js';
+import { decodeUtf8 } from '../../portable/runtime/text.js';
 import { DEFAULT_TIMEOUTS, type DownloadTimeouts, withTimeout } from '../timeouts.js';
 
 /** Per-platform candidate cap (Go parity) — the pool tops out at 9. */
@@ -86,15 +88,19 @@ export async function getJson(
   return JSON.parse(await response.text());
 }
 
-/** QQ and Kugou both hand back base64 LRC. `null` = nothing usable. */
+/**
+ * QQ and Kugou both hand back base64 LRC. `null` = nothing usable.
+ *
+ * No try/catch since N1a: `base64ToBytes` skips what it cannot read and
+ * `decodeUtf8` replaces malformed sequences, so there is nothing left to throw
+ * — which is the whole point of porting to the lenient semantics rather than
+ * to `atob`. A catch here used to turn "this decoder refuses your input" into
+ * "this song has no lyrics" (N0b-3).
+ */
 export function decodeBase64(value: string): string | null {
   if (value === '') return null;
-  try {
-    const decoded = Buffer.from(value, 'base64').toString('utf-8');
-    return decoded === '' ? null : decoded;
-  } catch {
-    return null;
-  }
+  const decoded = decodeUtf8(base64ToBytes(value));
+  return decoded === '' ? null : decoded;
 }
 
 export function rec(value: unknown): Record<string, unknown> | null {

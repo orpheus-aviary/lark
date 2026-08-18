@@ -263,7 +263,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   app.post(API_PATHS.playlistImportPreview, async (req, reply) => {
     const body = objectBody(req.body, ['file_path']);
     const filePath = requiredString(body, 'file_path', { maxLength: IMPORT_PATH_MAX });
-    const file = parseAndValidate(await readImportFile(filePath));
+    const file = await parseAndValidate(await readImportFile(filePath));
     ok(reply, previewImport(ctx.db, file));
   });
 
@@ -285,7 +285,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     const target = requiredTarget(body.target, PLAYLIST_NAME_MAX);
     const reuse = readReuse(body.reuse);
 
-    const file = parseAndValidate(await readImportFile(filePath));
+    const file = await parseAndValidate(await readImportFile(filePath));
     if (file.digest !== digest) {
       throw new InvalidRequestError(
         'IMPORT_SOURCE_CHANGED',

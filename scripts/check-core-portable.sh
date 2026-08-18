@@ -24,14 +24,21 @@
 # `undefined`. There is no compiler setting that removes them, because core's
 # NON-portable half legitimately uses all four.
 #
-# Matched by CODE SHAPE rather than as bare words, deliberately. A bare
-# `\bBuffer\b` also hits "better-sqlite3 hands back a Buffer" in a comment
-# explaining a host difference, and `\bprocess\.` hits an English sentence that
-# ends in "no child process." — both are true statements this codebase should
-# be able to make. So the patterns match how the identifiers are USED (a method
-# call, a type position, an errno cast), which is exactly what has to be caught:
-# `Buffer.byteLength(x)`, `buffer: Buffer`, `(err as NodeJS.ErrnoException)`,
-# `process.env.X`.
+# This half reads CODE ONLY — comments are stripped first — and matches how the
+# identifiers are USED: a method call, a type position, an errno cast. Both
+# halves of that are load bearing, and both were learned by running it.
+#
+# Matching bare words reds "better-sqlite3 hands back a Buffer" in a comment
+# explaining a host difference, and reds an English sentence that ends in "no
+# child process." Matching code shape but not stripping comments still reds
+# `portable/runtime/base64.ts`, whose entire job is to reproduce what
+# `Buffer.from(v, 'base64')` does — a port MUST be able to name the thing it is
+# porting, in the file where the reasoning lives.
+#
+# What survives both filters is the real thing: `Buffer.byteLength(x)`,
+# `buffer: Buffer`, `(err as NodeJS.ErrnoException)`, `process.env.X`,
+# `require(…)` — none of which need an import, all of which typecheck, and
+# every one of which is `undefined` on a phone.
 #
 # The relative-escape half is DEPTH-COUNTED, not a list of core's directories.
 # The first draft matched `(\.\./)+(db|library|…)/`, which reads fine until
@@ -84,16 +91,21 @@ done < <(rg -n --no-heading -o -r '$1' \
   --glob '!**/*.test.ts' \
   || true)
 
-global_hits=$(rg -n \
-  -e '(^|[^A-Za-z])Buffer\s*\.' \
-  -e '(:|<|as)\s*Buffer\b' \
-  -e '\bprocess\.[A-Za-z_$]' \
-  -e '\bNodeJS\.[A-Za-z_$]' \
-  -e '\b__dirname\b' \
-  -e '\brequire\(' \
-  packages/core/src/portable \
-  --glob '!**/*.test.ts' \
-  || true)
+global_hits=$(find packages/core/src/portable -name '*.ts' ! -name '*.test.ts' -exec awk '
+  # JSDoc continuation lines are prose by construction.
+  /^[ \t]*\*/ { next }
+  {
+    line = $0
+    idx = index(line, "//")
+    if (idx > 0) line = substr(line, 1, idx - 1)   # …and so is everything after `//`
+    if (line ~ /(^|[^A-Za-z])Buffer[ ]*\./ ||
+        line ~ /(:|<|as)[ ]*Buffer([^A-Za-z0-9_]|$)/ ||
+        line ~ /(^|[^A-Za-z0-9_$])process\.[A-Za-z_$]/ ||
+        line ~ /(^|[^A-Za-z0-9_$])NodeJS\.[A-Za-z_$]/ ||
+        line ~ /(^|[^A-Za-z0-9_$])__dirname([^A-Za-z0-9_$]|$)/ ||
+        line ~ /(^|[^A-Za-z0-9_$.])require\(/)
+      printf "%s:%d:%s\n", FILENAME, FNR, $0
+  }' {} + || true)
 
 if [ -n "$module_hits" ] || [ -n "$escape_hits" ] || [ -n "$global_hits" ]; then
   echo "✗ @lark/core/portable must stay host-free (no node builtins / better-sqlite3 / electron / node-only libs / core itself / ambient Node globals)"

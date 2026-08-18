@@ -3,12 +3,12 @@
 // listSongs and rejects writes. Membership changes never bump the OWNING
 // playlist row's LWW (cross-entity decoupling, M1-5).
 
-import { randomUUID } from 'node:crypto';
 import { type PlaylistData, type SongData, membershipEntityId } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, count, eq } from 'drizzle-orm';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { InvalidReorderError, NotFoundError } from '../errors.js';
+import { uuid } from '../portable/runtime/random.js';
 import {
   type PlaylistRow,
   type PlaylistSongRow,
@@ -51,7 +51,7 @@ export function createPlaylistInTx(db: LarkDatabase, name: string): PlaylistData
   const sqlite = sqliteOf(db);
   const stamp = nextSyncStamp(sqlite);
   const row: PlaylistRow = {
-    id: randomUUID(),
+    id: uuid(),
     name,
     created_at: stamp.updated_at,
     updated_at: stamp.updated_at,

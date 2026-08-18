@@ -23,7 +23,6 @@
 // Batch snapshots live in batches.ts; the task shape and error mapping in
 // task-data.ts.
 
-import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import type {
   DownloadBatchData,
@@ -58,6 +57,7 @@ import {
   updateSongInTx,
 } from '../library/songs.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
+import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
 import { type BilibiliClient, createBilibiliClient } from './bilibili.js';
@@ -359,7 +359,7 @@ export class DownloadEngine {
     return plans.map((plan, index) => {
       const resolved = resolveBatchTarget(this.#options.db, plan.target, createdIds.get(index));
       const playlistIds = resolved.kind === 'playlist' ? [resolved.playlist_id] : [];
-      const batch = this.#batchRegistry.open(randomUUID(), resolved, now);
+      const batch = this.#batchRegistry.open(uuid(), resolved, now);
 
       plan.items.forEach(({ item, key }, itemIndex) => {
         const target = toTarget(item);
@@ -553,7 +553,7 @@ export class DownloadEngine {
     runNext?: boolean;
   }): DownloadTaskData {
     const task: TaskRecord = {
-      id: randomUUID(),
+      id: uuid(),
       kind: seed.kind,
       state: 'queued',
       stage: null,
@@ -852,7 +852,7 @@ export class DownloadEngine {
     // at songs/<id>/ (R22). It takes a claim too, even though nothing else
     // knows the id yet, so "a running download holds a file claim on its song"
     // is true without exception.
-    task.songId = randomUUID();
+    task.songId = uuid();
     task.claims.push(this.claims.acquire(task.songId, 'file', task.id));
     this.#bump(task);
     return { needsSource: true, resolved, existing: null };

@@ -18,8 +18,9 @@
 // The signing half is pure and covered by a fixed vector; only the two key
 // fetches touch the network.
 
-import { createHash } from 'node:crypto';
 import { BilibiliApiError } from '../errors.js';
+import { md5Hex } from '../portable/runtime/digest.js';
+import { randomBytes } from '../portable/runtime/random.js';
 
 /** bilibili's fixed permutation of the 64-char img+sub concatenation. */
 const MIXIN_KEY_ENC_TAB = [
@@ -64,9 +65,7 @@ export function signWbiParams(
       return `${encodeURIComponent(k)}=${encodeURIComponent(value)}`;
     })
     .join('&');
-  const wRid = createHash('md5')
-    .update(query + getMixinKey(keys.imgKey, keys.subKey))
-    .digest('hex');
+  const wRid = md5Hex(query + getMixinKey(keys.imgKey, keys.subKey));
   return `${query}&w_rid=${wRid}`;
 }
 
@@ -145,8 +144,7 @@ export async function fetchBuvid(
 
 /** The Go version's shape: 16 random bytes as uppercase hex, then `infoc`. */
 export function randomBuvid3(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
+  const bytes = randomBytes(16);
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'))
     .join('')
     .toUpperCase();

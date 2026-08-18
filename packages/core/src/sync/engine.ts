@@ -18,6 +18,7 @@ import {
   type SyncOp,
 } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
+import { utf8ByteLength } from '../portable/runtime/text.js';
 import { type ApplyResult, type InboundChange, applyChangesInTx } from './apply.js';
 import type { FileEffectRuntime } from './file-ops.js';
 import { setServerTimeOffset } from './hlc.js';
@@ -359,7 +360,7 @@ function boxBatch(pending: readonly PendingRow[]): PendingRow[] {
   const batch: PendingRow[] = [];
   let bytes = 0;
   for (const row of pending) {
-    const size = Buffer.byteLength(row.payload, 'utf8') + 256; // + envelope headroom
+    const size = utf8ByteLength(row.payload) + 256; // + envelope headroom
     if (
       batch.length > 0 &&
       (bytes + size > SYNC_PUSH_BYTES_MAX || batch.length >= SYNC_PUSH_BATCH_MAX)

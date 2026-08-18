@@ -23,7 +23,6 @@
 // preview's verdict; the digest is what makes the two agree on what `index`
 // means.
 
-import { createHash } from 'node:crypto';
 import {
   type ImportCandidate,
   type ImportSuspect,
@@ -45,6 +44,8 @@ import {
   NotFoundError,
   UnsupportedFormatVersionError,
 } from '../errors.js';
+import { sha256BytesAsync } from '../portable/runtime/digest.js';
+import { decodeUtf8 } from '../portable/runtime/text.js';
 import { type SongRow, playlist_songs, playlists, songs } from '../portable/schema.js';
 import { addSongsToPlaylistInTx, createPlaylistInTx } from './playlists.js';
 import { createSongInTx, songFileInfo } from './songs.js';
@@ -188,13 +189,18 @@ function readEntry(raw: unknown, index: number): ImportEntry {
  * Validate the bytes of an import file and hash them. Unknown top-level and
  * per-song fields are ignored on purpose: within a version, an older build
  * reading a file a newer one wrote should keep working.
+ *
+ * Async since N1a for the digest alone: the file is up to 20MB (the route's
+ * cap), which is the one input in core big enough that hashing it in pure JS
+ * would block the thread it runs on. Every host provides its own — the desktop
+ * `node:crypto`, the phone whatever it has (N6's gate).
  */
-export function parseAndValidate(buffer: Buffer): ParsedImportFile {
-  const digest = createHash('sha256').update(buffer).digest('hex');
+export async function parseAndValidate(bytes: Uint8Array): Promise<ParsedImportFile> {
+  const digest = await sha256BytesAsync(bytes);
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(buffer.toString('utf8')) as unknown;
+    parsed = JSON.parse(decodeUtf8(bytes)) as unknown;
   } catch (err) {
     throw bad(`不是合法的 JSON：${err instanceof Error ? err.message : String(err)}`);
   }

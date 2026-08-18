@@ -11,13 +11,14 @@
 // action, which is why `deleteLyrics` exists and no "delete the song's files"
 // helper does. M3's lyrics download writes through this same module.
 
-import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isUuidV4 } from '@lark/shared';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { InvalidIdError, SyncChangeTooLargeError } from '../errors.js';
 import { songsDir } from '../paths.js';
+import { uuid } from '../portable/runtime/random.js';
+import { utf8ByteLength } from '../portable/runtime/text.js';
 import { emitSyncChange, recordDeadLetter } from '../sync/changes.js';
 
 /** `songs/<id>/` — throws InvalidIdError before touching the filesystem. */
@@ -78,7 +79,7 @@ export async function writeLyricsFile(id: string, lrc: string): Promise<void> {
   }
 
   await mkdir(dir, { recursive: true });
-  const tmpPath = join(dir, `.lyrics.${randomUUID()}.tmp`);
+  const tmpPath = join(dir, `.lyrics.${uuid()}.tmp`);
   try {
     await writeFile(tmpPath, lrc, 'utf-8');
     await rename(tmpPath, songLyricsPath(id));
@@ -134,7 +135,7 @@ export async function writeLyrics(db: LarkDatabase, id: string, lrc: string): Pr
       entityType: 'song',
       entityId: id,
       op: 'set_lyrics',
-      payload: JSON.stringify({ size: Buffer.byteLength(lrc, 'utf8'), limit: err.limit }),
+      payload: JSON.stringify({ size: utf8ByteLength(lrc), limit: err.limit }),
     });
   }
 }

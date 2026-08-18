@@ -2,6 +2,13 @@
 // Electron and @lark/daemon so the daemon can run headless and the CLI can link
 // core directly (enforced by the core-no-daemon-electron guard).
 
+import { installNodeRuntime } from './node-runtime.js';
+
+// Before any export is touched: `portable/runtime` refuses to guess at a
+// whole-file digest, and this barrel is the door every desktop consumer comes
+// through (N1a).
+installNodeRuntime();
+
 export * as paths from './paths.js';
 export * from './config/index.js';
 export * from './daemon-control/index.js';

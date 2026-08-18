@@ -30,7 +30,6 @@
 // Scope: this protocol is proof against process death (kill -9), not against
 // power loss. Same line M1 draws — no fsync discipline (fourth review ⑪).
 
-import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -50,6 +49,7 @@ import { DownloadCommitError, InvalidIdError } from '../errors.js';
 import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE, songDirPath } from '../library/lyrics.js';
 import { touchLastAccessed } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
+import { uuid } from '../portable/runtime/random.js';
 import { local_metadata, songs } from '../portable/schema.js';
 
 const LOG_KEY_PREFIX = 'download.commit.';
@@ -453,7 +453,7 @@ function readManifest(path: string): PendingManifest | null {
 }
 
 function quarantine(report: RecoveryReport, dir: string, songId: string): void {
-  const target = join(trashDir(), `recovery-${Date.now()}-${randomUUID().slice(0, 8)}`, songId);
+  const target = join(trashDir(), `recovery-${Date.now()}-${uuid().slice(0, 8)}`, songId);
   try {
     mkdirSync(join(target, '..'), { recursive: true });
     renameSync(dir, target);

@@ -17,7 +17,6 @@
 //   A song whose first op is failing must not hold up an unrelated song, and
 //   an op that lands out of order for the SAME song would undo its neighbour.
 
-import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, readdir, rename, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -39,6 +38,9 @@ import {
 } from '../library/lyrics.js';
 import type { StructuredLogger } from '../logger/index.js';
 import { recoveredSongsDir } from '../paths.js';
+import { sha256Hex } from '../portable/runtime/digest.js';
+import { uuid } from '../portable/runtime/random.js';
+import { utf8ByteLength } from '../portable/runtime/text.js';
 import { recordDeadLetter } from './changes.js';
 
 export const FILE_OP_KINDS = [
@@ -159,13 +161,7 @@ export function enqueueLocalDelete(
   songId: string,
   nowMs: number = Date.now(),
 ): number {
-  return insertOp(
-    sqlite,
-    'delete_song_files',
-    songId,
-    { op_uuid: randomUUID(), policy: 'local' },
-    nowMs,
-  );
+  return insertOp(sqlite, 'delete_song_files', songId, { op_uuid: uuid(), policy: 'local' }, nowMs);
 }
 
 /**
@@ -178,7 +174,7 @@ export function enqueueRemoteDelete(
   audioOrigin: AudioOrigin,
   nowMs: number = Date.now(),
 ): number {
-  const opUuid = randomUUID();
+  const opUuid = uuid();
   const arg: DeleteRemoteArg = {
     op_uuid: opUuid,
     policy: 'remote',
@@ -227,7 +223,7 @@ export function enqueueQuarantine(
   songId: string,
   nowMs: number = Date.now(),
 ): number {
-  const opUuid = randomUUID();
+  const opUuid = uuid();
   return insertOp(
     sqlite,
     'quarantine_song_files',
@@ -249,7 +245,7 @@ export function enqueueWriteLyrics(
       `lyrics for ${songId} are ${lrc.length} chars, over the ${SYNC_FILE_OP_INLINE_MAX} inline limit`,
     );
   }
-  return insertOp(sqlite, 'write_lyrics', songId, { op_uuid: randomUUID(), inline: lrc }, nowMs);
+  return insertOp(sqlite, 'write_lyrics', songId, { op_uuid: uuid(), inline: lrc }, nowMs);
 }
 
 export function enqueueDeleteLyrics(
@@ -257,7 +253,7 @@ export function enqueueDeleteLyrics(
   songId: string,
   nowMs: number = Date.now(),
 ): number {
-  return insertOp(sqlite, 'delete_lyrics', songId, { op_uuid: randomUUID() }, nowMs);
+  return insertOp(sqlite, 'delete_lyrics', songId, { op_uuid: uuid() }, nowMs);
 }
 
 // ─── Reading the journal ───────────────────────────────
@@ -338,8 +334,8 @@ function inlineDigest(argJson: string | null): { size: number; sha256: string } 
   const arg = parseArg(argJson);
   if (arg === null || !('inline' in arg) || typeof arg.inline !== 'string') return null;
   return {
-    size: Buffer.byteLength(arg.inline, 'utf8'),
-    sha256: createHash('sha256').update(arg.inline, 'utf8').digest('hex'),
+    size: utf8ByteLength(arg.inline),
+    sha256: sha256Hex(arg.inline),
   };
 }
 
@@ -404,7 +400,7 @@ export class FileEffectRuntime {
   constructor(options: FileEffectRuntimeOptions) {
     this.#sqlite = options.sqlite;
     this.#claims = options.claims ?? new ClaimRegistry();
-    this.#owner = options.owner ?? `file-ops:${randomUUID()}`;
+    this.#owner = options.owner ?? `file-ops:${uuid()}`;
     this.#logger = options.logger;
     this.#now = options.nowMs ?? Date.now;
     this.#onQuarantine = options.onQuarantine;

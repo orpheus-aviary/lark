@@ -19,7 +19,6 @@
 // part a decision table cannot express: which answers are a refusal, and what
 // the user should be told about the ones that are not.
 
-import { randomUUID } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import {
@@ -37,6 +36,7 @@ import { songDirPath } from '../library/lyrics.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { ResolvedMediaTools } from '../media-tools/resolve.js';
+import { uuid } from '../portable/runtime/random.js';
 import { type AudioProbe, probeAudio, processAudio } from './ffmpeg.js';
 import { landSongFile, stagePaths } from './resolve.js';
 import type { DownloadTimeouts } from './timeouts.js';
@@ -136,8 +136,8 @@ async function importOne(
 
   // The id comes first: the file lands at songs/<id>/, so it has to exist
   // before the conversion, let alone before the row (R22).
-  const songId = randomUUID();
-  const taskId = randomUUID();
+  const songId = uuid();
+  const taskId = uuid();
   const paths = stagePaths(songId, taskId);
   const name = basename(filePath, extension);
   const run = {

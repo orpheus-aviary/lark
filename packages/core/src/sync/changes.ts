@@ -9,7 +9,6 @@
 // leaves this machine: the byte guard (§3.9) and the dead-letter archive
 // (§3.8). Neither belongs to a single entity, and neither is worth a module.
 
-import { randomUUID } from 'node:crypto';
 import {
   SYNC_CHANGE_BYTES_MAX,
   type SyncChangePayload,
@@ -18,6 +17,8 @@ import {
 } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { SyncChangeTooLargeError } from '../errors.js';
+import { uuid } from '../portable/runtime/random.js';
+import { utf8ByteLength } from '../portable/runtime/text.js';
 
 export interface EmitChangeArgs {
   entityType: SyncEntityType;
@@ -42,7 +43,7 @@ export interface EmitChangeArgs {
  */
 export function emitSyncChange(sqlite: BetterSqlite3.Database, args: EmitChangeArgs): string {
   const deviceUuid = readLocalDeviceUuid(sqlite);
-  const clientChangeId = randomUUID();
+  const clientChangeId = uuid();
   const createdAt = args.nowMs ?? Date.now();
   const payloadJson = JSON.stringify(args.payload);
 
@@ -84,7 +85,7 @@ function assertChangeFits(args: EmitChangeArgs, clientChangeId: string, createdA
     client_local_seq: Number.MAX_SAFE_INTEGER,
     client_created_at: createdAt,
   };
-  const bytes = Buffer.byteLength(JSON.stringify(wire), 'utf8');
+  const bytes = utf8ByteLength(JSON.stringify(wire));
   if (bytes > SYNC_CHANGE_BYTES_MAX) {
     throw new SyncChangeTooLargeError(
       args.entityType,

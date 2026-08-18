@@ -13,7 +13,6 @@
 // a third device can write again, and restoring a local copy over THAT would
 // undo a change the user never saw.
 
-import { randomUUID } from 'node:crypto';
 import type { LwwKey, SongSyncPayload } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { LarkDatabase } from '../db/index.js';
@@ -23,6 +22,7 @@ import {
   ConflictVersionMismatchError,
 } from '../errors.js';
 import { updateSongInTx } from '../library/songs.js';
+import { uuid } from '../portable/runtime/random.js';
 import { readSongLww } from './lww.js';
 
 export interface ConflictRow {
@@ -55,7 +55,7 @@ export interface RecordConflictInput {
 
 /** Write the receipt. Returns its id. */
 export function recordConflict(sqlite: BetterSqlite3.Database, input: RecordConflictInput): string {
-  const id = randomUUID();
+  const id = uuid();
   sqlite
     .prepare(
       `INSERT INTO conflict_record

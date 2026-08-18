@@ -500,8 +500,8 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       return Promise.resolve(ok(attempt(() => core.buildExport(db, source))));
     },
     importPreview: async (filePath) => {
-      const file = await attemptAsync(async () =>
-        core.parseAndValidate(await readImportFile(filePath)),
+      const file = await attemptAsync(
+        async () => await core.parseAndValidate(await readImportFile(filePath)),
       );
       return ok(attempt(() => core.previewImport(db, file)));
     },
@@ -510,8 +510,8 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // The file is re-read here rather than carried over from the preview,
       // and the digest is what makes that safe: identical bytes mean
       // `reuse[].index` still points at the entry the user saw (M5-13).
-      const file = await attemptAsync(async () =>
-        core.parseAndValidate(await readImportFile(request.file_path)),
+      const file = await attemptAsync(
+        async () => await core.parseAndValidate(await readImportFile(request.file_path)),
       );
       if (file.digest !== request.digest) {
         throw new CliError('IMPORT_SOURCE_CHANGED', '文件在预览之后发生了变化，请重新预览再导入');

@@ -17,6 +17,7 @@ import {
   NotFoundError,
   UnsupportedFormatVersionError,
 } from '../errors.js';
+import { installNodeRuntime } from '../node-runtime.js';
 import { songs } from '../portable/schema.js';
 import { songAudioPath, songDirPath } from './lyrics.js';
 import { addSongsToPlaylist, createPlaylist, getPlaylistSongs } from './playlists.js';
@@ -29,6 +30,11 @@ import {
   parseAndValidate,
   previewImport,
 } from './transfer.js';
+
+// `parseAndValidate` hashes whole files through the installed provider, and
+// this test imports the module directly rather than through the barrel that
+// normally installs it (N1a).
+installNodeRuntime();
 
 let nest: string;
 let handles: DatabaseHandles;
@@ -150,27 +156,27 @@ describe('buildExport', () => {
     );
   });
 
-  it('refuses an unknown playlist', () => {
+  it('refuses an unknown playlist', async () => {
     expect(() => buildExport(db(), { playlistId: '00000000-0000-4000-8000-000000000000' })).toThrow(
       NotFoundError,
     );
   });
 });
 
-describe('parseAndValidate', () => {
-  it('hashes the exact bytes and normalises the entries', () => {
+describe('parseAndValidate', async () => {
+  it('hashes the exact bytes and normalises the entries', async () => {
     const buffer = fileOf([entry('歌', 'BV1aaa:1', '手')]);
-    const parsed = parseAndValidate(buffer);
+    const parsed = await parseAndValidate(buffer);
     expect(parsed.digest).toMatch(/^[0-9a-f]{64}$/);
-    expect(parseAndValidate(buffer).digest).toBe(parsed.digest);
-    expect(parseAndValidate(fileOf([entry('歌', 'BV1aaa:1', '手')], '别的名字')).digest).not.toBe(
-      parsed.digest,
-    );
+    expect((await parseAndValidate(buffer)).digest).toBe(parsed.digest);
+    expect(
+      (await parseAndValidate(fileOf([entry('歌', 'BV1aaa:1', '手')], '别的名字'))).digest,
+    ).not.toBe(parsed.digest);
     expect(parsed.playlist_name).toBe('导出的歌单');
     expect(parsed.entries).toHaveLength(1);
   });
 
-  it('fills in what an entry omits and ignores what it does not know', () => {
+  it('fills in what an entry omits and ignores what it does not know', async () => {
     const buffer = Buffer.from(
       JSON.stringify({
         format: 'lark-playlist',
@@ -179,7 +185,7 @@ describe('parseAndValidate', () => {
         songs: [{ name: '只有名字', mood: 'calm' }],
       }),
     );
-    expect(parseAndValidate(buffer).entries[0]).toEqual({
+    expect((await parseAndValidate(buffer)).entries[0]).toEqual({
       name: '只有名字',
       artist: '',
       source_url: null,
@@ -223,22 +229,22 @@ describe('parseAndValidate', () => {
         }),
       ),
     ],
-  ])('rejects %s', (_label, buffer) => {
-    expect(() => parseAndValidate(buffer)).toThrow(InvalidImportFileError);
+  ])('rejects %s', async (_label, buffer) => {
+    await expect(parseAndValidate(buffer)).rejects.toThrow(InvalidImportFileError);
   });
 
-  it('names the version rather than complaining about the shape', () => {
+  it('names the version rather than complaining about the shape', async () => {
     const buffer = Buffer.from(
       JSON.stringify({ format: 'lark-playlist', version: 2, playlist: { name: 'x' }, songs: 7 }),
     );
-    expect(() => parseAndValidate(buffer)).toThrow(UnsupportedFormatVersionError);
+    await expect(parseAndValidate(buffer)).rejects.toThrow(UnsupportedFormatVersionError);
   });
 });
 
 describe('computeMatches / previewImport', () => {
-  it('reuses a library key hit and counts the rest as new', () => {
+  it('reuses a library key hit and counts the rest as new', async () => {
     seed('已有的歌', { key: 'BV1aaa:1' });
-    const file = parseAndValidate(
+    const file = await parseAndValidate(
       fileOf([entry('随便叫什么', 'BV1aaa:1'), entry('新歌', 'BV1ccc:3')]),
     );
 
@@ -249,8 +255,8 @@ describe('computeMatches / previewImport', () => {
     expect(preview.suspects).toEqual([]);
   });
 
-  it('makes the second entry with the same key reuse the first (M5-13)', () => {
-    const file = parseAndValidate(
+  it('makes the second entry with the same key reuse the first (M5-13)', async () => {
+    const file = await parseAndValidate(
       fileOf([entry('同一首', 'BV1aaa:1'), entry('同一首', 'BV1aaa:1')]),
     );
     expect(computeMatches(db(), file.entries)).toEqual([
@@ -262,14 +268,14 @@ describe('computeMatches / previewImport', () => {
     expect(preview.new_count).toBe(1);
   });
 
-  it('lists every same-name candidate, oldest first, with its file state', () => {
+  it('lists every same-name candidate, oldest first, with its file state', async () => {
     const live = seed('晴天', { artist: '周杰伦', key: 'BV1aaa:1', file: true });
     const studio = seed('晴天', { artist: '周杰伦', key: 'BV1bbb:2' });
     seed('晴天', { artist: '别人' });
     setCreatedAt(live, 1000);
     setCreatedAt(studio, 2000);
 
-    const file = parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
+    const file = await parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
     const preview = previewImport(db(), file);
 
     expect(preview.suspects).toHaveLength(1);
@@ -283,14 +289,14 @@ describe('computeMatches / previewImport', () => {
 });
 
 describe('importPlaylist', () => {
-  it('round-trips an export with zero new songs', () => {
+  it('round-trips an export with zero new songs', async () => {
     const source = createPlaylist(db(), sq(), '原歌单');
     const a = seed('甲歌', { key: 'BV1aaa:1' });
     const b = seed('乙歌', { key: 'BV1bbb:2' });
     addSongsToPlaylist(db(), sq(), source.id, [a, b]);
 
     const exported: PlaylistExportData = buildExport(db(), { playlistId: source.id });
-    const file = parseAndValidate(Buffer.from(JSON.stringify(exported)));
+    const file = await parseAndValidate(Buffer.from(JSON.stringify(exported)));
     const result = importPlaylist(db(), sq(), {
       entries: file.entries,
       target: { kind: 'new', name: file.playlist_name },
@@ -302,9 +308,9 @@ describe('importPlaylist', () => {
     expect(members.map((s) => s.id)).toEqual([a, b]);
   });
 
-  it('creates one song for repeated keys and appends in file order', () => {
+  it('creates one song for repeated keys and appends in file order', async () => {
     const target = createPlaylist(db(), sq(), '目标');
-    const file = parseAndValidate(
+    const file = await parseAndValidate(
       fileOf([entry('丙', 'BV1ccc:3'), entry('丁', 'BV1ddd:4'), entry('丙又一次', 'BV1ccc:3')]),
     );
 
@@ -317,8 +323,8 @@ describe('importPlaylist', () => {
     expect(getPlaylistSongs(db(), sq(), target.id).map((s) => s.name)).toEqual(['丙', '丁']);
   });
 
-  it('imports into the library only when there is no target', () => {
-    const file = parseAndValidate(fileOf([entry('无歌单', 'BV1eee:5')]));
+  it('imports into the library only when there is no target', async () => {
+    const file = await parseAndValidate(fileOf([entry('无歌单', 'BV1eee:5')]));
     const result = importPlaylist(db(), sq(), {
       entries: file.entries,
       target: { kind: 'library' },
@@ -328,12 +334,12 @@ describe('importPlaylist', () => {
     expect(db().select().from(songs).all()).toHaveLength(1);
   });
 
-  it('skips songs already in the target playlist', () => {
+  it('skips songs already in the target playlist', async () => {
     const target = createPlaylist(db(), sq(), '目标');
     const existing = seed('已在歌单里', { key: 'BV1fff:6' });
     addSongsToPlaylist(db(), sq(), target.id, [existing]);
 
-    const file = parseAndValidate(fileOf([entry('已在歌单里', 'BV1fff:6')]));
+    const file = await parseAndValidate(fileOf([entry('已在歌单里', 'BV1fff:6')]));
     const result = importPlaylist(db(), sq(), {
       entries: file.entries,
       target: { kind: 'playlist', playlistId: target.id },
@@ -343,8 +349,8 @@ describe('importPlaylist', () => {
     expect(getPlaylistSongs(db(), sq(), target.id)).toHaveLength(1);
   });
 
-  it('rolls the whole import back when any part of it fails (R27)', () => {
-    const file = parseAndValidate(fileOf([entry('甲', 'BV1aaa:1'), entry('乙', 'BV1bbb:2')]));
+  it('rolls the whole import back when any part of it fails (R27)', async () => {
+    const file = await parseAndValidate(fileOf([entry('甲', 'BV1aaa:1'), entry('乙', 'BV1bbb:2')]));
     expect(() =>
       importPlaylist(db(), sq(), {
         entries: file.entries,
@@ -354,9 +360,9 @@ describe('importPlaylist', () => {
     expect(db().select().from(songs).all()).toEqual([]);
   });
 
-  it('merges an entry the caller chose to reuse', () => {
+  it('merges an entry the caller chose to reuse', async () => {
     const existing = seed('晴天', { artist: '周杰伦', key: 'BV1aaa:1' });
-    const file = parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
+    const file = await parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
 
     const result = importPlaylist(db(), sq(), {
       entries: file.entries,
@@ -368,9 +374,9 @@ describe('importPlaylist', () => {
     expect(db().select().from(songs).all()).toHaveLength(1);
   });
 
-  it('refuses a reuse target that is not a candidate any more', () => {
+  it('refuses a reuse target that is not a candidate any more', async () => {
     const unrelated = seed('毫不相干', { key: 'BV1aaa:1' });
-    const file = parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
+    const file = await parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
     expect(() =>
       importPlaylist(db(), sq(), {
         entries: file.entries,
@@ -381,10 +387,10 @@ describe('importPlaylist', () => {
     expect(db().select().from(songs).all()).toHaveLength(1);
   });
 
-  it('refuses to override a key hit, however the caller asks (R12)', () => {
+  it('refuses to override a key hit, however the caller asks (R12)', async () => {
     seed('库里的', { key: 'BV1aaa:1' });
     const other = seed('另一首', { key: 'BV1bbb:2' });
-    const file = parseAndValidate(fileOf([entry('库里的', 'BV1aaa:1')]));
+    const file = await parseAndValidate(fileOf([entry('库里的', 'BV1aaa:1')]));
     expect(() =>
       importPlaylist(db(), sq(), {
         entries: file.entries,
@@ -394,9 +400,9 @@ describe('importPlaylist', () => {
     ).toThrow(InvalidReuseError);
   });
 
-  it('refuses a reuse index the file does not have', () => {
+  it('refuses a reuse index the file does not have', async () => {
     const existing = seed('存在的', { key: 'BV1aaa:1' });
-    const file = parseAndValidate(fileOf([entry('新的', 'BV1zzz:9')]));
+    const file = await parseAndValidate(fileOf([entry('新的', 'BV1zzz:9')]));
     expect(() =>
       importPlaylist(db(), sq(), {
         entries: file.entries,
@@ -406,8 +412,8 @@ describe('importPlaylist', () => {
     ).toThrow(InvalidReuseError);
   });
 
-  it('leaves imported songs without a file, ready for on-demand download', () => {
-    const file = parseAndValidate(fileOf([entry('按需下载', 'BV1ggg:7')]));
+  it('leaves imported songs without a file, ready for on-demand download', async () => {
+    const file = await parseAndValidate(fileOf([entry('按需下载', 'BV1ggg:7')]));
     importPlaylist(db(), sq(), { entries: file.entries, target: { kind: 'library' } });
     const row = db().select().from(songs).all()[0];
     expect(row.file_origin).toBe('downloaded');
@@ -416,8 +422,8 @@ describe('importPlaylist', () => {
 });
 
 describe('import feeds the outbox through the same write paths (v0.2)', () => {
-  it('publishes the new playlist, its new songs, and its memberships', () => {
-    const file = parseAndValidate(fileOf([entry('丙', 'BV1ccc:3'), entry('丁', 'BV1ddd:4')]));
+  it('publishes the new playlist, its new songs, and its memberships', async () => {
+    const file = await parseAndValidate(fileOf([entry('丙', 'BV1ccc:3'), entry('丁', 'BV1ddd:4')]));
     sq().prepare('DELETE FROM sync_changes').run(); // ignore the fixture's own writes
 
     importPlaylist(db(), sq(), {

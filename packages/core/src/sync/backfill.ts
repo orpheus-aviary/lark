@@ -32,6 +32,7 @@ import { membershipEntityId } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { SyncChangeTooLargeError } from '../errors.js';
 import { songLyricsPath } from '../library/lyrics.js';
+import { utf8ByteLength } from '../portable/runtime/text.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
 
 const KEY_DONE = 'sync_backfill_done_generation';
@@ -278,7 +279,7 @@ function backfillLyrics(
         entityType: 'song',
         entityId: songId,
         op: 'set_lyrics',
-        payload: JSON.stringify({ size: Buffer.byteLength(lrc, 'utf8'), limit: err.limit }),
+        payload: JSON.stringify({ size: utf8ByteLength(lrc), limit: err.limit }),
       });
       result.lyricsOversize += 1;
     }

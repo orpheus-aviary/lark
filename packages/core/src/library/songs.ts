@@ -10,7 +10,6 @@
 // transaction, and `deleteSong` records a tombstone plus a file-effect journal
 // entry instead of doing its own trash-directory dance (§3.6).
 
-import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import {
@@ -26,6 +25,7 @@ import { and, eq, ne, sql } from 'drizzle-orm';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { InvalidIdError, NotFoundError, SourceKeyConflictError } from '../errors.js';
 import { songsDir } from '../paths.js';
+import { uuid } from '../portable/runtime/random.js';
 import { type SongRow, songs } from '../portable/schema.js';
 import { emitSyncChange } from '../sync/changes.js';
 import { readSkybridgeDeviceId } from '../sync/device.js';
@@ -133,7 +133,7 @@ function assertKeyFree(db: LarkDatabase, provider: string, key: string, excludeI
 
 export function createSongInTx(db: LarkDatabase, input: CreateSongInput): SongData {
   return insertSongRow(db, {
-    id: randomUUID(),
+    id: uuid(),
     input,
     fileOrigin: 'downloaded',
   });
