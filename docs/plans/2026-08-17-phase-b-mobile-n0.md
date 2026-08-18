@@ -641,6 +641,35 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 - **`drive.mjs dump` 只列当前屏可见节点**：用它判断「新按钮不存在」错了一次（`tap` 会滚动查找，`dump` 不会）。要确认一个按钮在不在，用 `tap`。
 - **判据 19 的证据链末端一定在主机侧**：JS 说「我 release 了」「我 pause 了」都可能与喇叭不符，`drive.mjs audio` 的活跃播放器计数才是那句能写进文档的话。
 
+### N0b-4c（2026-08-18）判据 24 + N0b-4 汇总
+
+落点：`expo-share-intent@8.0.1` + `expo-linking@57.0.6` 进 spike · `app.config.ts` 加 `scheme: 'larkspike'` 与插件（`androidIntentFilters: ['text/*']` / `disableIOS: true`）· `src/panels/share-intent.ts`（`useShareIntentProbe`，**面板第一节**）· `drive.mjs` 增 `senders` / `share` / `share-cold`。真机 vivo V2408A / Android 15，**release 构建**（面板自报 `release bundle · Hermes`；行为判据不要求 release，但 N0b-4b 之后 dev client 已不可靠）。
+
+**判据 24 绿（软判据，D13 入口形态不降级）**
+
+| 证据 | 结果 |
+|---|---|
+| 系统解析器认得我们 | `cmd package query-activities -a SEND -t text/plain`：67 个 handler，`com.orpheusaviary.lark.spike/.MainActivity` 在内 |
+| 真 bilibili（**8.83.0**）分享 | 视频页 分享 → 横滑出 **更多** → 系统 chooser（`com.android.intentresolver`）里 **「lark spike」在列**（截图 `.runtime/n0b4c-chooser.png`）→ 点它 → spike 冷启动收到 |
+| 收到的原始文本 | `莫愁乡--（OfficialMusicVideo）亚细亚旷世奇才 https://b23.tv/cfzPKZX`，`type=weburl`，**`title=null`**，`+15ms since start` |
+| 合成矩阵（三条路径） | **冷启动**（force-stop 后）`+18ms` · **后台存活**（任务切前台）`+20.6s` · **前台**（onNewIntent）`+50.3s`，三条 index 0/1/2 同一进程 |
+| 文本保真 | `drive.mjs share` 自带回读：主机把发出去的串与设备 POST 回来的 `arrival.text` **逐字符比对**——CJK · 全角【】· 换行 · emoji · `?p=2` 全部原样，三次全绿 |
+| 冷启动到手 | `am start` → 桌面收到 payload **244 / 216 / 229ms**（主机钟，含进程启动、bundle 加载、hook 挂载与 POST；3 轮，指示值不是 §3.2a 判据） |
+
+**四条实测锁定**
+
+- 🔴 **分享文本里没有 bvid，只有 b23.tv 短链**：bilibili 8.83.0 发的是「标题 + `https://b23.tv/xxxxxxx`」，`EXTRA_TITLE` 是空的（`meta.title=null`，标题只是正文的一部分）。所以 D13 的添加页**在展开短链之前什么也识别不出**——那是一次 `redirect:'manual'` 的网络往返（`bilibili.ts:318,326`），N4 的入口 UI 必须有「正在解析」这一态，不能假设粘进来就有 bvid。R2 拿这条真实文本去跑 `link.ts`。
+- 🔴 **收藏夹分享到不了系统面板**：`我的 → 收藏 → 收藏夹 → 测试收藏夹 → 分享` 直接进 bilibili 自己的**「分享至动态」发布器**（`FollowingPublishActivity`），根本没有分享面板，也就没有「更多」。只有**视频详情页**那条路能把文本交给别的应用。**结论**：N4 的添加页不能指望用分享 intent 收藏夹，粘贴框仍是收藏夹/合集的唯一入口。（本条只对 8.83.0 成立；顺带：那个发布器是**会真的发出去**的界面，测试时退出用它自己的返回箭头。）
+- 🔴 **`performance.now()` 在 RN Android 上是 `SystemClock.uptimeMillis()`**：首次记录的「距启动」是 **81,892s**，而同时刻 `/proc/uptime` 是 **130,488s**——差的 13.5 小时正是手机夜里深睡的时间。两个后果：① 它**不是**从 JS context 起算的（要自己在模块顶层存一个基线，spike 现在存了 `JS_START`）；② 它**在深睡期间不走**，所以任何「距上次 X 过了多久」跨熄屏都会少算——与 N0b-4b 的「熄屏后 JS 定时器被冻结」是同一件事的两面。N0b-3 的数值全是毫秒级差值，不受影响。
+- **payload 是易失的**：`resetOnBackground` 是库的默认值（本批没改），实测切到后台再回来，`hasShareIntent` 已为 false、native 侧也清了（面板只剩自己那份 append-only 记录）。N4 的添加页**必须在挂载时就把它消费掉**，不能留在那儿等用户回来。
+
+**两条操作**
+
+- 判据的自检点在**主机侧**：屏幕能证明文本到了、看着对，但证不出末尾少一个换行或空格变成了 `%20`——所以 `share` 命令发完就去 `.runtime/` 里读设备 POST 回来的那份做比对，probe host 因此是这条判据的必需件（同 N0b-3：release 没有 logcat）。
+- **驱动真 bilibili 要一步一 dump**：分享面板第一行要**横滑**才露出「更多」（第一屏只有 微信/朋友圈/QQ/QQ空间/复制链接），而收藏夹那条路上一个盲点按钮就是发动态。凡是在用户自己的应用里点按钮，先 dump 看清楚再点。
+
+**§9 汇总（N0b-4 三批）**：判据 **19 绿**（D17 冻结：raw fMP4 直存达标，不进任何 remux 兜底）· **22 绿**（四条硬 gate + SSE 软判据）· **23 绿**（双网络）· **24 绿**（软）。N0b-4 留给后续的债共四条：蓝牙断连不暂停、`release()` 必须先 `pause()`（都归 N3）· 短链展开是添加页的必经一步、收藏夹只能粘贴（都归 N4）。**N0b 只剩 N0b-5**（判据 25、26 + GO/NO-GO 汇总 + Stage-2 主计划修订）。
+
 ## §10 评审修订对照
 
 ### 一轮（v1 → v2）

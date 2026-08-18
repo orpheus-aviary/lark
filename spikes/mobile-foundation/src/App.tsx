@@ -29,6 +29,7 @@ import {
   runPlayerPanel,
   runPlaylistPanel,
 } from './panels/playback';
+import { useShareIntentProbe } from './panels/share-intent';
 import { type SyncProbeRow, runSkybridgePanel } from './panels/skybridge';
 import {
   type WorkloadRow,
@@ -60,6 +61,11 @@ const VERDICT_COLOR = {
 
 export function App() {
   const probes = bootProbes();
+  // Criterion 24's hook lives HERE, in the top component, and runs on every
+  // render rather than behind a button: a share that launched the app is
+  // waiting in the native singleton before the first frame, and nobody is
+  // around to press anything.
+  const share = useShareIntentProbe();
   const [contract, setContract] = useState<ContractRun | null>(null);
   const [bootstrap, setBootstrap] = useState<BootstrapStep[] | null>(null);
   const [drizzle, setDrizzle] = useState<LifecycleProbe | null>(null);
@@ -136,6 +142,50 @@ export function App() {
             <Text style={styles.detail}>{probe.detail}</Text>
           </View>
         ))}
+
+        {/* Deliberately the FIRST panel: a share that launched the app has
+            already been delivered by the time the screen appears, and the
+            evidence should be on that first screen rather than eleven sections
+            below it. */}
+        <Text style={styles.section}>share intent (criterion 24)</Text>
+        {share.rows.map((r) => (
+          <View key={r.name} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.name}
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+          </View>
+        ))}
+        {share.arrivals.map((a, index) => (
+          <View key={`${a.at}/${a.sinceStartMs}`} style={styles.row}>
+            <Text style={styles.rowTitle}>
+              #{index + 1} type={String(a.type)} · +{a.sinceStartMs}ms since start
+            </Text>
+            {/* The raw text, exactly as it arrived — this is the criterion. */}
+            <Text style={styles.raw} selectable>
+              {a.text ?? '(no text)'}
+            </Text>
+            <Text style={styles.detail}>
+              webUrl={String(a.webUrl)} · title={String(a.title)} · files=
+              {a.files === null ? 'null' : a.files.length}
+            </Text>
+          </View>
+        ))}
+        <Pressable style={styles.button} onPress={run(share.reset)}>
+          <Text style={styles.buttonText}>Reset share intent</Text>
+        </Pressable>
 
         <Text style={styles.section}>fresh library bootstrap (criterion 15)</Text>
         <Pressable
@@ -528,6 +578,9 @@ const styles = StyleSheet.create({
   rowTitle: { color: '#f4f4f5', fontSize: 13 },
   detail: { color: '#a1a1aa', fontSize: 12 },
   ms: { color: '#52525b', fontSize: 11 },
+  // Monospace, and NOT truncated: the point of criterion 24 is what the other
+  // app actually sent.
+  raw: { color: '#f4f4f5', fontSize: 12, fontFamily: 'monospace' },
   busy: { color: '#f59e0b', fontSize: 13, marginTop: 12 },
   crashed: { color: '#ef4444', fontSize: 13, marginTop: 12 },
   warning: { color: '#f59e0b' },

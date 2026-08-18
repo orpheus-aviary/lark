@@ -13,6 +13,11 @@ const config: ExpoConfig = {
   version: '0.0.0',
   orientation: 'portrait',
   platforms: ['android'],
+  // The share-intent plugin refuses to configure itself without one, and the
+  // hook reads it back through expo-constants. Spike-flavoured on purpose, for
+  // the same reason the applicationId is: a scheme is something other apps can
+  // link to, and the product's belongs to the product.
+  scheme: 'larkspike',
   // DELIBERATELY NOT `com.orpheusaviary.lark`. That id belongs to the product
   // APK (D14, criterion 25); a spike wearing it would sit on the device as the
   // real app's predecessor, and the first real install would inherit its data
@@ -35,6 +40,22 @@ const config: ExpoConfig = {
       // a permission dialog nobody understands.
       'expo-audio',
       { recordAudioAndroid: false, enableBackgroundPlayback: true },
+    ],
+    [
+      // Criterion 24: receive what the bilibili app sends. The plugin adds an
+      // ACTION_SEND filter to MainActivity and switches it to singleTask, so a
+      // share arriving while the app is already alive comes through
+      // onNewIntent rather than starting a second copy of it.
+      //
+      // `text/*` is the plugin default, spelled out because it IS the
+      // criterion: bilibili shares text/plain, and every extra mime type here
+      // is another entry lark would appear under in the share sheet.
+      //
+      // `disableIOS` because this spike is `platforms: ['android']` — the iOS
+      // half builds a share-extension Xcode target (and wants a patched
+      // `xcode` package for it), none of which should exist here.
+      'expo-share-intent',
+      { androidIntentFilters: ['text/*'], disableIOS: true },
     ],
     [
       'expo-build-properties',

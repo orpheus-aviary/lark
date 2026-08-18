@@ -15,13 +15,17 @@
 //   node scripts/drive.mjs shot out.png         # screencap, foreground-checked
 //   node scripts/drive.mjs top                  # what is actually in front
 //   node scripts/drive.mjs audio                # who is holding the speaker (criterion 19)
+//   node scripts/drive.mjs senders              # who the system says handles a text share (24)
+//   node scripts/drive.mjs share "text"         # ACTION_SEND into the spike, app left running
+//   node scripts/drive.mjs share-cold "text"    # same, but force-stop first (the launch path)
 //
 // Scrolling is slow and starts away from the screen edges on purpose: a fast
 // swipe, or one that starts at the very bottom, is taken as the system home
 // gesture and puts the spike in the background (N0b-1).
 
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const ANDROID_HOME = process.env.ANDROID_HOME ?? '/opt/homebrew/share/android-commandlinetools';
 const ADB = `${ANDROID_HOME}/platform-tools/adb`;
@@ -154,6 +158,114 @@ function audioState() {
   for (const line of ours.slice(0, 6)) console.log(`  ${line.trim()}`);
 }
 
+/** Quote for the DEVICE's shell: `adb shell` joins our argv into one line. */
+const deviceQuote = (value) => `'${value.replaceAll("'", `'\\''`)}'`;
+
+/**
+ * Hand the spike a text share the way another app would (criterion 24).
+ *
+ * `-p <package>` sets Intent.setPackage instead of naming the component with
+ * `-n`: the intent still has to MATCH an intent-filter inside the package, so
+ * this exercises the filter the config plugin added. Naming the activity
+ * directly would start it whether or not the app is advertised as a share
+ * target, which is most of what the criterion is asking about.
+ */
+async function sendShare(text, { cold }) {
+  const sentAt = Date.now();
+  if (cold) {
+    // The launch path: no process, so the intent goes through the singleton
+    // that the lifecycle listener fills in `onCreate`.
+    adb('shell', 'am', 'force-stop', PACKAGE);
+  }
+  const out = adb(
+    'shell',
+    'am',
+    'start',
+    '-a',
+    'android.intent.action.SEND',
+    '-t',
+    'text/plain',
+    '-p',
+    PACKAGE,
+    '--es',
+    'android.intent.extra.TEXT',
+    deviceQuote(text),
+  );
+  console.log(out.trim());
+  console.log(`sent ${cold ? 'cold' : 'warm'} share (${[...text].length} chars)`);
+  await confirmArrival(text, sentAt);
+}
+
+/**
+ * Compare what came back with what went out, character for character.
+ *
+ * Reading the text off the screen proves it arrived and looks right; a screen
+ * cannot show a trailing newline, a stripped emoji or a `%20` that used to be a
+ * space. The device POSTs every arrival to the probe host, so the file it wrote
+ * is the copy that can be diffed — which is why this needs
+ * `just spike-mobile-probe-host` running.
+ */
+async function confirmArrival(text, sentAt) {
+  const dir = fileURLToPath(new URL('../.runtime/', import.meta.url));
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    const newest = (existsSync(dir) ? readdirSync(dir) : [])
+      .filter((f) => f.startsWith('share-intent-') && f.endsWith('.json'))
+      .map((f) => ({ f, at: statSync(`${dir}${f}`).mtimeMs }))
+      .filter((e) => e.at >= sentAt)
+      .sort((a, b) => b.at - a.at)[0];
+    if (newest) {
+      const payload = JSON.parse(readFileSync(`${dir}${newest.f}`, 'utf-8'));
+      const got = payload.arrival?.text ?? null;
+      console.log(`arrival recorded in ${newest.f} (${payload.runtime})`);
+      if (got === text) {
+        console.log('✓ text round-tripped byte for byte');
+        return;
+      }
+      console.error('✗ text differs');
+      console.error(`  sent: ${JSON.stringify(text)}`);
+      console.error(`  got:  ${JSON.stringify(got)}`);
+      process.exit(1);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  console.error('✗ no arrival reached the probe host within 15s');
+  console.error('  (is `just spike-mobile-probe-host` running? it is the only machine-readable');
+  console.error('   channel on a release build — see N0b-3)');
+  process.exit(1);
+}
+
+/**
+ * Every activity the system would offer for a plain-text share.
+ *
+ * This is the objective half of "does lark show up in the share sheet" — the
+ * sheet itself is a picture, this is the resolver's own answer.
+ */
+function shareTargets() {
+  const out = adb(
+    'shell',
+    'cmd',
+    'package',
+    'query-activities',
+    '-a',
+    'android.intent.action.SEND',
+    '-t',
+    'text/plain',
+    '--brief',
+  );
+  const lines = out
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.includes('/'));
+  const ours = lines.filter((l) => l.includes(PACKAGE));
+  console.log(`text/plain SEND handlers: ${lines.length}`);
+  for (const line of ours) console.log(`  ${line}`);
+  if (ours.length === 0) {
+    console.error(`✗ ${PACKAGE} is not among them`);
+    process.exit(1);
+  }
+}
+
 const [command, argument] = process.argv.slice(2);
 
 switch (command) {
@@ -174,6 +286,17 @@ switch (command) {
     }
     tapByText(argument);
     break;
+  case 'senders':
+    shareTargets();
+    break;
+  case 'share':
+  case 'share-cold':
+    if (!argument) {
+      console.error('usage: drive.mjs share|share-cold "<text to share>"');
+      process.exit(64);
+    }
+    await sendShare(argument, { cold: command === 'share-cold' });
+    break;
   case 'shot': {
     requireForeground();
     const out = argument ?? '.runtime/shot.png';
@@ -182,6 +305,8 @@ switch (command) {
     break;
   }
   default:
-    console.error('commands: top | audio | dump | tap "<label>" | shot [file]');
+    console.error(
+      'commands: top | audio | senders | dump | tap "<label>" | share[-cold] "<text>" | shot [file]',
+    );
     process.exit(64);
 }

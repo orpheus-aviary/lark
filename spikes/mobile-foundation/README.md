@@ -62,8 +62,11 @@ Criteria fall into three kinds, and only the first is self-checking:
 - `src/panels/` — bootstrap rehearsal (15), contract driver (14), the two
   drizzle probes (17a/17b) over a shared counting Proxy, N0b-3's three:
   `workload.ts` (18, statement-shape proxies), `crypto.ts` (20), `globals.ts` (21),
-  and N0b-4's three: `bilibili.ts` (23 + criterion 19's stream half),
-  `skybridge.ts` (22), `playback.ts` (19 — expo-audio on the raw fMP4).
+  and N0b-4's four: `bilibili.ts` (23 + criterion 19's stream half),
+  `skybridge.ts` (22), `playback.ts` (19 — expo-audio on the raw fMP4),
+  `share-intent.ts` (24). The last one is a hook, not a button: an intent that
+  launched the app is already waiting when JS starts, so it is called from `App`
+  itself and its section is the first one on screen.
 - `src/fixtures.ts` — the N0b-4 fixtures, fetched from the probe host at run
   time rather than bundled. bilibili's stream URLs expire in about two hours and
   the skybridge account is created per `sync-host.mjs` run; compiling either in
@@ -102,6 +105,8 @@ backstop. Full reasoning: subplan §9, criterion 17.
 node scripts/drive.mjs tap "Run contract"   # finds the button by label, scrolls, taps
 node scripts/drive.mjs dump                 # every visible label
 node scripts/drive.mjs shot out.png         # screencap, refuses unless we are in front
+node scripts/drive.mjs senders              # every text/plain SEND handler the system knows
+node scripts/drive.mjs share "text"         # hand us a share; share-cold force-stops first
 ```
 
 It looks the button up in the accessibility tree instead of tapping fixed
@@ -187,6 +192,36 @@ is fine with and React Native's Gradle line is not.
 
 Debug builds measure the debugger. §3.2a binds every numeric criterion to
 release builds on the one frozen device recorded in the subplan's §9.
+
+## The share intent, and what bilibili actually sends
+
+`share` / `share-cold` send an ACTION_SEND with `-p <package>` rather than
+naming the activity: the intent still has to match the filter the config plugin
+added, which is most of what criterion 24 asks. They then read the arrival back
+out of `.runtime/` and compare it to what was sent, **character by character** —
+the screen can show that a share arrived and looks right, but not that a
+trailing newline survived or that a space did not become `%20`. That comparison
+needs `just spike-mobile-probe-host` running.
+
+MEASURED against the real app (bilibili 8.83.0), and it shapes N4:
+
+- the shared text is `<title> https://b23.tv/xxxxxxx` — **no bvid**, and
+  `EXTRA_TITLE` is empty, so the title is only a substring of the body. The add
+  page identifies nothing until it expands the short link, which is a network
+  round trip (`redirect: 'manual'`);
+- **a favlist cannot be shared to us at all**: its 分享 button opens bilibili's
+  own "post to your timeline" composer, never the system sheet. Only the video
+  detail page reaches 更多 → the chooser. The paste box stays the only way in
+  for favlists and collections;
+- the payload is transient — `resetOnBackground` is the library default, and
+  leaving the app clears both the hook's value and the native side. Whatever
+  consumes it must do so on mount.
+
+`performance.now()` here is `SystemClock.uptimeMillis()`: not zero at context
+start, and it does **not** advance during deep sleep (measured: 81,892s against
+a `/proc/uptime` of 130,488s, the gap being one night asleep). Deltas over
+milliseconds — everything N0b-3 measured — are unaffected; "how long since X"
+across a screen-off period cannot use it.
 
 ## Standing obligation
 
