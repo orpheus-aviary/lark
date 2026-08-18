@@ -64,9 +64,15 @@ Criteria fall into three kinds, and only the first is self-checking:
   `workload.ts` (18, statement-shape proxies), `crypto.ts` (20), `globals.ts` (21),
   and N0b-4's four: `bilibili.ts` (23 + criterion 19's stream half),
   `skybridge.ts` (22), `playback.ts` (19 — expo-audio on the raw fMP4),
-  `share-intent.ts` (24). The last one is a hook, not a button: an intent that
-  launched the app is already waiting when JS starts, so it is called from `App`
-  itself and its section is the first one on screen.
+  `share-intent.ts` (24) and `backup-identity.ts` (26 — copy-then-open, the
+  SecureStore side, the 50MB fixture and the racing-writer reverse test).
+  `share-intent.ts` is a hook, not a button: an intent that launched the app is
+  already waiting when JS starts, so it is called from `App` itself and its
+  section is the first one on screen.
+- `plugins/with-backup-rules.js` — the CNG plugin that owns D16's Android side:
+  two rule files under `res/xml/` and the two manifest attributes pointing at
+  them. expo-secure-store installs its own version by default, which is why
+  `app.config.ts` tells it to stand down.
 - `src/fixtures.ts` — the N0b-4 fixtures, fetched from the probe host at run
   time rather than bundled. bilibili's stream URLs expire in about two hours and
   the skybridge account is created per `sync-host.mjs` run; compiling either in
@@ -83,7 +89,8 @@ Criteria fall into three kinds, and only the first is self-checking:
   panel's buttons by label), `make-desktop-fixtures.mjs`,
   `make-network-fixtures.mjs` (the WBI three-piece, `openAudio()`'s header set
   and the two audio tracks, all from the real core), `sync-host.mjs` (a
-  throwaway skybridge server for criterion 22).
+  throwaway skybridge server for criterion 22), `backup-audit.mjs` (criterion
+  26's manifest / rule-file / `bmgr` layers).
 - `app.config.ts` — the whole native configuration (CNG). `android/` is
   generated and untracked; anything that can only be said by hand-editing it
   belongs in a config plugin.
@@ -159,6 +166,7 @@ just spike-mobile-probe-host       # adb reverse + the fetch peer / results sink
 just spike-mobile-fixtures         # regenerate src/desktop-fixtures.ts
 just spike-mobile-fixtures-network # N0b-4: WBI three-piece + header set (+ --audio)
 just spike-mobile-sync-host        # a real skybridge server on :8097
+just spike-mobile-backup-audit     # criterion 26's three layers (APK + bmgr)
 ```
 
 ## The audio fixtures, and why a stream URL is not portable
@@ -222,6 +230,31 @@ start, and it does **not** advance during deep sleep (measured: 81,892s against
 a `/proc/uptime` of 130,488s, the gap being one night asleep). Deltas over
 milliseconds — everything N0b-3 measured — are unaffected; "how long since X"
 across a screen-off period cannot use it.
+
+## Backup exclusion and the zero-write read (D16)
+
+`just spike-mobile-backup-audit` checks three things, and the order is the
+point: the **built APK's** merged manifest (everything earlier is an intention),
+then the two rule files read out of its compiled resources (an attribute can
+point at an empty file and still look right), then `bmgr`'s own answer — with a
+control package that DOES allow backup in the same run, because "Backup is not
+allowed" only means something if something else says "Success".
+
+MEASURED:
+
+- `android:allowBackup="false"` turns off **cloud backup only**. Device-to-device
+  transfer on Android 12+ is governed by `<device-transfer>` in
+  `dataExtractionRules`, which is why the plugin writes both sections;
+- compiled manifest attributes are numeric ids (`@0x7f140002`) — resolving them
+  through `aapt2 dump resources` is what proves they point at OUR files rather
+  than expo-secure-store's;
+- copy-then-open costs **75ms** on a 50MB library and **150ms** with a 4MB hot
+  WAL (budget: 500ms), and the original's size and mtime are unchanged across
+  all five rounds. The recovery lands on the copy — its WAL goes 4,128,272 → 0
+  bytes while the original sits still;
+- looking for `-wal`/`-shm` NEXT TO the copy afterwards always reports "nothing
+  happened": closing the connection checkpoints and deletes them. Evidence has
+  to be taken while it is observable.
 
 ## Standing obligation
 

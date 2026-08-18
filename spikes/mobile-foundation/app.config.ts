@@ -30,6 +30,10 @@ const config: ExpoConfig = {
     // permission keeps its notification out of the drawer) — and the lock
     // screen controls ARE that notification. Criterion 19 asks for them.
     permissions: ['android.permission.POST_NOTIFICATIONS'],
+    // D16, criterion 26. This turns off cloud backup; it does NOT turn off
+    // device-to-device transfer on Android 12+, which is what the rule files
+    // in `plugins/with-backup-rules.js` are for.
+    allowBackup: false,
   },
   plugins: [
     [
@@ -57,6 +61,15 @@ const config: ExpoConfig = {
       'expo-share-intent',
       { androidIntentFilters: ['text/*'], disableIOS: true },
     ],
+    [
+      // D16 (criterion 26): expo-secure-store installs its own backup rules by
+      // default, pointing the two manifest attributes at ITS xml files. Ours
+      // have to be the only ones — see `plugins/with-backup-rules.js`, which
+      // throws rather than overwrite a value it did not write.
+      'expo-secure-store',
+      { configureAndroidBackup: false },
+    ],
+    './plugins/with-backup-rules',
     [
       'expo-build-properties',
       {

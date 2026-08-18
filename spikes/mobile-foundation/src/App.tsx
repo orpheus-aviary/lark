@@ -15,6 +15,16 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BUILD_IS_DEV, RUNTIME_LABEL } from './measure';
+import {
+  type IdentityRow,
+  checkIdentity,
+  forgetIdentity,
+  growLibrary,
+  measureCopyThenOpen,
+  measureCopyThenOpenHotWal,
+  probeRacingWriter,
+  seedIdentity,
+} from './panels/backup-identity';
 import { type NetProbeRow, runBilibiliPanel } from './panels/bilibili';
 import { type BootstrapStep, rehearseFreshLibrary } from './panels/bootstrap';
 import { type ContractRun, runContract } from './panels/contract';
@@ -76,6 +86,7 @@ export function App() {
   const [bilibili, setBilibili] = useState<NetProbeRow[] | null>(null);
   const [skybridge, setSkybridge] = useState<SyncProbeRow[] | null>(null);
   const [playback, setPlayback] = useState<PlaybackRow[] | null>(null);
+  const [identity, setIdentity] = useState<IdentityRow[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [crashed, setCrashed] = useState<string | null>(null);
 
@@ -117,6 +128,12 @@ export function App() {
           setBusy(null);
         });
     };
+
+  const identityRun = (label: string, fn: () => IdentityRow[]) => () => {
+    const rows = fn();
+    setIdentity(rows);
+    reportToHost(`identity-${label}`, { runtime: RUNTIME_LABEL, dev: BUILD_IS_DEV, rows });
+  };
 
   const workloadRun = (label: string, fn: () => WorkloadRow[]) => () => {
     const rows = fn();
@@ -541,6 +558,66 @@ export function App() {
           <Text style={styles.buttonText}>Release WITHOUT pause (#47569 shape)</Text>
         </Pressable>
         {playback?.map((r) => (
+          <View key={`${r.group}/${r.name}`} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.group} › {r.name}
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+          </View>
+        ))}
+
+        <Text style={styles.section}>backup exclusion + install_id (criterion 26)</Text>
+        <Text style={styles.detail}>
+          D16's two carriers. The timing row needs the 50MB fixture and a release bundle; the
+          backup-exclusion half is `node scripts/backup-audit.mjs` on the desktop.
+        </Text>
+        <Pressable style={styles.button} onPress={run(identityRun('seed', seedIdentity))}>
+          <Text style={styles.buttonText}>Seed identity (both sides)</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={run(identityRun('check', checkIdentity))}>
+          <Text style={styles.buttonText}>Boot check (copy-then-open + SecureStore)</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={run(identityRun('grow', growLibrary))}>
+          <Text style={styles.buttonText}>Grow the library to 50MB</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={run(identityRun('copy-open', measureCopyThenOpen))}
+        >
+          <Text style={styles.buttonText}>Time copy-then-open (5 cold rounds)</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={run(identityRun('copy-open-hot', measureCopyThenOpenHotWal))}
+        >
+          <Text style={styles.buttonText}>Time it again with a hot WAL</Text>
+        </Pressable>
+        <Pressable style={styles.button} onPress={run(identityRun('racing', probeRacingWriter))}>
+          <Text style={styles.buttonText}>Race a writer against it (must fail closed)</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={runAsync(async () => {
+            const rows = await forgetIdentity();
+            setIdentity(rows);
+            reportToHost('identity-forget', { runtime: RUNTIME_LABEL, dev: BUILD_IS_DEV, rows });
+          })}
+        >
+          <Text style={styles.buttonText}>Forget the identity</Text>
+        </Pressable>
+        {identity?.map((r) => (
           <View key={`${r.group}/${r.name}`} style={styles.row}>
             <Text
               style={[

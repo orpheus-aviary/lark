@@ -595,6 +595,14 @@ spike-mobile-fixtures-network *ARGS: build-shared build-core
 spike-mobile-sync-host:
     node spikes/mobile-foundation/scripts/sync-host.mjs
 
+# Criterion 26's backup-exclusion half, in three layers: the BUILT APK's merged
+# manifest, the two rule files read out of its compiled resources, and the
+# backup manager's own answer (`bmgr`, with a control package that does allow
+# backup so that a refusal means something).
+[group('spike')]
+spike-mobile-backup-audit *ARGS:
+    node spikes/mobile-foundation/scripts/backup-audit.mjs {{ARGS}}
+
 # ─── Live probes (M3) ───────────────────────────────────
 
 # Hit the real api.bilibili.com and assert the SHAPE every download path

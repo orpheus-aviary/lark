@@ -670,6 +670,38 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 
 **§9 汇总（N0b-4 三批）**：判据 **19 绿**（D17 冻结：raw fMP4 直存达标，不进任何 remux 兜底）· **22 绿**（四条硬 gate + SSE 软判据）· **23 绿**（双网络）· **24 绿**（软）。N0b-4 留给后续的债共四条：蓝牙断连不暂停、`release()` 必须先 `pause()`（都归 N3）· 短链展开是添加页的必经一步、收藏夹只能粘贴（都归 N4）。**N0b 只剩 N0b-5**（判据 25、26 + GO/NO-GO 汇总 + Stage-2 主计划修订）。
 
+### N0b-5a（2026-08-18）判据 26（D16 机制，gate）
+
+落点：`plugins/with-backup-rules.js`（CNG，两份规则 XML + 两个 manifest 属性）· `app.config.ts` 加 `android.allowBackup: false` 与 `expo-secure-store` 的 `configureAndroidBackup: false` · `src/panels/backup-identity.ts`（copy-then-open / SecureStore / 50MB 夹具 / 热 WAL / racing-writer 反测）· 宿主脚本 `scripts/backup-audit.mjs`（`just spike-mobile-backup-audit`）· 依赖加 `expo-file-system@57.0.4`。真机 vivo V2408A / Android 15，**release 构建**（数值判据要求）。
+
+**① 零写打开（决策 k 候选①：copy-then-open）——采纳，出口写定**
+
+| 场景 | 结果 |
+|---|---|
+| 50.2MB 库（无 WAL） | copy + open + 读 install_id **max 75.36ms** · p50 65.48 · min 52.92（5 轮冷判 max，预算 500ms） |
+| 50.2MB 库 + **4.0MB 热 WAL** | **max 149.51ms** · p50 114.21 · min 102.4 |
+| 原件是否被写 | **两组都没有**：main 与 `-wal` 的 size+mtime 五轮前后逐字节相同 |
+| 恢复发生在哪 | **副本身上**：热 WAL 那组里副本的 `-wal` 从 **4,128,272 → 0 字节**（checkpoint 落在副本），原件不动 |
+| 并发写入者 | racing-writer 反测：两次干扰写 → **`FailClosedError`**（重试一次后仍在动就拒读） |
+
+**② no-backup 侧载体（决策 l：SecureStore）**——`requireAuthentication: false` 写入 / 同步 `getItem` 读出；**卸载重装后读不出**（`adb uninstall` + 重装，同一份 APK）：SecureStore 侧 absent、库文件也不在，判定落在「fresh — 两侧都生成」。D16 要的信号成立。
+
+**③ backup 排除的三层客观判据——`just spike-mobile-backup-audit` 10/10**
+
+1. **APK 的 merged manifest**（不是 `app.config.ts`，也不是生成出来的 `AndroidManifest.xml`）：`allowBackup=false` · `dataExtractionRules` → `xml/lark_data_extraction_rules` · `fullBackupContent` → `xml/lark_backup_rules`。**编译后属性值是数字 id**（`@0x7f140002`），要拿 `aapt2 dump resources` 的资源表翻回名字才知道它指的是不是我们那份。
+2. **两份规则文件本身**（从 APK 的编译资源里读）：`<cloud-backup>` 与 `<device-transfer>` 各排除 9 个 domain（`root/file/database/sharedpref/external` + 四个 `device_*`），`full-backup-content` 同样 9 个。
+3. **backup manager 自己的回答**：`bmgr backupnow` → **`Backup is not allowed`** · 同一轮里控制组 `com.android.providers.settings` → `Success`（否则「不允许」也可能只是 transport 坏了）· `dumpsys backup` 的参与者列表里根本没有我们 · `bmgr restore` → `restoreStarting: 0 packages`。
+
+**四条实测锁定**
+
+- 🔴 **`allowBackup=false` 只关掉云备份，关不掉 D2D**：Android 12+ 的设备迁移走 `dataExtractionRules` 的 `<device-transfer>`，两者是两套开关。所以 plugin 必须同时持有两份规则文件与两个属性，而不是「设了 allowBackup 就完事」。这也是 D16 那句「部分 OEM D2D 无视 allowBackup」在配置上的落点。
+- 🔴 **expo-secure-store 默认会把两个 manifest 属性指向它自己的规则文件**：必须 `configureAndroidBackup: false` 让位，否则两个插件写同一对属性、后写的赢，而这件事在构建日志里一个字都不会说。我们的 plugin 因此在发现属性已被别人占用时**直接抛错**而不是覆盖。
+- 🔴 **证据要取在能观测到的那一刻**：第一版用「副本旁边有没有 `-wal`/`-shm`」判断恢复是否发生在副本上，结果永远是「什么也没长」——因为读完就 `closeSync()`，关闭本身会 checkpoint 并**删掉**这两个边车。改成跨 open 前后比对副本自己的 size/mtime + WAL 字节数（4,128,272 → 0）才看得见。**一个恒为假的断言和一个恒为真的断言一样没用。**
+- 🔴 **一个 `Uint8Array` 既是值也是对象**：shim 的「单参数是不是命名参数表」判断只看 `typeof === 'object'`，于是 50MB 夹具的 `run(chunk)` 被当成命名参数表，报的是 `bound key '0' does not appear as a named parameter`——一句关于错误东西的话。core 今天不绑 blob，所以契约从没问过；但 `SqliteStatement` 的 doc 明写值形态含 bytes，**这个歧义对任何「看参数长相决定形态」的宿主都存在**。已修（排除 `ArrayBuffer.isView` 与 `ArrayBuffer`），并在契约 `api` 组补一条「lone bytes 走位置参数」的用例（core 测试 1046 → **1047**，全仓 **2481**）：better-sqlite3 回 Buffer、expo-sqlite 回 Uint8Array，两边都是字节视图，用例只断言往返。
+- **操作**：vivo 在连续多次 `adb install` 之后会弹安装确认框，装不上时构建会以 `expo run:android` 失败告终——重跑即可，别把它读成构建错误。
+
+**判据 26 的一个缺口，如实记**：设备是 API 35，`fullBackupContent`（API ≤30 的老路）**在这台机器上永远跑不到**，第 2 层的内容断言是它唯一的证据；`bmgr` 那层只证明了新路。完整 D2D restore 与 fail-closed 分支（强制半恢复夹具、ID 失配、收敛崩溃点）按计划归 **N2 gate 的四组**，本批不宣称。
+
 ## §10 评审修订对照
 
 ### 一轮（v1 → v2）

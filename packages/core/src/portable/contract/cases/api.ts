@@ -42,6 +42,33 @@ export const API_CASES: readonly ContractCase[] = [
   },
   {
     group: GROUP,
+    // MEASURED (N0b-5a): the expo shim read a lone `Uint8Array` as the
+    // named-parameter FORM and rejected it — "bound key '0' does not appear as
+    // a named parameter". Nothing in core binds a blob today, so nothing here
+    // asked; but the handle's doc lists bytes among the value forms, which
+    // makes "one object" and "one bytes value" ambiguous for any host that
+    // decides the form by looking at the argument. This case is the
+    // disambiguation, stated once, for both hosts.
+    name: 'binds a lone bytes value as a positional parameter',
+    run(db) {
+      const sqlite = migrate(db.sqlite);
+      sqlite.exec('CREATE TABLE contract_bytes (id INTEGER PRIMARY KEY, payload BLOB)');
+      const bytes = new Uint8Array([0, 1, 250, 3, 255]);
+      sqlite.prepare('INSERT INTO contract_bytes (payload) VALUES (?)').run(bytes);
+
+      const row = getRow(sqlite, 'SELECT payload FROM contract_bytes') as { payload: unknown };
+      // better-sqlite3 hands back a Buffer, expo-sqlite a Uint8Array. Both are
+      // views over the same bytes, and which one is a host detail — the
+      // contract is about the round trip.
+      check(ArrayBuffer.isView(row.payload), 'a BLOB comes back as a byte view');
+      const source = row.payload as ArrayBufferView;
+      const view = new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+      equal(view.byteLength, bytes.byteLength, 'byte length round trip');
+      equal(Array.from(view).join(','), Array.from(bytes).join(','), 'bytes round trip');
+    },
+  },
+  {
+    group: GROUP,
     name: 'runs a statement with no parameters',
     run(db) {
       const sqlite = migrate(db.sqlite);

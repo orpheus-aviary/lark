@@ -60,12 +60,27 @@ function namedParamSigils(sql: string): Map<string, string> {
   return out;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+/**
+ * Is this single argument the NAMED-PARAMETER form, or one positional value?
+ *
+ * MEASURED (N0b-5a): bytes are a value, and they are also an object. Deciding
+ * by `typeof` alone sent `run(new Uint8Array(…))` down the named path, where it
+ * became "bound key '0' does not appear as a named parameter" — a message about
+ * the wrong thing entirely. The contract now states this (`api` group: "binds a
+ * lone bytes value as a positional parameter").
+ */
+function isNamedParams(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    !ArrayBuffer.isView(value) &&
+    !(value instanceof ArrayBuffer)
+  );
 }
 
 function toBindParams(params: unknown[], sigils: Map<string, string>): SQLiteBindParams {
-  if (params.length === 1 && isPlainObject(params[0])) {
+  if (params.length === 1 && isNamedParams(params[0])) {
     const source = params[0];
     const translated: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(source)) {
