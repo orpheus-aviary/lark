@@ -41,8 +41,10 @@ import { promisify } from 'node:util';
 import {
   DEFAULT_TIMEOUTS,
   createBilibiliClient,
+  fetchLyrics,
   fetchWbiKeys,
   getMixinKey,
+  parseSongInput,
   probeAudio,
   resolveMediaTools,
   signWbiParams,
@@ -269,6 +271,100 @@ async function makeWbiFixture(headers) {
   return { canonical, expectedMd5, signedUrl, wts, desktopVerified, desktopNote };
 }
 
+// ─── R1–R3 references (N1d preview / N1i) ──────────────
+//
+// R1–R3 ask a different question from criterion 23's. That one asked whether
+// the PLATFORM can carry the traffic, with the desktop doing core's work; these
+// ask whether CORE'S OWN CODE, now that it is portable, produces the same
+// answers on a phone. So the desktop no longer hands over a finished signature
+// — it hands over the INPUTS (keys, params, wts) plus what core computed from
+// them, and the device runs `signWbiParams` itself.
+//
+// Everything here is computed by the real core in this process. A reference the
+// spike could have derived itself would be worth nothing.
+
+/** The exact (keys, params, wts) triple the device re-signs, and core's answer. */
+async function makeSignatureReference(headers) {
+  const keys = await fetchWbiKeys(recordingFetch, headers, AbortSignal.timeout(15_000));
+  const params = { search_type: 'video', keyword: '洛天依 原创曲', page: 1, page_size: 20 };
+  const wts = 1_723_000_000; // fixed: a signature reference must not drift with the clock
+  const query = signWbiParams(params, keys, wts);
+  const wRid = query.slice(query.lastIndexOf('&w_rid=') + '&w_rid='.length);
+  return { imgKey: keys.imgKey, subKey: keys.subKey, params, wts, expectedWRid: wRid, query };
+}
+
+/** Real share texts, and what core's offline parser makes of each. */
+function makeParseReference() {
+  const inputs = [
+    // The real bilibili 8.83.0 share text from N0b-4c: title + a b23 short link.
+    '莫愁乡--（OfficialMusicVideo）亚细亚旷世奇才 https://b23.tv/cfzPKZX',
+    'https://www.bilibili.com/video/BV176M3zPEZu',
+    'https://www.bilibili.com/video/BV176M3zPEZu?p=2',
+    'https://www.bilibili.com/video/BV1LtgV6ZE2U/?spm_id_from=333.788&vd_source=abc',
+    'https://space.bilibili.com/12345/favlist?fid=3975154248&ftype=create',
+    'BV176M3zPEZu',
+    '洛天依 普通disco',
+    'https://bilibili.com.evil.test/video/BV176M3zPEZu',
+  ];
+  // A REFUSAL is an answer too, and the interesting one: `bilibili.com.evil.test`
+  // throws `InvalidSourceError`, and a phone that quietly parsed it instead
+  // would be a hole in the same guard (link.ts's scheme-less repair, R30).
+  return inputs.map((input) => {
+    try {
+      return { input, parsed: parseSongInput(input), threw: null };
+    } catch (err) {
+      return { input, parsed: null, threw: err instanceof Error ? err.name : String(err) };
+    }
+  });
+}
+
+/** One b23 link, expanded by core the way `resolveInput` does. */
+async function makeShortLinkReference() {
+  const url = 'https://b23.tv/cfzPKZX';
+  try {
+    const target = await client.expandShortLink(url);
+    return { url, target, parsed: parseSongInput(target), error: null };
+  } catch (err) {
+    return {
+      url,
+      target: null,
+      parsed: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/** The three lyrics platforms, run for real, with no LLM in the loop. */
+async function makeLyricsReference() {
+  const query = { name: '普通DISCO', artist: '洛天依', duration: 208 };
+  try {
+    // No llmConfig: the heuristic picks on both sides, so R3 compares the
+    // platform clients rather than two model calls.
+    const { best, result } = await fetchLyrics(query, {});
+    return {
+      query,
+      platform: best?.platform ?? null,
+      candidateCount: result.candidates.length,
+      platformsWithCandidates: [...new Set(result.candidates.map((c) => c.platform))].sort(),
+      failures: result.failures.map((f) => `${f.platform}: ${f.message}`),
+      lrcLength: best?.lrc.length ?? 0,
+      lrcHead: best?.lrc.slice(0, 80) ?? null,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      query,
+      platform: null,
+      candidateCount: 0,
+      platformsWithCandidates: [],
+      failures: [],
+      lrcLength: 0,
+      lrcHead: null,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
 // ─── main ──────────────────────────────────────────────
 
 await mkdir(RUNTIME_DIR, { recursive: true });
@@ -303,6 +399,17 @@ const identity = streamRequest.headers;
 
 const wbi = await makeWbiFixture(identity);
 
+// R1–R3's references, from the same real core (see above).
+const signature = await makeSignatureReference(identity);
+const parses = makeParseReference();
+const shortLink = await makeShortLinkReference();
+const lyrics = await makeLyricsReference();
+console.log(
+  `references: w_rid ${signature.expectedWRid.slice(0, 8)}… · ${parses.length} parses · ` +
+    `b23 ${shortLink.target === null ? `FAILED (${shortLink.error})` : 'ok'} · ` +
+    `lyrics ${lyrics.platform ?? `none (${lyrics.error ?? 'no candidate'})`}`,
+);
+
 const short = tracks[0];
 const fixture = {
   generatedAt: Date.now(),
@@ -326,6 +433,8 @@ const fixture = {
   /** A byte range the stream probe can ask for without pulling the whole track. */
   rangeProbe: { streamUrl: short.streamUrl, bytes: 65_536 },
   tracks,
+  /** R1–R3: inputs the device feeds to core, and what core answered here. */
+  references: { signature, parses, shortLink, lyrics },
 };
 
 await writeFile(OUT, JSON.stringify(fixture, null, 2), 'utf-8');

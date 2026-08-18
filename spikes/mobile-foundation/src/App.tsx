@@ -28,6 +28,7 @@ import {
 import { type NetProbeRow, runBilibiliPanel } from './panels/bilibili';
 import { type BootstrapStep, rehearseFreshLibrary } from './panels/bootstrap';
 import { type ContractRun, runContract } from './panels/contract';
+import { type CoreClientRow, runR1Panel, runR2Panel, runR3Panel } from './panels/core-clients';
 import { type CryptoRow, runCryptoPanel } from './panels/crypto';
 import { type LifecycleProbe, probeDrizzleLifecycle } from './panels/drizzle-lifecycle';
 import { type MatrixRun, runDrizzleMatrix } from './panels/drizzle-matrix';
@@ -84,6 +85,7 @@ export function App() {
   const [crypto, setCrypto] = useState<CryptoRow[] | null>(null);
   const [globals, setGlobals] = useState<GlobalRow[] | null>(null);
   const [bilibili, setBilibili] = useState<NetProbeRow[] | null>(null);
+  const [coreClients, setCoreClients] = useState<CoreClientRow[] | null>(null);
   const [skybridge, setSkybridge] = useState<SyncProbeRow[] | null>(null);
   const [playback, setPlayback] = useState<PlaybackRow[] | null>(null);
   const [identity, setIdentity] = useState<IdentityRow[] | null>(null);
@@ -473,6 +475,52 @@ export function App() {
           </View>
         ))}
 
+        <Text style={styles.section}>core's own client on this phone (R1–R3)</Text>
+        <Text style={styles.detail}>
+          N1's exit criteria: the SAME code the desktop runs, here. R1 signs with core's signer and
+          streams through core's `openAudio`; R2 parses real share texts; R3 runs the three lyrics
+          platforms. Needs `just spike-mobile-fixtures-network` for the desktop's answers — and R1
+          wants running twice, once on Wi-Fi and once on cellular.
+        </Text>
+        <View style={styles.buttonRow}>
+          <Pressable style={styles.button} onPress={runNetwork('r1', runR1Panel, setCoreClients)}>
+            <Text style={styles.buttonText}>R1 bilibili</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={runNetwork('r2', runR2Panel, setCoreClients)}>
+            <Text style={styles.buttonText}>R2 link parse</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={runNetwork('r3', runR3Panel, setCoreClients)}>
+            <Text style={styles.buttonText}>R3 lyrics</Text>
+          </Pressable>
+        </View>
+        {coreClients ? (
+          <Text style={styles.summary}>
+            {coreClients.filter((r) => r.ok === true).length} pass ·{' '}
+            {coreClients.filter((r) => r.ok === false).length} fail ·{' '}
+            {coreClients.filter((r) => r.ok === null).length} evidence
+          </Text>
+        ) : null}
+        {coreClients?.map((r) => (
+          <View key={`${r.group}/${r.name}`} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.group} › {r.name}
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+          </View>
+        ))}
+
         <Text style={styles.section}>skybridge SDK (criterion 22)</Text>
         <Text style={styles.detail}>
           Needs `just spike-mobile-sync-host`. login / pushChanges / pullChanges / refresh are the
@@ -661,6 +709,9 @@ const styles = StyleSheet.create({
   busy: { color: '#f59e0b', fontSize: 13, marginTop: 12 },
   crashed: { color: '#ef4444', fontSize: 13, marginTop: 12 },
   warning: { color: '#f59e0b' },
+  // Three related probes side by side; they wrap on a narrow screen rather
+  // than pushing the panel off it.
+  buttonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   button: {
     backgroundColor: '#27272a',
     paddingVertical: 10,

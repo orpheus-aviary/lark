@@ -411,8 +411,22 @@
 | N0b-5a | D16 机制（判据 26）：backup 排除 CNG plugin + SecureStore 载体 + copy-then-open 协议与计时 + 三层客观判据 | **26 绿** | ✅ 2026-08-18 |
 | N0b-5b | D14 落定（判据 25）+ GO/NO-GO 汇总 + **Stage-2 主计划修订** | **25 绿；N0b = GO** | ✅ 2026-08-18 |
 | N1a | 地基：错误 45 类 + `StructuredLogger` 进 portable · `portable/runtime/` 四件与全部触点改写 · `portable/ports/` 六接口 + 桌面 adapter · 守卫全局 token 半 · Metro bundle smoke recipe | 全测试 + 判据 3–7、19 | ✅ 2026-08-18 |
-| N1b–N1i | 断边与拆分 / PortableDb 与端口接线 / download client / sync+library 强连通体 / SyncCoordinator / 服务层与 CLI 薄壳 / download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
+| N1b | 断边与拆分：`DownloadTarget`/`findSongByKey` 下沉 · file-ops A/B 拆分 + `FileEffectLike` · `countQuarantined` 注入化 | 全测试 + 判据 8 | ✅ 2026-08-18 |
+| N1c | PortableDb 收敛（`sqliteOf` 退役 + 类型换血）· FileContext/CredentialStore 接线 · 守卫 `sqliteOf` rg=0 | 全测试 + e2e 19 + 判据 9 | ✅ 2026-08-18 |
+| N1d | download client 层进 portable（9 模块 + lyrics/ + 测试，24 文件 8 行改动） | 全测试 + 守卫 + smoke（36 → 51 模块） | ✅ 2026-08-18 |
+| — | **R1–R3 真机预跑**（计划 §4 建议动作；正式判据仍在 N1i） | **R1 双网络各 9/9 · R2 8/8 · R3 双网络绿** | ✅ 2026-08-18 |
+| N1e–N1i | sync+library 强连通体 / SyncCoordinator / 服务层与 CLI 薄壳 / download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
 | N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
+
+**R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
+
+- **R1 双网络各 9/9**：`signWbiParams` 在 Hermes 上对同一组 (keys, params, wts) 产出与桌面**逐字节相同**的 `w_rid`（`ebe73d7a…`，整条 query 也相同）· buvid3 经**安装的 Random 端口**成形（RN 没有 `getRandomValues`，不装就抛——这条正是端口存在的理由）· 设备侧现取 WBI key 现签的 search 拿到 20 条 · `view`/`pagelist`/`audioStream` 全过 · b23 一跳展开与桌面同 bvid · **`openAudio()` 流式读到 268KB/40 chunk（移动网络）与 270KB/42 chunk（Wi-Fi），abort 后再读抛 `AbortError`**
+- **playurl 按调用方派节点这条，现在是用 core 自己的 client 量到的**：移动网络拿到 `xy118x212x136x211xy.mcdn.bilivideo.cn:8082`（mcdn P2P 节点），Wi-Fi 拿到 `cn-bj-cc-03-03.bilivideo.com`——与桌面同一个。N0b-4a 的结论复现，且这次链路里没有任何 spike 自己的实现
+- **R2 8/8**：8 条真实分享文本逐字段与桌面相同，**包括拒绝**——`bilibili.com.evil.test` 两边都抛 `InvalidSourceError`（一个悄悄接受了它的手机端会是同一个守卫上的洞）。顺带把 N0b-4c 的发现钉成了对照：真 bilibili 分享文本（标题 + b23 短链）解析成 **keyword** 而不是链接
+- **R3 双网络绿**：qq 中选，三个平台都出了候选，与桌面同一组。**但 LRC 内容不是稳定的**——移动网络那遍 1233 字 64 个时间戳，Wi-Fi 那遍 1057 字 48 个：平台的搜索结果逐次会变。判据因此断言「非空 + 有时间戳 + 平台集合一致」而不是字节相等，**按字节比会是一条随机红的判据**
+- **release APK 仍然会以 dev-client 的 URL 启动**（`expo run:android --variant release` 的最后一行就是它），但面板自报 `dev: false`：判断跑的是哪份 bundle 只能信 `__DEV__`，不能信启动方式（N0b-3 同一条）
+
+正式的 R1–R5 判据仍按计划在 **N1i** 用当轮 release 构建复跑；这次预跑的价值是：**core 的业务图在真机上能跑，这件事现在就知道了，而不是等到九批之后。**
 
 **2026-08-17 范围修订（用户决定）——「歌单导入导出」从「明确不做（v1）」移进 v1**（主计划 §4.5 + D12 已改，N0 子计划 §5 的 N4/N6 已加）：
 

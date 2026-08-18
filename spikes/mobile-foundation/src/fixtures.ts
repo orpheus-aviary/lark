@@ -75,6 +75,39 @@ export interface NetworkFixture {
   unsigned: { view: string | null; pagelist: string | null; playurl: string | null };
   rangeProbe: { streamUrl: string; bytes: number };
   tracks: TrackFixture[];
+  /**
+   * R1–R3's inputs and core's own answers to them (N1d preview / N1i).
+   *
+   * Optional because a fixture generated before N1d has none: a panel that
+   * finds it missing says so rather than judging anything.
+   */
+  references?: ReferenceFixture;
+}
+
+/** Everything the device feeds to core, plus what core answered on the desktop. */
+export interface ReferenceFixture {
+  /** The exact triple the device re-signs — not a finished signature. */
+  signature: {
+    imgKey: string;
+    subKey: string;
+    params: Record<string, string | number>;
+    wts: number;
+    expectedWRid: string;
+    query: string;
+  };
+  /** `threw` names the error class when core refused the input — also an answer. */
+  parses: { input: string; parsed: unknown; threw: string | null }[];
+  shortLink: { url: string; target: string | null; parsed: unknown; error: string | null };
+  lyrics: {
+    query: { name: string; artist: string; duration: number };
+    platform: string | null;
+    candidateCount: number;
+    platformsWithCandidates: string[];
+    failures: string[];
+    lrcLength: number;
+    lrcHead: string | null;
+    error: string | null;
+  };
 }
 
 export interface SkybridgeFixture {
