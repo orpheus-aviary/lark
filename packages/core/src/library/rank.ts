@@ -10,7 +10,7 @@
 
 import { REORDER_SYNC_MAX, membershipEntityId } from '@lark/shared';
 import { and, eq } from 'drizzle-orm';
-import { type LarkDatabase, sqliteOf } from '../db/index.js';
+import type { PortableDb } from '../portable/db.js';
 import { playlist_songs } from '../portable/schema.js';
 import { emitSyncChange } from '../sync/changes.js';
 
@@ -41,8 +41,8 @@ export function midpointRank(lower: number, upper: number): number | null {
  * a local-only renormalization would silently give this device an order no
  * peer will ever hear about.
  */
-export function normalizeRanksInTx(db: LarkDatabase, playlistId: string): void {
-  const sqlite = sqliteOf(db);
+export function normalizeRanksInTx(store: PortableDb, playlistId: string): void {
+  const { drizzle: db, sqlite } = store;
   const rows = db
     .select()
     .from(playlist_songs)
@@ -88,16 +88,17 @@ export function normalizeRanksInTx(db: LarkDatabase, playlistId: string): void {
  * where it was, because `set_rank` is not compared against it.
  */
 export function setRankInTx(
-  db: LarkDatabase,
+  store: PortableDb,
   playlistId: string,
   songId: string,
   rank: number,
 ): void {
-  db.update(playlist_songs)
+  store.drizzle
+    .update(playlist_songs)
     .set({ rank })
     .where(and(eq(playlist_songs.playlist_id, playlistId), eq(playlist_songs.song_id, songId)))
     .run();
-  emitSyncChange(sqliteOf(db), {
+  emitSyncChange(store.sqlite, {
     entityType: 'playlist_song',
     entityId: membershipEntityId(playlistId, songId),
     op: 'set_rank',

@@ -80,7 +80,7 @@ afterEach(async () => {
 });
 
 const seed = (name: string, source?: Partial<SongData>): SongData =>
-  createSong(ctx.db, ctx.sqlite, {
+  createSong(ctx.portable, {
     name,
     source_url: source?.source_url ?? null,
     source_provider: source?.source_provider ?? null,

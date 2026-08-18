@@ -17,8 +17,8 @@ import {
   type SyncEntityType,
   type SyncOp,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { utf8ByteLength } from '../portable/runtime/text.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { type ApplyResult, type InboundChange, applyChangesInTx } from './apply.js';
 import type { FileEffectLike } from './file-ops.js';
 import { setServerTimeOffset } from './hlc.js';
@@ -91,11 +91,7 @@ export interface SyncCursor {
  * edit adds a trailing slash, and an interpolated key is a workspace id in a
  * SQL string.
  */
-export function readCursor(
-  sqlite: BetterSqlite3.Database,
-  serverId: string,
-  workspaceId: string,
-): SyncCursor {
+export function readCursor(sqlite: SqliteLike, serverId: string, workspaceId: string): SyncCursor {
   const row = sqlite
     .prepare(
       'SELECT pulled_seq, pushed_seq FROM sync_cursor WHERE server_id = ? AND workspace_id = ?',
@@ -105,7 +101,7 @@ export function readCursor(
 }
 
 export function writeCursor(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   serverId: string,
   workspaceId: string,
   cursor: Partial<SyncCursor>,
@@ -145,7 +141,7 @@ export interface SyncRoundLogger {
 }
 
 export interface RunSyncOptions {
-  sqlite: BetterSqlite3.Database;
+  sqlite: SqliteLike;
   client: SkybridgeClientLike;
   serverId: string;
   workspaceId: string;

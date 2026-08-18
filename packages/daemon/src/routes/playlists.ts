@@ -172,8 +172,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   app.post(API_PATHS.playlists, async (req, reply) => {
     const body = objectBody(req.body, ['name']);
     const playlist = createPlaylist(
-      ctx.db,
-      ctx.sqlite,
+      ctx.portable,
       requiredString(body, 'name', { maxLength: PLAYLIST_NAME_MAX }),
     );
     changed();
@@ -190,8 +189,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     const id = writableId(rawId(req));
     const body = objectBody(req.body, ['name']);
     const playlist = renamePlaylist(
-      ctx.db,
-      ctx.sqlite,
+      ctx.portable,
       id,
       requiredString(body, 'name', { maxLength: PLAYLIST_NAME_MAX }),
     );
@@ -201,7 +199,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.delete(apiPath.playlist(':id'), async (req, reply) => {
     const id = writableId(rawId(req));
-    deletePlaylist(ctx.db, ctx.sqlite, id);
+    deletePlaylist(ctx.portable, id);
     changed();
     ok(reply, { id }, 'playlist deleted');
   });
@@ -221,8 +219,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     const id = writableId(rawId(req));
     const body = objectBody(req.body, ['song_ids']);
     const added = addSongsToPlaylist(
-      ctx.db,
-      ctx.sqlite,
+      ctx.portable,
       id,
       requiredUuidList(body, 'song_ids', SONG_IDS_MAX),
     );
@@ -233,7 +230,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   app.delete(apiPath.playlistSong(':id', ':songId'), async (req, reply) => {
     const params = req.params as { id: string; songId: string };
     const id = writableId(params.id);
-    removeSongFromPlaylist(ctx.db, ctx.sqlite, id, pathUuid(params.songId));
+    removeSongFromPlaylist(ctx.portable, id, pathUuid(params.songId));
     changed();
     ok(reply, { playlist_id: id, song_id: params.songId }, 'song removed from playlist');
   });
@@ -293,7 +290,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
       );
     }
 
-    const result = importPlaylist(ctx.db, ctx.sqlite, {
+    const result = importPlaylist(ctx.portable, {
       entries: file.entries,
       target: toCoreTarget(target),
       reuse,
@@ -309,7 +306,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   app.post(apiPath.playlistReorder(':id'), async (req, reply) => {
     const id = writableId(rawId(req));
     const body = objectBody(req.body, ['song_id', 'before_song_id', 'after_song_id']);
-    reorderSong(ctx.db, ctx.sqlite, id, requiredUuid(body, 'song_id'), {
+    reorderSong(ctx.portable, id, requiredUuid(body, 'song_id'), {
       before_song_id: optionalUuid(body, 'before_song_id'),
       after_song_id: optionalUuid(body, 'after_song_id'),
     });

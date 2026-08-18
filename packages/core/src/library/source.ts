@@ -15,8 +15,8 @@
 //     only holds the syntax line.
 
 import { and, eq } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
 import { AmbiguousSourceKeyError, InvalidSourceError } from '../errors.js';
+import type { PortableDrizzle } from '../portable/db.js';
 import { songs } from '../portable/schema.js';
 
 export interface SourceFields {
@@ -80,7 +80,11 @@ export function normalizeSource(input: SourceInput): SourceFields {
  * same video both create a song, and no merge of the two is safe regardless of
  * arrival order, so both land. The list is what the duplicate report counts.
  */
-export function findSongsByKey(db: LarkDatabase, provider: string, key: string): { id: string }[] {
+export function findSongsByKey(
+  db: PortableDrizzle,
+  provider: string,
+  key: string,
+): { id: string }[] {
   return db
     .select({ id: songs.id })
     .from(songs)
@@ -99,7 +103,7 @@ export function findSongsByKey(db: LarkDatabase, provider: string, key: string):
  * user deletes one duplicate and everything downstream works again.
  */
 export function findSongByKey(
-  db: LarkDatabase,
+  db: PortableDrizzle,
   provider: string,
   key: string,
 ): { id: string } | undefined {

@@ -1,3 +1,4 @@
+import type { SqliteLike } from '../portable/sqlite.js';
 // The skybridge device identity, as core sees it (v0.2 T1, §3.10 / R18).
 //
 // Two identities exist and they must never be confused:
@@ -17,12 +18,10 @@
 //
 // The key lives under the `skybridge_` prefix that `unbind` wipes wholesale.
 
-import type BetterSqlite3 from 'better-sqlite3';
-
 const KEY_DEVICE_ID = 'skybridge_device_id';
 
 /** The registered device id, or null when this library has never bound. */
-export function readSkybridgeDeviceId(sqlite: BetterSqlite3.Database): string | null {
+export function readSkybridgeDeviceId(sqlite: SqliteLike): string | null {
   const row = sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').get(KEY_DEVICE_ID) as
     | { value: string | null }
     | undefined;
@@ -30,7 +29,7 @@ export function readSkybridgeDeviceId(sqlite: BetterSqlite3.Database): string | 
   return value === null || value === '' ? null : value;
 }
 
-export function setSkybridgeDeviceId(sqlite: BetterSqlite3.Database, deviceId: string): void {
+export function setSkybridgeDeviceId(sqlite: SqliteLike, deviceId: string): void {
   sqlite
     .prepare(
       `INSERT INTO local_metadata (key, value) VALUES (?, ?)
@@ -40,7 +39,7 @@ export function setSkybridgeDeviceId(sqlite: BetterSqlite3.Database, deviceId: s
 }
 
 /** Forget the registration. Only `unbind` and a revoked device do this. */
-export function clearSkybridgeDeviceId(sqlite: BetterSqlite3.Database): void {
+export function clearSkybridgeDeviceId(sqlite: SqliteLike): void {
   sqlite.prepare('DELETE FROM local_metadata WHERE key = ?').run(KEY_DEVICE_ID);
 }
 
@@ -77,7 +76,7 @@ export interface DeviceStampResult {
  * this value at push time.
  */
 export function stampDeviceIdInTx(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   options: { deviceId: string; previousId: string | null; localUuid: string },
 ): DeviceStampResult {
   const { deviceId, previousId, localUuid } = options;

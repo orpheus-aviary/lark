@@ -19,13 +19,13 @@
 // The caller owns the two things this cannot check for itself: the daemon must
 // be stopped, and the writer lock must be held. `lark sync unbind` does both.
 
-import type BetterSqlite3 from 'better-sqlite3';
 import {
   type SkybridgeStash,
   deleteSkybridgeCredentials,
   stashSkybridgeCredentials,
 } from '../config/skybridge.js';
 import { FileOpBusyError, SyncPendingChangesError } from '../errors.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { bumpBackfillTarget } from './backfill.js';
 import { clearBindingInTx } from './binding.js';
 import { type FileEffectLike, countFileOps } from './file-ops.js';
@@ -40,7 +40,7 @@ export interface UnpushedChanges {
   unpublishedDeletes: number;
 }
 
-export function countUnpushedChanges(sqlite: BetterSqlite3.Database): UnpushedChanges {
+export function countUnpushedChanges(sqlite: SqliteLike): UnpushedChanges {
   const row = sqlite
     .prepare(
       `SELECT
@@ -53,7 +53,7 @@ export function countUnpushedChanges(sqlite: BetterSqlite3.Database): UnpushedCh
 }
 
 export interface UnbindOptions {
-  sqlite: BetterSqlite3.Database;
+  sqlite: SqliteLike;
   /** Drained before anything is cleared. Omitted only when there is no journal to run. */
   fileOps?: FileEffectLike;
   /** Proceed even though unpushed changes will be lost. */

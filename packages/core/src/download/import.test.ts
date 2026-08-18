@@ -19,6 +19,7 @@ import { getSong } from '../library/songs.js';
 import { probeCapabilities } from '../media-tools/capabilities.js';
 import { type ResolvedMediaTools, resolveMediaTools } from '../media-tools/resolve.js';
 import { songsDir } from '../paths.js';
+import type { PortableDb } from '../portable/db.js';
 import { type AudioFixture, fixturePath, vendoredToolsDir } from '../testing/audio-fixtures.js';
 import { type FakeMediaTools, fakeMediaTools } from '../testing/fake-media-tools.js';
 import { type WavSampleFormat, toneWav } from '../testing/tone-wav.js';
@@ -28,6 +29,7 @@ import { importSongs } from './import.js';
 let nest: string;
 let inputs: string;
 let db: LarkDatabase;
+let store!: PortableDb;
 let sqlite: BetterSqlite3.Database;
 let tools: ResolvedMediaTools;
 let mediaTools: FakeMediaTools;
@@ -61,6 +63,7 @@ beforeEach(() => {
   vi.stubEnv('LARK_NEST_DIR', nest);
   const handles = createDatabase({ dbPath: ':memory:' });
   db = handles.db;
+  store = handles.portable;
   sqlite = handles.sqlite;
   // The real binaries behind a provider that records what it was told, so the
   // suite can also assert the tool chain is not blamed for a bad file.
@@ -86,7 +89,7 @@ function wavInput(as: string, format: WavSampleFormat): string {
   return path;
 }
 
-const importOne = async (path: string) => importSongs(db, sqlite, mediaTools, [path]);
+const importOne = async (path: string) => importSongs(store, mediaTools, [path]);
 
 /** What is under `songs/`, with "the directory is not there yet" as empty. */
 function songDirs(): string[] {
@@ -289,7 +292,7 @@ describe('the files import refuses', () => {
     const good = input('tone-1s.m4a', 'survivor.m4a');
     const missing = join(inputs, `${randomUUID()}.mp3`);
 
-    const result = await importSongs(db, sqlite, mediaTools, [missing, good]);
+    const result = await importSongs(store, mediaTools, [missing, good]);
 
     expect(result.failed).toEqual([
       { path: missing, reason: expect.any(String), error_code: 'FFMPEG_FAILED' },

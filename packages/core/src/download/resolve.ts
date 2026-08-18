@@ -42,15 +42,15 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { isUuidV4 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { eq, like } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
 import { DownloadCommitError, InvalidIdError } from '../errors.js';
 import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE, songDirPath } from '../library/lyrics.js';
 import { touchLastAccessed } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
+import type { PortableDrizzle } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import { local_metadata, songs } from '../portable/schema.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 
 const LOG_KEY_PREFIX = 'download.commit.';
 
@@ -146,8 +146,8 @@ export interface LandSongFileResult {
  * landing has succeeded and nothing below can un-succeed it.
  */
 export function landSongFile(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  sqlite: SqliteLike,
   input: LandSongFileInput,
 ): LandSongFileResult {
   const paths = stagePaths(input.songId, input.taskId);
@@ -292,8 +292,8 @@ export interface RecoveryOptions {
  * library decides all of the above about mp3 files.
  */
 export function recoverSongsStore(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  _sqlite: SqliteLike,
   options: RecoveryOptions = {},
 ): RecoveryReport {
   const report: RecoveryReport = {

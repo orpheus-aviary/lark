@@ -13,9 +13,9 @@
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { SyncChangeTooLargeError } from '../errors.js';
 import { nodePaths } from '../paths.js';
+import type { PortableDb } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import { utf8ByteLength } from '../portable/runtime/text.js';
 import { emitSyncChange, recordDeadLetter } from '../sync/changes.js';
@@ -105,9 +105,9 @@ export async function deleteLyricsFile(id: string): Promise<boolean> {
 // must not emit anything, or two devices would trade the same change forever.
 
 /** Write lyrics and tell the workspace. Local paths only — never apply. */
-export async function writeLyrics(db: LarkDatabase, id: string, lrc: string): Promise<void> {
+export async function writeLyrics(store: PortableDb, id: string, lrc: string): Promise<void> {
   await writeLyricsFile(id, lrc);
-  const sqlite = sqliteOf(db);
+  const { sqlite } = store;
   try {
     emitSyncChange(sqlite, {
       entityType: 'song',
@@ -132,11 +132,11 @@ export async function writeLyrics(db: LarkDatabase, id: string, lrc: string): Pr
 }
 
 /** Delete lyrics and tell the workspace. `false` = there was nothing to delete. */
-export async function deleteLyrics(db: LarkDatabase, id: string): Promise<boolean> {
+export async function deleteLyrics(store: PortableDb, id: string): Promise<boolean> {
   const deleted = await deleteLyricsFile(id);
   // Emitted even when there was no file: "this song has no lyrics" is the
   // statement, and a peer that still has some must hear it.
-  emitSyncChange(sqliteOf(db), {
+  emitSyncChange(store.sqlite, {
     entityType: 'song',
     entityId: id,
     op: 'clear_lyrics',

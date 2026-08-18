@@ -230,12 +230,12 @@ describe('boot — the audio migration', () => {
   async function seedPendingLibrary(audio: 'file' | 'crashed' = 'file'): Promise<string> {
     const core = await import('@lark/core');
     vi.stubEnv('LARK_NEST_DIR', nest);
-    const { db, sqlite } = core.createDatabase({ dbPath: dbPath() });
+    const { sqlite, portable: store } = core.createDatabase({ dbPath: dbPath() });
     const id = randomUUID();
     try {
       sqlite
         .transaction(() => {
-          core.createFileBackedSongInTx(db, {
+          core.createFileBackedSongInTx(store, {
             id,
             name: '迁移前的歌',
             file_origin: 'downloaded',

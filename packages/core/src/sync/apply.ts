@@ -31,8 +31,8 @@ import type {
   SongSyncPayload,
   TombstoneSyncPayload,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { RANK_STEP } from '../library/rank.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { recordDeadLetter } from './changes.js';
 import { recordConflict } from './conflicts.js';
 import {
@@ -97,7 +97,7 @@ export interface ApplyOptions {
 }
 
 interface Ctx {
-  sqlite: BetterSqlite3.Database;
+  sqlite: SqliteLike;
   now: () => number;
   result: ApplyResult;
 }
@@ -108,7 +108,7 @@ interface Ctx {
  * skipping the half it had already committed.
  */
 export function applyChangesInTx(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   changes: readonly InboundChange[],
   options: ApplyOptions = {},
 ): ApplyResult {

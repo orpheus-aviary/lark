@@ -92,7 +92,7 @@ describe('acceptance mode', () => {
     ctx = createTestContext({ acceptance: { audioThrottleBytesPerSec: 32 * 1024 } });
     app = buildTestServer(ctx);
     const base = await app.listen({ host: '127.0.0.1', port: 0 });
-    const song: SongData = createSong(ctx.db, ctx.sqlite, { name: 'throttled' });
+    const song: SongData = createSong(ctx.portable, { name: 'throttled' });
     const body = audioFixture();
     writeAudio(song.id, body);
 

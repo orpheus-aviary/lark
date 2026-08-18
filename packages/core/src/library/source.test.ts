@@ -37,7 +37,7 @@ function insertPeerSong(id: string, key: string): void {
 
 describe('findSongByKey', () => {
   it('finds the one holder, and nothing when there is none', () => {
-    const song = createSong(handles.db, handles.sqlite, {
+    const song = createSong(handles.portable, {
       name: 's',
       source_provider: 'bilibili',
       source_key: 'BVaa:1',
@@ -47,7 +47,7 @@ describe('findSongByKey', () => {
   });
 
   it('names the ambiguity instead of picking one', () => {
-    const mine = createSong(handles.db, handles.sqlite, {
+    const mine = createSong(handles.portable, {
       name: 'mine',
       source_provider: 'bilibili',
       source_key: 'BVdup:1',
@@ -70,7 +70,7 @@ describe('findSongByKey', () => {
   });
 
   it('lists every holder in a stable order', () => {
-    const mine = createSong(handles.db, handles.sqlite, {
+    const mine = createSong(handles.portable, {
       name: 'mine',
       source_provider: 'bilibili',
       source_key: 'BVdup:1',

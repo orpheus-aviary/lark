@@ -1,3 +1,4 @@
+import type { SqliteLike } from '../portable/sqlite.js';
 // Trimming the outbox (v0.2 T2, D5).
 //
 // `sync_changes` is an append-only log of everything this device ever did. On
@@ -17,8 +18,6 @@
 //   be needed to answer "is this echo mine" — self-replay reads exactly these
 //   rows, and trimming one turns our own echo into someone else's change.
 
-import type BetterSqlite3 from 'better-sqlite3';
-
 /** How long a settled change stays in the outbox. */
 export const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -35,7 +34,7 @@ export interface RetentionResult {
  * will want to read, the second is load-bearing state.
  */
 export function runRetention(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   options: { nowMs?: number; retentionMs?: number } = {},
 ): RetentionResult {
   const now = options.nowMs ?? Date.now();

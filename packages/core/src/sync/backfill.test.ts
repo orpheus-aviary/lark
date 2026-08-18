@@ -36,8 +36,8 @@ afterEach(() => {
   rmSync(nest, { recursive: true, force: true });
 });
 
-const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 const ops = (sqlite: BetterSqlite3.Database = sq()) =>
   (
@@ -130,9 +130,9 @@ describe('runFullBackfill', () => {
   });
 
   it('never publishes a second create for what the write paths already emitted', async () => {
-    const song = createSong(db(), sq(), { name: '新歌' });
-    const playlist = createPlaylist(db(), sq(), '新单');
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const song = createSong(store(), { name: '新歌' });
+    const playlist = createPlaylist(store(), '新单');
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
     const before = ops().length;
 
     const result = await runFullBackfill(sq());

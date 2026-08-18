@@ -20,13 +20,13 @@ import {
   type SortOrder,
   isUuidV4,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq, ne, sql } from 'drizzle-orm';
-import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { InvalidIdError, NotFoundError, SourceKeyConflictError } from '../errors.js';
 import { songsDir } from '../paths.js';
+import type { PortableDb, PortableDrizzle } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import { type SongRow, songs } from '../portable/schema.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { emitSyncChange } from '../sync/changes.js';
 import { readSkybridgeDeviceId } from '../sync/device.js';
 import { type FileEffectLike, enqueueLocalDelete } from '../sync/file-ops.js';
@@ -91,7 +91,7 @@ function toSongData(row: SongRow): SongData {
   };
 }
 
-function getSongRow(db: LarkDatabase, id: string): SongRow {
+function getSongRow(db: PortableDrizzle, id: string): SongRow {
   const row = db.select().from(songs).where(eq(songs.id, id)).get();
   if (!row) throw new NotFoundError('song', id);
   return row;
@@ -120,7 +120,12 @@ function songSyncPayload(row: SongRow): SongSyncPayload {
  * does (D8 dropped the UNIQUE index): sync may be forced to accept a duplicate
  * two offline devices created, but nothing on THIS machine has to create one.
  */
-function assertKeyFree(db: LarkDatabase, provider: string, key: string, excludeId?: string): void {
+function assertKeyFree(
+  db: PortableDrizzle,
+  provider: string,
+  key: string,
+  excludeId?: string,
+): void {
   const conditions = [eq(songs.source_provider, provider), eq(songs.source_key, key)];
   if (excludeId !== undefined) conditions.push(ne(songs.id, excludeId));
   const conflict = db
@@ -131,8 +136,8 @@ function assertKeyFree(db: LarkDatabase, provider: string, key: string, excludeI
   if (conflict) throw new SourceKeyConflictError(conflict.id, provider, key);
 }
 
-export function createSongInTx(db: LarkDatabase, input: CreateSongInput): SongData {
-  return insertSongRow(db, {
+export function createSongInTx(store: PortableDb, input: CreateSongInput): SongData {
+  return insertSongRow(store, {
     id: uuid(),
     input,
     fileOrigin: 'downloaded',
@@ -150,10 +155,10 @@ export function createSongInTx(db: LarkDatabase, input: CreateSongInput): SongDa
  * inconsistency nothing later can fix.
  */
 function insertSongRow(
-  db: LarkDatabase,
+  store: PortableDb,
   args: { id: string; input: CreateSongInput; fileOrigin: FileOrigin },
 ): SongData {
-  const sqlite = sqliteOf(db);
+  const { drizzle: db, sqlite } = store;
   const src = normalizeSource(args.input);
   if (src.source_provider !== null && src.source_key !== null) {
     assertKeyFree(db, src.source_provider, src.source_key);
@@ -184,12 +189,8 @@ function insertSongRow(
   return toSongData(row);
 }
 
-export function createSong(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
-  input: CreateSongInput,
-): SongData {
-  return sqlite.transaction(() => createSongInTx(db, input)).immediate();
+export function createSong(store: PortableDb, input: CreateSongInput): SongData {
+  return store.sqlite.transaction(() => createSongInTx(store, input)).immediate();
 }
 
 /**
@@ -204,19 +205,19 @@ export function createSong(
  * goes through the same code.
  */
 export function createFileBackedSongInTx(
-  db: LarkDatabase,
+  store: PortableDb,
   input: CreateSongInput & { id: string; file_origin: FileOrigin },
 ): SongData {
   if (!isUuidV4(input.id)) throw new InvalidIdError(input.id);
-  return insertSongRow(db, { id: input.id, input, fileOrigin: input.file_origin });
+  return insertSongRow(store, { id: input.id, input, fileOrigin: input.file_origin });
 }
 
-export function getSong(db: LarkDatabase, _sqlite: BetterSqlite3.Database, id: string): SongData {
+export function getSong(db: PortableDrizzle, _sqlite: SqliteLike, id: string): SongData {
   return toSongData(getSongRow(db, id));
 }
 
-export function updateSongInTx(db: LarkDatabase, id: string, patch: UpdateSongInput): SongData {
-  const sqlite = sqliteOf(db);
+export function updateSongInTx(store: PortableDb, id: string, patch: UpdateSongInput): SongData {
+  const { drizzle: db, sqlite } = store;
   const prev = getSongRow(db, id);
   const src = normalizeSource({
     source_url: patch.source_url !== undefined ? patch.source_url : prev.source_url,
@@ -269,13 +270,8 @@ export function updateSongInTx(db: LarkDatabase, id: string, patch: UpdateSongIn
   return toSongData(next);
 }
 
-export function updateSong(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
-  id: string,
-  patch: UpdateSongInput,
-): SongData {
-  return sqlite.transaction(() => updateSongInTx(db, id, patch)).immediate();
+export function updateSong(store: PortableDb, id: string, patch: UpdateSongInput): SongData {
+  return store.sqlite.transaction(() => updateSongInTx(store, id, patch)).immediate();
 }
 
 /**
@@ -286,8 +282,8 @@ export function updateSong(
  * pagination cuts are stable.
  */
 export function listSongs(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  _sqlite: SqliteLike,
   options: ListSongsOptions = {},
 ): ListSongsResult {
   const { search, sort = 'created_at', order = 'asc', limit, offset = 0 } = options;
@@ -350,12 +346,12 @@ export interface DeleteSongOptions {
  * peer's older `create` for this id is a stale echo rather than a new song.
  */
 export async function deleteSong(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   id: string,
   options: DeleteSongOptions,
 ): Promise<void> {
   if (!isUuidV4(id)) throw new InvalidIdError(id);
+  const { drizzle: db, sqlite } = store;
 
   sqlite
     .transaction(() => {
@@ -397,8 +393,8 @@ export async function deleteSong(
 // any enclosing transaction as-is.
 
 export function setPinned(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  _sqlite: SqliteLike,
   id: string,
   pinned: boolean,
 ): void {
@@ -407,8 +403,8 @@ export function setPinned(
 }
 
 export function touchLastAccessed(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  _sqlite: SqliteLike,
   id: string,
   at = Date.now(),
 ): void {
@@ -425,8 +421,8 @@ export function touchLastAccessed(
  * time and does not pass through here.)
  */
 export function setFileOrigin(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  _sqlite: SqliteLike,
   id: string,
   origin: 'downloaded' | 'imported',
 ): void {

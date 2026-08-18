@@ -136,7 +136,7 @@ export interface TestContext extends AppContext {
 
 /** A complete context over a fresh in-memory database. */
 export function createTestContext(options: TestContextOptions = {}): TestContext {
-  const { db, sqlite } = createDatabase({ dbPath: options.dbPath ?? ':memory:' });
+  const { db, sqlite, portable } = createDatabase({ dbPath: options.dbPath ?? ':memory:' });
   const fatals: unknown[] = [];
   const config = options.config ?? structuredClone(DEFAULT_CONFIG);
   const eventsBus = new EventsBus();
@@ -153,8 +153,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
   // asynchronous half of a download, so a test that asserts on SSE has to see
   // the same translation production uses.
   const downloads = new DownloadEngine({
-    db,
-    sqlite,
+    store: portable,
     bilibili,
     mediaTools,
     getLlmConfig: () => resolveLlmConfig(ctx.config),
@@ -219,6 +218,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     logger: createRecordingLogger(),
     db,
     sqlite,
+    portable,
     localToken: TEST_LOCAL_TOKEN,
     eventsBus,
     guiChannel: new GuiChannel(options.guiChannel),

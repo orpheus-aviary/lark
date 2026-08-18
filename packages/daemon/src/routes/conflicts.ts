@@ -81,7 +81,7 @@ export function registerConflictRoutes(app: FastifyInstance, ctx: AppContext): v
         }) ?? null,
     };
 
-    resolveConflict(ctx.db, ctx.sqlite, id, { strategy, expected_current: expectedCurrent });
+    resolveConflict(ctx.portable, id, { strategy, expected_current: expectedCurrent });
 
     // A `local` resolve wrote through the ordinary update path, so the library
     // changed and the outbox grew — both of which somebody is waiting to hear.

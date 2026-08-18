@@ -12,21 +12,21 @@ import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
-import type { LarkDatabase } from '../db/index.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
 import { songsDir } from '../paths.js';
+import type { PortableDb } from '../portable/db.js';
 import { enqueueLocalDelete } from '../sync/file-ops.js';
 import { type MigrationStatus, getLedgerRow, listLedger, updateLedgerRow } from './ledger.js';
 import { scanAudioMigration } from './scanner.js';
 
 let nest: string;
-let db: LarkDatabase;
+let store: PortableDb;
 let sqlite: BetterSqlite3.Database;
 
 beforeEach(() => {
   nest = mkdtempSync(join(tmpdir(), 'lark-scanner-'));
   vi.stubEnv('LARK_NEST_DIR', nest);
-  ({ db, sqlite } = createDatabase({ dbPath: ':memory:' }));
+  ({ sqlite, portable: store } = createDatabase({ dbPath: ':memory:' }));
 });
 
 afterEach(() => {
@@ -57,7 +57,7 @@ function seedSong(options: SongOptions = {}): string {
   const id = randomUUID();
   sqlite
     .transaction(() => {
-      createFileBackedSongInTx(db, {
+      createFileBackedSongInTx(store, {
         id,
         name: '歌',
         file_origin: options.origin ?? 'downloaded',

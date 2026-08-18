@@ -37,6 +37,7 @@ afterEach(() => {
 });
 
 const db = () => handles.db;
+const store = () => handles.portable;
 
 interface SeedOptions {
   bytes?: number;
@@ -51,7 +52,7 @@ interface SeedOptions {
 function seed(name: string, options: SeedOptions = {}): string {
   seq += 1;
   const { bytes = 1000, origin = 'downloaded', key = `BV1seed${seq}:1`, file = true } = options;
-  const song = createSong(db(), handles.sqlite, {
+  const song = createSong(store(), {
     name,
     ...(key === null ? {} : { source_provider: 'bilibili', source_key: key }),
   });

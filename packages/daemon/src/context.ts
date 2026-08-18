@@ -4,6 +4,7 @@ import type {
   FileEffectRuntime,
   LarkDatabase,
   MediaToolsProvider,
+  PortableDb,
 } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
@@ -72,6 +73,15 @@ export interface BaseContext {
   logger: Logger;
   db: LarkDatabase;
   sqlite: BetterSqlite3.Database;
+  /**
+   * The same connection as `db`/`sqlite`, paired (N1c).
+   *
+   * Core's write paths take this rather than the two handles separately: a
+   * business write and its outbox append have to land in ONE transaction, and
+   * a pair formed at the open is a pair nobody can mismatch later. It is not a
+   * third handle — `createDatabase` builds it from the two above.
+   */
+  portable: PortableDb;
   /** Bearer token every request but `GET /status` must carry (R21/R29). */
   localToken: string;
   eventsBus: EventsBus;

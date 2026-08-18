@@ -15,6 +15,7 @@
 import { schema } from '@lark/core/portable';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/expo-sqlite';
+import { portableDbOf } from '../sqlite/portable-db';
 import { ExpoSqliteShim } from '../sqlite/shim';
 import { SONGS_DDL, countingProxy, openFresh } from './counting-proxy';
 
@@ -57,6 +58,20 @@ export function runDrizzleMatrix(): MatrixRun {
     const counting = countingProxy(real);
     const db = drizzle(counting.db, { schema });
     const songs = schema.songs;
+
+    // Criterion 9's phone side: the pair core takes, built for real from this
+    // driver. It runs here rather than sitting in a typecheck-only file so
+    // that "it compiles" and "it works" are the same evidence.
+    check('PortableDb · the pair core takes, built from the Expo driver', () => {
+      const store = portableDbOf(real);
+      const before = store.drizzle.select().from(songs).all().length;
+      store.sqlite
+        .prepare('INSERT INTO songs (id, name, artist, created_at, updated_at) VALUES (?,?,?,?,?)')
+        .run('portable-db', 'paired', '', 1, 1);
+      const after = store.drizzle.select().from(songs).all().length;
+      expect(after === before + 1, `drizzle saw ${after - before} of the raw handle's writes`);
+      return 'raw write visible through drizzle: same connection';
+    });
 
     check('run · insert reports changes and rowid', () => {
       const r = db

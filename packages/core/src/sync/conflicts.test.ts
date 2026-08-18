@@ -24,8 +24,8 @@ afterEach(() => {
   rmSync(nest, { recursive: true, force: true });
 });
 
-const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 const remoteUpdate = (songId: string, name: string, ms: number): InboundChange => ({
   server_seq: 1,
@@ -50,7 +50,7 @@ const remoteUpdate = (songId: string, name: string, ms: number): InboundChange =
 
 /** A song this device edited, then lost to a peer. */
 function makeConflict(): { songId: string; conflictId: string } {
-  const song = createSong(db(), sq(), { name: '我的名字' });
+  const song = createSong(store(), { name: '我的名字' });
   sq()
     .transaction(() => applyChangesInTx(sq(), [remoteUpdate(song.id, '远端名字', 9e12)]))
     .immediate();
@@ -73,7 +73,7 @@ describe('resolveConflict', () => {
     const { songId, conflictId } = makeConflict();
     const expected = conflictWinnerKey(listConflicts(sq())[0]);
 
-    resolveConflict(db(), sq(), conflictId, { strategy: 'remote', expected_current: expected });
+    resolveConflict(store(), conflictId, { strategy: 'remote', expected_current: expected });
 
     expect(songName(songId)).toBe('远端名字');
     expect(listConflicts(sq())).toHaveLength(0);
@@ -85,7 +85,7 @@ describe('resolveConflict', () => {
     const { songId, conflictId } = makeConflict();
     const expected = conflictWinnerKey(listConflicts(sq())[0]);
 
-    resolveConflict(db(), sq(), conflictId, { strategy: 'local', expected_current: expected });
+    resolveConflict(store(), conflictId, { strategy: 'local', expected_current: expected });
 
     expect(songName(songId)).toBe('我的名字');
     expect(listConflicts(sq())).toHaveLength(0);
@@ -108,7 +108,7 @@ describe('resolveConflict', () => {
 
       let caught: unknown;
       try {
-        resolveConflict(db(), sq(), conflictId, { strategy: 'local', expected_current: expected });
+        resolveConflict(store(), conflictId, { strategy: 'local', expected_current: expected });
       } catch (err) {
         caught = err;
       }
@@ -129,7 +129,7 @@ describe('resolveConflict', () => {
 
     // "Keep theirs" needs no payload — it files the receipt for what is
     // already there, which is exactly why only one of the two is refused.
-    resolveConflict(db(), sq(), conflictId, { strategy: 'remote', expected_current: expected });
+    resolveConflict(store(), conflictId, { strategy: 'remote', expected_current: expected });
     expect(listConflicts(sq())).toHaveLength(0);
     expect(songName(songId)).toBe('远端名字');
   });
@@ -144,7 +144,7 @@ describe('resolveConflict', () => {
       .immediate();
 
     expect(() =>
-      resolveConflict(db(), sq(), conflictId, { strategy: 'local', expected_current: stale }),
+      resolveConflict(store(), conflictId, { strategy: 'local', expected_current: stale }),
     ).toThrow(ConflictVersionMismatchError);
     // Restoring over the third device's edit would undo a change nobody saw.
     expect(songName(songId)).toBe('第三台设备');
@@ -153,10 +153,10 @@ describe('resolveConflict', () => {
   it('refuses a second answer to the same conflict', () => {
     const { conflictId } = makeConflict();
     const expected = conflictWinnerKey(listConflicts(sq())[0]);
-    resolveConflict(db(), sq(), conflictId, { strategy: 'remote', expected_current: expected });
+    resolveConflict(store(), conflictId, { strategy: 'remote', expected_current: expected });
 
     expect(() =>
-      resolveConflict(db(), sq(), conflictId, { strategy: 'local', expected_current: expected }),
+      resolveConflict(store(), conflictId, { strategy: 'local', expected_current: expected }),
     ).toThrow(ConflictVersionMismatchError);
   });
 
@@ -166,7 +166,7 @@ describe('resolveConflict', () => {
     sq().prepare('DELETE FROM songs WHERE id = ?').run(songId);
 
     expect(() =>
-      resolveConflict(db(), sq(), conflictId, { strategy: 'local', expected_current: expected }),
+      resolveConflict(store(), conflictId, { strategy: 'local', expected_current: expected }),
     ).toThrow(ConflictVersionMismatchError);
   });
 });

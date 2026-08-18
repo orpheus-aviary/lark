@@ -1,3 +1,4 @@
+import type { SqliteLike } from '../portable/sqlite.js';
 // Songs that share a `(provider, key)` (v0.2 T3a, D8).
 //
 // Since 0002 dropped the UNIQUE index, two devices that were both offline can
@@ -7,8 +8,6 @@
 // visibility real: the status badge counts them, `lark songs --duplicates`
 // lists them, and every by-key lookup refuses to guess (AMBIGUOUS_SOURCE_KEY)
 // until the user deletes the one they do not want.
-
-import type BetterSqlite3 from 'better-sqlite3';
 
 export interface DuplicateSourceKeyGroup {
   provider: string;
@@ -23,7 +22,7 @@ export interface DuplicateSourceKeyGroup {
  * the count a user can act on: three rows on one key is one problem but three
  * things to look at.
  */
-export function countDuplicateSourceKeySongs(sqlite: BetterSqlite3.Database): number {
+export function countDuplicateSourceKeySongs(sqlite: SqliteLike): number {
   const row = sqlite
     .prepare(
       `SELECT count(*) AS n FROM songs s
@@ -40,9 +39,7 @@ export function countDuplicateSourceKeySongs(sqlite: BetterSqlite3.Database): nu
 }
 
 /** Every duplicate group, oldest song first inside each one. */
-export function listDuplicateSourceKeyGroups(
-  sqlite: BetterSqlite3.Database,
-): DuplicateSourceKeyGroup[] {
+export function listDuplicateSourceKeyGroups(sqlite: SqliteLike): DuplicateSourceKeyGroup[] {
   const rows = sqlite
     .prepare(
       `SELECT source_provider AS provider, source_key AS key,

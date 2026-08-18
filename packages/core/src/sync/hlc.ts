@@ -19,7 +19,7 @@
 // Registration-time rebase (§3.3 step 1) is a login-transaction job and lands
 // with the backfill it must run after; this module owns the running clock.
 
-import type BetterSqlite3 from 'better-sqlite3';
+import type { SqliteLike } from '../portable/sqlite.js';
 import type { LwwTriple } from './lww.js';
 
 const KEY_OFFSET = 'sync_server_time_offset_ms';
@@ -32,7 +32,7 @@ export interface LwwStamp {
   lww_counter: number;
 }
 
-function readInt(sqlite: BetterSqlite3.Database, key: string): number | null {
+function readInt(sqlite: SqliteLike, key: string): number | null {
   const row = sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').get(key) as
     | { value: string | null }
     | undefined;
@@ -41,7 +41,7 @@ function readInt(sqlite: BetterSqlite3.Database, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function writeInt(sqlite: BetterSqlite3.Database, key: string, value: number): void {
+function writeInt(sqlite: SqliteLike, key: string, value: number): void {
   sqlite
     .prepare(
       `INSERT INTO local_metadata (key, value) VALUES (?, ?)
@@ -51,12 +51,12 @@ function writeInt(sqlite: BetterSqlite3.Database, key: string, value: number): v
 }
 
 /** Persist `serverTime − localNow`, so the next stamp lands on the server's timeline. */
-export function setServerTimeOffset(sqlite: BetterSqlite3.Database, offsetMs: number): void {
+export function setServerTimeOffset(sqlite: SqliteLike, offsetMs: number): void {
   writeInt(sqlite, KEY_OFFSET, Math.trunc(offsetMs));
 }
 
 /** The current offset, or 0 before the first successful round (bare local clock). */
-export function readServerTimeOffset(sqlite: BetterSqlite3.Database): number {
+export function readServerTimeOffset(sqlite: SqliteLike): number {
   return readInt(sqlite, KEY_OFFSET) ?? 0;
 }
 
@@ -67,10 +67,7 @@ export function readServerTimeOffset(sqlite: BetterSqlite3.Database): number {
  * move past the last stamp (same millisecond, or an offset that jumped
  * backwards), the millisecond is held and the counter advances instead.
  */
-export function nextSyncStamp(
-  sqlite: BetterSqlite3.Database,
-  nowMs: () => number = Date.now,
-): LwwStamp {
+export function nextSyncStamp(sqlite: SqliteLike, nowMs: () => number = Date.now): LwwStamp {
   const phys = nowMs() + (readInt(sqlite, KEY_OFFSET) ?? 0);
   const lastMs = readInt(sqlite, KEY_LAST_MS) ?? 0;
   const lastCounter = readInt(sqlite, KEY_LAST_COUNTER) ?? 0;
@@ -91,7 +88,7 @@ export function nextSyncStamp(
  * user just saw arrive. Observing every applied key makes the next local stamp
  * outrank everything this device has already seen.
  */
-export function observeRemoteLww(sqlite: BetterSqlite3.Database, remote: LwwTriple): void {
+export function observeRemoteLww(sqlite: SqliteLike, remote: LwwTriple): void {
   const lastMs = readInt(sqlite, KEY_LAST_MS) ?? 0;
   const lastCounter = readInt(sqlite, KEY_LAST_COUNTER) ?? 0;
   if (remote.ms > lastMs) {
@@ -104,7 +101,7 @@ export function observeRemoteLww(sqlite: BetterSqlite3.Database, remote: LwwTrip
 }
 
 /** The clock's current position, for the rebase seed and for tests. */
-export function readHlcState(sqlite: BetterSqlite3.Database): LwwStamp {
+export function readHlcState(sqlite: SqliteLike): LwwStamp {
   return {
     updated_at: readInt(sqlite, KEY_LAST_MS) ?? 0,
     lww_counter: readInt(sqlite, KEY_LAST_COUNTER) ?? 0,
@@ -117,7 +114,7 @@ export function readHlcState(sqlite: BetterSqlite3.Database): LwwStamp {
  * Used by the login-time rebase, which rewrites keys in bulk and then has to
  * leave the running clock above everything it produced.
  */
-export function seedHlc(sqlite: BetterSqlite3.Database, seed: LwwStamp): void {
+export function seedHlc(sqlite: SqliteLike, seed: LwwStamp): void {
   const current = readHlcState(sqlite);
   if (
     seed.updated_at > current.updated_at ||

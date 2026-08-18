@@ -29,6 +29,7 @@ import {
   FileEffectRuntime,
   type LarkDatabase,
   type LyricsSnapshot,
+  type PortableDb,
   type RunSyncResult,
   addSongsToPlaylist,
   countUnresolvedConflicts,
@@ -75,6 +76,7 @@ const serverModule = await resolveSkybridgeServer();
 interface Device {
   label: string;
   db: LarkDatabase;
+  store: PortableDb;
   sqlite: BetterSqlite3.Database;
   client: ReturnType<typeof createSkybridgeClient>;
   serverId: string;
@@ -103,7 +105,7 @@ async function createDevice(
 ): Promise<Device> {
   const auth = await login(server.baseUrl, email, password);
 
-  const { db, sqlite } = createDatabase({ dbPath: ':memory:' });
+  const { db, sqlite, portable: store } = createDatabase({ dbPath: ':memory:' });
   ensureDeviceUuid(sqlite);
   const localUuid = readLocalDeviceUuid(sqlite);
 
@@ -140,6 +142,7 @@ async function createDevice(
   return {
     label,
     db,
+    store,
     sqlite,
     client,
     serverId: server.baseUrl,
@@ -225,15 +228,15 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
 
   // L2 / L3 · client_change_id is a real UUIDv4, and the server's seq only grows
   it('publishes a library and gets back monotonic sequence numbers', async () => {
-    const song = createSong(a.db, a.sqlite, {
+    const song = createSong(a.store, {
       name: '温柔',
       artist: '五月天',
       source_url: 'https://www.bilibili.com/video/BV1',
       source_provider: 'bilibili',
       source_key: 'BV1:100',
     });
-    const playlist = createPlaylist(a.db, a.sqlite, '晚上听');
-    addSongsToPlaylist(a.db, a.sqlite, playlist.id, [song.id]);
+    const playlist = createPlaylist(a.store, '晚上听');
+    addSongsToPlaylist(a.store, playlist.id, [song.id]);
 
     const cids = a.sqlite.prepare('SELECT client_change_id FROM sync_changes').all() as {
       client_change_id: string;
@@ -249,7 +252,7 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
     expect(first.pushed).toBeGreaterThan(0);
     expect(first.cursor.pushedSeq).toBeGreaterThan(0);
 
-    updateSong(a.db, a.sqlite, song.id, { artist: '五月天 Mayday' });
+    updateSong(a.store, song.id, { artist: '五月天 Mayday' });
     const second = await sync(a);
     expect(second.cursor.pushedSeq).toBeGreaterThan(first.cursor.pushedSeq);
   });
@@ -284,7 +287,7 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
   // L6 / L7 · B edits A's song; the winner carries B's device id
   it('lets the other device edit, and flips the attribution', async () => {
     const song = songByName(b, '温柔');
-    updateSong(b.db, b.sqlite, song.id, { name: '温柔（现场）' });
+    updateSong(b.store, song.id, { name: '温柔（现场）' });
     await sync(b);
     await sync(a);
 
@@ -297,14 +300,14 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
 
   // L8 · two devices add the same source key while apart: both survive (D8)
   it('keeps both songs when two devices claim the same source key', async () => {
-    createSong(a.db, a.sqlite, {
+    createSong(a.store, {
       name: '晴天 A',
       artist: '周杰伦',
       source_url: 'https://www.bilibili.com/video/BV2',
       source_provider: 'bilibili',
       source_key: 'BV2:200',
     });
-    createSong(b.db, b.sqlite, {
+    createSong(b.store, {
       name: '晴天 B',
       artist: '周杰伦',
       source_url: 'https://www.bilibili.com/video/BV2',
@@ -328,13 +331,13 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
 
   // L9 · a delete beats a concurrent edit, permanently (D6)
   it('lets a delete win over an edit that never met it', async () => {
-    const doomed = createSong(a.db, a.sqlite, { name: '要删掉的', artist: '' });
+    const doomed = createSong(a.store, { name: '要删掉的', artist: '' });
     await sync(a);
     await sync(b);
 
     // B edits it while A deletes it — neither has seen the other.
-    updateSong(b.db, b.sqlite, doomed.id, { name: '改过名字的' });
-    await deleteSong(a.db, a.sqlite, doomed.id, {
+    updateSong(b.store, doomed.id, { name: '改过名字的' });
+    await deleteSong(a.store, doomed.id, {
       fileOps: new FileEffectRuntime({ sqlite: a.sqlite }),
     });
     await sync(a);
@@ -358,12 +361,12 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
     const song = songByName(a, '温柔（现场）');
     if (playlist === undefined) throw new Error('playlist missing');
 
-    removeSongFromPlaylist(a.db, a.sqlite, playlist.id, song.id);
+    removeSongFromPlaylist(a.store, playlist.id, song.id);
     await sync(a);
     await sync(b);
     expect(getPlaylistSongs(b.db, b.sqlite, playlist.id)).toHaveLength(0);
 
-    addSongsToPlaylist(a.db, a.sqlite, playlist.id, [song.id]);
+    addSongsToPlaylist(a.store, playlist.id, [song.id]);
     await sync(a);
     await sync(b);
     expect(getPlaylistSongs(b.db, b.sqlite, playlist.id)).toHaveLength(1);
@@ -373,15 +376,15 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
   it('converges the order after a normalisation and a drag', async () => {
     const playlist = listPlaylists(a.db, a.sqlite).find((p) => p.name === '晚上听');
     if (playlist === undefined) throw new Error('playlist missing');
-    const extra = createSong(a.db, a.sqlite, { name: '第二首', artist: '' });
-    addSongsToPlaylist(a.db, a.sqlite, playlist.id, [extra.id]);
+    const extra = createSong(a.store, { name: '第二首', artist: '' });
+    addSongsToPlaylist(a.store, playlist.id, [extra.id]);
 
     // Normalise first, and check the ranks came out DISTINCT: a re-added
     // membership takes `max(rank) + 1024` on whichever device saw it first, so
     // two members can legitimately arrive holding the same rank — and a drag
     // between two equal ranks has nothing to land between. One `reorder` is
     // what makes the two devices agree on the starting line.
-    a.sqlite.transaction(() => normalizeRanksInTx(a.db, playlist.id)).immediate();
+    a.sqlite.transaction(() => normalizeRanksInTx(a.store, playlist.id)).immediate();
     await sync(a);
     await sync(b);
 
@@ -398,7 +401,7 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
 
     // The drag is rank-only plus one `set_rank` — the LWW triple is untouched
     // (D7), which is exactly why the other device can replay it verbatim.
-    reorderSong(a.db, a.sqlite, playlist.id, order[1] as string, {
+    reorderSong(a.store, playlist.id, order[1] as string, {
       before_song_id: order[0] as string,
     });
     const published = a.sqlite
@@ -463,9 +466,9 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
     const song = songByName(a, '温柔（现场）');
     // B edits FIRST, so its key is the older one; A then edits and pushes.
     // A conflict is recorded on the side that LOSES, which has to be B.
-    updateSong(b.db, b.sqlite, song.id, { artist: 'B 写的' });
+    updateSong(b.store, song.id, { artist: 'B 写的' });
     await new Promise((resolve) => setTimeout(resolve, 5));
-    updateSong(a.db, a.sqlite, song.id, { artist: 'A 写的' });
+    updateSong(a.store, song.id, { artist: 'A 写的' });
 
     await sync(a);
     await syncTwice(b);
@@ -530,7 +533,7 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
   it('rebases a far-future clock onto the server time at bind', async () => {
     const future = await createDevice('D', server, email, password);
     try {
-      const song = createSong(future.db, future.sqlite, { name: '未来的歌', artist: '' });
+      const song = createSong(future.store, { name: '未来的歌', artist: '' });
       // Push the row and its pending op a year into the future, the way a
       // wrong system clock would.
       const ahead = Date.now() + 365 * 86_400_000;

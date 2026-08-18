@@ -369,7 +369,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   if (stopReason !== null) return finishStop();
 
   try {
-    const { db, sqlite } = createDatabase({ dbPath: paths.dbPath(), logger });
+    const { db, sqlite, portable } = createDatabase({ dbPath: paths.dbPath(), logger });
 
     // ── The file-effect journal comes FIRST (v0.2 §3.6) ─────────────────────
     //
@@ -447,6 +447,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       logger,
       db,
       sqlite,
+      portable,
       localToken: generateLocalToken(), // memory only until listen() succeeds
       eventsBus,
       guiChannel: new GuiChannel(),
@@ -468,8 +469,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
     // engine lifecycle callbacks ARE the event source (M3-6).
     const buildRuntime = (active: AppContext): NormalRuntime => {
       const downloads = new DownloadEngine({
-        db,
-        sqlite,
+        store: portable,
         bilibili,
         mediaTools,
         // Read fresh, so a PATCH /config is picked up by the next task — and

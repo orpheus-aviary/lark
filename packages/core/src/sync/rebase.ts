@@ -20,7 +20,7 @@
 //   Metadata ops (`set_rank`, `reorder`, `set_lyrics`, `clear_lyrics`). They
 //   carry no key at all — server order decides them.
 
-import type BetterSqlite3 from 'better-sqlite3';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { type LwwStamp, seedHlc } from './hlc.js';
 
 /** How far ahead of the server a key may be before it counts as broken. */
@@ -56,7 +56,7 @@ const TABLE_BY_ENTITY: Record<string, string> = {
  * genuinely recent edits.
  */
 export function rebaseLocalKeys(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   serverNowMs: number,
   toleranceMs: number = REBASE_TOLERANCE_MS,
 ): RebaseResult {
@@ -130,11 +130,7 @@ export function rebaseLocalKeys(
   return result;
 }
 
-function readRowMs(
-  sqlite: BetterSqlite3.Database,
-  entityType: string,
-  entityId: string,
-): number | null {
+function readRowMs(sqlite: SqliteLike, entityType: string, entityId: string): number | null {
   if (entityType === 'playlist_song') {
     const [playlistId, songId] = entityId.split(':');
     const row = sqlite
@@ -150,11 +146,7 @@ function readRowMs(
   return row?.updated_at ?? null;
 }
 
-function readTombstoneMs(
-  sqlite: BetterSqlite3.Database,
-  entityType: string,
-  entityId: string,
-): number | null {
+function readTombstoneMs(sqlite: SqliteLike, entityType: string, entityId: string): number | null {
   const row = sqlite
     .prepare('SELECT updated_at FROM sync_tombstones WHERE entity_type = ? AND entity_id = ?')
     .get(entityType, entityId) as { updated_at: number } | undefined;
@@ -162,7 +154,7 @@ function readTombstoneMs(
 }
 
 function writeRowKey(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   entityType: string,
   entityId: string,
   key: { ms: number; counter: number },
@@ -185,7 +177,7 @@ function writeRowKey(
 }
 
 function writeTombstoneKey(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   entityType: string,
   entityId: string,
   key: { ms: number; counter: number },
@@ -209,7 +201,7 @@ function writeTombstoneKey(
  * highest key this device has issued, and the next local edit has to outrank
  * it.
  */
-function seedFromLocalState(sqlite: BetterSqlite3.Database): LwwStamp {
+function seedFromLocalState(sqlite: SqliteLike): LwwStamp {
   const queries = [
     'SELECT updated_at AS ms, lww_counter AS counter FROM songs ORDER BY ms DESC, counter DESC LIMIT 1',
     'SELECT updated_at AS ms, lww_counter AS counter FROM playlists ORDER BY ms DESC, counter DESC LIMIT 1',

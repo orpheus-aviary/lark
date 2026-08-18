@@ -34,8 +34,8 @@ afterEach(() => {
   rmSync(nest, { recursive: true, force: true });
 });
 
-const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 function change(
   entity_type: string,
@@ -141,8 +141,8 @@ describe('song puts', () => {
     apply(change('song', id, 'update', songPayload({ name: '补回来' })));
     expect(songRow(id)).toMatchObject({ name: '补回来' });
 
-    const gone = createSong(db(), sq(), { name: '本地删掉' });
-    await deleteSong(db(), sq(), gone.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
+    const gone = createSong(store(), { name: '本地删掉' });
+    await deleteSong(store(), gone.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     const result = apply(change('song', gone.id, 'create', songPayload({ updated_at_ms: 9e12 })));
 
     // A song's delete is final. Even a much newer create is a stale echo.
@@ -161,7 +161,7 @@ describe('song puts', () => {
   });
 
   it('keeps the local row when the incoming key is older', () => {
-    const song = createSong(db(), sq(), { name: '本地新' });
+    const song = createSong(store(), { name: '本地新' });
     const before = songRow(song.id);
 
     const result = apply(
@@ -173,7 +173,7 @@ describe('song puts', () => {
   });
 
   it('skips our own accepted change coming back', () => {
-    const song = createSong(db(), sq(), { name: '我的' });
+    const song = createSong(store(), { name: '我的' });
     const cid = lastCid(song.id, 'create');
     markSynced(cid);
 
@@ -225,7 +225,7 @@ describe('song puts', () => {
 
 describe('song deletes', () => {
   it('removes the row, records the tombstone and queues the file effect', () => {
-    const song = createSong(db(), sq(), { name: '要被远端删掉' });
+    const song = createSong(store(), { name: '要被远端删掉' });
     sq().prepare("UPDATE songs SET file_origin='imported' WHERE id = ?").run(song.id);
 
     const result = apply(
@@ -249,7 +249,7 @@ describe('song deletes', () => {
   // two would never reconcile. (The dual e2e's delete-versus-edit race caught
   // this; the assertion belongs here, where it is deterministic.)
   it('buries a song even when the local row is newer than the delete', () => {
-    const song = createSong(db(), sq(), { name: '本机刚改过' });
+    const song = createSong(store(), { name: '本机刚改过' });
     sq()
       .prepare('UPDATE songs SET updated_at = ?, lww_counter = 9 WHERE id = ?')
       .run(9e12, song.id);
@@ -264,7 +264,7 @@ describe('song deletes', () => {
   });
 
   it('is idempotent when the same delete is delivered twice', () => {
-    const song = createSong(db(), sq(), { name: '删两次' });
+    const song = createSong(store(), { name: '删两次' });
     const tombstone = { updated_at_ms: 5000, lww_counter: 0 };
 
     apply(change('song', song.id, 'delete', tombstone));
@@ -286,9 +286,9 @@ describe('song deletes', () => {
   });
 
   it('cascades memberships without emitting or entombing them', () => {
-    const song = createSong(db(), sq(), { name: 's' });
-    const playlist = createPlaylist(db(), sq(), 'p');
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const song = createSong(store(), { name: 's' });
+    const playlist = createPlaylist(store(), 'p');
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
 
     apply(change('song', song.id, 'delete', { updated_at_ms: 9e12, lww_counter: 0 }));
 
@@ -301,7 +301,7 @@ describe('song deletes', () => {
 
 describe('lyrics ops', () => {
   it('queues the write, and replays its own echo', () => {
-    const song = createSong(db(), sq(), { name: 's' });
+    const song = createSong(store(), { name: 's' });
     const lyrics = change('song', song.id, 'set_lyrics', { lrc: '[00:01.00]远端词' });
 
     apply(lyrics);
@@ -313,8 +313,8 @@ describe('lyrics ops', () => {
   });
 
   it('is stopped by the parent gate, tombstone or missing row alike', async () => {
-    const gone = createSong(db(), sq(), { name: '删掉' });
-    await deleteSong(db(), sq(), gone.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
+    const gone = createSong(store(), { name: '删掉' });
+    await deleteSong(store(), gone.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     sq().prepare('DELETE FROM sync_file_ops').run();
 
     const result = apply(
@@ -344,7 +344,7 @@ describe('playlists', () => {
   // Same permanence rule as a song's (§3.2): a rename that happened later does
   // not save a playlist another device deleted.
   it('buries a playlist even when the local row is newer than the delete', () => {
-    const playlist = createPlaylist(db(), sq(), '本机刚改过');
+    const playlist = createPlaylist(store(), '本机刚改过');
     sq()
       .prepare('UPDATE playlists SET updated_at = ?, lww_counter = 9 WHERE id = ?')
       .run(9e12, playlist.id);
@@ -358,9 +358,9 @@ describe('playlists', () => {
   // A membership is the ONE entity where a delete is beatable: re-adding a
   // song has to win, or "remove then add again" would be impossible (D6).
   it('lets a newer membership survive a delete that lost to it', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
     sq()
       .prepare('UPDATE playlist_songs SET updated_at = ?, lww_counter = 9 WHERE song_id = ?')
       .run(9e12, song.id);
@@ -377,9 +377,9 @@ describe('playlists', () => {
   });
 
   it('adopts a peer order, ignores ids it does not have, and keeps the rest at the tail', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const [a, b, c] = ['A', 'B', 'C'].map((n) => createSong(db(), sq(), { name: n }).id);
-    addSongsToPlaylist(db(), sq(), playlist.id, [a, b, c]);
+    const playlist = createPlaylist(store(), 'p');
+    const [a, b, c] = ['A', 'B', 'C'].map((n) => createSong(store(), { name: n }).id);
+    addSongsToPlaylist(store(), playlist.id, [a, b, c]);
 
     apply(
       change('playlist', playlist.id, 'reorder', {
@@ -398,9 +398,9 @@ describe('playlists', () => {
   });
 
   it('drops a reorder for a playlist that is gone', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
     apply(change('playlist', playlist.id, 'delete', { updated_at_ms: 9e12, lww_counter: 0 }));
 
     const result = apply(change('playlist', playlist.id, 'reorder', { song_ids: [song.id] }));
@@ -421,9 +421,9 @@ describe('memberships', () => {
   }
 
   it('adds at the tail as a placeholder, then takes the paired set_rank', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const [a, b] = ['A', 'B'].map((n) => createSong(db(), sq(), { name: n }).id);
-    addSongsToPlaylist(db(), sq(), playlist.id, [a]);
+    const playlist = createPlaylist(store(), 'p');
+    const [a, b] = ['A', 'B'].map((n) => createSong(store(), { name: n }).id);
+    addSongsToPlaylist(store(), playlist.id, [a]);
     const entityId = membershipEntityId(playlist.id, b);
 
     apply(change('playlist_song', entityId, 'create', membership(playlist.id, b)));
@@ -436,9 +436,9 @@ describe('memberships', () => {
   });
 
   it('only moves the key when the membership already exists here (R5-1)', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
     const entityId = membershipEntityId(playlist.id, song.id);
     const before = members(playlist.id)[0];
 
@@ -471,10 +471,10 @@ describe('memberships', () => {
   });
 
   it('revives a removed membership when the create is newer', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
-    removeSongFromPlaylist(db(), sq(), playlist.id, song.id);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
+    removeSongFromPlaylist(store(), playlist.id, song.id);
     const entityId = membershipEntityId(playlist.id, song.id);
 
     apply(
@@ -493,10 +493,10 @@ describe('memberships', () => {
   });
 
   it('drops a create that lost to the tombstone, and its paired set_rank with it', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
-    removeSongFromPlaylist(db(), sq(), playlist.id, song.id);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
+    removeSongFromPlaylist(store(), playlist.id, song.id);
     const entityId = membershipEntityId(playlist.id, song.id);
 
     const result = apply(
@@ -516,11 +516,11 @@ describe('memberships', () => {
   });
 
   it('needs both parents alive for create and set_rank', async () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
     const entityId = membershipEntityId(playlist.id, song.id);
-    await deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
+    await deleteSong(store(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
 
     const result = apply(
       change('playlist_song', entityId, 'create', membership(playlist.id, song.id)),
@@ -530,9 +530,9 @@ describe('memberships', () => {
   });
 
   it('entombs a removal so a stale create cannot undo it', () => {
-    const playlist = createPlaylist(db(), sq(), 'p');
-    const song = createSong(db(), sq(), { name: 's' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
+    const playlist = createPlaylist(store(), 'p');
+    const song = createSong(store(), { name: 's' });
+    addSongsToPlaylist(store(), playlist.id, [song.id]);
     const entityId = membershipEntityId(playlist.id, song.id);
 
     apply(change('playlist_song', entityId, 'delete', { updated_at_ms: 9e12, lww_counter: 0 }));
@@ -570,7 +570,7 @@ describe('changes this build cannot read', () => {
 
 describe('conflicts', () => {
   it('records the losing local copy when the user had unpushed edits', () => {
-    const song = createSong(db(), sq(), { name: '我的名字' });
+    const song = createSong(store(), { name: '我的名字' });
 
     apply(
       change('song', song.id, 'update', songPayload({ name: '远端名字', updated_at_ms: 9e12 })),
@@ -590,7 +590,7 @@ describe('conflicts', () => {
   });
 
   it('says nothing when the local copy had already been pushed', () => {
-    const song = createSong(db(), sq(), { name: '我的名字' });
+    const song = createSong(store(), { name: '我的名字' });
     markSynced(lastCid(song.id, 'create'));
 
     apply(
@@ -603,7 +603,7 @@ describe('conflicts', () => {
   });
 
   it('says nothing when the two versions agree', () => {
-    const song = createSong(db(), sq(), { name: '同一个名字' });
+    const song = createSong(store(), { name: '同一个名字' });
     const local = songRow(song.id) as { duration: number; lyrics_offset: number };
 
     apply(
@@ -657,7 +657,7 @@ describe('applied changes teach the local clock', () => {
     const id = randomUUID();
     apply(change('song', id, 'create', songPayload({ updated_at_ms: 9e12, lww_counter: 3 })));
 
-    const local = createSong(db(), sq(), { name: '之后写的' });
+    const local = createSong(store(), { name: '之后写的' });
     const row = songRow(local.id) as { updated_at: number; lww_counter: number };
     // Otherwise the very next local edit would tie with — or lose to — the
     // value the user just watched arrive.

@@ -27,6 +27,7 @@ import {
   IncompatibleDbError,
   MigrationPendingError,
 } from '../errors.js';
+import type { PortableDb } from '../portable/db.js';
 import { LATEST_KNOWN_VERSION, isGoLegacyDb, isSchemaEmpty } from '../portable/migrate.js';
 import { assertCurrentSchema } from '../portable/schema-signature.js';
 import * as schema from '../portable/schema.js';
@@ -44,6 +45,8 @@ export interface ReadonlyDatabaseOptions {
 export interface ReadonlyDatabaseHandles {
   db: LarkDatabase;
   sqlite: BetterSqlite3.Database;
+  /** The same pair a writable open produces (N1c) — read paths take it too. */
+  portable: PortableDb;
 }
 
 /**
@@ -90,7 +93,8 @@ export function openDatabaseReadonly(options: ReadonlyDatabaseOptions): Readonly
 
     // v == LATEST: the number alone is not proof (T3 — single definition of v1).
     assertCurrentSchema(sqlite, dbPath);
-    return { db: drizzle(sqlite, { schema }), sqlite };
+    const db = drizzle(sqlite, { schema });
+    return { db, sqlite, portable: { drizzle: db, sqlite } satisfies PortableDb };
   } catch (err) {
     sqlite.close();
     throw err;

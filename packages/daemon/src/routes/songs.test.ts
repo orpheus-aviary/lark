@@ -19,8 +19,7 @@ let events: LarkEvent[];
 
 const UNKNOWN_UUID = '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001';
 
-const seed = (name: string, artist = ''): SongData =>
-  createSong(ctx.db, ctx.sqlite, { name, artist });
+const seed = (name: string, artist = ''): SongData => createSong(ctx.portable, { name, artist });
 
 beforeEach(() => {
   nest = mkdtempSync(join(tmpdir(), 'lark-songs-'));
@@ -203,7 +202,7 @@ describe('PUT /songs/:id', () => {
     });
 
     it('409s a key that belongs to another song, naming it', async () => {
-      const owner = createSong(ctx.db, ctx.sqlite, {
+      const owner = createSong(ctx.portable, {
         name: 'owner',
         source_provider: 'bilibili',
         source_key: 'BV1xx411c7mD:12345',

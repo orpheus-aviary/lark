@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url';
 import {
   FileEffectRuntime,
   type LarkDatabase,
+  type PortableDb,
   createDatabase,
   createSong,
   deleteSong,
@@ -180,6 +181,7 @@ function openBDatabase(daemon: Daemon): BetterSqlite3.Database {
 
 interface LocalDevice {
   db: LarkDatabase;
+  store: PortableDb;
   sqlite: BetterSqlite3.Database;
   client: ReturnType<typeof createSkybridgeClient>;
   serverId: string;
@@ -194,7 +196,7 @@ async function createLocalDevice(
   password: string,
 ): Promise<LocalDevice> {
   const auth = await login(server.baseUrl, email, password);
-  const { db, sqlite } = createDatabase({ dbPath: ':memory:' });
+  const { db, sqlite, portable: store } = createDatabase({ dbPath: ':memory:' });
   ensureDeviceUuid(sqlite);
   const localUuid = readLocalDeviceUuid(sqlite);
 
@@ -229,6 +231,7 @@ async function createLocalDevice(
 
   return {
     db,
+    store,
     sqlite,
     client,
     serverId: server.baseUrl,
@@ -302,7 +305,7 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
   const syncB = () => api(b, 'POST', '/sync/run');
 
   it("writes a peer's lyrics to disk as a real file", async () => {
-    const song = createSong(a.db, a.sqlite, { name: '有词的歌', artist: '甲' });
+    const song = createSong(a.store, { name: '有词的歌', artist: '甲' });
     emitSetLyrics(a, song.id, '[00:01.00]跨设备的歌词');
     await syncA(a);
 
@@ -333,7 +336,7 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
       'A should have received the imported song',
     ).toBeDefined();
 
-    await deleteSong(a.db, a.sqlite, songId, {
+    await deleteSong(a.store, songId, {
       fileOps: new FileEffectRuntime({ sqlite: a.sqlite }),
     });
     await syncA(a);
@@ -358,7 +361,7 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
   // not one operation. A row that outlived the process is drained at boot —
   // and before recovery, which must not judge a directory the journal owns.
   it('drains a journal row left by a crash at the next boot, before recovery', async () => {
-    const song = createSong(a.db, a.sqlite, { name: '崩溃前写好的', artist: '甲' });
+    const song = createSong(a.store, { name: '崩溃前写好的', artist: '甲' });
     await syncA(a);
     await syncB();
     await stopDaemon(b);

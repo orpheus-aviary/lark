@@ -107,11 +107,31 @@ global_hits=$(find packages/core/src/portable -name '*.ts' ! -name '*.test.ts' -
       printf "%s:%d:%s\n", FILENAME, FNR, $0
   }' {} + || true)
 
-if [ -n "$module_hits" ] || [ -n "$escape_hits" ] || [ -n "$global_hits" ]; then
+# `sqliteOf(db)` was `db.$client` — the raw handle taken off the drizzle object.
+# drizzle's Expo driver has no `$client`, so on a phone that is not a rough edge,
+# it is a property that does not exist. It retired in N1c in favour of a pair
+# formed at the open (`PortableDb`), and this keeps it retired across the WHOLE
+# repo, not just portable: the point is that nobody re-derives one handle from
+# the other anywhere.
+#
+# Code only, same as the global half — this file and `portable/db.ts` both have
+# to be able to say the name while explaining why it is gone.
+sqlite_of_hits=$(find packages apps -name '*.ts' -not -path '*/node_modules/*' -not -path '*/dist/*' -exec awk '
+  /^[ \t]*\*/ { next }
+  {
+    line = $0
+    idx = index(line, "//")
+    if (idx > 0) line = substr(line, 1, idx - 1)
+    if (line ~ /(^|[^A-Za-z0-9_$.])sqliteOf[ ]*\(/)
+      printf "%s:%d:%s\n", FILENAME, FNR, $0
+  }' {} + || true)
+
+if [ -n "$module_hits" ] || [ -n "$escape_hits" ] || [ -n "$global_hits" ] || [ -n "$sqlite_of_hits" ]; then
   echo "✗ @lark/core/portable must stay host-free (no node builtins / better-sqlite3 / electron / node-only libs / core itself / ambient Node globals)"
   [ -n "$module_hits" ] && echo "$module_hits"
   [ -n "$escape_hits" ] && echo "$escape_hits"
   [ -n "$global_hits" ] && echo "$global_hits"
+  [ -n "$sqlite_of_hits" ] && echo 'sqliteOf retired in N1c — take the pair from createDatabase instead:' && echo "$sqlite_of_hits"
   exit 1
 fi
 

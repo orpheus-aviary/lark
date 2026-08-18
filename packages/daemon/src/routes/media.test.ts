@@ -47,7 +47,7 @@ beforeEach(async () => {
   base = await app.listen({ host: '127.0.0.1', port: 0 });
   events = [];
   ctx.eventsBus.subscribe((e) => events.push(e));
-  song = createSong(ctx.db, ctx.sqlite, { name: 'fixture' });
+  song = createSong(ctx.portable, { name: 'fixture' });
 });
 
 afterEach(async () => {

@@ -53,6 +53,7 @@ afterEach(() => {
 
 const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 let seq = 0;
 const nextKey = (): string => `BV1seed${++seq}:1`;
@@ -65,7 +66,7 @@ interface SeedOptions {
 
 function seed(name: string, options: SeedOptions = {}): string {
   const { artist = '', key = nextKey(), file = false } = options;
-  const song = createSong(db(), sq(), {
+  const song = createSong(store(), {
     name,
     artist,
     ...(key === null ? {} : { source_provider: 'bilibili', source_key: key }),
@@ -109,10 +110,10 @@ function fileOf(entries: readonly ImportEntry[], name = '导出的歌单'): Buff
 
 describe('buildExport', () => {
   it('exports a playlist in rank order, with the source pair and no ids', () => {
-    const playlist = createPlaylist(db(), sq(), '健身歌单');
+    const playlist = createPlaylist(store(), '健身歌单');
     const first = seed('第一首', { key: 'BV1aaa:1', artist: '甲' });
     const second = seed('第二首', { key: 'BV1bbb:2' });
-    addSongsToPlaylist(db(), sq(), playlist.id, [second, first]);
+    addSongsToPlaylist(store(), playlist.id, [second, first]);
 
     const exported = buildExport(db(), { playlistId: playlist.id });
 
@@ -290,14 +291,14 @@ describe('computeMatches / previewImport', () => {
 
 describe('importPlaylist', () => {
   it('round-trips an export with zero new songs', async () => {
-    const source = createPlaylist(db(), sq(), '原歌单');
+    const source = createPlaylist(store(), '原歌单');
     const a = seed('甲歌', { key: 'BV1aaa:1' });
     const b = seed('乙歌', { key: 'BV1bbb:2' });
-    addSongsToPlaylist(db(), sq(), source.id, [a, b]);
+    addSongsToPlaylist(store(), source.id, [a, b]);
 
     const exported: PlaylistExportData = buildExport(db(), { playlistId: source.id });
     const file = await parseAndValidate(Buffer.from(JSON.stringify(exported)));
-    const result = importPlaylist(db(), sq(), {
+    const result = importPlaylist(store(), {
       entries: file.entries,
       target: { kind: 'new', name: file.playlist_name },
     });
@@ -309,12 +310,12 @@ describe('importPlaylist', () => {
   });
 
   it('creates one song for repeated keys and appends in file order', async () => {
-    const target = createPlaylist(db(), sq(), '目标');
+    const target = createPlaylist(store(), '目标');
     const file = await parseAndValidate(
       fileOf([entry('丙', 'BV1ccc:3'), entry('丁', 'BV1ddd:4'), entry('丙又一次', 'BV1ccc:3')]),
     );
 
-    const result = importPlaylist(db(), sq(), {
+    const result = importPlaylist(store(), {
       entries: file.entries,
       target: { kind: 'playlist', playlistId: target.id },
     });
@@ -325,7 +326,7 @@ describe('importPlaylist', () => {
 
   it('imports into the library only when there is no target', async () => {
     const file = await parseAndValidate(fileOf([entry('无歌单', 'BV1eee:5')]));
-    const result = importPlaylist(db(), sq(), {
+    const result = importPlaylist(store(), {
       entries: file.entries,
       target: { kind: 'library' },
     });
@@ -335,12 +336,12 @@ describe('importPlaylist', () => {
   });
 
   it('skips songs already in the target playlist', async () => {
-    const target = createPlaylist(db(), sq(), '目标');
+    const target = createPlaylist(store(), '目标');
     const existing = seed('已在歌单里', { key: 'BV1fff:6' });
-    addSongsToPlaylist(db(), sq(), target.id, [existing]);
+    addSongsToPlaylist(store(), target.id, [existing]);
 
     const file = await parseAndValidate(fileOf([entry('已在歌单里', 'BV1fff:6')]));
-    const result = importPlaylist(db(), sq(), {
+    const result = importPlaylist(store(), {
       entries: file.entries,
       target: { kind: 'playlist', playlistId: target.id },
     });
@@ -352,7 +353,7 @@ describe('importPlaylist', () => {
   it('rolls the whole import back when any part of it fails (R27)', async () => {
     const file = await parseAndValidate(fileOf([entry('甲', 'BV1aaa:1'), entry('乙', 'BV1bbb:2')]));
     expect(() =>
-      importPlaylist(db(), sq(), {
+      importPlaylist(store(), {
         entries: file.entries,
         target: { kind: 'playlist', playlistId: '00000000-0000-4000-8000-000000000000' },
       }),
@@ -364,7 +365,7 @@ describe('importPlaylist', () => {
     const existing = seed('晴天', { artist: '周杰伦', key: 'BV1aaa:1' });
     const file = await parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
 
-    const result = importPlaylist(db(), sq(), {
+    const result = importPlaylist(store(), {
       entries: file.entries,
       target: { kind: 'library' },
       reuse: [{ index: 0, song_id: existing }],
@@ -378,7 +379,7 @@ describe('importPlaylist', () => {
     const unrelated = seed('毫不相干', { key: 'BV1aaa:1' });
     const file = await parseAndValidate(fileOf([entry('晴天', 'BV1zzz:9', '周杰伦')]));
     expect(() =>
-      importPlaylist(db(), sq(), {
+      importPlaylist(store(), {
         entries: file.entries,
         target: { kind: 'library' },
         reuse: [{ index: 0, song_id: unrelated }],
@@ -392,7 +393,7 @@ describe('importPlaylist', () => {
     const other = seed('另一首', { key: 'BV1bbb:2' });
     const file = await parseAndValidate(fileOf([entry('库里的', 'BV1aaa:1')]));
     expect(() =>
-      importPlaylist(db(), sq(), {
+      importPlaylist(store(), {
         entries: file.entries,
         target: { kind: 'library' },
         reuse: [{ index: 0, song_id: other }],
@@ -404,7 +405,7 @@ describe('importPlaylist', () => {
     const existing = seed('存在的', { key: 'BV1aaa:1' });
     const file = await parseAndValidate(fileOf([entry('新的', 'BV1zzz:9')]));
     expect(() =>
-      importPlaylist(db(), sq(), {
+      importPlaylist(store(), {
         entries: file.entries,
         target: { kind: 'library' },
         reuse: [{ index: 7, song_id: existing }],
@@ -414,7 +415,7 @@ describe('importPlaylist', () => {
 
   it('leaves imported songs without a file, ready for on-demand download', async () => {
     const file = await parseAndValidate(fileOf([entry('按需下载', 'BV1ggg:7')]));
-    importPlaylist(db(), sq(), { entries: file.entries, target: { kind: 'library' } });
+    importPlaylist(store(), { entries: file.entries, target: { kind: 'library' } });
     const row = db().select().from(songs).all()[0];
     expect(row.file_origin).toBe('downloaded');
     expect(row.last_accessed_at).toBeNull();
@@ -426,7 +427,7 @@ describe('import feeds the outbox through the same write paths (v0.2)', () => {
     const file = await parseAndValidate(fileOf([entry('丙', 'BV1ccc:3'), entry('丁', 'BV1ddd:4')]));
     sq().prepare('DELETE FROM sync_changes').run(); // ignore the fixture's own writes
 
-    importPlaylist(db(), sq(), {
+    importPlaylist(store(), {
       entries: file.entries,
       target: { kind: 'new', name: '导入的歌单' },
     });

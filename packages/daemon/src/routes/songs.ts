@@ -176,7 +176,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
 
     // The write may change which file this song points at, so it takes the
     // same claim a download would — the normalisation above ran outside it.
-    const song = await withClaim(id, 'file', () => updateSong(ctx.db, ctx.sqlite, id, patch));
+    const song = await withClaim(id, 'file', () => updateSong(ctx.portable, id, patch));
     ctx.eventsBus.emit({ type: 'songs:changed' });
     ok(reply, enrich(song));
   });
@@ -239,7 +239,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
       // No logger, matching the default this replaced exactly: N1b is a
       // structural batch, and "the delete route now logs file-op failures" is
       // a behaviour change however welcome it would be.
-      deleteSong(ctx.db, ctx.sqlite, id, {
+      deleteSong(ctx.portable, id, {
         fileOps: new FileEffectRuntime({ sqlite: ctx.sqlite }),
       }),
     );
@@ -276,7 +276,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
 
     // Throws `MEDIA_TOOLS_UNAVAILABLE` (503) when this machine has no usable
     // ffprobe, rather than reporting every path as a bad file (M7-18).
-    const result = await importSongs(ctx.db, ctx.sqlite, ctx.mediaTools, paths as string[], {
+    const result = await importSongs(ctx.portable, ctx.mediaTools, paths as string[], {
       signal: ctx.shutdownSignal,
     });
     if (result.imported.length > 0) ctx.eventsBus.emit({ type: 'songs:changed' });

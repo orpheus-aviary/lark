@@ -76,7 +76,7 @@ function writeImportFile(songs: readonly FileSong[], name = '导入的歌单'): 
 }
 
 const seedSong = (name: string, key?: string) =>
-  createSong(ctx.db, ctx.sqlite, {
+  createSong(ctx.portable, {
     name,
     ...(key === undefined ? {} : { source_provider: 'bilibili', source_key: key }),
   });
@@ -93,10 +93,10 @@ async function preview(filePath: string): Promise<PlaylistImportPreviewData> {
 
 describe('GET /playlists/:id/export', () => {
   it('exports a playlist in its own order', async () => {
-    const playlist = createPlaylist(ctx.db, ctx.sqlite, '健身');
+    const playlist = createPlaylist(ctx.portable, '健身');
     const first = seedSong('甲', 'BV1aaa:1');
     const second = seedSong('乙', 'BV1bbb:2');
-    addSongsToPlaylist(ctx.db, ctx.sqlite, playlist.id, [second.id, first.id]);
+    addSongsToPlaylist(ctx.portable, playlist.id, [second.id, first.id]);
 
     const res = await app.inject({ method: 'GET', url: apiPath.playlistExport(playlist.id) });
     const data = res.json<ApiResponse<PlaylistExportData>>().data as PlaylistExportData;

@@ -172,7 +172,7 @@ describe('player commands', () => {
 
   it('round-trips a command through the active GUI', async () => {
     const gui = await connectGui('ok');
-    const song = createSong(ctx.db, ctx.sqlite, { name: 's' });
+    const song = createSong(ctx.portable, { name: 's' });
 
     const res = await post('/player/play', { song_id: song.id });
     expect(res.status).toBe(200);
@@ -267,7 +267,7 @@ describe('player commands', () => {
 
   it('accepts every command shape the contract freezes', async () => {
     const gui = await connectGui('ok');
-    const song = createSong(ctx.db, ctx.sqlite, { name: 's' });
+    const song = createSong(ctx.portable, { name: 's' });
 
     const calls: [string, unknown][] = [
       ['/player/play-playlist', { playlist_id: 'all' }],

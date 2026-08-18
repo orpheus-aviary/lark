@@ -12,6 +12,7 @@
 // and friends); this barrel is the entry point OUTSIDE the package.
 
 export * from './contract/index.js';
+export * from './db.js';
 export * from './errors.js';
 export * from './logger.js';
 export * from './migrate.js';

@@ -117,8 +117,7 @@ export async function canRedownload(
   signal?: AbortSignal,
 ): Promise<boolean> {
   const deps: PipelineDeps = {
-    db: ctx.db,
-    sqlite: ctx.sqlite,
+    store: ctx.portable,
     bilibili: ctx.bilibili,
     llm: null, // a probe never re-identifies; it only confirms the stored key
     // Carried for the type, never exercised: `probeSourceKey` asks bilibili

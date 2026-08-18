@@ -15,10 +15,10 @@ import {
   type SyncEntityType,
   type SyncOp,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { SyncChangeTooLargeError } from '../errors.js';
 import { uuid } from '../portable/runtime/random.js';
 import { utf8ByteLength } from '../portable/runtime/text.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 
 export interface EmitChangeArgs {
   entityType: SyncEntityType;
@@ -41,7 +41,7 @@ export interface EmitChangeArgs {
  * Throws {@link SyncChangeTooLargeError} before writing anything if the change
  * would exceed the wire budget.
  */
-export function emitSyncChange(sqlite: BetterSqlite3.Database, args: EmitChangeArgs): string {
+export function emitSyncChange(sqlite: SqliteLike, args: EmitChangeArgs): string {
   const deviceUuid = readLocalDeviceUuid(sqlite);
   const clientChangeId = uuid();
   const createdAt = args.nowMs ?? Date.now();
@@ -98,7 +98,7 @@ function assertChangeFits(args: EmitChangeArgs, clientChangeId: string, createdA
 }
 
 /** This install's local identity. Present since M1 — created at db open. */
-export function readLocalDeviceUuid(sqlite: BetterSqlite3.Database): string {
+export function readLocalDeviceUuid(sqlite: SqliteLike): string {
   const row = sqlite.prepare("SELECT value FROM local_metadata WHERE key='device_uuid'").get() as
     | { value: string }
     | undefined;
@@ -133,7 +133,7 @@ export interface DeadLetterInput {
 }
 
 /** Archive a change that could not be applied or emitted. Returns its row id. */
-export function recordDeadLetter(sqlite: BetterSqlite3.Database, input: DeadLetterInput): number {
+export function recordDeadLetter(sqlite: SqliteLike, input: DeadLetterInput): number {
   const info = sqlite
     .prepare(
       `INSERT INTO sync_dead_letters
@@ -162,7 +162,7 @@ export interface DeadLetterCounts {
 }
 
 /** `{in, out}` counts for `GET /sync/status`. */
-export function countDeadLetters(sqlite: BetterSqlite3.Database): DeadLetterCounts {
+export function countDeadLetters(sqlite: SqliteLike): DeadLetterCounts {
   const rows = sqlite
     .prepare('SELECT direction, count(*) AS n FROM sync_dead_letters GROUP BY direction')
     .all() as { direction: string; n: number }[];
@@ -175,7 +175,7 @@ export function countDeadLetters(sqlite: BetterSqlite3.Database): DeadLetterCoun
 }
 
 /** Outbox rows this device has not pushed yet. */
-export function countPendingChanges(sqlite: BetterSqlite3.Database): number {
+export function countPendingChanges(sqlite: SqliteLike): number {
   const row = sqlite
     .prepare('SELECT count(*) AS n FROM sync_changes WHERE synced_at IS NULL')
     .get() as { n: number };

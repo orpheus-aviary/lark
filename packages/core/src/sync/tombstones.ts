@@ -17,7 +17,7 @@
 // callers; this module only owns the record.
 
 import type { SyncEntityType } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { type LwwTriple, cmpLww, makeLwwTriple } from './lww.js';
 
 export interface Tombstone {
@@ -35,7 +35,7 @@ interface TombstoneRow {
 }
 
 export function readTombstone(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   entityType: SyncEntityType,
   entityId: string,
 ): Tombstone | null {
@@ -62,7 +62,7 @@ export function readTombstone(
  * converge on the same tombstone.
  */
 export function writeTombstone(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   entityType: SyncEntityType,
   entityId: string,
   key: LwwTriple,
@@ -94,7 +94,7 @@ export function writeTombstone(
 
 /** Drop a tombstone — only a membership revival may do this (§3.2). */
 export function clearTombstone(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   entityType: SyncEntityType,
   entityId: string,
 ): void {
@@ -132,7 +132,7 @@ export function effectiveKey(
  * replayed after the parent was deleted elsewhere, must be dropped too.
  */
 export function parentGateOpen(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   entityType: 'song' | 'playlist',
   entityId: string,
 ): boolean {

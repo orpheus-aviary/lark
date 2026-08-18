@@ -13,8 +13,8 @@
 // only way out is `lark sync unbind`, which is deliberate, refuses to run with
 // unpushed work, and says so.
 
-import type BetterSqlite3 from 'better-sqlite3';
 import { SyncBindingMismatchError } from '../errors.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 
 export interface SyncBinding {
   server_id: string;
@@ -28,7 +28,7 @@ export interface SyncBinding {
 /** What a login is proposing to bind to. */
 export type SyncBindingCandidate = Omit<SyncBinding, 'bound_at'>;
 
-export function readBinding(sqlite: BetterSqlite3.Database): SyncBinding | null {
+export function readBinding(sqlite: SqliteLike): SyncBinding | null {
   const row = sqlite
     .prepare(
       'SELECT server_id, user_id, workspace_id, schema_version, bound_at FROM sync_binding WHERE id = 1',
@@ -65,7 +65,7 @@ export function assertBindingMatches(binding: SyncBinding, candidate: SyncBindin
  * overwriting.
  */
 export function writeBindingInTx(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   candidate: SyncBindingCandidate,
   nowMs: number = Date.now(),
 ): SyncBinding {
@@ -90,6 +90,6 @@ export function writeBindingInTx(
 }
 
 /** Forget the binding. Only `unbind` does this, inside its own transaction. */
-export function clearBindingInTx(sqlite: BetterSqlite3.Database): void {
+export function clearBindingInTx(sqlite: SqliteLike): void {
   sqlite.prepare('DELETE FROM sync_binding').run();
 }

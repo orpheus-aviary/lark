@@ -26,7 +26,7 @@
 
 import { statSync, unlinkSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
+import type { PortableDrizzle } from '../portable/db.js';
 import { type SongRow, songs } from '../portable/schema.js';
 import { songAudioPath } from './lyrics.js';
 
@@ -133,7 +133,7 @@ function fileSize(songId: string): number | null {
 }
 
 /** Every song with an audio file on disk, with its size and LRU key. */
-function scan(db: LarkDatabase): Candidate[] {
+function scan(db: PortableDrizzle): Candidate[] {
   const out: Candidate[] = [];
   for (const row of db.select().from(songs).all()) {
     const size = fileSize(row.id);
@@ -143,7 +143,7 @@ function scan(db: LarkDatabase): Candidate[] {
   return out;
 }
 
-export function cacheStatus(db: LarkDatabase, opts: CacheOptions): CacheStatus {
+export function cacheStatus(db: PortableDrizzle, opts: CacheOptions): CacheStatus {
   const files = scan(db);
   let used = 0;
   let eligible = 0;
@@ -165,7 +165,10 @@ export function cacheStatus(db: LarkDatabase, opts: CacheOptions): CacheStatus {
  * limit or the candidates run out. The DB row and `lyrics.lrc` always stay:
  * evicting a song means "the audio can be fetched again", not "forget it".
  */
-export async function runEviction(db: LarkDatabase, opts: EvictionOptions): Promise<EvictionRun> {
+export async function runEviction(
+  db: PortableDrizzle,
+  opts: EvictionOptions,
+): Promise<EvictionRun> {
   const run: EvictionRun = { evicted: [], skipped_unverified: [], failed: [] };
   if (opts.limitBytes <= 0) return run;
 

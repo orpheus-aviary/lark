@@ -145,7 +145,7 @@ async function attemptAsync<T>(fn: () => Promise<T>): Promise<T> {
 type Handles = ReturnType<Core['createDatabase']>;
 
 function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Backend {
-  const { db, sqlite } = handles;
+  const { db, sqlite, portable: store } = handles;
 
   /** `has_file` / `file_size` are a live disk probe, exactly as the daemon does. */
   //
@@ -246,7 +246,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // `validation.ts` encodes for the route.
       if (edit.name !== undefined) edit.name = requiredName(edit.name, NAME_MAX, '歌名');
       if (edit.artist !== undefined) edit.artist = capped(edit.artist.trim(), NAME_MAX, '歌手名');
-      const updated = attempt(() => core.updateSong(db, sqlite, validId(id), edit));
+      const updated = attempt(() => core.updateSong(store, validId(id), edit));
       return Promise.resolve(ok(enrich(updated)));
     },
     deleteSong: async (id) => {
@@ -255,7 +255,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // journal entry between them), and the command must not exit before the
       // files it promised to delete are gone.
       await attemptAsync(() =>
-        core.deleteSong(db, sqlite, validId(id), {
+        core.deleteSong(store, validId(id), {
           fileOps: new core.FileEffectRuntime({ sqlite }),
         }),
       );
@@ -288,25 +288,20 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     createPlaylist: (name) => {
       writable();
       const created = attempt(() =>
-        core.createPlaylist(db, sqlite, requiredName(name, NAME_MAX, '歌单名')),
+        core.createPlaylist(store, requiredName(name, NAME_MAX, '歌单名')),
       );
       return Promise.resolve(ok(created as PlaylistData));
     },
     renamePlaylist: (id, name) => {
       writable();
       const renamed = attempt(() =>
-        core.renamePlaylist(
-          db,
-          sqlite,
-          writablePlaylistId(id),
-          requiredName(name, NAME_MAX, '歌单名'),
-        ),
+        core.renamePlaylist(store, writablePlaylistId(id), requiredName(name, NAME_MAX, '歌单名')),
       );
       return Promise.resolve(ok(renamed as PlaylistData));
     },
     deletePlaylist: (id) => {
       writable();
-      attempt(() => core.deletePlaylist(db, sqlite, writablePlaylistId(id)));
+      attempt(() => core.deletePlaylist(store, writablePlaylistId(id)));
       return Promise.resolve(ok({ id }, { message: 'playlist deleted' }));
     },
     listPlaylistSongs: (id) => {
@@ -322,15 +317,13 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       writable();
       if (songIds.length > SONG_IDS_MAX) throw usageError(`一次最多添加 ${SONG_IDS_MAX} 首。`);
       const added = attempt(() =>
-        core.addSongsToPlaylist(db, sqlite, writablePlaylistId(id), songIds.map(validId)),
+        core.addSongsToPlaylist(store, writablePlaylistId(id), songIds.map(validId)),
       );
       return Promise.resolve(ok({ added }));
     },
     removePlaylistSong: (id, songId) => {
       writable();
-      attempt(() =>
-        core.removeSongFromPlaylist(db, sqlite, writablePlaylistId(id), validId(songId)),
-      );
+      attempt(() => core.removeSongFromPlaylist(store, writablePlaylistId(id), validId(songId)));
       return Promise.resolve(
         ok({ playlist_id: id, song_id: songId }, { message: 'song removed from playlist' }),
       );
@@ -341,7 +334,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       if (move.before_song_id !== undefined) anchors.before_song_id = move.before_song_id;
       if (move.after_song_id !== undefined) anchors.after_song_id = move.after_song_id;
       attempt(() =>
-        core.reorderSong(db, sqlite, writablePlaylistId(id), validId(move.song_id), anchors),
+        core.reorderSong(store, writablePlaylistId(id), validId(move.song_id), anchors),
       );
       return Promise.resolve(ok({ playlist_id: id }, { message: 'playlist reordered' }));
     },
@@ -372,8 +365,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       const claims = new core.ClaimRegistry();
       const bilibili = core.createBilibiliClient();
       const deps = {
-        db,
-        sqlite,
+        store,
         bilibili,
         llm: null,
         // Carried for the type only: the eviction probe asks bilibili whether
@@ -490,7 +482,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // this process: R31 guarantees no daemon, and the writer lock excludes
       // every other writer, so this process is the only one that could be
       // writing that file.
-      const deleted = await attemptAsync(() => core.deleteLyrics(db, validId(id)));
+      const deleted = await attemptAsync(() => core.deleteLyrics(store, validId(id)));
       if (!deleted) throw new CliError('LYRICS_NOT_FOUND', '这首歌没有歌词文件。');
       return ok({ id }, { message: 'lyrics deleted' });
     },
@@ -522,7 +514,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       }
       const target = toCoreTarget(request.target);
       const result = attempt(() =>
-        core.importPlaylist(db, sqlite, {
+        core.importPlaylist(store, {
           entries: file.entries,
           target,
           ...(request.reuse === undefined ? {} : { reuse: [...request.reuse] }),
@@ -590,7 +582,7 @@ async function readImportFile(filePath: string): Promise<Buffer> {
 /** The wire's `all` is core's `library`: songs land, no membership rows. */
 function toCoreTarget(
   target: ImportCommitRequest['target'],
-): Parameters<Core['importPlaylist']>[2]['target'] {
+): Parameters<Core['importPlaylist']>[1]['target'] {
   switch (target.kind) {
     case 'all':
       return { kind: 'library' };

@@ -4,10 +4,9 @@
 // playlist row's LWW (cross-entity decoupling, M1-5).
 
 import { type PlaylistData, type SongData, membershipEntityId } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { and, count, eq } from 'drizzle-orm';
-import { type LarkDatabase, sqliteOf } from '../db/index.js';
 import { InvalidReorderError, NotFoundError } from '../errors.js';
+import type { PortableDb, PortableDrizzle } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import {
   type PlaylistRow,
@@ -16,6 +15,7 @@ import {
   playlists,
   songs,
 } from '../portable/schema.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { emitSyncChange } from '../sync/changes.js';
 import { readSkybridgeDeviceId } from '../sync/device.js';
 import { nextSyncStamp } from '../sync/hlc.js';
@@ -41,14 +41,14 @@ function toPlaylistData(row: PlaylistRow, song_count?: number): PlaylistData {
   return data;
 }
 
-function getPlaylistRow(db: LarkDatabase, id: string): PlaylistRow {
+function getPlaylistRow(db: PortableDrizzle, id: string): PlaylistRow {
   const row = db.select().from(playlists).where(eq(playlists.id, id)).get();
   if (!row) throw new NotFoundError('playlist', id);
   return row;
 }
 
-export function createPlaylistInTx(db: LarkDatabase, name: string): PlaylistData {
-  const sqlite = sqliteOf(db);
+export function createPlaylistInTx(store: PortableDb, name: string): PlaylistData {
+  const { drizzle: db, sqlite } = store;
   const stamp = nextSyncStamp(sqlite);
   const row: PlaylistRow = {
     id: uuid(),
@@ -73,17 +73,13 @@ export function createPlaylistInTx(db: LarkDatabase, name: string): PlaylistData
   return toPlaylistData(row, 0);
 }
 
-export function createPlaylist(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
-  name: string,
-): PlaylistData {
+export function createPlaylist(store: PortableDb, name: string): PlaylistData {
   // Transactional since v0.2 — the row and its change row are one write now.
-  return sqlite.transaction(() => createPlaylistInTx(db, name)).immediate();
+  return store.sqlite.transaction(() => createPlaylistInTx(store, name)).immediate();
 }
 
-export function renamePlaylistInTx(db: LarkDatabase, id: string, name: string): PlaylistData {
-  const sqlite = sqliteOf(db);
+export function renamePlaylistInTx(store: PortableDb, id: string, name: string): PlaylistData {
+  const { drizzle: db, sqlite } = store;
   const prev = getPlaylistRow(db, id);
   const stamp = nextSyncStamp(sqlite);
   const deviceId = readSkybridgeDeviceId(sqlite);
@@ -110,17 +106,12 @@ export function renamePlaylistInTx(db: LarkDatabase, id: string, name: string): 
   return toPlaylistData({ ...prev, name, ...stamp, device_id: deviceId });
 }
 
-export function renamePlaylist(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
-  id: string,
-  name: string,
-): PlaylistData {
-  return sqlite.transaction(() => renamePlaylistInTx(db, id, name)).immediate();
+export function renamePlaylist(store: PortableDb, id: string, name: string): PlaylistData {
+  return store.sqlite.transaction(() => renamePlaylistInTx(store, id, name)).immediate();
 }
 
-export function deletePlaylistInTx(db: LarkDatabase, id: string): void {
-  const sqlite = sqliteOf(db);
+export function deletePlaylistInTx(store: PortableDb, id: string): void {
+  const { drizzle: db, sqlite } = store;
   getPlaylistRow(db, id);
   const stamp = nextSyncStamp(sqlite);
   const deviceId = readSkybridgeDeviceId(sqlite);
@@ -146,16 +137,12 @@ export function deletePlaylistInTx(db: LarkDatabase, id: string): void {
   });
 }
 
-export function deletePlaylist(db: LarkDatabase, sqlite: BetterSqlite3.Database, id: string): void {
-  sqlite.transaction(() => deletePlaylistInTx(db, id)).immediate();
+export function deletePlaylist(store: PortableDb, id: string): void {
+  store.sqlite.transaction(() => deletePlaylistInTx(store, id)).immediate();
 }
 
 /** One playlist with its member count. Throws NotFoundError when absent. */
-export function getPlaylist(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
-  id: string,
-): PlaylistData {
+export function getPlaylist(db: PortableDrizzle, _sqlite: SqliteLike, id: string): PlaylistData {
   const row = getPlaylistRow(db, id);
   const counted = db
     .select({ song_count: count(playlist_songs.song_id) })
@@ -166,7 +153,7 @@ export function getPlaylist(
 }
 
 /** All playlists with their member counts, ordered by (created_at, id). */
-export function listPlaylists(db: LarkDatabase, _sqlite: BetterSqlite3.Database): PlaylistData[] {
+export function listPlaylists(db: PortableDrizzle, _sqlite: SqliteLike): PlaylistData[] {
   const rows = db
     .select({
       playlist: playlists,
@@ -182,8 +169,8 @@ export function listPlaylists(db: LarkDatabase, _sqlite: BetterSqlite3.Database)
 
 /** Member songs in playlist order — ORDER BY rank, song_id (R23). */
 export function getPlaylistSongs(
-  db: LarkDatabase,
-  _sqlite: BetterSqlite3.Database,
+  db: PortableDrizzle,
+  _sqlite: SqliteLike,
   playlistId: string,
 ): SongData[] {
   getPlaylistRow(db, playlistId);
@@ -216,11 +203,11 @@ export function getPlaylistSongs(
  * memberships actually added.
  */
 export function addSongsToPlaylistInTx(
-  db: LarkDatabase,
+  store: PortableDb,
   playlistId: string,
   songIds: readonly string[],
 ): number {
-  const sqlite = sqliteOf(db);
+  const { drizzle: db, sqlite } = store;
   getPlaylistRow(db, playlistId);
 
   const members = db
@@ -280,20 +267,21 @@ export function addSongsToPlaylistInTx(
 }
 
 export function addSongsToPlaylist(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   playlistId: string,
   songIds: readonly string[],
 ): number {
-  return sqlite.transaction(() => addSongsToPlaylistInTx(db, playlistId, songIds)).immediate();
+  return store.sqlite
+    .transaction(() => addSongsToPlaylistInTx(store, playlistId, songIds))
+    .immediate();
 }
 
 export function removeSongFromPlaylistInTx(
-  db: LarkDatabase,
+  store: PortableDb,
   playlistId: string,
   songId: string,
 ): void {
-  const sqlite = sqliteOf(db);
+  const { drizzle: db, sqlite } = store;
   const res = db
     .delete(playlist_songs)
     .where(and(eq(playlist_songs.playlist_id, playlistId), eq(playlist_songs.song_id, songId)))
@@ -321,16 +309,15 @@ export function removeSongFromPlaylistInTx(
 }
 
 export function removeSongFromPlaylist(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   playlistId: string,
   songId: string,
 ): void {
   // Transactional since v0.2 — row, tombstone and change commit together.
-  sqlite.transaction(() => removeSongFromPlaylistInTx(db, playlistId, songId)).immediate();
+  store.sqlite.transaction(() => removeSongFromPlaylistInTx(store, playlistId, songId)).immediate();
 }
 
-function orderedMembers(db: LarkDatabase, playlistId: string): PlaylistSongRow[] {
+function orderedMembers(db: PortableDrizzle, playlistId: string): PlaylistSongRow[] {
   return db
     .select()
     .from(playlist_songs)
@@ -356,11 +343,12 @@ function orderedMembers(db: LarkDatabase, playlistId: string): PlaylistSongRow[]
  * bumps every row whose rank actually changed (M1-5).
  */
 export function reorderSongInTx(
-  db: LarkDatabase,
+  store: PortableDb,
   playlistId: string,
   songId: string,
   anchors: ReorderAnchors,
 ): void {
+  const { drizzle: db } = store;
   getPlaylistRow(db, playlistId);
   const { before_song_id, after_song_id } = anchors;
   if (before_song_id === undefined && after_song_id === undefined) {
@@ -422,7 +410,7 @@ export function reorderSongInTx(
     // Float gap exhausted: renormalize (which publishes its own reorder), then
     // recompute — adjacent ranks are RANK_STEP apart now, the midpoint cannot
     // collide.
-    normalizeRanksInTx(db, playlistId);
+    normalizeRanksInTx(store, playlistId);
     ({ target } = locate());
     if (target === null) {
       throw new InvalidReorderError('rank collision persisted after normalization');
@@ -431,15 +419,14 @@ export function reorderSongInTx(
 
   // Rank-only: dragging a song does not touch the membership's LWW triple,
   // because rank is decided by server order alone now (§3.5).
-  setRankInTx(db, playlistId, songId, target);
+  setRankInTx(store, playlistId, songId, target);
 }
 
 export function reorderSong(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   playlistId: string,
   songId: string,
   anchors: ReorderAnchors,
 ): void {
-  sqlite.transaction(() => reorderSongInTx(db, playlistId, songId, anchors)).immediate();
+  store.sqlite.transaction(() => reorderSongInTx(store, playlistId, songId, anchors)).immediate();
 }

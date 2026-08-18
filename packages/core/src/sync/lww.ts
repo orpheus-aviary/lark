@@ -1,3 +1,4 @@
+import type { SqliteLike } from '../portable/sqlite.js';
 // LWW primitives (v0.2 T1, §3.3).
 //
 // The comparison key is the triple `(updated_at_ms, lww_counter, device_id)`,
@@ -9,8 +10,6 @@
 //
 // Pure leaf module: raw sqlite reads, no engine, no apply — both of those
 // import from here.
-
-import type BetterSqlite3 from 'better-sqlite3';
 
 /** The comparison form of an LWW key. Distinct from the wire `LwwKey`. */
 export interface LwwTriple {
@@ -47,7 +46,7 @@ function toTriple(row: LwwRow | undefined): LwwTriple | null {
   return row ? makeLwwTriple(row.updated_at, row.lww_counter, row.device_id) : null;
 }
 
-export function readSongLww(sqlite: BetterSqlite3.Database, id: string): LwwTriple | null {
+export function readSongLww(sqlite: SqliteLike, id: string): LwwTriple | null {
   return toTriple(
     sqlite.prepare('SELECT updated_at, lww_counter, device_id FROM songs WHERE id = ?').get(id) as
       | LwwRow
@@ -55,7 +54,7 @@ export function readSongLww(sqlite: BetterSqlite3.Database, id: string): LwwTrip
   );
 }
 
-export function readPlaylistLww(sqlite: BetterSqlite3.Database, id: string): LwwTriple | null {
+export function readPlaylistLww(sqlite: SqliteLike, id: string): LwwTriple | null {
   return toTriple(
     sqlite
       .prepare('SELECT updated_at, lww_counter, device_id FROM playlists WHERE id = ?')
@@ -64,7 +63,7 @@ export function readPlaylistLww(sqlite: BetterSqlite3.Database, id: string): Lww
 }
 
 export function readMembershipLww(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   playlistId: string,
   songId: string,
 ): LwwTriple | null {
@@ -86,7 +85,7 @@ export function readMembershipLww(
  * `reorder`, `set_rank`) deliberately REPLAY their own echo — that replay is
  * what makes them converge, because they carry no key to compare (§3.1).
  */
-export function isSelfReplay(sqlite: BetterSqlite3.Database, cid: string): boolean {
+export function isSelfReplay(sqlite: SqliteLike, cid: string): boolean {
   return (
     sqlite
       .prepare('SELECT 1 FROM sync_changes WHERE client_change_id = ? AND synced_at IS NOT NULL')

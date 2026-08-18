@@ -137,7 +137,7 @@ describe('the synced pair (v0.2)', () => {
     }[];
 
   it('writes the file first, then publishes it', async () => {
-    await writeLyrics(handles.db, ID, '[00:01.00]hello');
+    await writeLyrics(handles.portable, ID, '[00:01.00]hello');
 
     await expect(readLyrics(ID)).resolves.toBe('[00:01.00]hello');
     expect(changes()).toHaveLength(1);
@@ -148,13 +148,13 @@ describe('the synced pair (v0.2)', () => {
   it('publishes a clear even when there was no file to delete', async () => {
     // "This song has no lyrics" is the statement; a peer that still has some
     // has to hear it regardless of what was on this disk.
-    await expect(deleteLyrics(handles.db, ID)).resolves.toBe(false);
+    await expect(deleteLyrics(handles.portable, ID)).resolves.toBe(false);
     expect(changes().map((c) => c.op)).toEqual(['clear_lyrics']);
   });
 
   it('keeps oversize lyrics locally and archives the refusal (D3)', async () => {
     const huge = `[00:01.00]${'x'.repeat(SYNC_CHANGE_BYTES_MAX)}`;
-    await writeLyrics(handles.db, ID, huge);
+    await writeLyrics(handles.portable, ID, huge);
 
     // Correct here, never reaching the others — an explicit non-convergence
     // point rather than a silent drop.

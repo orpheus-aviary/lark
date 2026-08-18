@@ -37,8 +37,8 @@ afterEach(() => {
   rmSync(nest, { recursive: true, force: true });
 });
 
-const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 /** An in-memory workspace: the smallest thing that behaves like the server. */
 class FakeServer implements SkybridgeClientLike {
@@ -140,7 +140,7 @@ describe('a round', () => {
     const server = new FakeServer();
     const remoteId = randomUUID();
     server.seed([{ entityType: 'song', entityId: remoteId, op: 'create', payload: songPayload() }]);
-    const mine = createSong(db(), sq(), { name: '我的歌' });
+    const mine = createSong(store(), { name: '我的歌' });
 
     const result = await run(server);
 
@@ -199,7 +199,7 @@ describe('a round', () => {
 
   it('treats duplicates as settled', async () => {
     const server = new FakeServer();
-    createSong(db(), sq(), { name: '推两次' });
+    createSong(store(), { name: '推两次' });
     await run(server);
 
     // Same changes again, as if the previous round's response was lost.
@@ -214,7 +214,7 @@ describe('a round', () => {
   it('stops rather than spinning when the server acknowledges nothing', async () => {
     const server = new FakeServer();
     server.acknowledge = false;
-    createSong(db(), sq(), { name: '没人收' });
+    createSong(store(), { name: '没人收' });
 
     const result = await run(server);
 
@@ -313,7 +313,7 @@ describe('cancellation', () => {
 describe('file effects', () => {
   it('drains the journal after the batch commits', async () => {
     const server = new FakeServer();
-    const song = createSong(db(), sq(), { name: '有歌词的歌' });
+    const song = createSong(store(), { name: '有歌词的歌' });
     server.seed([
       {
         entityType: 'song',

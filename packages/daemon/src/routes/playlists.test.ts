@@ -19,11 +19,11 @@ let events: LarkEvent[];
 
 const UNKNOWN_UUID = '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001';
 
-const seedSong = (name: string): SongData => createSong(ctx.db, ctx.sqlite, { name });
+const seedSong = (name: string): SongData => createSong(ctx.portable, { name });
 const stampCreatedAt = (id: string, at: number): void => {
   ctx.sqlite.prepare('UPDATE songs SET created_at = ? WHERE id = ?').run(at, id);
 };
-const seedPlaylist = (name: string): PlaylistData => createPlaylist(ctx.db, ctx.sqlite, name);
+const seedPlaylist = (name: string): PlaylistData => createPlaylist(ctx.portable, name);
 
 beforeEach(() => {
   nest = mkdtempSync(join(tmpdir(), 'lark-playlists-'));
@@ -89,7 +89,7 @@ describe('GET /playlists/:id/songs', () => {
     const first = seedSong('first');
     const second = seedSong('second');
     const playlist = seedPlaylist('p');
-    addSongsToPlaylist(ctx.db, ctx.sqlite, playlist.id, [second.id, first.id]);
+    addSongsToPlaylist(ctx.portable, playlist.id, [second.id, first.id]);
 
     // Pin the timestamps: two seeds land in the same millisecond often enough
     // that the tie-break (id asc) and the primary key (created_at asc) swap
@@ -172,7 +172,7 @@ describe('playlist writes', () => {
   it('rejects non-adjacent anchors instead of guessing intent', async () => {
     const [a, b, c] = [seedSong('a'), seedSong('b'), seedSong('c')];
     const playlist = seedPlaylist('p');
-    addSongsToPlaylist(ctx.db, ctx.sqlite, playlist.id, [a.id, b.id, c.id]);
+    addSongsToPlaylist(ctx.portable, playlist.id, [a.id, b.id, c.id]);
 
     const res = await app.inject({
       method: 'POST',

@@ -33,9 +33,7 @@ import {
   type PlaylistImportData,
   type PlaylistImportPreviewData,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
 import {
   InvalidImportFileError,
   InvalidReuseError,
@@ -43,6 +41,8 @@ import {
   NotFoundError,
   UnsupportedFormatVersionError,
 } from '../errors.js';
+import type { PortableDrizzle } from '../portable/db.js';
+import type { PortableDb } from '../portable/db.js';
 import { sha256BytesAsync } from '../portable/runtime/digest.js';
 import { decodeUtf8 } from '../portable/runtime/text.js';
 import { type SongRow, playlist_songs, playlists, songs } from '../portable/schema.js';
@@ -77,7 +77,7 @@ function toExportSong(row: SongRow): PlaylistExportSong {
   };
 }
 
-export function buildExport(db: LarkDatabase, source: ExportSource): PlaylistExportData {
+export function buildExport(db: PortableDrizzle, source: ExportSource): PlaylistExportData {
   let name: string;
   let rows: SongRow[];
 
@@ -252,7 +252,7 @@ export type ImportMatch =
   | { kind: 'new'; candidates: ImportCandidate[] };
 
 /** Library songs with this exact name+artist, oldest first, ties broken by id. */
-function candidatesFor(db: LarkDatabase, entry: ImportEntry): ImportCandidate[] {
+function candidatesFor(db: PortableDrizzle, entry: ImportEntry): ImportCandidate[] {
   return (
     db
       .select({ id: songs.id, name: songs.name, artist: songs.artist })
@@ -269,7 +269,10 @@ function candidatesFor(db: LarkDatabase, entry: ImportEntry): ImportCandidate[] 
   );
 }
 
-export function computeMatches(db: LarkDatabase, entries: readonly ImportEntry[]): ImportMatch[] {
+export function computeMatches(
+  db: PortableDrizzle,
+  entries: readonly ImportEntry[],
+): ImportMatch[] {
   /** First entry index that claimed each `(provider, key)` in this file. */
   const claimed = new Map<string, number>();
   const matches: ImportMatch[] = [];
@@ -300,7 +303,10 @@ export function computeMatches(db: LarkDatabase, entries: readonly ImportEntry[]
 }
 
 /** The preview payload, minus nothing — the route only adds the envelope. */
-export function previewImport(db: LarkDatabase, file: ParsedImportFile): PlaylistImportPreviewData {
+export function previewImport(
+  db: PortableDrizzle,
+  file: ParsedImportFile,
+): PlaylistImportPreviewData {
   const matches = computeMatches(db, file.entries);
   const suspects: ImportSuspect[] = [];
   let reuseCount = 0;
@@ -349,7 +355,8 @@ export interface ImportInput {
  * Import every entry, or none (R27). Assumes the caller's transaction; the
  * `importPlaylist` wrapper opens one.
  */
-export function importPlaylistInTx(db: LarkDatabase, input: ImportInput): PlaylistImportData {
+export function importPlaylistInTx(store: PortableDb, input: ImportInput): PlaylistImportData {
+  const { drizzle: db } = store;
   const { entries, target } = input;
   // Recomputed here, not taken from the preview: the library may have changed,
   // and only what is true inside this transaction may drive writes.
@@ -372,7 +379,7 @@ export function importPlaylistInTx(db: LarkDatabase, input: ImportInput): Playli
 
   const playlistId =
     target.kind === 'new'
-      ? createPlaylistInTx(db, target.name).id
+      ? createPlaylistInTx(store, target.name).id
       : target.kind === 'playlist'
         ? target.playlistId
         : null;
@@ -401,7 +408,7 @@ export function importPlaylistInTx(db: LarkDatabase, input: ImportInput): Playli
       return;
     }
     // No file yet: it is fetched on demand when the song is played (§5.3).
-    const song = createSongInTx(db, {
+    const song = createSongInTx(store, {
       name: entry.name,
       artist: entry.artist,
       source_url: entry.source_url,
@@ -414,14 +421,10 @@ export function importPlaylistInTx(db: LarkDatabase, input: ImportInput): Playli
     created++;
   });
 
-  const added = playlistId === null ? 0 : addSongsToPlaylistInTx(db, playlistId, resolved);
+  const added = playlistId === null ? 0 : addSongsToPlaylistInTx(store, playlistId, resolved);
   return { playlist_id: playlistId, total: entries.length, created, reused, added };
 }
 
-export function importPlaylist(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
-  input: ImportInput,
-): PlaylistImportData {
-  return sqlite.transaction(() => importPlaylistInTx(db, input)).immediate();
+export function importPlaylist(store: PortableDb, input: ImportInput): PlaylistImportData {
+  return store.sqlite.transaction(() => importPlaylistInTx(store, input)).immediate();
 }

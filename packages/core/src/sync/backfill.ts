@@ -29,10 +29,10 @@
 import { readFile } from 'node:fs/promises';
 import type { SongSyncPayload } from '@lark/shared';
 import { membershipEntityId } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { SyncChangeTooLargeError } from '../errors.js';
 import { songLyricsPath } from '../library/lyrics.js';
 import { utf8ByteLength } from '../portable/runtime/text.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
 
 const KEY_DONE = 'sync_backfill_done_generation';
@@ -43,7 +43,7 @@ export interface BackfillGenerations {
   target: number;
 }
 
-function readInt(sqlite: BetterSqlite3.Database, key: string, fallback: number): number {
+function readInt(sqlite: SqliteLike, key: string, fallback: number): number {
   const row = sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').get(key) as
     | { value: string }
     | undefined;
@@ -51,7 +51,7 @@ function readInt(sqlite: BetterSqlite3.Database, key: string, fallback: number):
   return Number.isSafeInteger(n) ? n : fallback;
 }
 
-function writeInt(sqlite: BetterSqlite3.Database, key: string, value: number): void {
+function writeInt(sqlite: SqliteLike, key: string, value: number): void {
   sqlite
     .prepare(
       `INSERT INTO local_metadata (key, value) VALUES (?, ?)
@@ -60,18 +60,18 @@ function writeInt(sqlite: BetterSqlite3.Database, key: string, value: number): v
     .run(key, String(value));
 }
 
-export function readBackfillGenerations(sqlite: BetterSqlite3.Database): BackfillGenerations {
+export function readBackfillGenerations(sqlite: SqliteLike): BackfillGenerations {
   return { done: readInt(sqlite, KEY_DONE, 0), target: readInt(sqlite, KEY_TARGET, 1) };
 }
 
 /** True when this library still owes the workspace a full set of creates. */
-export function backfillOwed(sqlite: BetterSqlite3.Database): boolean {
+export function backfillOwed(sqlite: SqliteLike): boolean {
   const { done, target } = readBackfillGenerations(sqlite);
   return done < target;
 }
 
 /** `unbind` says "everything has to be republished if we ever bind again". */
-export function bumpBackfillTarget(sqlite: BetterSqlite3.Database): void {
+export function bumpBackfillTarget(sqlite: SqliteLike): void {
   writeInt(sqlite, KEY_TARGET, readBackfillGenerations(sqlite).target + 1);
 }
 
@@ -94,7 +94,7 @@ export type LyricsSnapshot = Map<string, string>;
  * is async and a transaction cannot await — and its result is re-validated
  * inside.
  */
-export async function preReadLyrics(sqlite: BetterSqlite3.Database): Promise<LyricsSnapshot> {
+export async function preReadLyrics(sqlite: SqliteLike): Promise<LyricsSnapshot> {
   const rows = sqlite.prepare('SELECT id FROM songs ORDER BY id').all() as { id: string }[];
   const snapshot: LyricsSnapshot = new Map();
   for (const { id } of rows) {
@@ -115,10 +115,7 @@ export async function preReadLyrics(sqlite: BetterSqlite3.Database): Promise<Lyr
  * rebase, and the binding write as ONE commit, so a failure anywhere leaves a
  * library that still owes its backfill rather than one that half published.
  */
-export function runFullBackfillInTx(
-  sqlite: BetterSqlite3.Database,
-  lyrics: LyricsSnapshot,
-): BackfillResult {
+export function runFullBackfillInTx(sqlite: SqliteLike, lyrics: LyricsSnapshot): BackfillResult {
   const result: BackfillResult = {
     songs: 0,
     playlists: 0,
@@ -234,11 +231,7 @@ export function runFullBackfillInTx(
   return result;
 }
 
-function backfillLyrics(
-  sqlite: BetterSqlite3.Database,
-  lyrics: LyricsSnapshot,
-  result: BackfillResult,
-): void {
+function backfillLyrics(sqlite: SqliteLike, lyrics: LyricsSnapshot, result: BackfillResult): void {
   const pendingLyricsOp = sqlite.prepare(
     `SELECT 1 FROM sync_changes
      WHERE entity_type='song' AND entity_id=? AND op IN ('set_lyrics','clear_lyrics')
@@ -287,7 +280,7 @@ function backfillLyrics(
 }
 
 /** Level `done` up to `target` — the backfill for this generation is published. */
-export function markBackfillDone(sqlite: BetterSqlite3.Database): void {
+export function markBackfillDone(sqlite: SqliteLike): void {
   writeInt(sqlite, KEY_DONE, readBackfillGenerations(sqlite).target);
 }
 
@@ -298,7 +291,7 @@ export function markBackfillDone(sqlite: BetterSqlite3.Database): void {
  * rebase and the binding share one transaction; this is for callers that only
  * want the backfill.
  */
-export async function runFullBackfill(sqlite: BetterSqlite3.Database): Promise<BackfillResult> {
+export async function runFullBackfill(sqlite: SqliteLike): Promise<BackfillResult> {
   const lyrics = await preReadLyrics(sqlite);
   return sqlite.transaction(() => runFullBackfillInTx(sqlite, lyrics)).immediate();
 }

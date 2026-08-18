@@ -37,9 +37,7 @@ import type {
   SongData,
   TaskState,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
 import {
   DownloadQueueFullError,
   InvalidSourceError,
@@ -58,6 +56,7 @@ import {
 } from '../library/songs.js';
 import { findSongByKey } from '../library/source.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
+import type { PortableDb } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
@@ -132,8 +131,8 @@ export interface EngineCallbacks {
 }
 
 export interface DownloadEngineOptions {
-  db: LarkDatabase;
-  sqlite: BetterSqlite3.Database;
+  /** The library, as one connection (N1c) — drizzle and the raw handle together. */
+  store: PortableDb;
   /**
    * The EFFECTIVE llm config, read fresh per call. Snapshotted once when a
    * task starts, so a config change mid-download cannot swap models halfway
@@ -233,7 +232,7 @@ export class DownloadEngine {
 
   /** Force a fresh download of an existing song's audio. */
   enqueueRedownload(songId: string): DownloadTaskData {
-    getSong(this.#options.db, this.#options.sqlite, songId); // 404 before anything else
+    getSong(this.#options.store.drizzle, this.#options.store.sqlite, songId); // 404 before anything else
     const key = `redownload:${songId}`;
     const merged = this.#mergeInto(key, []);
     if (merged !== null) return merged;
@@ -255,7 +254,7 @@ export class DownloadEngine {
    * would skip the refetch the user asked for.
    */
   enqueueEnsureFile(songId: string): DownloadTaskData {
-    getSong(this.#options.db, this.#options.sqlite, songId); // 404 before anything else
+    getSong(this.#options.store.drizzle, this.#options.store.sqlite, songId); // 404 before anything else
     const key = `ensure-file:${songId}`;
     const merged = this.#mergeInto(key, []);
     if (merged !== null) return merged;
@@ -339,16 +338,12 @@ export class DownloadEngine {
     }
     this.#assertCapacity(willCreate.size);
 
-    const createdIds = this.#options.sqlite
+    const createdIds = this.#options.store.sqlite
       .transaction(() => {
         const ids = new Map<number, string>();
         plans.forEach((plan, index) => {
           if (plan.target.kind !== 'new') return;
-          const created = createPlaylist(
-            this.#options.db,
-            this.#options.sqlite,
-            plan.target.name.trim(),
-          );
+          const created = createPlaylist(this.#options.store, plan.target.name.trim());
           ids.set(index, created.id);
         });
         return ids;
@@ -357,7 +352,11 @@ export class DownloadEngine {
 
     const now = Date.now();
     return plans.map((plan, index) => {
-      const resolved = resolveBatchTarget(this.#options.db, plan.target, createdIds.get(index));
+      const resolved = resolveBatchTarget(
+        this.#options.store.drizzle,
+        plan.target,
+        createdIds.get(index),
+      );
       const playlistIds = resolved.kind === 'playlist' ? [resolved.playlist_id] : [];
       const batch = this.#batchRegistry.open(uuid(), resolved, now);
 
@@ -507,7 +506,7 @@ export class DownloadEngine {
   }
 
   #assertPlaylistExists(id: string): void {
-    const row = this.#options.db
+    const row = this.#options.store.drizzle
       .select({ id: playlists.id })
       .from(playlists)
       .where(eq(playlists.id, id))
@@ -608,7 +607,7 @@ export class DownloadEngine {
   #songLabel(songId: string | null): { title: string | null; artist: string | null } {
     if (songId === null) return { title: null, artist: null };
     try {
-      const song = getSong(this.#options.db, this.#options.sqlite, songId);
+      const song = getSong(this.#options.store.drizzle, this.#options.store.sqlite, songId);
       return { title: song.name, artist: song.artist };
     } catch (err) {
       if (err instanceof NotFoundError) return { title: null, artist: null };
@@ -753,7 +752,7 @@ export class DownloadEngine {
    */
   #discardUncommittedSongDir(task: TaskRecord): void {
     if (task.state === 'succeeded' || task.songId === null) return;
-    const row = this.#options.db
+    const row = this.#options.store.drizzle
       .select({ id: songs.id })
       .from(songs)
       .where(eq(songs.id, task.songId))
@@ -773,8 +772,7 @@ export class DownloadEngine {
 
   #deps(task: TaskRecord): PipelineDeps {
     return {
-      db: this.#options.db,
-      sqlite: this.#options.sqlite,
+      store: this.#options.store,
       bilibili: this.#bilibili,
       llm: task.llm,
       mediaTools: this.#options.mediaTools,
@@ -805,7 +803,7 @@ export class DownloadEngine {
     deps: PipelineDeps,
     ctx: StepContext,
   ): Promise<TargetBinding> {
-    const { db, sqlite } = this.#options;
+    const { drizzle: db, sqlite } = this.#options.store;
 
     if (task.kind === 'redownload' || task.kind === 'ensure-file') {
       const song = getSong(db, sqlite, task.songId as string);
@@ -861,7 +859,7 @@ export class DownloadEngine {
   async #runDownload(task: TaskRecord): Promise<void> {
     const deps = this.#deps(task);
     const ctx = this.#context(task);
-    const { db, sqlite } = this.#options;
+    const { drizzle: db, sqlite } = this.#options.store;
     const binding = await this.#bindTarget(task, deps, ctx);
     const { existing } = binding;
     // `null` = an ensure-file that found the file already in place: there is
@@ -897,7 +895,7 @@ export class DownloadEngine {
         mode: existing === null ? 'new' : 'replace',
         commit: () => {
           if (existing === null) {
-            createFileBackedSongInTx(db, {
+            createFileBackedSongInTx(this.#options.store, {
               id: songId,
               name: resolved.name,
               artist: resolved.artist,
@@ -908,7 +906,7 @@ export class DownloadEngine {
               source_key: resolved.source.source_key,
             });
           } else {
-            updateSongInTx(db, songId, {
+            updateSongInTx(this.#options.store, songId, {
               duration: staged.duration,
               source_url: resolved.source.source_url,
               source_provider: resolved.source.source_provider,
@@ -937,7 +935,7 @@ export class DownloadEngine {
   #addMemberships(playlistIds: readonly string[], songId: string, failed: string[]): void {
     for (const playlistId of playlistIds) {
       try {
-        addSongsToPlaylistInTx(this.#options.db, playlistId, [songId]);
+        addSongsToPlaylistInTx(this.#options.store, playlistId, [songId]);
       } catch (err) {
         // A playlist deleted while the task ran is a soft failure: the song is
         // downloaded either way, and the GUI needs to be told which target was
@@ -954,7 +952,7 @@ export class DownloadEngine {
     task.latePlaylistIds = [];
     const failed = [...task.failedPlaylistIds];
     try {
-      this.#options.sqlite
+      this.#options.store.sqlite
         .transaction(() => this.#addMemberships(late, songId, failed))
         .immediate();
       task.playlistIds.push(...late.filter((id) => !failed.includes(id)));
@@ -975,7 +973,11 @@ export class DownloadEngine {
   }
 
   async #runLyrics(task: TaskRecord): Promise<void> {
-    const song = getSong(this.#options.db, this.#options.sqlite, task.songId as string);
+    const song = getSong(
+      this.#options.store.drizzle,
+      this.#options.store.sqlite,
+      task.songId as string,
+    );
     const outcome = await runLyrics(this.#deps(task), song, this.#context(task));
     if (!outcome.written) {
       task.errorCode = 'NOT_FOUND';

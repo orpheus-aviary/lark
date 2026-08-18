@@ -92,7 +92,7 @@ interface SeedOptions {
 
 function seed(name: string, options: SeedOptions = {}): SongData {
   const { mib = 1, key = takeLiveKey(), origin = 'downloaded', file = true } = options;
-  const song = createSong(ctx.db, ctx.sqlite, {
+  const song = createSong(ctx.portable, {
     name,
     ...(key === null ? {} : { source_provider: 'bilibili', source_key: key }),
   });

@@ -19,11 +19,10 @@ import { mkdir, unlink } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
 import { pipeline as streamPipeline } from 'node:stream/promises';
 import type { DownloadStage, LlmConfig, SongData } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
-import type { LarkDatabase } from '../db/index.js';
 import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
 import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
+import type { PortableDb } from '../portable/db.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
 import { probeAudio, processAudio } from './ffmpeg.js';
 import { type NormalizedSource, normalizeSourceOnline } from './link.js';
@@ -36,8 +35,8 @@ import type { DownloadTarget } from './target.js';
 import type { DownloadTimeouts } from './timeouts.js';
 
 export interface PipelineDeps {
-  db: LarkDatabase;
-  sqlite: BetterSqlite3.Database;
+  /** The library, as one connection (N1c) — drizzle and the raw handle together. */
+  store: PortableDb;
   bilibili: BilibiliClient;
   /** The task's config snapshot: `null` means no LLM for this whole task. */
   llm: LlmConfig | null;
@@ -424,7 +423,7 @@ export async function runLyrics(
     };
   }
 
-  await writeLyrics(deps.db, song.id, best.lrc);
+  await writeLyrics(deps.store, song.id, best.lrc);
   return { written: true, platform: best.platform, reason: null };
 }
 

@@ -29,11 +29,11 @@ import {
   SYNC_FILE_OP_MAX_ATTEMPTS,
   type SyncFileOpSummary,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
 import { CANONICAL_AUDIO_FILE } from '../library/lyrics.js';
 import { sha256Hex } from '../portable/runtime/digest.js';
 import { uuid } from '../portable/runtime/random.js';
 import { utf8ByteLength } from '../portable/runtime/text.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 
 export const FILE_OP_KINDS = [
   'delete_song_files',
@@ -128,7 +128,7 @@ export interface FileOpRow {
 // ─── Enqueue (runs inside the deciding transaction) ─────
 
 function insertOp(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   kind: FileOpKind,
   songId: string,
   arg: FileOpArg,
@@ -150,7 +150,7 @@ function quarantineName(songId: string, opUuid: string): string {
 
 /** This device deleted the song. Everything under `songs/<id>/` goes. */
 export function enqueueLocalDelete(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   songId: string,
   nowMs: number = Date.now(),
 ): number {
@@ -162,7 +162,7 @@ export function enqueueLocalDelete(
  * whether the lyrics are still only here.
  */
 export function enqueueRemoteDelete(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   songId: string,
   audioOrigin: AudioOrigin,
   nowMs: number = Date.now(),
@@ -188,7 +188,7 @@ export function enqueueRemoteDelete(
  * what destroys it — the pull-first window makes this a real sequence, not a
  * theoretical one.
  */
-function lyricsAreOnlyHere(sqlite: BetterSqlite3.Database, songId: string): boolean {
+function lyricsAreOnlyHere(sqlite: SqliteLike, songId: string): boolean {
   const pending = sqlite
     .prepare(
       `SELECT 1 FROM sync_changes
@@ -212,7 +212,7 @@ function lyricsAreOnlyHere(sqlite: BetterSqlite3.Database, songId: string): bool
 
 /** Move the whole song directory aside without deleting anything. */
 export function enqueueQuarantine(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   songId: string,
   nowMs: number = Date.now(),
 ): number {
@@ -228,7 +228,7 @@ export function enqueueQuarantine(
 
 /** Land lyrics that arrived from a peer. Blank content means "no lyrics". */
 export function enqueueWriteLyrics(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   songId: string,
   lrc: string,
   nowMs: number = Date.now(),
@@ -242,7 +242,7 @@ export function enqueueWriteLyrics(
 }
 
 export function enqueueDeleteLyrics(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   songId: string,
   nowMs: number = Date.now(),
 ): number {
@@ -259,7 +259,7 @@ export interface FileOpCounts {
   lastError: string | null;
 }
 
-export function countFileOps(sqlite: BetterSqlite3.Database): FileOpCounts {
+export function countFileOps(sqlite: SqliteLike): FileOpCounts {
   const row = sqlite
     .prepare(
       `SELECT
@@ -290,10 +290,7 @@ export function countFileOps(sqlite: BetterSqlite3.Database): FileOpCounts {
  * name an id for retry or discard, and shipping a song's whole lyric sheet
  * through a status endpoint is not part of that.
  */
-export function listFileOps(
-  sqlite: BetterSqlite3.Database,
-  state?: 'pending' | 'failed',
-): SyncFileOpSummary[] {
+export function listFileOps(sqlite: SqliteLike, state?: 'pending' | 'failed'): SyncFileOpSummary[] {
   const where =
     state === 'pending' ? 'WHERE attempts < ?' : state === 'failed' ? 'WHERE attempts >= ?' : '';
   const stmt = sqlite.prepare(
@@ -360,7 +357,7 @@ export interface FileEffectLike {
 }
 
 /** Song directories a pending op still refers to — boot recovery must not touch them. */
-export function pendingFileOpSongIds(sqlite: BetterSqlite3.Database): Set<string> {
+export function pendingFileOpSongIds(sqlite: SqliteLike): Set<string> {
   const rows = sqlite.prepare('SELECT DISTINCT song_id FROM sync_file_ops').all() as {
     song_id: string;
   }[];

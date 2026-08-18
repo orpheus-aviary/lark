@@ -10,8 +10,8 @@
 
 import type { DownloadBatchData, DownloadBatchGroupInput } from '@lark/shared';
 import { eq } from 'drizzle-orm';
-import type { LarkDatabase } from '../db/index.js';
 import { NotFoundError } from '../errors.js';
+import type { PortableDrizzle } from '../portable/db.js';
 import { playlists } from '../portable/schema.js';
 import type { DownloadTarget } from './target.js';
 import { type TaskRecord, isTerminal } from './task-data.js';
@@ -107,7 +107,7 @@ export function toTarget(item: DownloadBatchGroupInput['items'][number]): Downlo
  * `{kind: 'new'}` request (fourth review ⑤).
  */
 export function resolveBatchTarget(
-  db: LarkDatabase,
+  db: PortableDrizzle,
   target: DownloadBatchGroupInput['target'],
   createdId: string | undefined,
 ): DownloadBatchData['target'] {

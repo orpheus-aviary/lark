@@ -73,7 +73,7 @@ function seedSong(): string {
   const id = randomUUID();
   ctx.sqlite
     .transaction(() => {
-      createFileBackedSongInTx(ctx.db, {
+      createFileBackedSongInTx(ctx.portable, {
         id,
         name: '歌',
         file_origin: 'downloaded',

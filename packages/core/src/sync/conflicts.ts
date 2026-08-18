@@ -14,15 +14,15 @@
 // undo a change the user never saw.
 
 import type { LwwKey, SongSyncPayload } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
-import type { LarkDatabase } from '../db/index.js';
 import {
   ConflictNotFoundError,
   ConflictPayloadUnavailableError,
   ConflictVersionMismatchError,
 } from '../errors.js';
 import { updateSongInTx } from '../library/songs.js';
+import type { PortableDb } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
+import type { SqliteLike } from '../portable/sqlite.js';
 import { readSongLww } from './lww.js';
 
 export interface ConflictRow {
@@ -54,7 +54,7 @@ export interface RecordConflictInput {
 }
 
 /** Write the receipt. Returns its id. */
-export function recordConflict(sqlite: BetterSqlite3.Database, input: RecordConflictInput): string {
+export function recordConflict(sqlite: SqliteLike, input: RecordConflictInput): string {
   const id = uuid();
   sqlite
     .prepare(
@@ -85,7 +85,7 @@ export function recordConflict(sqlite: BetterSqlite3.Database, input: RecordConf
 }
 
 /** Unresolved receipts, newest first. */
-export function listConflicts(sqlite: BetterSqlite3.Database, limit = 100): ConflictRow[] {
+export function listConflicts(sqlite: SqliteLike, limit = 100): ConflictRow[] {
   return sqlite
     .prepare(
       `SELECT * FROM conflict_record WHERE resolved_at IS NULL
@@ -94,14 +94,14 @@ export function listConflicts(sqlite: BetterSqlite3.Database, limit = 100): Conf
     .all(limit) as ConflictRow[];
 }
 
-export function countUnresolvedConflicts(sqlite: BetterSqlite3.Database): number {
+export function countUnresolvedConflicts(sqlite: SqliteLike): number {
   const row = sqlite
     .prepare('SELECT count(*) AS n FROM conflict_record WHERE resolved_at IS NULL')
     .get() as { n: number };
   return row.n;
 }
 
-export function getConflict(sqlite: BetterSqlite3.Database, id: string): ConflictRow {
+export function getConflict(sqlite: SqliteLike, id: string): ConflictRow {
   const row = sqlite.prepare('SELECT * FROM conflict_record WHERE id = ?').get(id) as
     | ConflictRow
     | undefined;
@@ -124,7 +124,7 @@ export function conflictWinnerKey(row: ConflictRow): LwwKey {
 
 /** Mark a receipt answered without touching the row (`strategy: 'remote'`). */
 export function markConflictResolved(
-  sqlite: BetterSqlite3.Database,
+  sqlite: SqliteLike,
   id: string,
   resolution: 'local' | 'remote',
   nowMs: number = Date.now(),
@@ -168,12 +168,12 @@ function parsePayload(raw: string | null): SongSyncPayload {
 }
 
 export function resolveConflict(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   conflictId: string,
   input: ResolveConflictInput,
   nowMs: number = Date.now(),
 ): void {
+  const { sqlite } = store;
   sqlite
     .transaction(() => {
       const conflict = getConflict(sqlite, conflictId);
@@ -206,7 +206,7 @@ export function resolveConflict(
         const local = parsePayload(conflict.local_payload);
         // Through the ordinary write path: a restore is an edit, and it has to
         // be published like one.
-        updateSongInTx(db, conflict.entity_id, {
+        updateSongInTx(store, conflict.entity_id, {
           name: local.name,
           artist: local.artist,
           source_url: local.source_url,

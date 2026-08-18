@@ -30,12 +30,12 @@ afterEach(() => {
   rmSync(nest, { recursive: true, force: true });
 });
 
-const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 /** A song stamped by a badly wrong clock, with its create still unpushed. */
 async function seedFutureSong(ms: number = FUTURE): Promise<string> {
-  const song = createSong(db(), sq(), { name: '未来的歌' });
+  const song = createSong(store(), { name: '未来的歌' });
   sq().prepare('UPDATE songs SET updated_at = ?, lww_counter = 0 WHERE id = ?').run(ms, song.id);
   sq().prepare('DELETE FROM sync_changes').run();
   await runFullBackfill(sq()); // the create the rebase will rewrite
@@ -111,7 +111,7 @@ describe('rebaseLocalKeys', () => {
 
   it('rewrites a tombstone together with the delete that made it', async () => {
     const songId = await seedFutureSong();
-    await deleteSong(db(), sq(), songId, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
+    await deleteSong(store(), songId, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     sq()
       .prepare('UPDATE sync_tombstones SET updated_at = ? WHERE entity_id = ?')
       .run(FUTURE + 5, songId);
@@ -147,7 +147,7 @@ describe('rebaseLocalKeys', () => {
 
   it('does not touch metadata ops, which carry no key at all', async () => {
     const songId = await seedFutureSong();
-    const playlistId = createPlaylist(db(), sq(), 'p').id;
+    const playlistId = createPlaylist(store(), 'p').id;
     sq()
       .prepare(
         `INSERT INTO sync_changes (device_id, entity_type, entity_id, op, payload, created_at,
@@ -167,7 +167,7 @@ describe('rebaseLocalKeys', () => {
     await seedFutureSong();
     // An entity inside the tolerance keeps its key, so the seed has to come
     // from the whole local state rather than from what was rewritten.
-    const recent = createSong(db(), sq(), { name: '刚刚' });
+    const recent = createSong(store(), { name: '刚刚' });
     sq()
       .prepare('UPDATE songs SET updated_at = ?, lww_counter = 4 WHERE id = ?')
       .run(SERVER_NOW + 1000, recent.id);

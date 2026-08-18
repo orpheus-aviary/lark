@@ -26,18 +26,18 @@ import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
-import type { LarkDatabase } from '../db/index.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
 import { probeCapabilities } from '../media-tools/capabilities.js';
 import { type ResolvedMediaTools, resolveMediaTools } from '../media-tools/resolve.js';
 import { migrationBackupDir, songsDir } from '../paths.js';
+import type { PortableDb } from '../portable/db.js';
 import { type Mp3Damage, damageMp3, readToneMp3 } from '../testing/mp3-fixture.js';
 import { type ConverterContext, type StepResult, stepObject } from './converter.js';
 import { type LedgerRow, type LedgerUpdate, getLedgerRow, updateLedgerRow } from './ledger.js';
 import { scanAudioMigration } from './scanner.js';
 
 let nest: string;
-let db: LarkDatabase;
+let store!: PortableDb;
 let sqlite: BetterSqlite3.Database;
 let tools: ResolvedMediaTools;
 let toneMp3: Buffer;
@@ -66,7 +66,7 @@ beforeAll(async () => {
     vi.stubEnv('LARK_NEST_DIR', nestDir);
     const handles = createDatabase({ dbPath: ':memory:' });
     const id = randomUUID();
-    seedRow(handles.db, handles.sqlite, id, {});
+    seedRow(handles.portable, handles.sqlite, id, {});
     writeFileSync(join(makeDir(id), 'song.mp3'), toneMp3);
     scanAudioMigration(handles.sqlite);
     await stepObject(context(handles.sqlite), row(handles.sqlite, id));
@@ -81,7 +81,7 @@ beforeAll(async () => {
 beforeEach(() => {
   nest = mkdtempSync(join(tmpdir(), 'lark-converter-'));
   vi.stubEnv('LARK_NEST_DIR', nest);
-  ({ db, sqlite } = createDatabase({ dbPath: ':memory:' }));
+  ({ sqlite, portable: store } = createDatabase({ dbPath: ':memory:' }));
   liveSources = new Set();
   probeCalls = [];
 });
@@ -121,7 +121,7 @@ interface SeedOptions {
 }
 
 function seedRow(
-  database: LarkDatabase,
+  database: PortableDb,
   handle: BetterSqlite3.Database,
   id: string,
   options: SeedOptions,
@@ -156,7 +156,7 @@ interface SeedFiles {
  */
 function seed(options: SeedOptions & SeedFiles = {}): string {
   const id = randomUUID();
-  seedRow(db, sqlite, id, options);
+  seedRow(store, sqlite, id, options);
   const dir = makeDir(id);
   const mp3 = options.mp3 ?? 'good';
   writeFileSync(

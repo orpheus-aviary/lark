@@ -17,6 +17,7 @@ import type { LarkDatabase } from '../db/index.js';
 import { DownloadCommitError } from '../errors.js';
 import { createFileBackedSongInTx, getSong, listSongs } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
+import type { PortableDb } from '../portable/db.js';
 import { local_metadata } from '../portable/schema.js';
 import { landSongFile, recoverSongsStore, stagePaths } from './resolve.js';
 
@@ -25,12 +26,13 @@ const TASK_ID = '11111111-2222-4333-8444-555555555555';
 
 let nest: string;
 let db: LarkDatabase;
+let store!: PortableDb;
 let sqlite: BetterSqlite3.Database;
 
 beforeEach(() => {
   nest = mkdtempSync(join(tmpdir(), 'lark-resolve-'));
   vi.stubEnv('LARK_NEST_DIR', nest);
-  ({ db, sqlite } = createDatabase({ dbPath: ':memory:' }));
+  ({ db, sqlite, portable: store } = createDatabase({ dbPath: ':memory:' }));
 });
 
 afterEach(() => {
@@ -105,7 +107,7 @@ function logRow(taskId: string): void {
 function seedSong(id = SONG_ID, name = 'seeded'): void {
   sqlite
     .transaction(() => {
-      createFileBackedSongInTx(db, { id, name, file_origin: 'downloaded' });
+      createFileBackedSongInTx(store, { id, name, file_origin: 'downloaded' });
     })
     .immediate();
 }
@@ -142,7 +144,7 @@ describe('landSongFile', () => {
       stagedPath: paths.transcoded,
       mode: 'new',
       commit: () => {
-        createFileBackedSongInTx(db, { id: SONG_ID, name: '稻香', file_origin: 'downloaded' });
+        createFileBackedSongInTx(store, { id: SONG_ID, name: '稻香', file_origin: 'downloaded' });
       },
     });
 
@@ -168,7 +170,7 @@ describe('landSongFile', () => {
       stagedPath: paths.transcoded,
       mode: 'new',
       commit: () => {
-        createFileBackedSongInTx(db, { id: SONG_ID, name: '稻香', file_origin: 'downloaded' });
+        createFileBackedSongInTx(store, { id: SONG_ID, name: '稻香', file_origin: 'downloaded' });
       },
     });
 

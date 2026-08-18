@@ -25,6 +25,7 @@ import { getSong, listSongs } from '../library/songs.js';
 import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
 import { resolveMediaTools } from '../media-tools/resolve.js';
 import { songsDir } from '../paths.js';
+import type { PortableDb } from '../portable/db.js';
 import { songs } from '../portable/schema.js';
 import { fakeMediaTools } from '../testing/fake-media-tools.js';
 import type { FakeUpstream } from '../testing/fake-upstream.js';
@@ -40,6 +41,7 @@ const NO_LLM: LlmConfig = { url: '', model: '', api_key: '', api_format: '' };
 let audioFixture: Buffer;
 let nest: string;
 let db: LarkDatabase;
+let store!: PortableDb;
 let sqlite: BetterSqlite3.Database;
 let upstream: FakeUpstream;
 let engine: DownloadEngine | null = null;
@@ -68,7 +70,7 @@ beforeEach(async () => {
   // `vi.stubEnv`, not an assignment: Biome blocks `delete process.env.X`, and
   // `= undefined` writes the STRING "undefined" into the environment.
   vi.stubEnv('LARK_NEST_DIR', nest);
-  ({ db, sqlite } = createDatabase({ dbPath: ':memory:' }));
+  ({ db, sqlite, portable: store } = createDatabase({ dbPath: ':memory:' }));
   upstream = await startFakeUpstream({ audio: audioFixture });
 });
 
@@ -91,8 +93,7 @@ interface BuildOptions {
 function build(options: BuildOptions = {}): DownloadEngine {
   const llmConfig: LlmConfig = options.llm ?? NO_LLM;
   engine = new DownloadEngine({
-    db,
-    sqlite,
+    store,
     getLlmConfig: () => llmConfig,
     mediaTools: options.mediaTools ?? mediaTools,
     bilibili: createBilibiliClient({ apiBase: upstream.baseUrl, timeouts: DEFAULT_TIMEOUTS }),
@@ -196,7 +197,7 @@ describe('single-part URL with no LLM', () => {
   }, 60_000);
 
   it('adds the song to the requested playlists', async () => {
-    const playlist = createPlaylist(db, sqlite, '新歌单');
+    const playlist = createPlaylist(store, '新歌单');
     const e = build();
     const { id } = e.enqueueDownload({ target: videoTarget(), playlistIds: [playlist.id] });
     await settle(e, id);
@@ -401,7 +402,7 @@ describe('naming mode', () => {
     const e = build({ llm: llmConfig() });
     const first = e.enqueueDownload({ target: videoTarget(1, null, 'original') });
     await settle(e, first.id);
-    const playlist = createPlaylist(db, sqlite, '不该收到这首');
+    const playlist = createPlaylist(store, '不该收到这首');
 
     let cancel: (() => void) | null = null;
     upstream.state.llm = (system) => {
@@ -643,8 +644,8 @@ describe('dedupe keys', () => {
   });
 
   it('merges a second request for the same video and unions the targets', () => {
-    const p1 = createPlaylist(db, sqlite, 'A');
-    const p2 = createPlaylist(db, sqlite, 'B');
+    const p1 = createPlaylist(store, 'A');
+    const p2 = createPlaylist(store, 'B');
     const e = build();
     const first = e.enqueueDownload({ target: videoTarget(), playlistIds: [p1.id] });
     const second = e.enqueueDownload({ target: videoTarget(), playlistIds: [p2.id] });
@@ -859,10 +860,10 @@ describe('enqueueBatches', () => {
 
 describe('playlist targets that disappear', () => {
   it('still succeeds and records the lost target', async () => {
-    const playlist = createPlaylist(db, sqlite, '会被删掉');
+    const playlist = createPlaylist(store, '会被删掉');
     const e = build();
     const { id } = e.enqueueDownload({ target: videoTarget(), playlistIds: [playlist.id] });
-    deletePlaylist(db, sqlite, playlist.id);
+    deletePlaylist(store, playlist.id);
     await settle(e, id);
 
     const task = taskOf(e, id);

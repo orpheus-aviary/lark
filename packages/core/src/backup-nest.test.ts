@@ -32,8 +32,8 @@ function seedNest(root: string): void {
   writeFileSync(join(lark, 'songs.db.migrate.lock'), '');
   writeFileSync(join(lark, 'logs', 'lark.log'), 'noise\n');
 
-  const { db, sqlite } = createDatabase({ dbPath: join(lark, 'songs.db') });
-  createSong(db, sqlite, { name: '第一首', artist: '歌手' });
+  const { sqlite, portable: store } = createDatabase({ dbPath: join(lark, 'songs.db') });
+  createSong(store, { name: '第一首', artist: '歌手' });
   sqlite.close();
 }
 

@@ -29,13 +29,12 @@ import {
   isImportAudioExtension,
   isLosslessAudioCodec,
 } from '@lark/shared';
-import type BetterSqlite3 from 'better-sqlite3';
-import type { LarkDatabase } from '../db/index.js';
 import { FfmpegError } from '../errors.js';
 import { songDirPath } from '../library/lyrics.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { ResolvedMediaTools } from '../media-tools/resolve.js';
+import type { PortableDb } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import { type AudioProbe, probeAudio, processAudio } from './ffmpeg.js';
 import { landSongFile, stagePaths } from './resolve.js';
@@ -79,8 +78,7 @@ export class ImportRejectedError extends Error {
  * cannot inspect any of them (M7-18).
  */
 export async function importSongs(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   mediaTools: MediaToolsProvider,
   filePaths: readonly string[],
   options: ImportOptions = {},
@@ -93,7 +91,7 @@ export async function importSongs(
   for (const filePath of filePaths) {
     options.signal?.throwIfAborted();
     try {
-      imported.push(await importOne(db, sqlite, tools, filePath, options));
+      imported.push(await importOne(store, tools, filePath, options));
     } catch (err) {
       mediaTools.noteExecutionFailure(err);
       failed.push({
@@ -120,8 +118,7 @@ function importErrorCode(err: unknown): ImportFileErrorCode {
 }
 
 async function importOne(
-  db: LarkDatabase,
-  sqlite: BetterSqlite3.Database,
+  store: PortableDb,
   tools: ResolvedMediaTools,
   filePath: string,
   options: ImportOptions,
@@ -166,13 +163,13 @@ async function importOne(
     // no artwork surface to lose it from.
     const mode = await processAudio(tools.ffmpeg.path, filePath, paths.transcoded, probe, run);
 
-    landSongFile(db, sqlite, {
+    landSongFile(store.drizzle, store.sqlite, {
       taskId,
       songId,
       stagedPath: paths.transcoded,
       mode: 'new',
       commit: () => {
-        createFileBackedSongInTx(db, {
+        createFileBackedSongInTx(store, {
           id: songId,
           // Go parity: the filename is the song name and the artist is blank.
           // No ID3 read — see the plan's open questions.

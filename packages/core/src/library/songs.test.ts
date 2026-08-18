@@ -44,6 +44,7 @@ afterEach(() => {
 
 const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 function lwwOf(id: string): { updated_at: number; lww_counter: number } {
   const row = db().select().from(songs).where(eq(songs.id, id)).get();
@@ -59,7 +60,7 @@ function deviceIdOf(id: string): string | null {
 
 describe('createSong / getSong — source quadrants', () => {
   it('creates with all source fields NULL', () => {
-    const song = createSong(db(), sq(), { name: '晴天', artist: '周杰伦' });
+    const song = createSong(store(), { name: '晴天', artist: '周杰伦' });
     const fetched = getSong(db(), sq(), song.id);
     expect(fetched.name).toBe('晴天');
     expect(fetched.artist).toBe('周杰伦');
@@ -71,7 +72,7 @@ describe('createSong / getSong — source quadrants', () => {
   });
 
   it('url-only is legal (hand-typed non-bilibili link, R8)', () => {
-    const song = createSong(db(), sq(), {
+    const song = createSong(store(), {
       name: 's',
       source_url: 'https://example.com/track/1',
     });
@@ -79,7 +80,7 @@ describe('createSong / getSong — source quadrants', () => {
   });
 
   it('key pair without url is legal (identity lives in the key)', () => {
-    const song = createSong(db(), sq(), {
+    const song = createSong(store(), {
       name: 's',
       source_provider: 'bilibili',
       source_key: 'BV1xx411c7mD:123456',
@@ -90,7 +91,7 @@ describe('createSong / getSong — source quadrants', () => {
   });
 
   it('all three set is legal', () => {
-    const song = createSong(db(), sq(), {
+    const song = createSong(store(), {
       name: 's',
       source_url: 'https://www.bilibili.com/video/BV1xx411c7mD',
       source_provider: 'bilibili',
@@ -100,36 +101,36 @@ describe('createSong / getSong — source quadrants', () => {
   });
 
   it("normalizes url '' to NULL but rejects '' provider/key", () => {
-    const song = createSong(db(), sq(), { name: 's', source_url: '' });
+    const song = createSong(store(), { name: 's', source_url: '' });
     expect(getSong(db(), sq(), song.id).source_url).toBeNull();
-    expect(() =>
-      createSong(db(), sq(), { name: 's', source_provider: '', source_key: '' }),
-    ).toThrow(InvalidSourceError);
+    expect(() => createSong(store(), { name: 's', source_provider: '', source_key: '' })).toThrow(
+      InvalidSourceError,
+    );
   });
 
   it('rejects a half-set pair, unknown provider, and bad key syntax', () => {
-    expect(() => createSong(db(), sq(), { name: 's', source_provider: 'bilibili' })).toThrow(
+    expect(() => createSong(store(), { name: 's', source_provider: 'bilibili' })).toThrow(
       InvalidSourceError,
     );
-    expect(() => createSong(db(), sq(), { name: 's', source_key: 'BV1:2' })).toThrow(
+    expect(() => createSong(store(), { name: 's', source_key: 'BV1:2' })).toThrow(
       InvalidSourceError,
     );
     expect(() =>
-      createSong(db(), sq(), { name: 's', source_provider: 'youtube', source_key: 'abc' }),
+      createSong(store(), { name: 's', source_provider: 'youtube', source_key: 'abc' }),
     ).toThrow(InvalidSourceError);
     expect(() =>
-      createSong(db(), sq(), { name: 's', source_provider: 'bilibili', source_key: 'nonsense' }),
+      createSong(store(), { name: 's', source_provider: 'bilibili', source_key: 'nonsense' }),
     ).toThrow(InvalidSourceError);
   });
 
   it('reports the conflicting song id on a key collision', () => {
-    const first = createSong(db(), sq(), {
+    const first = createSong(store(), {
       name: 'a',
       source_provider: 'bilibili',
       source_key: 'BV1xx411c7mD:1',
     });
     try {
-      createSong(db(), sq(), {
+      createSong(store(), {
         name: 'b',
         source_provider: 'bilibili',
         source_key: 'BV1xx411c7mD:1',
@@ -144,9 +145,9 @@ describe('createSong / getSong — source quadrants', () => {
 
 describe('updateSong', () => {
   it('bumps the LWW stamp and applies the patch', () => {
-    const song = createSong(db(), sq(), { name: 'old', lyrics_offset: -26.5 });
+    const song = createSong(store(), { name: 'old', lyrics_offset: -26.5 });
     const before = lwwOf(song.id);
-    const updated = updateSong(db(), sq(), song.id, { name: 'new', duration: 187.4 });
+    const updated = updateSong(store(), song.id, { name: 'new', duration: 187.4 });
     expect(updated.name).toBe('new');
     expect(updated.duration).toBe(187.4);
     expect(updated.lyrics_offset).toBe(-26.5); // untouched fields survive
@@ -158,22 +159,22 @@ describe('updateSong', () => {
   });
 
   it('updating a song to another song’s key conflicts; keeping its own key is fine', () => {
-    createSong(db(), sq(), { name: 'a', source_provider: 'bilibili', source_key: 'BVaa:1' });
-    const b = createSong(db(), sq(), {
+    createSong(store(), { name: 'a', source_provider: 'bilibili', source_key: 'BVaa:1' });
+    const b = createSong(store(), {
       name: 'b',
       source_provider: 'bilibili',
       source_key: 'BVbb:2',
     });
     expect(() =>
-      updateSong(db(), sq(), b.id, { source_provider: 'bilibili', source_key: 'BVaa:1' }),
+      updateSong(store(), b.id, { source_provider: 'bilibili', source_key: 'BVaa:1' }),
     ).toThrow(SourceKeyConflictError);
     // no-op key update against itself does not conflict
-    const kept = updateSong(db(), sq(), b.id, { name: 'b2' });
+    const kept = updateSong(store(), b.id, { name: 'b2' });
     expect(kept.source_key).toBe('BVbb:2');
   });
 
   it('throws NotFoundError for a missing id', () => {
-    expect(() => updateSong(db(), sq(), '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001', {})).toThrow(
+    expect(() => updateSong(store(), '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001', {})).toThrow(
       NotFoundError,
     );
   });
@@ -185,14 +186,14 @@ describe('local-field paths never touch the LWW triple (R18)', () => {
     ['touchLastAccessed', (id: string) => touchLastAccessed(db(), sq(), id, 123456)],
     ['setFileOrigin', (id: string) => setFileOrigin(db(), sq(), id, 'imported')],
   ])('%s', (_name, run) => {
-    const song = createSong(db(), sq(), { name: 's' });
+    const song = createSong(store(), { name: 's' });
     const before = lwwOf(song.id);
     run(song.id);
     expect(lwwOf(song.id)).toEqual(before);
   });
 
   it('persists the local-field values themselves', () => {
-    const song = createSong(db(), sq(), { name: 's' });
+    const song = createSong(store(), { name: 's' });
     setPinned(db(), sq(), song.id, true);
     touchLastAccessed(db(), sq(), song.id, 42);
     setFileOrigin(db(), sq(), song.id, 'imported');
@@ -206,7 +207,7 @@ describe('local-field paths never touch the LWW triple (R18)', () => {
 describe('listSongs — filter → JS sort → id tie-break → slice', () => {
   function seed(names: [string, string][]): string[] {
     return names.map(([name, artist], i) => {
-      const song = createSong(db(), sq(), { name, artist });
+      const song = createSong(store(), { name, artist });
       // deterministic created_at spacing without sleeping
       db()
         .update(songs)
@@ -303,10 +304,10 @@ describe('deleteSong — trash protocol (R22)', () => {
   }
 
   it('removes the row and the files, and leaves a tombstone behind', async () => {
-    const song = createSong(db(), sq(), { name: 's' });
+    const song = createSong(store(), { name: 's' });
     const dir = makeSongDir(song.id);
 
-    await deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
+    await deleteSong(store(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
 
     expect(existsSync(dir)).toBe(false);
     expect(() => getSong(db(), sq(), song.id)).toThrow(NotFoundError);
@@ -324,12 +325,12 @@ describe('deleteSong — trash protocol (R22)', () => {
   });
 
   it('touches no file when the transaction fails', async () => {
-    const song = createSong(db(), sq(), { name: 's' });
+    const song = createSong(store(), { name: 's' });
     const dir = makeSongDir(song.id);
     sq().pragma('query_only = 1'); // inject a write failure
     try {
       await expect(
-        deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
+        deleteSong(store(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
       ).rejects.toThrow();
     } finally {
       sq().pragma('query_only = 0');
@@ -343,17 +344,17 @@ describe('deleteSong — trash protocol (R22)', () => {
   });
 
   it('works when no directory exists (metadata-only song)', async () => {
-    const song = createSong(db(), sq(), { name: 's' });
-    await deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
+    const song = createSong(store(), { name: 's' });
+    await deleteSong(store(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     expect(() => getSong(db(), sq(), song.id)).toThrow(NotFoundError);
   });
 
   it('rejects non-UUID ids before touching any path (R10)', async () => {
     await expect(
-      deleteSong(db(), sq(), '../etc/passwd', { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
+      deleteSong(store(), '../etc/passwd', { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
     ).rejects.toThrow(InvalidIdError);
     await expect(
-      deleteSong(db(), sq(), 'not-a-uuid', { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
+      deleteSong(store(), 'not-a-uuid', { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
     ).rejects.toThrow(InvalidIdError);
   });
 });
@@ -365,7 +366,7 @@ describe('the outbox (v0.2)', () => {
       .all(id) as { op: string; payload: string }[];
 
   it('emits a full create, in the same transaction as the row', () => {
-    const song = createSong(db(), sq(), {
+    const song = createSong(store(), {
       name: '晴天',
       artist: '周杰伦',
       source_provider: 'bilibili',
@@ -395,7 +396,7 @@ describe('the outbox (v0.2)', () => {
     expect(() =>
       sq()
         .transaction(() => {
-          createSongInTx(db(), { name: 'one' });
+          createSongInTx(store(), { name: 'one' });
           throw new Error('boom');
         })
         .immediate(),
@@ -404,8 +405,8 @@ describe('the outbox (v0.2)', () => {
   });
 
   it('emits an update, and nothing at all for local fields (R18)', () => {
-    const song = createSong(db(), sq(), { name: 'old' });
-    updateSong(db(), sq(), song.id, { name: 'new' });
+    const song = createSong(store(), { name: 'old' });
+    updateSong(store(), song.id, { name: 'new' });
     setPinned(db(), sq(), song.id, true);
     touchLastAccessed(db(), sq(), song.id, 123456);
     setFileOrigin(db(), sq(), song.id, 'imported');
@@ -415,14 +416,14 @@ describe('the outbox (v0.2)', () => {
   });
 
   it('stamps the registered device id once this library is bound', () => {
-    const before = createSong(db(), sq(), { name: 'unbound' });
+    const before = createSong(store(), { name: 'unbound' });
     expect(deviceIdOf(before.id)).toBeNull();
 
     setSkybridgeDeviceId(sq(), 'device-7');
-    const after = createSong(db(), sq(), { name: 'bound' });
+    const after = createSong(store(), { name: 'bound' });
     expect(deviceIdOf(after.id)).toBe('device-7');
 
-    updateSong(db(), sq(), before.id, { name: 'now bound' });
+    updateSong(store(), before.id, { name: 'now bound' });
     // The third element of the LWW key is the SERVER's id for this device —
     // the local device_uuid would mean nothing to a peer comparing keys.
     expect(deviceIdOf(before.id)).toBe('device-7');
@@ -444,7 +445,7 @@ describe('a duplicate source key (D8)', () => {
   }
 
   it('does not block editing either song', () => {
-    const mine = createSong(db(), sq(), {
+    const mine = createSong(store(), {
       name: 'mine',
       source_provider: 'bilibili',
       source_key: 'BVdup:1',
@@ -453,14 +454,14 @@ describe('a duplicate source key (D8)', () => {
 
     // The key did not change, so it is not re-checked — otherwise a duplicate
     // the user never created would make its own song unrenameable.
-    expect(updateSong(db(), sq(), mine.id, { name: 'renamed' }).name).toBe('renamed');
+    expect(updateSong(store(), mine.id, { name: 'renamed' }).name).toBe('renamed');
   });
 
   it('still refuses to move a key onto a song that already holds one', () => {
-    createSong(db(), sq(), { name: 'a', source_provider: 'bilibili', source_key: 'BVaa:1' });
-    const b = createSong(db(), sq(), { name: 'b' });
+    createSong(store(), { name: 'a', source_provider: 'bilibili', source_key: 'BVaa:1' });
+    const b = createSong(store(), { name: 'b' });
     expect(() =>
-      updateSong(db(), sq(), b.id, { source_provider: 'bilibili', source_key: 'BVaa:1' }),
+      updateSong(store(), b.id, { source_provider: 'bilibili', source_key: 'BVaa:1' }),
     ).toThrow(SourceKeyConflictError);
   });
 });
@@ -473,7 +474,7 @@ describe('songFileInfo', () => {
   };
 
   it('probes disk presence and size', () => {
-    const song = createSong(db(), sq(), { name: 's' });
+    const song = createSong(store(), { name: 's' });
     expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
     writeFileSync(join(songDir(song.id), 'song.m4a'), 'abcd');
     expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({
@@ -487,7 +488,7 @@ describe('songFileInfo', () => {
   // nothing else in the library would play it — and pending mode must, or the
   // CLI offers a download for audio that is sitting right there.
   it('sees a not-yet-converted mp3 only in migration-pending mode', () => {
-    const song = createSong(db(), sq(), { name: 'legacy' });
+    const song = createSong(store(), { name: 'legacy' });
     writeFileSync(join(songDir(song.id), 'song.mp3'), 'abcdef');
     expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
     expect(songFileInfo(song.id, { audioMode: 'migration-pending' })).toEqual({
@@ -499,7 +500,7 @@ describe('songFileInfo', () => {
   // A converted song whose mp3 has not been reclaimed yet: both files exist,
   // and the canonical one is the answer in either mode.
   it('prefers the canonical file when both are on disk', () => {
-    const song = createSong(db(), sq(), { name: 'both' });
+    const song = createSong(store(), { name: 'both' });
     const dir = songDir(song.id);
     writeFileSync(join(dir, 'song.m4a'), 'abcd');
     writeFileSync(join(dir, 'song.mp3'), 'abcdefghij');
@@ -519,8 +520,8 @@ describe('…InTx composition (M5 preview)', () => {
     expect(() =>
       sq()
         .transaction(() => {
-          createSongInTx(db(), { name: 'one' });
-          createSongInTx(db(), { name: 'two' });
+          createSongInTx(store(), { name: 'one' });
+          createSongInTx(store(), { name: 'two' });
           throw new Error('boom — import failed halfway');
         })
         .immediate(),

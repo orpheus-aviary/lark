@@ -12,6 +12,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { GoMigrationRequiredError, IncompatibleDbError } from '../errors.js';
 import type { Logger } from '../logger/index.js';
+import type { PortableDb } from '../portable/db.js';
 import {
   LATEST_KNOWN_VERSION,
   applyForwardMigrations,
@@ -36,6 +37,15 @@ export interface DatabaseOptions {
 export interface DatabaseHandles {
   db: LarkDatabase;
   sqlite: BetterSqlite3.Database;
+  /**
+   * The same two handles, as portable code takes them (N1c).
+   *
+   * THE construction point on this host: everything that needs the query
+   * builder and the raw connection in one transaction receives this object
+   * rather than deriving one from the other, so "the same connection" is
+   * established here once instead of being assumed everywhere.
+   */
+  portable: PortableDb;
 }
 
 /**
@@ -112,7 +122,10 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandles {
 
     ensureDeviceUuid(sqlite, logger);
 
-    return { db: drizzle(sqlite, { schema }), sqlite };
+    const db = drizzle(sqlite, { schema });
+    // The one place the pair is formed on this host, and the one place a
+    // desktop handle is checked against the portable shape (criterion 9).
+    return { db, sqlite, portable: { drizzle: db, sqlite } satisfies PortableDb };
   } catch (err) {
     sqlite.close();
     throw err;
@@ -158,19 +171,6 @@ export function ensureDeviceUuid(sqlite: BetterSqlite3.Database, logger?: Logger
     throw new Error('ensureDeviceUuid failed to persist a valid device_uuid');
   }
   return persisted.value;
-}
-
-/**
- * The raw handle drizzle is holding.
- *
- * v0.2 needs it inside the `…InTx` helpers: appending to the outbox is raw SQL
- * and MUST land in the same transaction as the business write it describes.
- * Taking it off the drizzle object rather than threading a second parameter
- * through fifteen signatures is what guarantees that — there is only one
- * connection here, so there is no way to pass the wrong one.
- */
-export function sqliteOf(db: LarkDatabase): BetterSqlite3.Database {
-  return db.$client;
 }
 
 export { schema };

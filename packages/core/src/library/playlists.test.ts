@@ -30,9 +30,10 @@ afterEach(() => {
 
 const db = () => handles.db;
 const sq = () => handles.sqlite;
+const store = () => handles.portable;
 
 function makeSongs(names: string[]): string[] {
-  return names.map((name) => createSong(db(), sq(), { name }).id);
+  return names.map((name) => createSong(store(), { name }).id);
 }
 
 function memberRows(playlistId: string) {
@@ -50,142 +51,142 @@ function memberIds(playlistId: string): string[] {
 
 describe('playlists CRUD', () => {
   it('create / rename / delete round-trip with LWW bump on rename', () => {
-    const pl = createPlaylist(db(), sq(), '我的最爱');
+    const pl = createPlaylist(store(), '我的最爱');
     expect(pl.song_count).toBe(0);
-    const renamed = renamePlaylist(db(), sq(), pl.id, '收藏');
+    const renamed = renamePlaylist(store(), pl.id, '收藏');
     expect(renamed.name).toBe('收藏');
-    deletePlaylist(db(), sq(), pl.id);
-    expect(() => renamePlaylist(db(), sq(), pl.id, 'x')).toThrow(NotFoundError);
+    deletePlaylist(store(), pl.id);
+    expect(() => renamePlaylist(store(), pl.id, 'x')).toThrow(NotFoundError);
   });
 
   it('listPlaylists carries member counts', () => {
-    const a = createPlaylist(db(), sq(), 'a');
-    const b = createPlaylist(db(), sq(), 'b');
+    const a = createPlaylist(store(), 'a');
+    const b = createPlaylist(store(), 'b');
     const songIds = makeSongs(['s1', 's2', 's3']);
-    addSongsToPlaylist(db(), sq(), a.id, songIds);
+    addSongsToPlaylist(store(), a.id, songIds);
     const listed = listPlaylists(db(), sq());
     expect(listed.find((p) => p.id === a.id)?.song_count).toBe(3);
     expect(listed.find((p) => p.id === b.id)?.song_count).toBe(0);
   });
 
   it('getPlaylist carries the member count and throws when absent', () => {
-    const pl = createPlaylist(db(), sq(), 'a');
+    const pl = createPlaylist(store(), 'a');
     expect(getPlaylist(db(), sq(), pl.id)).toMatchObject({ id: pl.id, name: 'a', song_count: 0 });
 
-    addSongsToPlaylist(db(), sq(), pl.id, makeSongs(['s1', 's2']));
+    addSongsToPlaylist(store(), pl.id, makeSongs(['s1', 's2']));
     expect(getPlaylist(db(), sq(), pl.id).song_count).toBe(2);
 
-    deletePlaylist(db(), sq(), pl.id);
+    deletePlaylist(store(), pl.id);
     expect(() => getPlaylist(db(), sq(), pl.id)).toThrow(NotFoundError);
   });
 
   it('deleting a playlist cascades its memberships', () => {
-    const pl = createPlaylist(db(), sq(), 'a');
-    addSongsToPlaylist(db(), sq(), pl.id, makeSongs(['s1', 's2']));
-    deletePlaylist(db(), sq(), pl.id);
+    const pl = createPlaylist(store(), 'a');
+    addSongsToPlaylist(store(), pl.id, makeSongs(['s1', 's2']));
+    deletePlaylist(store(), pl.id);
     expect(memberRows(pl.id)).toHaveLength(0);
   });
 });
 
 describe('membership', () => {
   it('appends at the tail in argument order, skipping existing members silently', () => {
-    const pl = createPlaylist(db(), sq(), 'p');
+    const pl = createPlaylist(store(), 'p');
     const [s1, s2, s3] = makeSongs(['s1', 's2', 's3']);
-    expect(addSongsToPlaylist(db(), sq(), pl.id, [s1, s2])).toBe(2);
+    expect(addSongsToPlaylist(store(), pl.id, [s1, s2])).toBe(2);
     // s1 is already a member — only s3 is added, at the tail
-    expect(addSongsToPlaylist(db(), sq(), pl.id, [s1, s3])).toBe(1);
+    expect(addSongsToPlaylist(store(), pl.id, [s1, s3])).toBe(1);
     expect(memberIds(pl.id)).toEqual([s1, s2, s3]);
     const ranks = memberRows(pl.id).map((m) => m.rank);
     expect(ranks).toEqual([RANK_STEP, 2 * RANK_STEP, 3 * RANK_STEP]);
   });
 
   it('rejects unknown songs and playlists', () => {
-    const pl = createPlaylist(db(), sq(), 'p');
+    const pl = createPlaylist(store(), 'p');
     expect(() =>
-      addSongsToPlaylist(db(), sq(), pl.id, ['9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001']),
+      addSongsToPlaylist(store(), pl.id, ['9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001']),
     ).toThrow(NotFoundError);
-    expect(() =>
-      addSongsToPlaylist(db(), sq(), '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001', []),
-    ).toThrow(NotFoundError);
+    expect(() => addSongsToPlaylist(store(), '9b2abf8a-6b31-40d4-a2f1-8e5c3d21a001', [])).toThrow(
+      NotFoundError,
+    );
   });
 
   it('removeSongFromPlaylist removes exactly the membership', () => {
-    const pl = createPlaylist(db(), sq(), 'p');
+    const pl = createPlaylist(store(), 'p');
     const [s1, s2] = makeSongs(['s1', 's2']);
-    addSongsToPlaylist(db(), sq(), pl.id, [s1, s2]);
-    removeSongFromPlaylist(db(), sq(), pl.id, s1);
+    addSongsToPlaylist(store(), pl.id, [s1, s2]);
+    removeSongFromPlaylist(store(), pl.id, s1);
     expect(memberIds(pl.id)).toEqual([s2]);
-    expect(() => removeSongFromPlaylist(db(), sq(), pl.id, s1)).toThrow(NotFoundError);
+    expect(() => removeSongFromPlaylist(store(), pl.id, s1)).toThrow(NotFoundError);
   });
 
   it('getPlaylistSongs returns songs in (rank, song_id) order', () => {
-    const pl = createPlaylist(db(), sq(), 'p');
+    const pl = createPlaylist(store(), 'p');
     const [s1, s2, s3] = makeSongs(['s1', 's2', 's3']);
-    addSongsToPlaylist(db(), sq(), pl.id, [s2, s3, s1]);
+    addSongsToPlaylist(store(), pl.id, [s2, s3, s1]);
     expect(getPlaylistSongs(db(), sq(), pl.id).map((s) => s.name)).toEqual(['s2', 's3', 's1']);
   });
 });
 
 describe('reorderSong — anchor contract', () => {
   function setup(): { pl: string; s: string[] } {
-    const pl = createPlaylist(db(), sq(), 'p').id;
+    const pl = createPlaylist(store(), 'p').id;
     const s = makeSongs(['A', 'B', 'C', 'D']);
-    addSongsToPlaylist(db(), sq(), pl, s);
+    addSongsToPlaylist(store(), pl, s);
     return { pl, s };
   }
 
   it('moves to the head with only before_song_id = first row', () => {
     const { pl, s } = setup();
-    reorderSong(db(), sq(), pl, s[3], { before_song_id: s[0] });
+    reorderSong(store(), pl, s[3], { before_song_id: s[0] });
     expect(memberIds(pl)).toEqual([s[3], s[0], s[1], s[2]]);
   });
 
   it('moves to the tail with only after_song_id = last row', () => {
     const { pl, s } = setup();
-    reorderSong(db(), sq(), pl, s[0], { after_song_id: s[3] });
+    reorderSong(store(), pl, s[0], { after_song_id: s[3] });
     expect(memberIds(pl)).toEqual([s[1], s[2], s[3], s[0]]);
   });
 
   it('moves between two adjacent anchors', () => {
     const { pl, s } = setup();
-    reorderSong(db(), sq(), pl, s[0], { after_song_id: s[1], before_song_id: s[2] });
+    reorderSong(store(), pl, s[0], { after_song_id: s[1], before_song_id: s[2] });
     expect(memberIds(pl)).toEqual([s[1], s[0], s[2], s[3]]);
   });
 
   it('adjacency is judged after excluding the moved row', () => {
     const { pl, s } = setup();
     // [A,B,C,D]: move B "between A and C" — with B excluded they ARE adjacent
-    reorderSong(db(), sq(), pl, s[1], { after_song_id: s[0], before_song_id: s[2] });
+    reorderSong(store(), pl, s[1], { after_song_id: s[0], before_song_id: s[2] });
     expect(memberIds(pl)).toEqual(s);
   });
 
   it('single-anchor insert lands between the anchor and its neighbor', () => {
     const { pl, s } = setup();
-    reorderSong(db(), sq(), pl, s[3], { before_song_id: s[1] });
+    reorderSong(store(), pl, s[3], { before_song_id: s[1] });
     expect(memberIds(pl)).toEqual([s[0], s[3], s[1], s[2]]);
   });
 
   it('rejects non-adjacent anchors instead of guessing', () => {
     const { pl, s } = setup();
     expect(() =>
-      reorderSong(db(), sq(), pl, s[3], { after_song_id: s[0], before_song_id: s[2] }),
+      reorderSong(store(), pl, s[3], { after_song_id: s[0], before_song_id: s[2] }),
     ).toThrow(InvalidReorderError);
   });
 
   it('rejects an empty anchor set', () => {
     const { pl, s } = setup();
-    expect(() => reorderSong(db(), sq(), pl, s[0], {})).toThrow(InvalidReorderError);
+    expect(() => reorderSong(store(), pl, s[0], {})).toThrow(InvalidReorderError);
   });
 
   it('rejects anchors from another playlist and unknown members', () => {
     const { pl, s } = setup();
-    const other = createPlaylist(db(), sq(), 'other').id;
+    const other = createPlaylist(store(), 'other').id;
     const [foreign] = makeSongs(['E']);
-    addSongsToPlaylist(db(), sq(), other, [foreign]);
-    expect(() => reorderSong(db(), sq(), pl, s[0], { before_song_id: foreign })).toThrow(
+    addSongsToPlaylist(store(), other, [foreign]);
+    expect(() => reorderSong(store(), pl, s[0], { before_song_id: foreign })).toThrow(
       NotFoundError,
     );
-    expect(() => reorderSong(db(), sq(), pl, foreign, { before_song_id: s[0] })).toThrow(
+    expect(() => reorderSong(store(), pl, foreign, { before_song_id: s[0] })).toThrow(
       NotFoundError,
     );
   });
@@ -196,7 +197,7 @@ describe('reorderSong — anchor contract', () => {
       new Map(memberRows(pl).map((m) => [m.song_id, { at: m.updated_at, counter: m.lww_counter }]));
     const before = keys();
 
-    reorderSong(db(), sq(), pl, s[0], { after_song_id: s[1], before_song_id: s[2] });
+    reorderSong(store(), pl, s[0], { after_song_id: s[1], before_song_id: s[2] });
 
     // Nobody's LWW triple moved, including the dragged row: rank travels on
     // its own channel, ordered by server_seq, and a value living in both
@@ -217,9 +218,9 @@ describe('reorderSong — anchor contract', () => {
 
 describe('rank midpoint exhaustion → in-tx normalization', () => {
   it('repeated same-gap inserts trigger normalization within a bounded count', () => {
-    const pl = createPlaylist(db(), sq(), 'p').id;
+    const pl = createPlaylist(store(), 'p').id;
     const [anchorA, anchorB] = makeSongs(['A', 'B']);
-    addSongsToPlaylist(db(), sq(), pl, [anchorA, anchorB]); // ranks 1024, 2048
+    addSongsToPlaylist(store(), pl, [anchorA, anchorB]); // ranks 1024, 2048
 
     const anchorARow = () =>
       db()
@@ -241,10 +242,10 @@ describe('rank midpoint exhaustion → in-tx normalization', () => {
     let rounds = 0;
     let expectedOrder: string[] = [anchorA, anchorB];
     for (; rounds < 120 && !normalized; rounds++) {
-      const fresh = createSong(db(), sq(), { name: `w${rounds}` }).id;
-      addSongsToPlaylist(db(), sq(), pl, [fresh]);
+      const fresh = createSong(store(), { name: `w${rounds}` }).id;
+      addSongsToPlaylist(store(), pl, [fresh]);
       const currentSecond = expectedOrder[1];
-      reorderSong(db(), sq(), pl, fresh, {
+      reorderSong(store(), pl, fresh, {
         after_song_id: anchorA,
         before_song_id: currentSecond,
       });
@@ -298,13 +299,13 @@ describe('rank midpoint exhaustion → in-tx normalization', () => {
 
 describe('…InTx composition across songs and playlists', () => {
   it('one enclosing transaction wraps song creation and playlist fill', () => {
-    const pl = createPlaylist(db(), sq(), 'import-target').id;
+    const pl = createPlaylist(store(), 'import-target').id;
     expect(() =>
       sq()
         .transaction(() => {
-          const id1 = createSongInTx(db(), { name: 'i1' }).id;
-          const id2 = createSongInTx(db(), { name: 'i2' }).id;
-          addSongsToPlaylistInTx(db(), pl, [id1, id2]);
+          const id1 = createSongInTx(store(), { name: 'i1' }).id;
+          const id2 = createSongInTx(store(), { name: 'i2' }).id;
+          addSongsToPlaylistInTx(store(), pl, [id1, id2]);
           throw new Error('import validation failed at song 3');
         })
         .immediate(),
@@ -326,8 +327,8 @@ describe('the outbox (v0.2)', () => {
       .get(entityType, entityId);
 
   it('emits create and update for the playlist itself', () => {
-    const pl = createPlaylist(db(), sq(), '我的最爱');
-    renamePlaylist(db(), sq(), pl.id, '收藏');
+    const pl = createPlaylist(store(), '我的最爱');
+    renamePlaylist(store(), pl.id, '收藏');
     expect(changes().map((c) => `${c.entity_type}.${c.op}`)).toEqual([
       'playlist.create',
       'playlist.update',
@@ -335,9 +336,9 @@ describe('the outbox (v0.2)', () => {
   });
 
   it('emits create AND set_rank for every add, in that order (R4-2)', () => {
-    const pl = createPlaylist(db(), sq(), 'p').id;
+    const pl = createPlaylist(store(), 'p').id;
     const [a, b] = makeSongs(['A', 'B']);
-    addSongsToPlaylist(db(), sq(), pl, [a, b]);
+    addSongsToPlaylist(store(), pl, [a, b]);
 
     const membership = changes().filter((c) => c.entity_type === 'playlist_song');
     expect(membership.map((c) => `${c.op}:${c.entity_id}`)).toEqual([
@@ -354,19 +355,19 @@ describe('the outbox (v0.2)', () => {
   });
 
   it('adding an existing member emits nothing', () => {
-    const pl = createPlaylist(db(), sq(), 'p').id;
+    const pl = createPlaylist(store(), 'p').id;
     const [a] = makeSongs(['A']);
-    addSongsToPlaylist(db(), sq(), pl, [a]);
+    addSongsToPlaylist(store(), pl, [a]);
     const before = changes().length;
-    expect(addSongsToPlaylist(db(), sq(), pl, [a])).toBe(0);
+    expect(addSongsToPlaylist(store(), pl, [a])).toBe(0);
     expect(changes()).toHaveLength(before);
   });
 
   it('leaves a revivable tombstone when a member is removed', () => {
-    const pl = createPlaylist(db(), sq(), 'p').id;
+    const pl = createPlaylist(store(), 'p').id;
     const [a] = makeSongs(['A']);
-    addSongsToPlaylist(db(), sq(), pl, [a]);
-    removeSongFromPlaylist(db(), sq(), pl, a);
+    addSongsToPlaylist(store(), pl, [a]);
+    removeSongFromPlaylist(store(), pl, a);
 
     const last = changes().at(-1);
     expect(`${last?.entity_type}.${last?.op}`).toBe('playlist_song.delete');
@@ -376,10 +377,10 @@ describe('the outbox (v0.2)', () => {
   });
 
   it('says nothing about the memberships a playlist delete cascades', () => {
-    const pl = createPlaylist(db(), sq(), 'p').id;
+    const pl = createPlaylist(store(), 'p').id;
     const [a, b] = makeSongs(['A', 'B']);
-    addSongsToPlaylist(db(), sq(), pl, [a, b]);
-    deletePlaylist(db(), sq(), pl);
+    addSongsToPlaylist(store(), pl, [a, b]);
+    deletePlaylist(store(), pl);
 
     const after = changes().filter((c) => c.entity_type === 'playlist_song' && c.op === 'delete');
     // A peer applying the playlist's delete cascades its own copies; a
