@@ -24,7 +24,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { FfmpegError } from '../errors.js';
-import { DEFAULT_TIMEOUTS, type DownloadTimeouts, withTimeout } from './timeouts.js';
+import {
+  DEFAULT_TIMEOUTS,
+  type DownloadTimeouts,
+  withTimeout,
+} from '../portable/download/timeouts.js';
 
 const execFileAsync = promisify(execFile);
 

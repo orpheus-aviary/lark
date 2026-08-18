@@ -25,9 +25,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FfmpegError } from '../errors.js';
 import { probeCapabilities } from '../media-tools/capabilities.js';
 import { type ResolvedMediaTools, resolveMediaTools } from '../media-tools/resolve.js';
+import { DEFAULT_TIMEOUTS } from '../portable/download/timeouts.js';
 import { toneWav } from '../testing/tone-wav.js';
 import { type AudioProbe, planAudioConversion, probeAudio, processAudio } from './ffmpeg.js';
-import { DEFAULT_TIMEOUTS } from './timeouts.js';
 
 let dir = '';
 let tools: ResolvedMediaTools;

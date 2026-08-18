@@ -15,13 +15,13 @@ import { mkdir, readdir, rename, rm, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SYNC_FILE_OP_MAX_ATTEMPTS } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
-import { ClaimRegistry } from '../download/claims.js';
 import { FileOpBusyError, FileOpNotFoundError, SongBusyError } from '../errors.js';
 import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE, writeLyricsFile } from '../library/lyrics.js';
 import type { StructuredLogger } from '../logger/index.js';
 import { nodeFileContext } from '../node-fs.js';
 import { songAudioPath, songDirPath, songLyricsPath } from '../paths.js';
 import { recoveredSongsDir } from '../paths.js';
+import { ClaimRegistry } from '../portable/download/claims.js';
 import { uuid } from '../portable/runtime/random.js';
 import { recordDeadLetter } from './changes.js';
 import {

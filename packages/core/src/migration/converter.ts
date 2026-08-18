@@ -20,11 +20,11 @@ import { existsSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:
 import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { type AudioProbe, probeAudio, processAudio } from '../download/ffmpeg.js';
-import type { DownloadTimeouts } from '../download/timeouts.js';
 import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE } from '../library/lyrics.js';
 import type { StructuredLogger } from '../logger/index.js';
 import type { ResolvedMediaTools } from '../media-tools/resolve.js';
 import { songsDir } from '../paths.js';
+import type { DownloadTimeouts } from '../portable/download/timeouts.js';
 import { backupPathFor, moveWithoutOverwrite } from './backup.js';
 import { classifyMigrationError } from './error-class.js';
 import {

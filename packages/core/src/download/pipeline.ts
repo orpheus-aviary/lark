@@ -23,17 +23,22 @@ import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../err
 import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { PortableDb } from '../portable/db.js';
+import type { BiliPage, BilibiliClient } from '../portable/download/bilibili.js';
+import { type NormalizedSource, normalizeSourceOnline } from '../portable/download/link.js';
+import { chatCompletion, cleanLlmJson } from '../portable/download/llm.js';
+import { fetchLyrics } from '../portable/download/lyrics/select.js';
+import type { LyricsOrigins } from '../portable/download/lyrics/shared.js';
+import {
+  ANALYZE_PROMPT,
+  INFER_SONG_INFO_PROMPT,
+  multiPPrompt,
+  selectPrompt,
+} from '../portable/download/prompts.js';
+import type { DownloadTarget } from '../portable/download/target.js';
+import type { DownloadTimeouts } from '../portable/download/timeouts.js';
 import type { FileContext } from '../portable/ports/fs.js';
-import type { BiliPage, BilibiliClient } from './bilibili.js';
 import { probeAudio, processAudio } from './ffmpeg.js';
-import { type NormalizedSource, normalizeSourceOnline } from './link.js';
-import { chatCompletion, cleanLlmJson } from './llm.js';
-import { fetchLyrics } from './lyrics/select.js';
-import type { LyricsOrigins } from './lyrics/shared.js';
-import { ANALYZE_PROMPT, INFER_SONG_INFO_PROMPT, multiPPrompt, selectPrompt } from './prompts.js';
 import { stagePaths } from './resolve.js';
-import type { DownloadTarget } from './target.js';
-import type { DownloadTimeouts } from './timeouts.js';
 
 export interface PipelineDeps {
   /** The library, as one connection (N1c) — drizzle and the raw handle together. */

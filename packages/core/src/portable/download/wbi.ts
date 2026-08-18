@@ -19,8 +19,8 @@
 // fetches touch the network.
 
 import { BilibiliApiError } from '../errors.js';
-import { md5Hex } from '../portable/runtime/digest.js';
-import { randomBytes } from '../portable/runtime/random.js';
+import { md5Hex } from '../runtime/digest.js';
+import { randomBytes } from '../runtime/random.js';
 
 /** bilibili's fixed permutation of the 64-char img+sub concatenation. */
 const MIXIN_KEY_ENC_TAB = [

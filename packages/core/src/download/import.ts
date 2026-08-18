@@ -35,10 +35,10 @@ import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { ResolvedMediaTools } from '../media-tools/resolve.js';
 import { songDirPath } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
+import type { DownloadTimeouts } from '../portable/download/timeouts.js';
 import { uuid } from '../portable/runtime/random.js';
 import { type AudioProbe, probeAudio, processAudio } from './ffmpeg.js';
 import { landSongFile, stagePaths } from './resolve.js';
-import type { DownloadTimeouts } from './timeouts.js';
 
 export interface ImportOptions {
   signal?: AbortSignal;

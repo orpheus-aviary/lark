@@ -6,8 +6,8 @@
 // continues on whatever the other two found. Lyrics are the one part of a
 // download allowed to come back empty.
 
-import { base64ToBytes } from '../../portable/runtime/base64.js';
-import { decodeUtf8 } from '../../portable/runtime/text.js';
+import { base64ToBytes } from '../../runtime/base64.js';
+import { decodeUtf8 } from '../../runtime/text.js';
 import { DEFAULT_TIMEOUTS, type DownloadTimeouts, withTimeout } from '../timeouts.js';
 
 /** Per-platform candidate cap (Go parity) — the pool tops out at 9. */

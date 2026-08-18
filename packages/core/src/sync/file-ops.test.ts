@@ -13,10 +13,10 @@ import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
-import { ClaimRegistry } from '../download/claims.js';
 import { FileOpBusyError, FileOpNotFoundError } from '../errors.js';
 import { songAudioPath, songLyricsPath } from '../paths.js';
 import { recoveredSongsDir, songsDir } from '../paths.js';
+import { ClaimRegistry } from '../portable/download/claims.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
 // The suite stays whole across N1b's split: what it tests is the journal's
 // end-to-end contract — a decision written down in a transaction, then made

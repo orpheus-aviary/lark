@@ -13,9 +13,9 @@ import {
   type TaskErrorCode,
 } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import { describeTaskError } from './download/task-data.js';
 import * as errors from './errors.js';
 import { CodedError, InvalidSourceError, NotFoundError, SourceKeyConflictError } from './errors.js';
+import { describeTaskError } from './portable/download/task-data.js';
 import * as portableErrors from './portable/errors.js';
 
 /** Every exported class extending CodedError, with a throwaway instance. */

@@ -57,14 +57,25 @@ import { findSongByKey } from '../library/source.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import { songAudioPath, songDirPath } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
+import { type BilibiliClient, createBilibiliClient } from '../portable/download/bilibili.js';
+import { ClaimRegistry } from '../portable/download/claims.js';
+import { isLlmConfigured } from '../portable/download/llm.js';
+import type { LyricsOrigins } from '../portable/download/lyrics/shared.js';
+import type { DownloadTarget } from '../portable/download/target.js';
+import {
+  POINT_OF_NO_RETURN,
+  type TaskRecord,
+  claimTypeFor,
+  describeTaskError,
+  downloadDedupeKey,
+  isTerminal,
+  toTaskData,
+} from '../portable/download/task-data.js';
+import { DEFAULT_TIMEOUTS, type DownloadTimeouts } from '../portable/download/timeouts.js';
 import type { FileContext } from '../portable/ports/fs.js';
 import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
-import { type BilibiliClient, createBilibiliClient } from './bilibili.js';
-import { ClaimRegistry } from './claims.js';
-import { isLlmConfigured } from './llm.js';
-import type { LyricsOrigins } from './lyrics/shared.js';
 import {
   type PipelineDeps,
   type ResolvedTarget,
@@ -76,19 +87,8 @@ import {
   runLyrics,
 } from './pipeline.js';
 import { landSongFile } from './resolve.js';
-import type { DownloadTarget } from './target.js';
-import {
-  POINT_OF_NO_RETURN,
-  type TaskRecord,
-  claimTypeFor,
-  describeTaskError,
-  downloadDedupeKey,
-  isTerminal,
-  toTaskData,
-} from './task-data.js';
-import { DEFAULT_TIMEOUTS, type DownloadTimeouts } from './timeouts.js';
 
-export { describeTaskError, downloadDedupeKey } from './task-data.js';
+export { describeTaskError, downloadDedupeKey } from '../portable/download/task-data.js';
 
 /** How the two naming modes read in a refusal. */
 const NAMING_LABEL: Record<DownloadNamingMode, string> = {

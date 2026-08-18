@@ -27,14 +27,14 @@ import { nodeFileContext } from '../node-fs.js';
 import { songLyricsPath } from '../paths.js';
 import { songsDir } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
+import { createBilibiliClient } from '../portable/download/bilibili.js';
+import { DEFAULT_TIMEOUTS } from '../portable/download/timeouts.js';
 import { songs } from '../portable/schema.js';
 import { fakeMediaTools } from '../testing/fake-media-tools.js';
 import type { FakeUpstream } from '../testing/fake-upstream.js';
 import { startFakeUpstream } from '../testing/fake-upstream.js';
 import { toneWav } from '../testing/tone-wav.js';
-import { createBilibiliClient } from './bilibili.js';
 import { DownloadEngine, describeTaskError, downloadDedupeKey } from './engine.js';
-import { DEFAULT_TIMEOUTS } from './timeouts.js';
 
 const BVID = 'BV1Ki4y1y7HC';
 const NO_LLM: LlmConfig = { url: '', model: '', api_key: '', api_format: '' };
