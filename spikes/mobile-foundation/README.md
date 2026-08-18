@@ -14,11 +14,17 @@ core's business modules are Node-only until N1 ports them (`wbi.ts` reaches
 straight for `node:crypto`, `backfill.ts` for `node:fs/promises`, and apply's
 dependency graph gets to both). Metro cannot resolve them. So:
 
-1. **Of our own packages, this spike may import exactly three**:
+1. **Of our own packages, the BUNDLE may import exactly three**:
    `@lark/core/portable`, `@lark/shared`, and the skybridge SDK
    (`@orpheus-aviary/skybridge-client` / `-proto`).
    `scripts/check-spike-mobile-imports.sh` enforces it and runs in `just check`.
    Third-party dependencies are out of that guard's scope by design.
+
+   The one exemption: `scripts/*.mjs` run on the desktop under Node, never in
+   Metro's graph, and their job is to produce the fixtures the device is
+   forbidden to compute — so they may use the real `@lark/core`. Producing a WBI
+   signature with anything else would be the self-agreement the guard exists to
+   prevent.
 
 2. **Never copy core's logic in here to "verify" core.** A probe that
    reimplements WBI signing is verifying the reimplementation. Probes send bare
@@ -54,8 +60,14 @@ Criteria fall into three kinds, and only the first is self-checking:
   on-device half of criterion 6). `src/sqlite/op-sqlite-hooks.ts` is the
   criterion 16 comparison.
 - `src/panels/` — bootstrap rehearsal (15), contract driver (14), the two
-  drizzle probes (17a/17b) over a shared counting Proxy, and N0b-3's three:
-  `workload.ts` (18, statement-shape proxies), `crypto.ts` (20), `globals.ts` (21).
+  drizzle probes (17a/17b) over a shared counting Proxy, N0b-3's three:
+  `workload.ts` (18, statement-shape proxies), `crypto.ts` (20), `globals.ts` (21),
+  and N0b-4's two: `bilibili.ts` (23 + criterion 19's stream half),
+  `skybridge.ts` (22).
+- `src/fixtures.ts` — the N0b-4 fixtures, fetched from the probe host at run
+  time rather than bundled. bilibili's stream URLs expire in about two hours and
+  the skybridge account is created per `sync-host.mjs` run; compiling either in
+  would mean a rebuild per staleness.
 - `src/measure.ts` — §3.2a in code: warmup, nearest-rank p95, cold-start max —
   and `judge()`, which returns `null` on a dev bundle so that a debug run
   cannot render a verdict at all.
@@ -63,9 +75,12 @@ Criteria fall into three kinds, and only the first is self-checking:
   expected digests, UTF-8 byte lengths and base64 decodes, computed on the
   desktop by `node:crypto` and `Buffer` — the implementations core calls. A
   device that produced its own expectations would only be agreeing with itself.
-- `scripts/` — host-side, never bundled: `probe-host.mjs` (the fetch peer and
-  the results sink), `drive.mjs` (press the panel's buttons by label),
-  `make-desktop-fixtures.mjs`.
+- `scripts/` — host-side, never bundled: `probe-host.mjs` (the fetch peer, the
+  results sink, the fixture service and the SSE nudge), `drive.mjs` (press the
+  panel's buttons by label), `make-desktop-fixtures.mjs`,
+  `make-network-fixtures.mjs` (the WBI three-piece, `openAudio()`'s header set
+  and the two audio tracks, all from the real core), `sync-host.mjs` (a
+  throwaway skybridge server for criterion 22).
 - `app.config.ts` — the whole native configuration (CNG). `android/` is
   generated and untracked; anything that can only be said by hand-editing it
   belongs in a config plugin.
@@ -122,7 +137,27 @@ just spike-mobile-android          # debug build + install + Metro
 just spike-mobile-android-release  # release build — REQUIRED for every numeric criterion
 just spike-mobile-probe-host       # adb reverse + the fetch peer / results sink
 just spike-mobile-fixtures         # regenerate src/desktop-fixtures.ts
+just spike-mobile-fixtures-network # N0b-4: WBI three-piece + header set (+ --audio)
+just spike-mobile-sync-host        # a real skybridge server on :8097
 ```
+
+## The audio fixtures, and why a stream URL is not portable
+
+`just spike-mobile-fixtures-network --audio` downloads bilibili's raw AAC-in-MP4
+bytes with no remux at all — criterion 19 asks whether Android plays what
+bilibili sends, and a fixture that had been through ffmpeg would answer a
+friendlier question. Two tracks: a 2:17 song from the user's own favlist (its
+shortest entry — there is no ~1min track in it) and a 37:07 part for the seek
+and duration work, which had to come from a search because nothing in the
+favlist reaches 35 minutes.
+
+MEASURED, and it shapes the probes: playurl hands out a CDN node chosen for the
+**caller's** address. The URL minted on the desktop's Wi-Fi named
+`cn-bj-cc-03-02.bilivideo.com`, and over China Telecom 5G that host resolves but
+never answers — from the app and from `adb shell curl` alike. So the stream
+probe runs its header matrix twice: once against the desktop's URL and once
+against one the phone asked for itself. Only the second can answer "can this
+radio pull audio".
 
 **A release APK can still run the debug bundle.** `expo-dev-client` is in this
 spike's dependencies, so `expo run:android --variant release` launches it

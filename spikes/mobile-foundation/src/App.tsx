@@ -15,12 +15,14 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BUILD_IS_DEV, RUNTIME_LABEL } from './measure';
+import { type NetProbeRow, runBilibiliPanel } from './panels/bilibili';
 import { type BootstrapStep, rehearseFreshLibrary } from './panels/bootstrap';
 import { type ContractRun, runContract } from './panels/contract';
 import { type CryptoRow, runCryptoPanel } from './panels/crypto';
 import { type LifecycleProbe, probeDrizzleLifecycle } from './panels/drizzle-lifecycle';
 import { type MatrixRun, runDrizzleMatrix } from './panels/drizzle-matrix';
 import { type GlobalRow, runGlobalsPanel } from './panels/globals';
+import { type SyncProbeRow, runSkybridgePanel } from './panels/skybridge';
 import {
   type WorkloadRow,
   derivedBatchSize,
@@ -58,6 +60,9 @@ export function App() {
   const [workload, setWorkload] = useState<WorkloadRow[] | null>(null);
   const [crypto, setCrypto] = useState<CryptoRow[] | null>(null);
   const [globals, setGlobals] = useState<GlobalRow[] | null>(null);
+  const [bilibili, setBilibili] = useState<NetProbeRow[] | null>(null);
+  const [skybridge, setSkybridge] = useState<SyncProbeRow[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [crashed, setCrashed] = useState<string | null>(null);
 
   const run = (fn: () => void) => () => {
@@ -77,6 +82,27 @@ export function App() {
       setCrashed(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
     });
   };
+
+  // The network panels take tens of seconds (real requests, a 15s SSE wait),
+  // and a panel that looks idle while it works is one the driver script cannot
+  // wait for. `busy` is that signal, and it is also what `drive.mjs` polls.
+  const runNetwork =
+    <T,>(label: string, fn: () => Promise<T>, set: (rows: T) => void) =>
+    () => {
+      setCrashed(null);
+      setBusy(label);
+      fn()
+        .then((rows) => {
+          set(rows);
+          reportToHost(label, { runtime: RUNTIME_LABEL, dev: BUILD_IS_DEV, rows });
+        })
+        .catch((err: unknown) => {
+          setCrashed(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+        })
+        .finally(() => {
+          setBusy(null);
+        });
+    };
 
   const workloadRun = (label: string, fn: () => WorkloadRow[]) => () => {
     const rows = fn();
@@ -340,6 +366,79 @@ export function App() {
           </View>
         ))}
 
+        <Text style={styles.section}>bilibili + audio stream (criteria 23, 19's probe)</Text>
+        <Text style={styles.detail}>
+          Fixtures come from the desktop's real core over the probe host; run `just
+          spike-mobile-fixtures-network` first, and note which network the phone is on.
+        </Text>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork('bilibili', runBilibiliPanel, setBilibili)}
+        >
+          <Text style={styles.buttonText}>Probe bilibili</Text>
+        </Pressable>
+        {bilibili?.map((r) => (
+          <View key={`${r.group}/${r.name}`} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.group} › {r.name}
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+          </View>
+        ))}
+
+        <Text style={styles.section}>skybridge SDK (criterion 22)</Text>
+        <Text style={styles.detail}>
+          Needs `just spike-mobile-sync-host`. login / pushChanges / pullChanges / refresh are the
+          four hard gates; SSE is soft.
+        </Text>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork('skybridge', runSkybridgePanel, setSkybridge)}
+        >
+          <Text style={styles.buttonText}>Run skybridge probes</Text>
+        </Pressable>
+        {skybridge ? (
+          <Text style={styles.summary}>
+            gates {skybridge.filter((r) => r.gate && r.ok === true).length}/
+            {skybridge.filter((r) => r.gate).length} ·{' '}
+            {skybridge.filter((r) => r.ok === false).length} failed
+          </Text>
+        ) : null}
+        {skybridge?.map((r) => (
+          <View key={r.name} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.name}{' '}
+              <Text style={styles.ms}>{r.ms}ms</Text>
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+          </View>
+        ))}
+
+        {busy ? <Text style={styles.busy}>running {busy}…</Text> : null}
         {crashed ? <Text style={styles.crashed}>runner threw: {crashed}</Text> : null}
       </ScrollView>
     </View>
@@ -356,6 +455,7 @@ const styles = StyleSheet.create({
   rowTitle: { color: '#f4f4f5', fontSize: 13 },
   detail: { color: '#a1a1aa', fontSize: 12 },
   ms: { color: '#52525b', fontSize: 11 },
+  busy: { color: '#f59e0b', fontSize: 13, marginTop: 12 },
   crashed: { color: '#ef4444', fontSize: 13, marginTop: 12 },
   warning: { color: '#f59e0b' },
   button: {

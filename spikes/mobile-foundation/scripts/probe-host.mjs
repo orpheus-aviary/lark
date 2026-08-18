@@ -21,15 +21,75 @@
 // The device reaches it at http://localhost:8099 through `adb reverse`, which
 // the just recipe sets up.
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { createSkybridgeClient, login } from '@orpheus-aviary/skybridge-client';
 
 const PORT = Number(process.env.PROBE_PORT ?? 8099);
 const OUT_DIR = fileURLToPath(new URL('../.runtime/', import.meta.url));
 mkdirSync(OUT_DIR, { recursive: true });
 
+const NETWORK_FIXTURES = `${OUT_DIR}network-fixtures.json`;
+const SKYBRIDGE_HOST = `${OUT_DIR}skybridge-host.json`;
+
 const log = (...args) => console.log(new Date().toISOString().slice(11, 19), ...args);
+
+const readJson = (path) => {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (err) {
+    log(`could not read ${path}: ${err instanceof Error ? err.message : err}`);
+    return null;
+  }
+};
+
+/**
+ * The desktop's own skybridge client, for the SSE half of criterion 22.
+ *
+ * The event has to come from SOMEWHERE ELSE: a device that pushes a change and
+ * then sees it arrive over SSE has not shown that the stream carries other
+ * devices' work, and whether a server echoes a device to itself is the server's
+ * business, not the platform's.
+ */
+let nudgeClient = null;
+let nudgeSeq = 0;
+
+async function nudgeChange() {
+  const host = readJson(SKYBRIDGE_HOST);
+  if (host === null) throw new Error('no .runtime/skybridge-host.json — run sync-host.mjs first');
+
+  if (nudgeClient === null) {
+    const auth = await login(host.hostBaseUrl, host.email, host.password);
+    const bootstrap = createSkybridgeClient({ authContext: auth });
+    const device = await bootstrap.registerDevice({
+      name: 'desktop-nudge',
+      appVersion: 'lark spike probe-host',
+      clientVersion: '0.1.4',
+    });
+    const client = createSkybridgeClient({ authContext: auth, deviceId: device.id });
+    const workspace = await client.ensureWorkspace(host.workspaceTool, host.workspaceName);
+    nudgeClient = { client, workspaceId: workspace.id, deviceId: device.id };
+    log(
+      `nudge client ready: device ${device.id.slice(0, 8)}… workspace ${workspace.id.slice(0, 8)}…`,
+    );
+  }
+
+  nudgeSeq += 1;
+  const change = {
+    clientChangeId: `nudge-${Date.now()}-${nudgeSeq}`,
+    entityType: 'spike_nudge',
+    entityId: `nudge-${nudgeSeq}`,
+    op: 'update',
+    payload: { from: 'desktop', seq: nudgeSeq, at: Date.now() },
+    clientLocalSeq: nudgeSeq,
+    clientCreatedAt: Date.now(),
+    attachmentRefs: null,
+  };
+  const result = await nudgeClient.client.pushChanges(nudgeClient.workspaceId, [change]);
+  return { pushed: change.clientChangeId, workspaceId: nudgeClient.workspaceId, result };
+}
 
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
@@ -53,6 +113,42 @@ const server = createServer((req, res) => {
       log(`← ${name}: ${body.length} bytes → ${file}`);
       res.writeHead(200, { 'content-type': 'application/json' }).end('{"ok":true}');
     });
+    return;
+  }
+
+  // The N0b-4 fixtures, served rather than bundled: bilibili's stream URLs carry
+  // a `deadline` about two hours out, so a fixture compiled into the app would
+  // need a rebuild every time it went stale. The device asks for it at the
+  // start of every network panel and reports its age.
+  if (req.method === 'GET' && path === '/fixtures/network') {
+    const network = readJson(NETWORK_FIXTURES);
+    const skybridge = readJson(SKYBRIDGE_HOST);
+    log(
+      `→ /fixtures/network (bilibili ${network === null ? 'MISSING' : 'ok'}, ` +
+        `skybridge ${skybridge === null ? 'MISSING' : 'ok'})`,
+    );
+    res
+      .writeHead(200, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ network, skybridge, servedAt: Date.now() }));
+    return;
+  }
+
+  // Criterion 22's soft half: make something happen in the workspace that the
+  // device did not do itself, so its SSE subscription has something to receive.
+  if (req.method === 'POST' && path === '/skybridge/nudge') {
+    log('→ /skybridge/nudge');
+    nudgeChange()
+      .then((result) => {
+        log(`  pushed ${result.pushed}`);
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        log(`  nudge failed: ${message}`);
+        res
+          .writeHead(500, { 'content-type': 'application/json' })
+          .end(JSON.stringify({ error: message }));
+      });
     return;
   }
 

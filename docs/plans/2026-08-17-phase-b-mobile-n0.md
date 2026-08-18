@@ -561,6 +561,42 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 - **`git push | tail` 那条坑换了个身**：`just … | tail -30` 让后台任务报了 exit 0，而 recipe 其实失败了。管道吞退出码不分场合。
 - **`spikes/**/fixtures/` 在仓库 .gitignore 里**（M0 spike 的二进制夹具）：桌面产的期望值文件必须提交，所以它是 `src/desktop-fixtures.ts` 而不是 `src/fixtures/desktop.ts`。
 
+### N0b-4a（2026-08-18）判据 22、23 与判据 19 的**流探针一半**
+
+落点：桌面 `scripts/{make-network-fixtures,sync-host}.mjs` + `probe-host.mjs` 增两个端点（`GET /fixtures/network` 服务夹具、`POST /skybridge/nudge` 制造对端事件）+ 设备侧 `src/fixtures.ts` 与 `src/panels/{bilibili,skybridge}.ts` + 守卫的一条豁免 + 两条 just recipe。真机 vivo V2408A / Android 15，**debug 构建**——本批没有一个百分位数，§3.2a 只约束性能/数值判据（14/17/18/20/26），行为判据不绑 release。
+
+**夹具不进 bundle，改由 probe host 现供**：bilibili 的流 URL 带 `deadline`（实测 **120 分钟**），skybridge 账号每次 `sync-host.mjs` 新建——编进 APK 就等于「签名过期一次、重打一次包」。`src/desktop-fixtures.ts`（摘要/字节长度那批，永恒值）照旧编译进去，两者的区别写在 `fixtures.ts` 头部。
+
+**音频夹具（判据 19 的输入，已产并 push）**：`songs` 全程零 remux，ffprobe 读的是原样字节。
+
+| | 来源 | 时长（ffprobe） | 大小 | 流 |
+|---|---|---|---|---|
+| short | 用户收藏夹 3975154248「测试收藏夹」的**最短一条**（BV176M3zPEZu，2:17） | 136.835s | 3.5MB | aac 44.1kHz 2ch，`mp4a.40.2` 215675bps |
+| long | **不在收藏夹里**——12 条最长 4:53，够不到 §3.2 的 ≥35min，故搜来一条（BV1LtgV6ZE2U p1） | 2226.646s（37:07） | 51.8MB | aac 48kHz 2ch，`mp4a.40.2` 194978bps |
+
+- **判据 22 绿（四条硬 gate 全过）**：`login`（37ms，带 refresh + server_id）· `pushChanges`（20ms，accepted 1）· `pullChanges`（20ms，**payload 原样回来**，不只是形状对）· `refresh`（24ms，**拿轮换后的 token 真发了一次 `listDevices`**——旧 token 还有效，所以不这么做就分不清「轮换了」与「轮换的能用」）。registerDevice / ensureWorkspace 顺带绿。
+  - **SSE 软判据也全绿**：`subscribeEvents` 312ms 开流；**桌面推的那条**（probe host 的 nudge，另一台设备身份）经 `onChange(latestSeq 3)` 到达；`unsubscribe` 之后 3 秒零帧。事件必须来自对端才算数——自己推自己收只证明了服务器的回声策略。
+- **判据 23 绿（Wi-Fi 与移动网络各一遍，双网络都无硬阻断）**：`md5` 端口对桌面 canonical 串产出**同一个 `w_rid`** · 桌面签的 search URL 在手机上 `code 0` · 免签三端点 `view`/`pagelist`/`playurl` 全 `code 0`。**两种网络下 API 侧完全一致。**
+- **判据 19 的流探针（E-1.3 的 header 矩阵）**：全量 header 集先复现成功，再逐项删除。
+
+| 网络 | URL 来源 | 节点 | 全量集 | 去 UA | 去 Referer | 去 Cookie | 全去 |
+|---|---|---|---|---|---|---|---|
+| Wi-Fi | 桌面签 | `cn-bj-cc-03-02.bilivideo.com` | 206 `video/mp4` | 206 | **403** | 206 | **403** |
+| Wi-Fi | 设备自取 | 同上（同一出口） | 206 `video/mp4` | 206 | **403** | 206 | **403** |
+| 移动（电信 5G） | 桌面签 | 同上 | **连不上**（20s 取消） | — | — | — | — |
+| 移动（电信 5G） | 设备自取 | `xy220x202x9x161xy.mcdn.bilivideo.cn:8082` | 206 `application/octet-stream` | 206 | 206 | 206 | **206** |
+
+**本批实测锁定**
+
+- 🔴 **流 URL 只在签发它的那张网上有效**：playurl 按**调用方 IP** 派 CDN 节点。桌面在家宽拿到的 `cn-bj-cc-03-02`（124.205.198.67）在电信 5G 上 DNS 解得出、连不上——app 20s 取消，`adb shell curl --max-time 25` 也是 `status=000` 且 `remote_ip` 为空，而同一根天线上 `api.bilibili.com` 一切正常。**探针因此跑两遍矩阵**：桌面签的那条仍有价值（它是 core 真会拉的字节），但只有设备自取的那条能回答「这张网能不能拉音频」。设备自取时**不复制 core 的选流规则**（codec 优先再带宽是业务规则，归 R1），取第一条 audio 只为拿到一个本网可用的 URL。
+- 🔴 **最低 header 要求是「按节点」而不是「按平台」**：cc 节点少了 `Referer` 直接 403，而移动网络派来的 **mcdn（P2P CDN）节点 `:8082` 什么 header 都不要**，content-type 是 `application/octet-stream` 而不是 `video/mp4`。N4 不能按「Referer 是必需的」或「content-type 是 audio/*」写死任何判断——core 现在全量发三个 header，那是对的。
+- **UA 与 buvid Cookie 在两个节点上都不是必需的**，但同样不构成「可以不发」：风控看的是整体身份，少发一个是省不下什么的赌。
+- **VPN 会静默换掉这条判据的被测网络**：第一轮 Wi-Fi 是在 Clash Meta 的 tun0 下跑的（bilibili 不在其 bypass 清单），风控看到的不是用户真实出口 IP。用户手动关掉后重跑，结果逐行相同——但**判据 23 说的是真实网络，所以带 VPN 那轮只能算第三组证据**。跑网络判据前必须先 `dumpsys connectivity` 看默认网络是谁。
+- **切网之后 Fast Refresh 是死的**：关 Wi-Fi 会断开 dev client 与 Metro 的连接，回来之后编辑不会自动生效——面板还在跑旧代码，而结果看起来完全正常（旧分组名是唯一线索）。改完代码要 `am force-stop` + 重启拉新 bundle。
+- **`drive.mjs` 原来只会向下滚**：上一轮结束时页面停在下方，再点上面的按钮就报「never found」——读起来像按钮没了。已改成每次 tap 前先滚到顶。
+- **skybridge server 走 `adb reverse`（USB loopback）而不是 LAN IP**：这样关掉 Wi-Fi 跑移动网络那一遍时，判据 22 的通道照常在，两条判据可以在同一次会话里跑完。
+- **`_test` 是 server 允许的 tool**（`ALLOWED_TOOLS = {owl, lark, _test}`），spike 用 `_test/mobile-spike`，不去碰产品 workspace。
+
 ## §10 评审修订对照
 
 ### 一轮（v1 → v2）

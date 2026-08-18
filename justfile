@@ -576,6 +576,25 @@ spike-mobile-probe-host:
 spike-mobile-fixtures:
     node spikes/mobile-foundation/scripts/make-desktop-fixtures.mjs
 
+# N0b-4's fixtures: the WBI three-piece, `openAudio()`'s real header set and the
+# two audio tracks, produced by the REAL core client (criteria 19/23 — the spike
+# is not allowed to compute any of it). Output is untracked and SHORT-LIVED:
+# bilibili's stream URLs expire in about two hours, so re-run this before a
+# device session rather than trusting yesterday's file.
+#
+#   just spike-mobile-fixtures-network             # metadata only, seconds
+#   just spike-mobile-fixtures-network --audio     # + download ~55MB and adb push
+[group('spike')]
+spike-mobile-fixtures-network *ARGS: build-shared build-core
+    node spikes/mobile-foundation/scripts/make-network-fixtures.mjs {{ARGS}}
+
+# A real skybridge server for criterion 22, on a throwaway database with a fresh
+# account. Resolves the private server package at run time (install →
+# LARK_SKYBRIDGE_SERVER → sibling checkout) and sets up its own `adb reverse`.
+[group('spike')]
+spike-mobile-sync-host:
+    node spikes/mobile-foundation/scripts/sync-host.mjs
+
 # ─── Live probes (M3) ───────────────────────────────────
 
 # Hit the real api.bilibili.com and assert the SHAPE every download path

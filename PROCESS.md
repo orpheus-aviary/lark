@@ -378,7 +378,7 @@
 
 **版本口径**：APK 独立版本线 0.1.0 / versionCode=1（D14）。桌面 Phase B 期间不必发版；N1 的重构落 main、随下个桌面版本自然发出。中途若发桌面 0.3.x，先复跑 accept 全系列。
 
-**当前状态（2026-08-17）**：**N0a 全部 + N0b-1 + N0b-2 + N0b-3 已完成**。桌面测试 **2480**（加 `@noble/hashes` 之后复跑，逐包相等）；真机 vivo V2408A / Android 15（档案见子计划 §9）。**D4 出口已冻结**（expo-sqlite + per-call transient shim + drizzle 走 `pnpm patch`）。**N0b-3 的 release 实测**：冷启动余量两个数量级（2k 库开库到首屏 max 29.93ms / 预算 3s）· backfill 500 首一段 64.36ms（p95）· **apply 的生产批 500 过不去（p50 164ms），暂定 200/批**（72.98ms）· md5 端口 0.02ms 远超预算，**sha256 的阈值改绑真实歌词尺寸**（1.94ms / 预算 10ms；256KB 上限的 86.81ms 作为标注最坏值记录，用户拍板） · **`globalThis.crypto.getRandomValues` 不存在**、`atob` 与 `Buffer.from(base64)` 在 7 个样本里 2 个发散 → 两者都必须走端口 · **`globalThis.fetch` 就是 `expo/fetch`**，manual redirect / 204 / 流式 `res.body` 三条全过（N1 不必为 fetch 做注入选型）。下一步 **N0b-4**（播放判定 + skybridge/bilibili 探针 + 分享 intent）。
+**当前状态（2026-08-17）**：**N0a 全部 + N0b-1 + N0b-2 + N0b-3 已完成**。桌面测试 **2480**（加 `@noble/hashes` 之后复跑，逐包相等）；真机 vivo V2408A / Android 15（档案见子计划 §9）。**D4 出口已冻结**（expo-sqlite + per-call transient shim + drizzle 走 `pnpm patch`）。**N0b-3 的 release 实测**：冷启动余量两个数量级（2k 库开库到首屏 max 29.93ms / 预算 3s）· backfill 500 首一段 64.36ms（p95）· **apply 的生产批 500 过不去（p50 164ms），暂定 200/批**（72.98ms）· md5 端口 0.02ms 远超预算，**sha256 的阈值改绑真实歌词尺寸**（1.94ms / 预算 10ms；256KB 上限的 86.81ms 作为标注最坏值记录，用户拍板） · **`globalThis.crypto.getRandomValues` 不存在**、`atob` 与 `Buffer.from(base64)` 在 7 个样本里 2 个发散 → 两者都必须走端口 · **`globalThis.fetch` 就是 `expo/fetch`**，manual redirect / 204 / 流式 `res.body` 三条全过（N1 不必为 fetch 做注入选型）。**N0b-4a 已完成（2026-08-18）**：判据 **22 四条硬 gate 全绿**（login / pushChanges / pullChanges / refresh，SSE 软判据也全绿——桌面 nudge 推的change 经 `onChange` 到达、`unsubscribe` 后零帧）· 判据 **23 双网络各一遍全绿**（md5 端口复现 core 的 `w_rid`、签名 search URL、免签三端点，Wi-Fi 与电信 5G 结果一致）· 判据 19 的**流探针一半**完成，两条实测：**流 URL 只在签发它的那张网上有效**（playurl 按调用方 IP 派节点，桌面签的 `cn-bj-cc-*` 在 5G 上连不上，`adb shell curl` 独立复现），**最低 header 要求按节点而非按平台**（cc 节点缺 `Referer` 403；移动网络派来的 mcdn `:8082` 节点零 header 也给 206，content-type 是 `application/octet-stream`）。音频夹具已产并 push（短 2:17 取自用户收藏夹最短一条；长 37:07 收藏夹里没有，另搜）。下一步 **N0b-4b**（播放判定）。
 
 | 批 | 内容 | 本批 gate | 状态 |
 |---|---|---|---|
@@ -388,7 +388,9 @@
 | N0b-1 | spike 脚手架 + 内部包白名单守卫 + workspace 共存（判据 11–13） | **12、13 绿** | ✅ 2026-08-17 |
 | N0b-2 | expo-sqlite shim + harness 真机 + migrations/pending + op-sqlite 对照 + drizzle 定案（判据 14–17） | **14、15、17 绿**，D4 出口写定 | ✅ 2026-08-17 |
 | N0b-3 | 卡顿 proxy + crypto 定案 + Web 标准全局面清查（判据 18、20–21） | **18 绿** + 20 定案 + 21 清单产出 | ✅ 2026-08-17 |
-| N0b-4 | 播放判定 + skybridge / bilibili 探针 / 分享 intent（判据 19、22–24） | **19 绿、22 基本 API 绿**，D17 判定写定 | ⏳ |
+| N0b-4a | 桌面夹具（音频 + `openAudio()` header 集 + WBI 三件套）+ bilibili 探针 + skybridge SDK（判据 22、23 与判据 19 的流探针一半） | **22 四条硬 gate 绿**、23 双网络绿 | ✅ 2026-08-18 |
+| N0b-4b | 播放判定（判据 19 的 expo-audio 一半：时长/seek/暂停/后台锁屏/焦点/蓝牙断连，单 player 与 playlist 各一遍） | **19 绿**，D17 判定写定 | ⏳ |
+| N0b-4c | 分享 intent（判据 24，`expo-share-intent`）+ §9 汇总 | 24 记录（软判据） | ⏳ |
 | N0b-5 | D14 + D16 落定 + GO/NO-GO 汇总（判据 25–26）+ **Stage-2 主计划修订** | **25、26 绿** | ⏳ |
 | N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
 

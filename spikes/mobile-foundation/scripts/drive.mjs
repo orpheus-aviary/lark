@@ -11,7 +11,7 @@
 // captured was of that (N0b-1 and N0b-2, both recorded in CLAUDE.md).
 //
 //   node scripts/drive.mjs dump                 # every label currently visible
-//   node scripts/drive.mjs tap "Run contract"   # scroll to it, tap it
+//   node scripts/drive.mjs tap "Run contract"   # scroll to the top, then to it, tap it
 //   node scripts/drive.mjs shot out.png         # screencap, foreground-checked
 //   node scripts/drive.mjs top                  # what is actually in front
 //
@@ -70,7 +70,7 @@ function screenHeight() {
   return Number(match?.[2] ?? match?.[4] ?? 2376);
 }
 
-function scrollDown() {
+function swipe(fromFraction, toFraction) {
   const height = screenHeight();
   // Start well inside the screen and take 400ms: at the edge, or faster, this
   // is the home gesture.
@@ -79,15 +79,32 @@ function scrollDown() {
     'input',
     'swipe',
     '540',
-    String(Math.round(height * 0.75)),
+    String(Math.round(height * fromFraction)),
     '540',
-    String(Math.round(height * 0.35)),
+    String(Math.round(height * toFraction)),
     '400',
   );
 }
 
+const scrollDown = () => swipe(0.75, 0.35);
+const scrollUp = () => swipe(0.35, 0.75);
+
+/**
+ * Back to the top before searching.
+ *
+ * `tapByText` only ever scrolls DOWN, so a button ABOVE the current position is
+ * invisible to it — and the panel ends every run scrolled to wherever the last
+ * button was. Re-running an earlier panel then fails with "never found", which
+ * reads like the button is gone rather than like the page is in the wrong
+ * place (measured: the second bilibili run, N0b-4a).
+ */
+function scrollToTop() {
+  for (let i = 0; i < 25; i += 1) scrollUp();
+}
+
 function tapByText(needle, { attempts = 12 } = {}) {
   requireForeground();
+  scrollToTop();
   for (let i = 0; i < attempts; i += 1) {
     const node = visibleNodes().find((n) => n.text.includes(needle));
     if (node) {
