@@ -20,7 +20,6 @@ import { Readable, Transform } from 'node:stream';
 import { pipeline as streamPipeline } from 'node:stream/promises';
 import type { DownloadStage, LlmConfig, SongData } from '@lark/shared';
 import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
-import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { PortableDb } from '../portable/db.js';
 import type { BiliPage, BilibiliClient } from '../portable/download/bilibili.js';
@@ -36,6 +35,7 @@ import {
 } from '../portable/download/prompts.js';
 import type { DownloadTarget } from '../portable/download/target.js';
 import type { DownloadTimeouts } from '../portable/download/timeouts.js';
+import { writeLyrics } from '../portable/library/lyrics.js';
 import type { FileContext } from '../portable/ports/fs.js';
 import { probeAudio, processAudio } from './ffmpeg.js';
 import { stagePaths } from './resolve.js';

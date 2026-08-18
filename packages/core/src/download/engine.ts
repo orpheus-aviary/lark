@@ -46,14 +46,6 @@ import {
   TaskNotCancellableError,
   TaskNotFoundError,
 } from '../errors.js';
-import { addSongsToPlaylistInTx, createPlaylist } from '../library/playlists.js';
-import {
-  createFileBackedSongInTx,
-  getSong,
-  setFileOrigin,
-  updateSongInTx,
-} from '../library/songs.js';
-import { findSongByKey } from '../library/source.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import { songAudioPath, songDirPath } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
@@ -72,6 +64,14 @@ import {
   toTaskData,
 } from '../portable/download/task-data.js';
 import { DEFAULT_TIMEOUTS, type DownloadTimeouts } from '../portable/download/timeouts.js';
+import { addSongsToPlaylistInTx, createPlaylist } from '../portable/library/playlists.js';
+import {
+  createFileBackedSongInTx,
+  getSong,
+  setFileOrigin,
+  updateSongInTx,
+} from '../portable/library/songs.js';
+import { findSongByKey } from '../portable/library/source.js';
 import type { FileContext } from '../portable/ports/fs.js';
 import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';

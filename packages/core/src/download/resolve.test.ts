@@ -15,9 +15,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
 import { DownloadCommitError } from '../errors.js';
-import { createFileBackedSongInTx, getSong, listSongs } from '../library/songs.js';
 import { songsDir, trashDir } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
+import { createFileBackedSongInTx, getSong, listSongs } from '../portable/library/songs.js';
 import { local_metadata } from '../portable/schema.js';
 import { landSongFile, recoverSongsStore, stagePaths } from './resolve.js';
 

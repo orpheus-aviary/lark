@@ -386,7 +386,7 @@
 
 **N0b-5a 已完成（2026-08-18）——判据 26 绿，D16 机制落定**。**零写打开取候选 ①（copy-then-open）**：50.2MB 库 copy+open+读 install_id **max 75.36ms**，带 4.0MB 热 WAL 时 **max 149.51ms**（预算 500ms），两组的**原件 size+mtime 五轮前后逐字节不变**，而恢复确实落在副本上（副本的 `-wal` 4,128,272 → 0 字节）；racing-writer 反测 → `FailClosedError`。**no-backup 侧取 SecureStore**（`requireAuthentication: false`），**卸载重装后读不出**，判定落到「fresh」。**backup 排除三层客观判据 10/10**（`just spike-mobile-backup-audit`）：APK 的 merged manifest（`allowBackup=false` + 两个属性经资源表翻回名字确认指向我们那两份）· 两份规则文件各 9 个 domain（`<cloud-backup>` 与 `<device-transfer>` 都有）· `bmgr backupnow` 答 **`Backup is not allowed`** 而同一轮控制组答 `Success`、`dumpsys backup` 里没有我们、restore 回 `0 packages`。**四条实测**：① `allowBackup=false` 只关云备份、关不掉 D2D（那要 `<device-transfer>`）；② **expo-secure-store 默认会抢那两个 manifest 属性**，必须 `configureAndroidBackup: false`，我们的 plugin 见到被占用直接抛错；③ **证据要取在能观测到的那一刻**——第一版查「副本旁边有没有 `-wal`/`-shm`」恒为假，因为关闭连接本身会 checkpoint 并删掉它们；④ **一个 `Uint8Array` 既是值也是对象**，shim 把它当成命名参数表（`bound key '0' …`），已修并在契约补一条 lone-bytes 用例（core 1046 → **1047**，全仓 **2481**）。缺口如实记：设备 API 35，`fullBackupContent` 那条老路只能静态检查；完整 D2D restore 与 fail-closed 分支仍归 **N2 gate 的四组**。**N0b-5b 已完成（2026-08-18）——判据 25 绿，N0b = GO，Stage-2 已落**。**D14 落定**：applicationId `com.orpheusaviary.lark` · APK 0.1.0 / versionCode 1 · keystore `lark-release.jks`（PKCS12 / alias `lark` / RSA 4096 / 有效期至 **2054-01-03** / 证书 SHA-256 `38:54:4C:9F:…:F6:3D`）· **决策 g 由用户拍板**：keystore 与密码**同放** `orpheus-aviary/android-keystore/`（git 仓之外，0700/0600，**不进钥匙串**，每次构建现读，备份由用户拷 U 盘）· **恢复演练过**（整个目录拷走，只用副本签 APK，`apksigner verify` 的指纹逐字符相同）。**政策快照**（查官方页与 FAQ）：2026-09-30 只覆盖巴西/印尼/新加坡/泰国的参与商店，**adb 安装明确豁免**，测量设备在中国不在首发之列，**2027 全球扩大**才相关；真要注册时 **limited distribution account**（免费、无政府 ID、上限 20 台）匹配，注册对象是包名 + 证书 SHA-256。**判据 14/16 因契约扩了一条用例而复跑**：expo **57/0/0** · 漏版反测 55/2 · op-sqlite **51/0/6**。**两条实测**：① **Gradle 的 bundle 任务看不见 `packages/core/dist` 的变化**（core 重建了，APK 里还是旧的，面板上连断言文案都是旧的），release recipe 因此先删生成的 bundle 再构建；② **同一个「Uint8Array 既是值也是对象」的歧义把两个适配器都咬了**，op-sqlite 那边更安静（blob 什么也没绑上、列读回 NULL）——正说明这条该由契约说一次。**GO/NO-GO：GO**（判据 11–26 全完成、gate 全绿、三条 NO-GO 线一条没碰）。
 
-**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a 已完成**（四个提交：错误与 logger 整迁 / runtime 四件 / 端口与桌面 adapter / Metro bundle smoke），桌面测试 **2481 → 2532**（core 1047 → 1098）。
+**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1e 已完成**，桌面测试 **2481 → 2532**（core 1047 → 1098，N1a 之后不再变动）；Metro 图 36 → 51 → **80 个 portable 模块**。**N1e 之后，一台手机能解析的 core 已经包含 sync 全图与 library 全图**——`@lark/core/portable` 之外只剩桌面专有件（`db/` 的打开与锁、ffmpeg、落盘协议、file-op 执行器、config、logger、paths 根解析）与尚未提取的 coordinator / 编排层。
 
 **N1a 的六条实测**：
 
@@ -415,7 +415,8 @@
 | N1c | PortableDb 收敛（`sqliteOf` 退役 + 类型换血）· FileContext/CredentialStore 接线 · 守卫 `sqliteOf` rg=0 | 全测试 + e2e 19 + 判据 9 | ✅ 2026-08-18 |
 | N1d | download client 层进 portable（9 模块 + lyrics/ + 测试，24 文件 8 行改动） | 全测试 + 守卫 + smoke（36 → 51 模块） | ✅ 2026-08-18 |
 | — | **R1–R3 真机预跑**（计划 §4 建议动作；正式判据仍在 N1i） | **R1 双网络各 9/9 · R2 8/8 · R3 双网络绿** | ✅ 2026-08-18 |
-| N1e–N1i | sync+library 强连通体 / SyncCoordinator / 服务层与 CLI 薄壳 / download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
+| N1e | sync + library 强连通体进 portable（52 文件搬迁，正文零改动；两个音频文件名常量随 `PathsPort` 走） | 全测试 + 守卫 + smoke（51 → 80 模块）+ e2e 19 | ✅ 2026-08-18 |
+| N1f–N1i | SyncCoordinator / 服务层与 CLI 薄壳 / download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
 | N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
@@ -427,6 +428,10 @@
 - **release APK 仍然会以 dev-client 的 URL 启动**（`expo run:android --variant release` 的最后一行就是它），但面板自报 `dev: false`：判断跑的是哪份 bundle 只能信 `__DEV__`，不能信启动方式（N0b-3 同一条）
 
 正式的 R1–R5 判据仍按计划在 **N1i** 用当轮 release 构建复跑；这次预跑的价值是：**core 的业务图在真机上能跑，这件事现在就知道了，而不是等到九批之后。**
+
+**N1e 的一条实测**：
+
+- **文件名不是路径，所以它属于端口**：`sync/file-ops.ts` 要 `CANONICAL_AUDIO_FILE` 才能说「这首歌的音频在不在」，而 N1a 把这两个常量从 `library/lyrics.ts` 挪进了桌面的 `paths.ts`（那里有 `node:os`/`node:path`），留一行 re-export 顶着。搬到 portable 的那一刻这行 re-export 就没有源了——**挪错了一层，一个批次之后才显形**。`song.m4a` 在每个宿主上是同一个串，join 才是宿主的事：定义因此进 `portable/ports/paths.ts` 与 `PathsPort` 同住，`paths.ts` 反过来 re-export 保住桌面的读法。这是本批唯一不是 `git mv` 的改动，其余 52 个文件**导入块之外逐字节相同**（拿搬迁前的内容逐个比，不看 diff——N1d 同一条）
 
 **2026-08-17 范围修订（用户决定）——「歌单导入导出」从「明确不做（v1）」移进 v1**（主计划 §4.5 + D12 已改，N0 子计划 §5 的 N4/N6 已加）：
 

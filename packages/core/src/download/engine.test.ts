@@ -14,13 +14,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
 import { MediaToolsUnavailableError } from '../errors.js';
-import {
-  createPlaylist,
-  deletePlaylist,
-  getPlaylistSongs,
-  listPlaylists,
-} from '../library/playlists.js';
-import { getSong, listSongs } from '../library/songs.js';
 import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
 import { resolveMediaTools } from '../media-tools/resolve.js';
 import { nodeFileContext } from '../node-fs.js';
@@ -29,6 +22,13 @@ import { songsDir } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
 import { createBilibiliClient } from '../portable/download/bilibili.js';
 import { DEFAULT_TIMEOUTS } from '../portable/download/timeouts.js';
+import {
+  createPlaylist,
+  deletePlaylist,
+  getPlaylistSongs,
+  listPlaylists,
+} from '../portable/library/playlists.js';
+import { getSong, listSongs } from '../portable/library/songs.js';
 import { songs } from '../portable/schema.js';
 import { fakeMediaTools } from '../testing/fake-media-tools.js';
 import type { FakeUpstream } from '../testing/fake-upstream.js';

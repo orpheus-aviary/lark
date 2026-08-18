@@ -16,21 +16,25 @@ import { join } from 'node:path';
 import { SYNC_FILE_OP_MAX_ATTEMPTS } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { FileOpBusyError, FileOpNotFoundError, SongBusyError } from '../errors.js';
-import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE, writeLyricsFile } from '../library/lyrics.js';
 import type { StructuredLogger } from '../logger/index.js';
 import { nodeFileContext } from '../node-fs.js';
 import { songAudioPath, songDirPath, songLyricsPath } from '../paths.js';
 import { recoveredSongsDir } from '../paths.js';
 import { ClaimRegistry } from '../portable/download/claims.js';
+import {
+  CANONICAL_AUDIO_FILE,
+  LEGACY_AUDIO_FILE,
+  writeLyricsFile,
+} from '../portable/library/lyrics.js';
 import { uuid } from '../portable/runtime/random.js';
-import { recordDeadLetter } from './changes.js';
+import { recordDeadLetter } from '../portable/sync/changes.js';
 import {
   type DeleteRemoteArg,
   type DrainResult,
   type FileOpRow,
   inlineDigest,
   parseArg,
-} from './file-ops.js';
+} from '../portable/sync/file-ops.js';
 
 // Desktop-only by design (this is the half that moves files), so it holds the
 // desktop file context directly rather than taking one (N1c).

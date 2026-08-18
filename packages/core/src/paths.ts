@@ -1,6 +1,11 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { type PathsPort, assertSongId } from './portable/ports/paths.js';
+import {
+  CANONICAL_AUDIO_FILE,
+  LEGACY_AUDIO_FILE,
+  type PathsPort,
+  assertSongId,
+} from './portable/ports/paths.js';
 
 const NEST_DIR = 'orpheus-aviary-nest';
 const LARK_DIR = 'lark';
@@ -64,19 +69,10 @@ export function songsDir(): string {
   return join(larkDir(), 'songs');
 }
 
-/**
- * The one audio file name in the library (0.3.0). Everything writes it and
- * everything reads it; there is no probing and no second format.
- */
-export const CANONICAL_AUDIO_FILE = 'song.m4a';
-
-/**
- * What 0.2.x wrote. Only two kinds of code may mention it: the one-time
- * migration, and the `has_file` probe while that migration is still pending
- * (a song not converted yet is present, and reporting it as missing would
- * offer the user a download for a file they already have).
- */
-export const LEGACY_AUDIO_FILE = 'song.mp3';
+// The two audio file names are declared with the `PathsPort` (N1e): portable
+// code needs them and cannot import this file. Re-exported here because this
+// is where the desktop has always read them from.
+export { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE };
 
 /** The song lyrics file name. */
 const LYRICS_FILE = 'lyrics.lrc';

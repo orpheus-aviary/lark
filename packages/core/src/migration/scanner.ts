@@ -14,9 +14,9 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
-import { LEGACY_AUDIO_FILE } from '../library/lyrics.js';
 import { songsDir } from '../paths.js';
-import { pendingFileOpSongIds } from '../sync/file-ops.js';
+import { LEGACY_AUDIO_FILE } from '../portable/library/lyrics.js';
+import { pendingFileOpSongIds } from '../portable/sync/file-ops.js';
 import { type LedgerRow, type MigrationClass, getLedgerRow } from './ledger.js';
 
 export interface ScanReport {

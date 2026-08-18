@@ -21,6 +21,25 @@ export function assertSongId(id: string): void {
   if (!isUuidV4(id)) throw new InvalidIdError(id);
 }
 
+/**
+ * The one audio file name in the library (0.3.0). Everything writes it and
+ * everything reads it; there is no probing and no second format.
+ *
+ * A file NAME is not a path — it is the same string on every host, and portable
+ * code that decides "is this song's audio present" (`sync/file-ops`) has to be
+ * able to say it without reaching for the desktop's `paths.ts`. Joining it to a
+ * directory still belongs to the adapters.
+ */
+export const CANONICAL_AUDIO_FILE = 'song.m4a';
+
+/**
+ * What 0.2.x wrote. Only two kinds of code may mention it: the one-time
+ * migration, and the `has_file` probe while that migration is still pending
+ * (a song not converted yet is present, and reporting it as missing would
+ * offer the user a download for a file they already have).
+ */
+export const LEGACY_AUDIO_FILE = 'song.mp3';
+
 export interface PathsPort {
   /** `songs/<id>/` — the song's own directory. */
   songDir(id: string): string;

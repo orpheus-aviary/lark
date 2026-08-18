@@ -12,10 +12,10 @@ import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../db/index.js';
-import { createFileBackedSongInTx } from '../library/songs.js';
 import { songsDir } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
-import { enqueueLocalDelete } from '../sync/file-ops.js';
+import { createFileBackedSongInTx } from '../portable/library/songs.js';
+import { enqueueLocalDelete } from '../portable/sync/file-ops.js';
 import { type MigrationStatus, getLedgerRow, listLedger, updateLedgerRow } from './ledger.js';
 import { scanAudioMigration } from './scanner.js';
 

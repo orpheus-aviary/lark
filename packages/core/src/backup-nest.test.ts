@@ -15,7 +15,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { backupNest } from './backup-nest.js';
 import { createDatabase } from './db/index.js';
-import { createSong } from './library/songs.js';
+import { createSong } from './portable/library/songs.js';
 
 let nest: string;
 let workspace: string;
