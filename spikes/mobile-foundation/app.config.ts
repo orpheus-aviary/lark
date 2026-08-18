@@ -20,8 +20,22 @@ const config: ExpoConfig = {
   // experiments left behind.
   android: {
     package: 'com.orpheusaviary.lark.spike',
+    // POST_NOTIFICATIONS is what makes the media notification VISIBLE on
+    // Android 13+ (the foreground service runs either way, but a denied
+    // permission keeps its notification out of the drawer) — and the lock
+    // screen controls ARE that notification. Criterion 19 asks for them.
+    permissions: ['android.permission.POST_NOTIFICATIONS'],
   },
   plugins: [
+    [
+      // Background playback: the plugin adds FOREGROUND_SERVICE +
+      // FOREGROUND_SERVICE_MEDIA_PLAYBACK and registers the media3
+      // MediaSessionService. Recording is switched off — the spike never
+      // records, and a spike that asks for the microphone is a spike that gets
+      // a permission dialog nobody understands.
+      'expo-audio',
+      { recordAudioAndroid: false, enableBackgroundPlayback: true },
+    ],
     [
       'expo-build-properties',
       {

@@ -62,8 +62,8 @@ Criteria fall into three kinds, and only the first is self-checking:
 - `src/panels/` — bootstrap rehearsal (15), contract driver (14), the two
   drizzle probes (17a/17b) over a shared counting Proxy, N0b-3's three:
   `workload.ts` (18, statement-shape proxies), `crypto.ts` (20), `globals.ts` (21),
-  and N0b-4's two: `bilibili.ts` (23 + criterion 19's stream half),
-  `skybridge.ts` (22).
+  and N0b-4's three: `bilibili.ts` (23 + criterion 19's stream half),
+  `skybridge.ts` (22), `playback.ts` (19 — expo-audio on the raw fMP4).
 - `src/fixtures.ts` — the N0b-4 fixtures, fetched from the probe host at run
   time rather than bundled. bilibili's stream URLs expire in about two hours and
   the skybridge account is created per `sync-host.mjs` run; compiling either in
@@ -127,6 +127,21 @@ Results go to the screen, and:
 
 Transcribing p95s off a screenshot is how a plan document acquires a number
 nobody can trace.
+
+`drive.mjs audio` reads `dumpsys audio` and `dumpsys media_session`, because JS
+cannot hear the speaker. Criterion 19 needs it twice over: `player.playing`
+stays true while the audio system has us paused for focus, and `release()`
+without a preceding `pause()` leaves an AudioTrack running that no JS handle can
+reach (measured — expo-audio 57.0.3 still has expo/expo#47569; recovery is
+`adb shell am force-stop`).
+
+**A dev client that lost Metro does not come back.** Toggling Wi-Fi (criterion
+23's cellular pass does) drops the connection, after which edits silently stop
+arriving and the panel looks perfectly normal — the only tell is a stale label.
+Deep-linking it at `http://localhost:8081` over `adb reverse` did not help, and
+this device's `adb logcat` is empty, so there is nothing to read. Rebuild with
+`just spike-mobile-android-release`: the bundle is inside the APK, and §3.2a
+prefers it anyway.
 
 ## Running it
 

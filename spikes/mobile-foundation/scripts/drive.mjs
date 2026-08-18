@@ -14,6 +14,7 @@
 //   node scripts/drive.mjs tap "Run contract"   # scroll to the top, then to it, tap it
 //   node scripts/drive.mjs shot out.png         # screencap, foreground-checked
 //   node scripts/drive.mjs top                  # what is actually in front
+//   node scripts/drive.mjs audio                # who is holding the speaker (criterion 19)
 //
 // Scrolling is slow and starts away from the screen edges on purpose: a fast
 // swipe, or one that starts at the very bottom, is taken as the system home
@@ -118,11 +119,49 @@ function tapByText(needle, { attempts = 12 } = {}) {
   process.exit(1);
 }
 
+/**
+ * What the audio system says is playing, and which media session exists.
+ *
+ * JS cannot hear the speaker, so "release() stopped the sound" and "the
+ * background service is still alive" are not questions the app can answer about
+ * itself — `dumpsys audio` lists the active players by uid/state and
+ * `dumpsys media_session` shows the session behind the lock screen controls.
+ */
+function audioState() {
+  const audio = adb('shell', 'dumpsys', 'audio');
+  const players = [];
+  let inPlayers = false;
+  for (const line of audio.split('\n')) {
+    if (line.includes('players:')) {
+      inPlayers = true;
+      continue;
+    }
+    if (inPlayers) {
+      if (line.trim() === '' || /^\s*[a-z].*:\s*$/i.test(line)) break;
+      players.push(line.trimEnd());
+    }
+  }
+  const active = players.filter((l) => l.includes('state:started'));
+  console.log(`active players (state:started): ${active.length}`);
+  for (const line of active) console.log(`  ${line.trim()}`);
+  if (active.length === 0 && players.length > 0) {
+    console.log('  (idle/paused entries only)');
+  }
+
+  const sessions = adb('shell', 'dumpsys', 'media_session');
+  const ours = sessions.split('\n').filter((l) => l.includes(PACKAGE));
+  console.log(`media sessions mentioning ${PACKAGE}: ${ours.length}`);
+  for (const line of ours.slice(0, 6)) console.log(`  ${line.trim()}`);
+}
+
 const [command, argument] = process.argv.slice(2);
 
 switch (command) {
   case 'top':
     console.log(topActivity());
+    break;
+  case 'audio':
+    audioState();
     break;
   case 'dump':
     requireForeground();
@@ -143,6 +182,6 @@ switch (command) {
     break;
   }
   default:
-    console.error('commands: top | dump | tap "<label>" | shot [file]');
+    console.error('commands: top | audio | dump | tap "<label>" | shot [file]');
     process.exit(64);
 }

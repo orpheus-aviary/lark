@@ -310,7 +310,8 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 | **N0b/N1 循环依赖** | 已解：平台 spike / R 系列两段式；WBI 探针改桌面三件套 fixture（R3-P1-2） |
 | **测量不可复现** | 已解：§3.2a（release 构建 / 固定设备 / nearest-rank p95、冷启动判 max / PSS 主口径 / 协议只管性能项） |
 | Hermes/RN 标准库缺口 | 判据 21 专项清查（含 Buffer 面与 base64 端口） |
-| expo-audio 回归先例 | #47569 已修（E4）；钉版本 + pause-before-release + 判据 19 通过条件显式化（含 ≥35min 夹具余量） |
+| expo-audio 回归先例 | **E4 作废（N0b-1 查 CHANGELOG、N0b-4b 真机确证）**：#47828 未进任何已发布的 SDK 57 版本，57.0.3 上 `release()` 不先 `pause()` 仍会留下停不掉的音轨。pause-before-release 从习惯升为**硬要求**，N3 的每条销毁路径都要走它 |
+| **蓝牙断连不暂停**（N0b-4b 新增） | media3 的 `handleAudioBecomingNoisy` 默认关、expo-audio 未暴露、RN 侧无该事件 → N3 要打补丁或自建小原生模块；不修的表现是「摘下耳机，歌从外放响出来」 |
 | crypto 同步/异步错配 | 判据 20 阈值 + 转向分支绿条件（WBI/file-ops 调用图 + discard 事务内 digest 前移） |
 | 卡顿夹具假测 | 已解：raw 造数无 create 行 + 生产批 500 / stress 1000 + R4 满工作量断言 |
 | bilibili 风控（移动网络） | 判据 23 平台探针（三件套 fixture）；双网络硬阻断 = NO-GO 线 |
@@ -596,6 +597,49 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
 - **`drive.mjs` 原来只会向下滚**：上一轮结束时页面停在下方，再点上面的按钮就报「never found」——读起来像按钮没了。已改成每次 tap 前先滚到顶。
 - **skybridge server 走 `adb reverse`（USB loopback）而不是 LAN IP**：这样关掉 Wi-Fi 跑移动网络那一遍时，判据 22 的通道照常在，两条判据可以在同一次会话里跑完。
 - **`_test` 是 server 允许的 tool**（`ALLOWED_TOOLS = {owl, lark, _test}`），spike 用 `_test/mobile-spike`，不去碰产品 workspace。
+
+### N0b-4b（2026-08-18）判据 19 的**播放一半** + D17 判定
+
+落点：`src/panels/playback.ts`（单 player / playlist / 后台 soak / 释放危险探针）+ `app.config.ts` 加 `expo-audio` 插件（后台播放 → `FOREGROUND_SERVICE_MEDIA_PLAYBACK` + media3 `MediaSessionService`；`recordAudioAndroid: false`）+ `android.permissions` 加 `POST_NOTIFICATIONS` + `drive.mjs audio`（主机侧读 `dumpsys audio` 的活跃播放器与 `dumpsys media_session`——**JS 听不见喇叭**）。真机 vivo V2408A / Android 15；核心结论跑在 **release 构建**上（面板自报 `release bundle · Hermes`），首轮 5.5 分钟 soak 跑在 debug 上——§3.2a 只约束数值判据，19 是行为判据。
+
+**夹具**：`make-network-fixtures.mjs --audio` 下载的两条 bilibili 原始 AAC-in-MP4，零 remux；判据的「真值」是桌面 ffprobe 读同一个文件的结果。
+
+| 组 | 判据 | 结果 |
+|---|---|---|
+| 单 player | 原始 fMP4 加载 | ✅ `isLoaded` 119ms |
+| 单 player | 时长误差 ≤1s | ✅ 播放器 136.835s vs ffprobe 136.835s，**差 0s** |
+| 单 player | seek 0/25/50/95% 各 ≤1s | ✅ 偏差 0 / 0.001 / 0.001 / 0s |
+| 单 player | 播放中 seek 50% | ✅ 偏差 0.036s |
+| 单 player | 暂停 2s 不漂 · 从暂停点续播 | ✅ 移动 0s；68.466 → 69.949s |
+| playlist | 两条一起加载 · 播 track 0 · 时长 | ✅ trackCount 2；136.835s 对上 |
+| playlist | `next()` 到 37 分钟那条 | ✅ 111ms，时长 2226.645s vs ffprobe 2226.646s |
+| playlist | 长曲 95% seek · `skipTo(0)` | ✅ 偏差 0.256s；1ms 回到 index 0 |
+| 后台 | ≥5min 后台 + 锁屏不断 | ✅ **330.587s 里播放推进 329.909s**，零暂停样本，落后钟差 0 段 |
+| 锁屏 | 元数据与控件 | ✅ 通知显示分P 名 / `lark spike · N0b-4b` / BV 号；`KEYCODE_MEDIA_PAUSE` → 活跃播放器 0，`MEDIA_PLAY` → 1 |
+| 焦点 | 瞬时抢占自动恢复 | ✅ bilibili（`GAIN_TRANSIENT`）播放期间我们停，它一停我们 6s 内自行恢复 |
+| 焦点 | 永久抢占停住 | ✅ 网易云（完整 GAIN）播放期间我们停，**它停之后我们保持暂停**、焦点栈空 |
+| 蓝牙 | 断连暂停 | ❌ **不暂停，改从扬声器继续放** |
+| 释放 | `release()` 不先 `pause()` | ❌ **声音不停**（#47569 在 57.0.3 上仍在） |
+
+#### D17 出口（冻结）
+
+**raw fMP4 直存达标 → GO，不需要 remux。** 两条 bilibili 原始字节（AAC 44.1kHz / 48kHz，`mov,mp4,m4a` 容器）在 ExoPlayer 上加载 119ms、时长与 ffprobe **逐毫秒相同**、四个 seek 点偏差 ≤0.001s、37 分钟长曲 95% 处 seek 偏差 0.256s，单 player 与 playlist 两种驱动形态各一遍。§3.2 的三级兜底（JS remux → 原生 remux → NO-GO）**一级都不需要进入**，`spikes` 里也就没有 remux 内存峰值要量。
+
+两条红的都**不是存储格式问题**，是 expo-audio 的会话行为，归 N3：
+
+1. 🔴 **蓝牙断连不暂停，音乐从外放继续**（实测：旧 AudioTrack `deviceId:0` 转 `paused`，同时新起 `deviceId:3`=speaker 的 `started`，音乐路由变 `speaker(2)`）。这是 media3 的 `setHandleAudioBecomingNoisy(true)` 默认关闭，而 expo-audio 的 JS 面**没有暴露它**——RN 侧也没有 becoming-noisy 事件可听。N3 的代价是明确的：要么给 expo-audio 提 PR / 打补丁，要么自建一个监听 `ACTION_AUDIO_BECOMING_NOISY` 的小原生模块。**这是用户会立刻撞上的那类 bug**（耳机一摘，歌从外放响给整间屋子听）。
+2. 🔴 **`release()` 不先 `pause()` 会留下一条谁也停不掉的音轨**：实测 release 之后 7 秒，`state:started` 的 AudioTrack 还在（48kHz = 长曲），JS 侧已无句柄，只有 `am force-stop` 能收。N0b-1 查 CHANGELOG 得出的「#47828 未进任何已发布的 SDK 57 版本」由此被真机确证。**pause-before-release 是硬要求**，且 N3 的每条销毁路径（切歌、退出、组件卸载、错误分支）都要走它。
+
+#### 本批实测锁定
+
+- **manifest 里声明权限不等于拿到权限**：第一轮 soak 的锁屏什么都没有，因为 `POST_NOTIFICATIONS: granted=false`——Android 13+ 要运行时申请，而**锁屏控件就是那条通知**。补 `requestNotificationPermissionsAsync()` 之后元数据与控件都在。播放本身全程不受影响，所以这个缺口只在「看得见的东西」上暴露。
+- **`shouldPlayInBackground` 单独不够**：expo-audio 自己的文档写明 Android 上不调 `setActiveForLockScreen` 大约 3 分钟就会停——而判据要 ≥5 分钟，正好在那道坎的另一侧。soak 因此把它当**必需的 setup**，不是锦上添花。
+- **熄屏后 JS 定时器被冻结，而播放时钟没有**：5.5 分钟 soak 里采样最大间隔 **85 秒**（5 秒一采的循环），可播放推进与墙钟逐段吻合。所以「后台还在不在播」不能靠 JS 定时器判断，只有播放器自己的 `currentTime` 与主机侧 `dumpsys audio` 算数。
+- **`player.playing` 不反映焦点导致的暂停**：焦点被抢期间 `dumpsys audio` 里我们是 `state:paused`，而 JS 侧 `playing` 仍是 true。判「是不是真的在响」只能问系统。
+- **expo-audio 请求的是 `GAIN_TRANSIENT` 而不是 `GAIN`，且 `usage=USAGE_UNKNOWN`**（焦点栈实测；AudioTrack 自己的属性倒是 `USAGE_MEDIA`）。一个音乐播放器按理该持 `GAIN` + `USAGE_MEDIA`——这决定别人是躲我们还是压我们，N3 要复核。
+- **切网/开关 VPN 之后 dev client 回不到 Metro**：Wi-Fi 一关，dev client 与 Metro 的连接断掉，之后编辑不再热更，而**面板看起来完全正常**（只有旧的分组名露馅）；`am start` 发 deep link 指定 `localhost:8081`（USB `adb reverse`）也叫不回来，它只会静默用缓存 bundle。这台 vivo 上 `adb logcat` 还是空的，看不到 dev client 在想什么。**可靠路径是 release 构建**（bundle 烙进 APK），本批的判定因此都跑在 release 上——顺带满足了 §3.2a 更严的口径。
+- **`drive.mjs dump` 只列当前屏可见节点**：用它判断「新按钮不存在」错了一次（`tap` 会滚动查找，`dump` 不会）。要确认一个按钮在不在，用 `tap`。
+- **判据 19 的证据链末端一定在主机侧**：JS 说「我 release 了」「我 pause 了」都可能与喇叭不符，`drive.mjs audio` 的活跃播放器计数才是那句能写进文档的话。
 
 ## §10 评审修订对照
 

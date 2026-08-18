@@ -22,6 +22,13 @@ import { type CryptoRow, runCryptoPanel } from './panels/crypto';
 import { type LifecycleProbe, probeDrizzleLifecycle } from './panels/drizzle-lifecycle';
 import { type MatrixRun, runDrizzleMatrix } from './panels/drizzle-matrix';
 import { type GlobalRow, runGlobalsPanel } from './panels/globals';
+import {
+  type PlaybackRow,
+  probeReleaseWithoutPause,
+  runBackgroundSoak,
+  runPlayerPanel,
+  runPlaylistPanel,
+} from './panels/playback';
 import { type SyncProbeRow, runSkybridgePanel } from './panels/skybridge';
 import {
   type WorkloadRow,
@@ -62,6 +69,7 @@ export function App() {
   const [globals, setGlobals] = useState<GlobalRow[] | null>(null);
   const [bilibili, setBilibili] = useState<NetProbeRow[] | null>(null);
   const [skybridge, setSkybridge] = useState<SyncProbeRow[] | null>(null);
+  const [playback, setPlayback] = useState<PlaybackRow[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [crashed, setCrashed] = useState<string | null>(null);
 
@@ -433,6 +441,71 @@ export function App() {
             >
               {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.name}{' '}
               <Text style={styles.ms}>{r.ms}ms</Text>
+            </Text>
+            <Text style={styles.detail}>{r.detail}</Text>
+          </View>
+        ))}
+
+        <Text style={styles.section}>playback on raw fMP4 (criterion 19)</Text>
+        <Text style={styles.detail}>
+          The two tracks are bilibili's bytes with no remux, pushed by `just
+          spike-mobile-fixtures-network --audio`. Durations and seeks are judged against the
+          desktop's ffprobe. Release always follows pause — except in the probe that says so.
+        </Text>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork('playback-player', runPlayerPanel, setPlayback)}
+        >
+          <Text style={styles.buttonText}>Play the short track (single player)</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork('playback-playlist', runPlaylistPanel, setPlayback)}
+        >
+          <Text style={styles.buttonText}>Play both tracks (playlist)</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork(
+            'playback-soak',
+            () => runBackgroundSoak(5.5, setPlayback),
+            setPlayback,
+          )}
+        >
+          <Text style={styles.buttonText}>Start 5.5-minute background soak (long track)</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork(
+            'playback-lockscreen',
+            () => runBackgroundSoak(2, setPlayback),
+            setPlayback,
+          )}
+        >
+          <Text style={styles.buttonText}>Lock-screen session (2 minutes)</Text>
+        </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={runNetwork('playback-release-hazard', probeReleaseWithoutPause, setPlayback)}
+        >
+          <Text style={styles.buttonText}>Release WITHOUT pause (#47569 shape)</Text>
+        </Pressable>
+        {playback?.map((r) => (
+          <View key={`${r.group}/${r.name}`} style={styles.row}>
+            <Text
+              style={[
+                styles.rowTitle,
+                {
+                  color:
+                    r.ok === null
+                      ? STATUS_COLOR.skip
+                      : r.ok
+                        ? STATUS_COLOR.pass
+                        : STATUS_COLOR.fail,
+                },
+              ]}
+            >
+              {r.ok === null ? '·' : r.ok ? '✓' : '✗'} {r.group} › {r.name}
             </Text>
             <Text style={styles.detail}>{r.detail}</Text>
           </View>
