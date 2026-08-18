@@ -540,6 +540,17 @@ _adb := _android_home / "platform-tools/adb"
 spike-mobile-typecheck: build-shared build-core
     pnpm --filter @lark/spike-mobile-foundation exec tsc --noEmit
 
+# Does portable RESOLVE under Metro? The rg guard reads source; this reads the
+# graph Metro actually builds, which is the only thing that answers for a
+# dependency's own imports and for export maps (N1a, criterion 19).
+#
+# Run every batch from here on; it joins `just check` in N1i. `build-core`
+# first is load bearing — the spike consumes core through `dist`, so a source
+# change is invisible to Metro until it is compiled (N0b-5b).
+[group('spike')]
+spike-mobile-bundle-smoke: build-shared build-core
+    node scripts/check-portable-bundles.mjs
+
 # Regenerate `android/` from app.config.ts. Safe to run at any time; it is the
 # only sanctioned way that directory comes into existence.
 [group('spike')]

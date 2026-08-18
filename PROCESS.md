@@ -386,7 +386,16 @@
 
 **N0b-5a 已完成（2026-08-18）——判据 26 绿，D16 机制落定**。**零写打开取候选 ①（copy-then-open）**：50.2MB 库 copy+open+读 install_id **max 75.36ms**，带 4.0MB 热 WAL 时 **max 149.51ms**（预算 500ms），两组的**原件 size+mtime 五轮前后逐字节不变**，而恢复确实落在副本上（副本的 `-wal` 4,128,272 → 0 字节）；racing-writer 反测 → `FailClosedError`。**no-backup 侧取 SecureStore**（`requireAuthentication: false`），**卸载重装后读不出**，判定落到「fresh」。**backup 排除三层客观判据 10/10**（`just spike-mobile-backup-audit`）：APK 的 merged manifest（`allowBackup=false` + 两个属性经资源表翻回名字确认指向我们那两份）· 两份规则文件各 9 个 domain（`<cloud-backup>` 与 `<device-transfer>` 都有）· `bmgr backupnow` 答 **`Backup is not allowed`** 而同一轮控制组答 `Success`、`dumpsys backup` 里没有我们、restore 回 `0 packages`。**四条实测**：① `allowBackup=false` 只关云备份、关不掉 D2D（那要 `<device-transfer>`）；② **expo-secure-store 默认会抢那两个 manifest 属性**，必须 `configureAndroidBackup: false`，我们的 plugin 见到被占用直接抛错；③ **证据要取在能观测到的那一刻**——第一版查「副本旁边有没有 `-wal`/`-shm`」恒为假，因为关闭连接本身会 checkpoint 并删掉它们；④ **一个 `Uint8Array` 既是值也是对象**，shim 把它当成命名参数表（`bound key '0' …`），已修并在契约补一条 lone-bytes 用例（core 1046 → **1047**，全仓 **2481**）。缺口如实记：设备 API 35，`fullBackupContent` 那条老路只能静态检查；完整 D2D restore 与 fail-closed 分支仍归 **N2 gate 的四组**。**N0b-5b 已完成（2026-08-18）——判据 25 绿，N0b = GO，Stage-2 已落**。**D14 落定**：applicationId `com.orpheusaviary.lark` · APK 0.1.0 / versionCode 1 · keystore `lark-release.jks`（PKCS12 / alias `lark` / RSA 4096 / 有效期至 **2054-01-03** / 证书 SHA-256 `38:54:4C:9F:…:F6:3D`）· **决策 g 由用户拍板**：keystore 与密码**同放** `orpheus-aviary/android-keystore/`（git 仓之外，0700/0600，**不进钥匙串**，每次构建现读，备份由用户拷 U 盘）· **恢复演练过**（整个目录拷走，只用副本签 APK，`apksigner verify` 的指纹逐字符相同）。**政策快照**（查官方页与 FAQ）：2026-09-30 只覆盖巴西/印尼/新加坡/泰国的参与商店，**adb 安装明确豁免**，测量设备在中国不在首发之列，**2027 全球扩大**才相关；真要注册时 **limited distribution account**（免费、无政府 ID、上限 20 台）匹配，注册对象是包名 + 证书 SHA-256。**判据 14/16 因契约扩了一条用例而复跑**：expo **57/0/0** · 漏版反测 55/2 · op-sqlite **51/0/6**。**两条实测**：① **Gradle 的 bundle 任务看不见 `packages/core/dist` 的变化**（core 重建了，APK 里还是旧的，面板上连断言文案都是旧的），release recipe 因此先删生成的 bundle 再构建；② **同一个「Uint8Array 既是值也是对象」的歧义把两个适配器都咬了**，op-sqlite 那边更安静（blob 什么也没绑上、列读回 NULL）——正说明这条该由契约说一次。**GO/NO-GO：GO**（判据 11–26 全完成、gate 全绿、三条 NO-GO 线一条没碰）。
 
-**下一步 = N1**（core 端口化 + 应用服务层 + SyncCoordinator 提取 + R1–R5 真机复验），**开工前另出子计划**。
+**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a 已完成**（四个提交：错误与 logger 整迁 / runtime 四件 / 端口与桌面 adapter / Metro bundle smoke），桌面测试 **2481 → 2532**（core 1047 → 1098）。
+
+**N1a 的六条实测**：
+
+- **`TextDecoder` 的默认值会静默改掉桌面行为**：它**剥掉** BOM 而 `Buffer.toString('utf8')` 留着，而 `parseAndValidate` 的下游是 `JSON.parse`——它拒绝带 BOM 的文本。照默认写，带 BOM 的导入文件就从「报错」变成「静默接受」。`decodeUtf8` 因此是 `{ ignoreBOM: true }`（这个选项名是反的：true = 保留），BOM 作为第五条 decode 夹具进了常跑测试
+- **宽松 base64 有两处 `atob` 之外的分歧**：`Buffer.from(v,'base64')` **遇到第一个 `=` 就停**（哪怕在串中间），且读的是每个 UTF-16 单元的**低字节**——所以夹在中间的 `歌`（U+6B4C）贡献的是 `L` 而不是被跳过。端口按这两条写，20,000 条随机串差分（两套字母表 + padding + 空白 + 非法 ASCII + CJK + 代理对）零分歧
+- **守卫的全局 token 半只能读代码**：裸词会红掉「better-sqlite3 hands back a Buffer」这种正确注释；只按代码形态匹配、但不剥注释，仍会红掉 `portable/runtime/base64.ts`——**一个端口必须能说出它在移植什么**。最终形态 = 先剥 `//` 与 JSDoc 再按形态匹配，八条探针（六种代码形态红 / 注释与 JSDoc 绿）
+- **`async` 不等于非阻塞，所以整文件 digest 没有缺省**：Promise 包一层同步 noble 照样卡 JS 线程而调用方看不出来。桌面经 core barrel 装 `node:crypto`，移动端在 N6 开放歌单导入前必须自己装，**未装即抛**就是那道门
+- **原子写要观测不要断言**：6MB 替换在飞的时候读目标 400 次、每次必须整旧或整新，另一条抓临时文件必须是同目录兄弟（跨文件系统 rename 等于复制，复制就有那个截断窗口）。两条在换成朴素 `writeFile` 时都红——**先把实现换掉跑一遍**才知道测到了
+- **Metro smoke 读的是图不是源码**：`expo export:embed` + sourcemap 的 `sources`，1.5s 一次。它能答 rg 守卫答不了的三件事（依赖自己 import 了 builtin / 包的 export map 在 Metro 下解析成另一个文件 / 经 dist 传递进来的 import）。两条反测都点着：portable 里塞 `node:fs` → 报出**具体是哪个 portable 文件**；让一个纯 JS 的 core 模块混进图 → 报出 `download/link.js` 与 `errors.js`。**recipe 必须先 `build-core`**——spike 经 dist 消费 core，源码改了不编译对 Metro 不存在（N0b-5b 同一条）
 
 | 批 | 内容 | 本批 gate | 状态 |
 |---|---|---|---|
@@ -401,7 +410,8 @@
 | N0b-4c | 分享 intent（判据 24，`expo-share-intent@8.0.1`：真 bilibili 分享 + 冷/后台/前台三路径 + 文本逐字符回读）+ §9 汇总 | 24 记录（软判据） | ✅ 2026-08-18 |
 | N0b-5a | D16 机制（判据 26）：backup 排除 CNG plugin + SecureStore 载体 + copy-then-open 协议与计时 + 三层客观判据 | **26 绿** | ✅ 2026-08-18 |
 | N0b-5b | D14 落定（判据 25）+ GO/NO-GO 汇总 + **Stage-2 主计划修订** | **25 绿；N0b = GO** | ✅ 2026-08-18 |
-| N1 | core 端口化 + 应用服务层 + SyncCoordinator 提取 + R1–R5 真机复验（**开工前另出子计划**） | 桌面全测试 + 三守卫 + R1–R5 绿 | ⏳ |
+| N1a | 地基：错误 45 类 + `StructuredLogger` 进 portable · `portable/runtime/` 四件与全部触点改写 · `portable/ports/` 六接口 + 桌面 adapter · 守卫全局 token 半 · Metro bundle smoke recipe | 全测试 + 判据 3–7、19 | ✅ 2026-08-18 |
+| N1b–N1i | 断边与拆分 / PortableDb 与端口接线 / download client / sync+library 强连通体 / SyncCoordinator / 服务层与 CLI 薄壳 / download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
 | N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
 
 **2026-08-17 范围修订（用户决定）——「歌单导入导出」从「明确不做（v1）」移进 v1**（主计划 §4.5 + D12 已改，N0 子计划 §5 的 N4/N6 已加）：
