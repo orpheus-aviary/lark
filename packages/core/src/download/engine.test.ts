@@ -14,7 +14,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { createDatabase } from '../db/index.js';
 import type { LarkDatabase } from '../db/index.js';
 import { MediaToolsUnavailableError } from '../errors.js';
-import { songLyricsPath } from '../library/lyrics.js';
 import {
   createPlaylist,
   deletePlaylist,
@@ -24,6 +23,8 @@ import {
 import { getSong, listSongs } from '../library/songs.js';
 import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
 import { resolveMediaTools } from '../media-tools/resolve.js';
+import { nodeFileContext } from '../node-fs.js';
+import { songLyricsPath } from '../paths.js';
 import { songsDir } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
 import { songs } from '../portable/schema.js';
@@ -94,6 +95,7 @@ function build(options: BuildOptions = {}): DownloadEngine {
   const llmConfig: LlmConfig = options.llm ?? NO_LLM;
   engine = new DownloadEngine({
     store,
+    files: nodeFileContext(),
     getLlmConfig: () => llmConfig,
     mediaTools: options.mediaTools ?? mediaTools,
     bilibili: createBilibiliClient({ apiBase: upstream.baseUrl, timeouts: DEFAULT_TIMEOUTS }),

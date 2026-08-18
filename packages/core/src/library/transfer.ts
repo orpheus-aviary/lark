@@ -43,6 +43,7 @@ import {
 } from '../errors.js';
 import type { PortableDrizzle } from '../portable/db.js';
 import type { PortableDb } from '../portable/db.js';
+import type { FileContext } from '../portable/ports/fs.js';
 import { sha256BytesAsync } from '../portable/runtime/digest.js';
 import { decodeUtf8 } from '../portable/runtime/text.js';
 import { type SongRow, playlist_songs, playlists, songs } from '../portable/schema.js';
@@ -252,7 +253,11 @@ export type ImportMatch =
   | { kind: 'new'; candidates: ImportCandidate[] };
 
 /** Library songs with this exact name+artist, oldest first, ties broken by id. */
-function candidatesFor(db: PortableDrizzle, entry: ImportEntry): ImportCandidate[] {
+function candidatesFor(
+  db: PortableDrizzle,
+  files: FileContext,
+  entry: ImportEntry,
+): ImportCandidate[] {
   return (
     db
       .select({ id: songs.id, name: songs.name, artist: songs.artist })
@@ -264,13 +269,14 @@ function candidatesFor(db: PortableDrizzle, entry: ImportEntry): ImportCandidate
       // — the daemon's routes are shut and the CLI refuses direct writes.
       .map((row) => ({
         ...row,
-        has_file: songFileInfo(row.id, { audioMode: 'canonical' }).has_file,
+        has_file: songFileInfo(files, row.id, { audioMode: 'canonical' }).has_file,
       }))
   );
 }
 
 export function computeMatches(
   db: PortableDrizzle,
+  files: FileContext,
   entries: readonly ImportEntry[],
 ): ImportMatch[] {
   /** First entry index that claimed each `(provider, key)` in this file. */
@@ -280,7 +286,7 @@ export function computeMatches(
   for (const [index, entry] of entries.entries()) {
     const { source_provider: provider, source_key: key } = entry;
     if (provider === null || key === null) {
-      matches.push({ kind: 'new', candidates: candidatesFor(db, entry) });
+      matches.push({ kind: 'new', candidates: candidatesFor(db, files, entry) });
       continue;
     }
     // `\u0000` as an escape, not a literal NUL byte: a source file with one
@@ -295,7 +301,7 @@ export function computeMatches(
     const hit = findSongByKey(db, provider, key);
     matches.push(
       hit === undefined
-        ? { kind: 'new', candidates: candidatesFor(db, entry) }
+        ? { kind: 'new', candidates: candidatesFor(db, files, entry) }
         : { kind: 'library', song_id: hit.id },
     );
   }
@@ -305,9 +311,10 @@ export function computeMatches(
 /** The preview payload, minus nothing — the route only adds the envelope. */
 export function previewImport(
   db: PortableDrizzle,
+  files: FileContext,
   file: ParsedImportFile,
 ): PlaylistImportPreviewData {
-  const matches = computeMatches(db, file.entries);
+  const matches = computeMatches(db, files, file.entries);
   const suspects: ImportSuspect[] = [];
   let reuseCount = 0;
 
@@ -355,12 +362,16 @@ export interface ImportInput {
  * Import every entry, or none (R27). Assumes the caller's transaction; the
  * `importPlaylist` wrapper opens one.
  */
-export function importPlaylistInTx(store: PortableDb, input: ImportInput): PlaylistImportData {
+export function importPlaylistInTx(
+  store: PortableDb,
+  files: FileContext,
+  input: ImportInput,
+): PlaylistImportData {
   const { drizzle: db } = store;
   const { entries, target } = input;
   // Recomputed here, not taken from the preview: the library may have changed,
   // and only what is true inside this transaction may drive writes.
-  const matches = computeMatches(db, entries);
+  const matches = computeMatches(db, files, entries);
 
   const chosen = new Map<number, string>();
   for (const item of input.reuse ?? []) {
@@ -425,6 +436,10 @@ export function importPlaylistInTx(store: PortableDb, input: ImportInput): Playl
   return { playlist_id: playlistId, total: entries.length, created, reused, added };
 }
 
-export function importPlaylist(store: PortableDb, input: ImportInput): PlaylistImportData {
-  return store.sqlite.transaction(() => importPlaylistInTx(store, input)).immediate();
+export function importPlaylist(
+  store: PortableDb,
+  files: FileContext,
+  input: ImportInput,
+): PlaylistImportData {
+  return store.sqlite.transaction(() => importPlaylistInTx(store, files, input)).immediate();
 }

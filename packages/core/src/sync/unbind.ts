@@ -19,12 +19,8 @@
 // The caller owns the two things this cannot check for itself: the daemon must
 // be stopped, and the writer lock must be held. `lark sync unbind` does both.
 
-import {
-  type SkybridgeStash,
-  deleteSkybridgeCredentials,
-  stashSkybridgeCredentials,
-} from '../config/skybridge.js';
 import { FileOpBusyError, SyncPendingChangesError } from '../errors.js';
+import type { CredentialStash, CredentialStore } from '../portable/ports/credentials.js';
 import type { SqliteLike } from '../portable/sqlite.js';
 import { bumpBackfillTarget } from './backfill.js';
 import { clearBindingInTx } from './binding.js';
@@ -58,8 +54,15 @@ export interface UnbindOptions {
   fileOps?: FileEffectLike;
   /** Proceed even though unpushed changes will be lost. */
   force?: boolean;
-  /** Credential file, for tests. Defaults to the nest location. */
-  credentialsPath?: string;
+  /**
+   * Where this install's sync credentials live (N1c).
+   *
+   * A port rather than the credential FILE: unbind's compensation sequence is
+   * "move aside, do the database work, then either restore or drop", and that
+   * sequence is the same wherever the credentials are kept. Only the moving
+   * aside is host-specific.
+   */
+  credentials: CredentialStore;
 }
 
 export interface UnbindResult {
@@ -106,7 +109,7 @@ export async function unbindLibrary(options: UnbindOptions): Promise<UnbindResul
   }
 
   // ② Credentials aside, atomically, so ③ has something to fall back to.
-  const stash: SkybridgeStash = stashSkybridgeCredentials(options.credentialsPath);
+  const stash: CredentialStash = options.credentials.stash();
 
   // ③ One transaction for all the database state.
   let result: UnbindResult;
@@ -155,6 +158,6 @@ export async function unbindLibrary(options: UnbindOptions): Promise<UnbindResul
   // ④ Committed: drop the old credentials, and anything a previous attempt
   // left behind.
   stash.discard();
-  deleteSkybridgeCredentials(options.credentialsPath);
+  options.credentials.delete();
   return result;
 }

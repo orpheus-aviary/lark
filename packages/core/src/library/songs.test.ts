@@ -10,6 +10,7 @@ import {
   NotFoundError,
   SourceKeyConflictError,
 } from '../errors.js';
+import { nodeFileContext } from '../node-fs.js';
 import { songs } from '../portable/schema.js';
 import { setSkybridgeDeviceId } from '../sync/device.js';
 import { FileEffectRuntime } from '../sync/file-ops-runtime.js';
@@ -26,6 +27,8 @@ import {
   touchLastAccessed,
   updateSong,
 } from './songs.js';
+
+const files = nodeFileContext();
 
 let nest: string;
 let handles: DatabaseHandles;
@@ -475,9 +478,9 @@ describe('songFileInfo', () => {
 
   it('probes disk presence and size', () => {
     const song = createSong(store(), { name: 's' });
-    expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
+    expect(songFileInfo(files, song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
     writeFileSync(join(songDir(song.id), 'song.m4a'), 'abcd');
-    expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({
+    expect(songFileInfo(files, song.id, { audioMode: 'canonical' })).toEqual({
       has_file: true,
       file_size: 4,
     });
@@ -490,8 +493,8 @@ describe('songFileInfo', () => {
   it('sees a not-yet-converted mp3 only in migration-pending mode', () => {
     const song = createSong(store(), { name: 'legacy' });
     writeFileSync(join(songDir(song.id), 'song.mp3'), 'abcdef');
-    expect(songFileInfo(song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
-    expect(songFileInfo(song.id, { audioMode: 'migration-pending' })).toEqual({
+    expect(songFileInfo(files, song.id, { audioMode: 'canonical' })).toEqual({ has_file: false });
+    expect(songFileInfo(files, song.id, { audioMode: 'migration-pending' })).toEqual({
       has_file: true,
       file_size: 6,
     });
@@ -504,14 +507,14 @@ describe('songFileInfo', () => {
     const dir = songDir(song.id);
     writeFileSync(join(dir, 'song.m4a'), 'abcd');
     writeFileSync(join(dir, 'song.mp3'), 'abcdefghij');
-    expect(songFileInfo(song.id, { audioMode: 'migration-pending' })).toEqual({
+    expect(songFileInfo(files, song.id, { audioMode: 'migration-pending' })).toEqual({
       has_file: true,
       file_size: 4,
     });
   });
 
   it('rejects non-UUID ids (R10)', () => {
-    expect(() => songFileInfo('../x', { audioMode: 'canonical' })).toThrow(InvalidIdError);
+    expect(() => songFileInfo(files, '../x', { audioMode: 'canonical' })).toThrow(InvalidIdError);
   });
 });
 

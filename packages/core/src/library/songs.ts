@@ -10,8 +10,6 @@
 // transaction, and `deleteSong` records a tombstone plus a file-effect journal
 // entry instead of doing its own trash-directory dance (§3.6).
 
-import { statSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   type FileOrigin,
   type SongData,
@@ -22,8 +20,8 @@ import {
 } from '@lark/shared';
 import { and, eq, ne, sql } from 'drizzle-orm';
 import { InvalidIdError, NotFoundError, SourceKeyConflictError } from '../errors.js';
-import { songsDir } from '../paths.js';
 import type { PortableDb, PortableDrizzle } from '../portable/db.js';
+import type { FileContext } from '../portable/ports/fs.js';
 import { uuid } from '../portable/runtime/random.js';
 import { type SongRow, songs } from '../portable/schema.js';
 import type { SqliteLike } from '../portable/sqlite.js';
@@ -33,7 +31,6 @@ import { type FileEffectLike, enqueueLocalDelete } from '../sync/file-ops.js';
 import { nextSyncStamp } from '../sync/hlc.js';
 import { makeLwwTriple } from '../sync/lww.js';
 import { writeTombstone } from '../sync/tombstones.js';
-import { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE } from './lyrics.js';
 import { type SourceInput, normalizeSource } from './source.js';
 
 export interface CreateSongInput extends SourceInput {
@@ -449,19 +446,18 @@ export type AudioMode = 'canonical' | 'migration-pending';
  * flag), and a function that quietly opened a database to answer a stat would
  * be a second source of truth.
  */
-export function songFileInfo(id: string, options: { audioMode: AudioMode }): SongFileInfo {
-  if (!isUuidV4(id)) throw new InvalidIdError(id);
-  const names =
+export function songFileInfo(
+  files: FileContext,
+  id: string,
+  options: { audioMode: AudioMode },
+): SongFileInfo {
+  const paths =
     options.audioMode === 'canonical'
-      ? [CANONICAL_AUDIO_FILE]
-      : [CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE];
-  for (const name of names) {
-    try {
-      const st = statSync(join(songsDir(), id, name));
-      return { has_file: true, file_size: st.size };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
+      ? [files.paths.songAudio(id)]
+      : [files.paths.songAudio(id), files.paths.songLegacyAudio(id)];
+  for (const path of paths) {
+    const stat = files.fs.statSync(path);
+    if (stat !== null) return { has_file: true, file_size: stat.size };
   }
   return { has_file: false };
 }

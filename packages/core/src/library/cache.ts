@@ -24,11 +24,10 @@
 // the song directories on every call. The library is tens to hundreds of
 // songs; a ledger would be a second source of truth to keep honest.
 
-import { statSync, unlinkSync } from 'node:fs';
 import { eq } from 'drizzle-orm';
 import type { PortableDrizzle } from '../portable/db.js';
+import type { FileContext } from '../portable/ports/fs.js';
 import { type SongRow, songs } from '../portable/schema.js';
-import { songAudioPath } from './lyrics.js';
 
 /** Bytes in one MiB — the unit every `*_mb` config field and wire field uses. */
 export const MIB = 1024 * 1024;
@@ -123,37 +122,36 @@ function isReclaimableNow(row: SongRow, opts: CacheOptions): boolean {
   return isStaticallyEligible(row) && !opts.isExcluded(row.id) && opts.streamCount(row.id) === 0;
 }
 
-function fileSize(songId: string): number | null {
-  try {
-    return statSync(songAudioPath(songId)).size;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw err;
-  }
+function fileSize(files: FileContext, songId: string): number | null {
+  return files.fs.statSync(files.paths.songAudio(songId))?.size ?? null;
 }
 
 /** Every song with an audio file on disk, with its size and LRU key. */
-function scan(db: PortableDrizzle): Candidate[] {
+function scan(files: FileContext, db: PortableDrizzle): Candidate[] {
   const out: Candidate[] = [];
   for (const row of db.select().from(songs).all()) {
-    const size = fileSize(row.id);
+    const size = fileSize(files, row.id);
     if (size === null) continue;
     out.push({ row, size, lastUsed: row.last_accessed_at ?? row.created_at });
   }
   return out;
 }
 
-export function cacheStatus(db: PortableDrizzle, opts: CacheOptions): CacheStatus {
-  const files = scan(db);
+export function cacheStatus(
+  files: FileContext,
+  db: PortableDrizzle,
+  opts: CacheOptions,
+): CacheStatus {
+  const onDisk = scan(files, db);
   let used = 0;
   let eligible = 0;
-  for (const file of files) {
+  for (const file of onDisk) {
     used += file.size;
     if (isReclaimableNow(file.row, opts)) eligible += file.size;
   }
   return {
     used_bytes: used,
-    file_count: files.length,
+    file_count: onDisk.length,
     eligible_bytes: eligible,
     unreclaimable_bytes: used - eligible,
     limit_satisfied: opts.limitBytes <= 0 || used <= opts.limitBytes,
@@ -166,17 +164,18 @@ export function cacheStatus(db: PortableDrizzle, opts: CacheOptions): CacheStatu
  * evicting a song means "the audio can be fetched again", not "forget it".
  */
 export async function runEviction(
+  files: FileContext,
   db: PortableDrizzle,
   opts: EvictionOptions,
 ): Promise<EvictionRun> {
   const run: EvictionRun = { evicted: [], skipped_unverified: [], failed: [] };
   if (opts.limitBytes <= 0) return run;
 
-  const files = scan(db);
-  let used = files.reduce((sum, f) => sum + f.size, 0);
+  const onDisk = scan(files, db);
+  let used = onDisk.reduce((sum, f) => sum + f.size, 0);
   if (used <= opts.limitBytes) return run;
 
-  const candidates = files
+  const candidates = onDisk
     .filter((f) => isReclaimableNow(f.row, opts))
     .sort((a, b) => a.lastUsed - b.lastUsed || (a.row.id < b.row.id ? -1 : 1));
 
@@ -203,10 +202,12 @@ export async function runEviction(
       if (fresh === undefined) continue; // deleted while we probed
       if (!isReclaimableNow(fresh, opts)) continue; // pinned / playing / queued
       if (fresh.source_key !== probedKey) continue; // re-keyed: probe proved nothing
-      const size = fileSize(songId); // re-stat: it may have been replaced
+      const size = fileSize(files, songId); // re-stat: it may have been replaced
       if (size === null) continue;
 
-      unlinkSync(songAudioPath(songId));
+      // Synchronous, like the re-checks above it: the port's `unlinkSync` is
+      // what keeps this whole section free of `await` (M5-5).
+      files.fs.unlinkSync(files.paths.songAudio(songId));
       used -= size;
       const evicted: EvictedSong = { song_id: songId, freed_bytes: size };
       run.evicted.push(evicted);

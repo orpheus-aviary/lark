@@ -6,10 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
 import { createPlaylist } from '../library/playlists.js';
 import { createSong, deleteSong } from '../library/songs.js';
+import { nodeFileContext } from '../node-fs.js';
 import { runFullBackfill } from './backfill.js';
 import { FileEffectRuntime } from './file-ops-runtime.js';
 import { readHlcState } from './hlc.js';
 import { REBASE_TOLERANCE_MS, rebaseLocalKeys } from './rebase.js';
+
+const files = nodeFileContext();
 
 let nest: string;
 let handles: DatabaseHandles;
@@ -38,7 +41,7 @@ async function seedFutureSong(ms: number = FUTURE): Promise<string> {
   const song = createSong(store(), { name: '未来的歌' });
   sq().prepare('UPDATE songs SET updated_at = ?, lww_counter = 0 WHERE id = ?').run(ms, song.id);
   sq().prepare('DELETE FROM sync_changes').run();
-  await runFullBackfill(sq()); // the create the rebase will rewrite
+  await runFullBackfill(sq(), files); // the create the rebase will rewrite
   return song.id;
 }
 

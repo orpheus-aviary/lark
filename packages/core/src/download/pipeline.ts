@@ -23,6 +23,7 @@ import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../err
 import { writeLyrics } from '../library/lyrics.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { PortableDb } from '../portable/db.js';
+import type { FileContext } from '../portable/ports/fs.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
 import { probeAudio, processAudio } from './ffmpeg.js';
 import { type NormalizedSource, normalizeSourceOnline } from './link.js';
@@ -37,6 +38,8 @@ import type { DownloadTimeouts } from './timeouts.js';
 export interface PipelineDeps {
   /** The library, as one connection (N1c) — drizzle and the raw handle together. */
   store: PortableDb;
+  /** Where song files live, and how to touch them (N1c). */
+  files: FileContext;
   bilibili: BilibiliClient;
   /** The task's config snapshot: `null` means no LLM for this whole task. */
   llm: LlmConfig | null;
@@ -423,7 +426,7 @@ export async function runLyrics(
     };
   }
 
-  await writeLyrics(deps.store, song.id, best.lrc);
+  await writeLyrics(deps.store, deps.files, song.id, best.lrc);
   return { written: true, platform: best.platform, reason: null };
 }
 

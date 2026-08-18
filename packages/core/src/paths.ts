@@ -176,3 +176,24 @@ export const SKILL_TEMP_PREFIX = '.lark-skill.md.tmp-';
 export function skillPath(): string {
   return join(larkDir(), SKILL_FILE_NAME);
 }
+
+// The three song paths as plain functions, for the desktop code that is not
+// going anywhere: the journal executor, the download landing protocol, the
+// audio migration, the media route. Portable code takes a `PathsPort` instead
+// — same implementation underneath, since these delegate to it (N1c).
+const songPaths = nodePaths();
+
+/** `songs/<id>/` — throws InvalidIdError before touching the filesystem. */
+export function songDirPath(id: string): string {
+  return songPaths.songDir(id);
+}
+
+/** `songs/<id>/song.m4a` */
+export function songAudioPath(id: string): string {
+  return songPaths.songAudio(id);
+}
+
+/** `songs/<id>/lyrics.lrc` */
+export function songLyricsPath(id: string): string {
+  return songPaths.songLyrics(id);
+}

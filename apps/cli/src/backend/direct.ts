@@ -146,6 +146,7 @@ type Handles = ReturnType<Core['createDatabase']>;
 
 function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Backend {
   const { db, sqlite, portable: store } = handles;
+  const files = core.nodeFileContext();
 
   /** `has_file` / `file_size` are a live disk probe, exactly as the daemon does. */
   //
@@ -160,7 +161,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
   const audioMode = core.isAudioMigrationPending(sqlite) ? 'migration-pending' : 'canonical';
   const enrich = (song: SongData): SongData => ({
     ...song,
-    ...core.songFileInfo(song.id, { audioMode }),
+    ...core.songFileInfo(files, song.id, { audioMode }),
   });
 
   const ok = <T>(data: T, extra: { message?: string; total?: number } = {}): ApiResponse<T> => {
@@ -345,7 +346,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // create a default config file or chmod an existing one (M6-23).
       const config = attempt(() => core.loadConfigReadonly());
       const status = attempt(() =>
-        core.cacheStatus(db, {
+        core.cacheStatus(files, db, {
           limitBytes: config.storage.cache_limit_mb * core.MIB,
           // Nothing is playing, nothing is queued: this process is the only
           // one holding the library, guaranteed by R31 + the writer lock.
@@ -366,6 +367,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       const bilibili = core.createBilibiliClient();
       const deps = {
         store,
+        files,
         bilibili,
         llm: null,
         // Carried for the type only: the eviction probe asks bilibili whether
@@ -375,7 +377,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       };
 
       const run = await attemptAsync(() =>
-        core.runEviction(db, {
+        core.runEviction(files, db, {
           limitBytes,
           isExcluded: () => false,
           streamCount: () => 0,
@@ -397,7 +399,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       );
 
       const after = attempt(() =>
-        core.cacheStatus(db, { limitBytes, isExcluded: () => false, streamCount: () => 0 }),
+        core.cacheStatus(files, db, { limitBytes, isExcluded: () => false, streamCount: () => 0 }),
       );
       return ok(
         {
@@ -458,7 +460,9 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // guarantees no daemon, and the writer lock excludes the other three
       // writers, so a fresh claim registry is the whole truth here.
       const fileOps = new core.FileEffectRuntime({ sqlite });
-      const result = await attemptAsync(() => core.unbindLibrary({ sqlite, fileOps, force }));
+      const result = await attemptAsync(() =>
+        core.unbindLibrary({ credentials: core.nodeCredentialStore(), sqlite, fileOps, force }),
+      );
       return ok(
         {
           changes: result.changes,
@@ -482,7 +486,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // this process: R31 guarantees no daemon, and the writer lock excludes
       // every other writer, so this process is the only one that could be
       // writing that file.
-      const deleted = await attemptAsync(() => core.deleteLyrics(store, validId(id)));
+      const deleted = await attemptAsync(() => core.deleteLyrics(store, files, validId(id)));
       if (!deleted) throw new CliError('LYRICS_NOT_FOUND', '这首歌没有歌词文件。');
       return ok({ id }, { message: 'lyrics deleted' });
     },
@@ -499,7 +503,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       const file = await attemptAsync(
         async () => await core.parseAndValidate(await readImportFile(filePath)),
       );
-      return ok(attempt(() => core.previewImport(db, file)));
+      return ok(attempt(() => core.previewImport(db, files, file)));
     },
     importPlaylist: async (request: ImportCommitRequest) => {
       writable();
@@ -514,7 +518,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       }
       const target = toCoreTarget(request.target);
       const result = attempt(() =>
-        core.importPlaylist(store, {
+        core.importPlaylist(store, files, {
           entries: file.entries,
           target,
           ...(request.reuse === undefined ? {} : { reuse: [...request.reuse] }),
@@ -582,7 +586,7 @@ async function readImportFile(filePath: string): Promise<Buffer> {
 /** The wire's `all` is core's `library`: songs land, no membership rows. */
 function toCoreTarget(
   target: ImportCommitRequest['target'],
-): Parameters<Core['importPlaylist']>[1]['target'] {
+): Parameters<Core['importPlaylist']>[2]['target'] {
   switch (target.kind) {
     case 'all':
       return { kind: 'library' };

@@ -80,7 +80,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
   // pending, so the daemon never reads a library that still holds mp3s.
   const enrich = (song: SongData): SongData => ({
     ...song,
-    ...songFileInfo(song.id, { audioMode: 'canonical' }),
+    ...songFileInfo(ctx.files, song.id, { audioMode: 'canonical' }),
   });
 
   const bilibili = ctx.bilibili;
@@ -347,7 +347,7 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post(apiPath.songEnsureFile(':id'), async (req, reply) => {
     const id = idOf(req);
     const song = getSong(ctx.db, ctx.sqlite, id);
-    const missing = !songFileInfo(id, { audioMode: 'canonical' }).has_file;
+    const missing = !songFileInfo(ctx.files, id, { audioMode: 'canonical' }).has_file;
     if (missing && song.source_key === null && !isLlmConfigured(resolveLlmConfig(ctx.config))) {
       throw new InvalidRequestError(
         'LLM_NOT_CONFIGURED',

@@ -16,6 +16,7 @@ import {
   MediaToolsRegistry,
   createBilibiliClient,
   createDatabase,
+  nodeFileContext,
   resolveLlmConfig,
 } from '@lark/core';
 import type { LarkConfig } from '@lark/shared';
@@ -137,6 +138,7 @@ export interface TestContext extends AppContext {
 /** A complete context over a fresh in-memory database. */
 export function createTestContext(options: TestContextOptions = {}): TestContext {
   const { db, sqlite, portable } = createDatabase({ dbPath: options.dbPath ?? ':memory:' });
+  const files = nodeFileContext();
   const fatals: unknown[] = [];
   const config = options.config ?? structuredClone(DEFAULT_CONFIG);
   const eventsBus = new EventsBus();
@@ -154,6 +156,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
   // the same translation production uses.
   const downloads = new DownloadEngine({
     store: portable,
+    files,
     bilibili,
     mediaTools,
     getLlmConfig: () => resolveLlmConfig(ctx.config),
@@ -219,6 +222,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     db,
     sqlite,
     portable,
+    files,
     localToken: TEST_LOCAL_TOKEN,
     eventsBus,
     guiChannel: new GuiChannel(options.guiChannel),

@@ -102,7 +102,10 @@ describe('writeTextAtomic', () => {
     await writing;
 
     expect(duringWrite).toHaveLength(1);
-    expect(duringWrite[0]).toMatch(/^\..*\.tmp$/);
+    // `.<basename>.<uuid>.tmp`: the startup recovery deletes leftovers by
+    // prefix (`.lyrics.` for a lyrics file), so a bare-uuid temp name would
+    // leave a crash's residue in the song directory forever.
+    expect(duringWrite[0]).toMatch(/^\.sibling\.lrc\..*\.tmp$/);
     expect(readdirSync(dir)).toEqual(['sibling.lrc']); // and it is gone afterwards
   });
 

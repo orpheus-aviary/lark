@@ -147,7 +147,7 @@ const rawId = (req: { params: unknown }): string => (req.params as { id: string 
 export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): void {
   const enrich = (song: SongData): SongData => ({
     ...song,
-    ...songFileInfo(song.id, { audioMode: 'canonical' }),
+    ...songFileInfo(ctx.files, song.id, { audioMode: 'canonical' }),
   });
   const changed = (): void => {
     ctx.eventsBus.emit({ type: 'playlists:changed' });
@@ -261,7 +261,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     const body = objectBody(req.body, ['file_path']);
     const filePath = requiredString(body, 'file_path', { maxLength: IMPORT_PATH_MAX });
     const file = await parseAndValidate(await readImportFile(filePath));
-    ok(reply, previewImport(ctx.db, file));
+    ok(reply, previewImport(ctx.db, ctx.files, file));
   });
 
   /**
@@ -290,7 +290,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
       );
     }
 
-    const result = importPlaylist(ctx.portable, {
+    const result = importPlaylist(ctx.portable, ctx.files, {
       entries: file.entries,
       target: toCoreTarget(target),
       reuse,

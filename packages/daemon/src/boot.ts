@@ -63,6 +63,7 @@ import {
   createLogger,
   isAudioMigrationPending,
   loadConfig,
+  nodeFileContext,
   paths,
   pendingFileOpSongIds,
   pruneEmptyQuarantines,
@@ -370,6 +371,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
 
   try {
     const { db, sqlite, portable } = createDatabase({ dbPath: paths.dbPath(), logger });
+    const files = nodeFileContext();
 
     // ── The file-effect journal comes FIRST (v0.2 §3.6) ─────────────────────
     //
@@ -448,6 +450,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       db,
       sqlite,
       portable,
+      files,
       localToken: generateLocalToken(), // memory only until listen() succeeds
       eventsBus,
       guiChannel: new GuiChannel(),
@@ -470,6 +473,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
     const buildRuntime = (active: AppContext): NormalRuntime => {
       const downloads = new DownloadEngine({
         store: portable,
+        files,
         bilibili,
         mediaTools,
         // Read fresh, so a PATCH /config is picked up by the next task — and

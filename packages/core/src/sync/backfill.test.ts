@@ -6,10 +6,11 @@ import { SYNC_CHANGE_BYTES_MAX } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
-import { songLyricsPath } from '../library/lyrics.js';
 import { createPlaylist } from '../library/playlists.js';
 import { addSongsToPlaylist } from '../library/playlists.js';
 import { createSong } from '../library/songs.js';
+import { nodeFileContext } from '../node-fs.js';
+import { songLyricsPath } from '../paths.js';
 import { songsDir } from '../paths.js';
 import {
   backfillOwed,
@@ -21,6 +22,7 @@ import {
 } from './backfill.js';
 import { emitSyncChange } from './changes.js';
 
+const files = nodeFileContext();
 let nest: string;
 let handles: DatabaseHandles;
 
@@ -85,7 +87,7 @@ describe('generations', () => {
     expect(readBackfillGenerations(sq())).toEqual({ done: 0, target: 1 });
     expect(backfillOwed(sq())).toBe(true);
 
-    await runFullBackfill(sq());
+    await runFullBackfill(sq(), files);
     expect(backfillOwed(sq())).toBe(false);
 
     bumpBackfillTarget(sq());
@@ -101,7 +103,7 @@ describe('runFullBackfill', () => {
     const { songId, playlistId } = seedPreSyncLibrary();
     writeLyricsFileFor(songId, '[00:01.00]旧词');
 
-    const result = await runFullBackfill(sq());
+    const result = await runFullBackfill(sq(), files);
 
     expect(result).toMatchObject({ songs: 1, playlists: 1, memberships: 1, lyrics: 1 });
     expect(ops().map((c) => c.label)).toEqual([
@@ -135,7 +137,7 @@ describe('runFullBackfill', () => {
     addSongsToPlaylist(store(), playlist.id, [song.id]);
     const before = ops().length;
 
-    const result = await runFullBackfill(sq());
+    const result = await runFullBackfill(sq(), files);
 
     expect(result).toMatchObject({ songs: 0, playlists: 0, memberships: 0 });
     expect(ops()).toHaveLength(before);
@@ -143,9 +145,9 @@ describe('runFullBackfill', () => {
 
   it('is safe to run twice', async () => {
     seedPreSyncLibrary();
-    await runFullBackfill(sq());
+    await runFullBackfill(sq(), files);
     const after = ops().length;
-    await runFullBackfill(sq());
+    await runFullBackfill(sq(), files);
     expect(ops()).toHaveLength(after);
   });
 
@@ -153,7 +155,7 @@ describe('runFullBackfill', () => {
     const { songId } = seedPreSyncLibrary();
     writeLyricsFileFor(songId, `[00:01.00]${'x'.repeat(SYNC_CHANGE_BYTES_MAX)}`);
 
-    const result = await runFullBackfill(sq());
+    const result = await runFullBackfill(sq(), files);
 
     expect(result).toMatchObject({ songs: 1, lyrics: 0, lyricsOversize: 1 });
     expect(ops().some((c) => c.label === 'song.set_lyrics')).toBe(false);
@@ -164,7 +166,7 @@ describe('runFullBackfill', () => {
 
   it('reads no lyrics for a song that has none', async () => {
     seedPreSyncLibrary();
-    const snapshot = await preReadLyrics(sq());
+    const snapshot = await preReadLyrics(sq(), files);
     expect(snapshot.size).toBe(0);
   });
 });
@@ -178,7 +180,7 @@ describe('the stale-lyrics window (R5-2)', () => {
     // pre-read L1 → a lyrics task writes L2 and emits it → the transaction
     // opens. Emitting the snapshot here would push L1 over L2 with a HIGHER
     // local_seq, and the newer document would lose on every device.
-    const snapshot = await preReadLyrics(sq());
+    const snapshot = await preReadLyrics(sq(), files);
     writeLyricsFileFor(songId, '[00:02.00]L2');
     emitSyncChange(sq(), {
       entityType: 'song',
@@ -200,7 +202,7 @@ describe('the stale-lyrics window (R5-2)', () => {
   it('drops the snapshot when the lyrics were already archived as unpushable', async () => {
     const { songId } = seedPreSyncLibrary();
     writeLyricsFileFor(songId, '[00:01.00]L1');
-    const snapshot = await preReadLyrics(sq());
+    const snapshot = await preReadLyrics(sq(), files);
     sq()
       .prepare(
         `INSERT INTO sync_dead_letters (direction, entity_type, entity_id, op, reason, recorded_at)

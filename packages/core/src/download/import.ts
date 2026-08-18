@@ -30,10 +30,10 @@ import {
   isLosslessAudioCodec,
 } from '@lark/shared';
 import { FfmpegError } from '../errors.js';
-import { songDirPath } from '../library/lyrics.js';
 import { createFileBackedSongInTx } from '../library/songs.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import type { ResolvedMediaTools } from '../media-tools/resolve.js';
+import { songDirPath } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
 import { uuid } from '../portable/runtime/random.js';
 import { type AudioProbe, probeAudio, processAudio } from './ffmpeg.js';

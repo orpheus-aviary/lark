@@ -199,7 +199,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.get(apiPath.lyrics(':id'), async (req, reply) => {
     const id = idOf(req);
-    const text = await readLyrics(id);
+    const text = await readLyrics(ctx.files, id);
     if (text === null) return fail(reply, 404, 'lyrics not found', 'LYRICS_NOT_FOUND');
     return reply
       .header('Content-Type', 'text/plain; charset=utf-8')
@@ -215,7 +215,7 @@ export function registerMediaRoutes(app: FastifyInstance, ctx: AppContext): void
     const token = ctx.downloads.claims.acquire(id, 'lyrics', `route:${randomUUID()}`);
     let deleted: boolean;
     try {
-      deleted = await deleteLyrics(ctx.portable, id);
+      deleted = await deleteLyrics(ctx.portable, ctx.files, id);
     } finally {
       ctx.downloads.claims.release(token);
     }

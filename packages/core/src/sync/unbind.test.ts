@@ -8,6 +8,7 @@ import {
   readSkybridgeCredentials,
   writeSkybridgeCredentials,
 } from '../config/skybridge.js';
+import { nodeCredentialStore } from '../config/skybridge.js';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
 import { FileOpBusyError, SyncPendingChangesError } from '../errors.js';
 import { skybridgeConfigPath } from '../paths.js';
@@ -100,7 +101,7 @@ describe('unbindLibrary', () => {
     seedBoundLibrary();
     const before = readBackfillGenerations(sq());
 
-    const result = await unbindLibrary({ sqlite: sq() });
+    const result = await unbindLibrary({ credentials: nodeCredentialStore(), sqlite: sq() });
 
     expect(counts()).toEqual({
       changes: 0,
@@ -126,7 +127,7 @@ describe('unbindLibrary', () => {
       }
     ).value;
 
-    await unbindLibrary({ sqlite: sq() });
+    await unbindLibrary({ credentials: nodeCredentialStore(), sqlite: sq() });
 
     expect(
       (
@@ -148,7 +149,9 @@ describe('unbindLibrary', () => {
     });
 
     expect(countUnpushedChanges(sq())).toEqual({ total: 2, unpublishedDeletes: 1 });
-    await expect(unbindLibrary({ sqlite: sq() })).rejects.toThrow(SyncPendingChangesError);
+    await expect(
+      unbindLibrary({ credentials: nodeCredentialStore(), sqlite: sq() }),
+    ).rejects.toThrow(SyncPendingChangesError);
     // Refused means untouched: the credentials are still there to sync with.
     expect(readSkybridgeCredentials()).not.toBeNull();
     expect(counts().binding).toBe(1);
@@ -158,7 +161,11 @@ describe('unbindLibrary', () => {
     seedBoundLibrary();
     sq().prepare("UPDATE sync_changes SET synced_at = NULL WHERE op = 'create'").run();
 
-    const result = await unbindLibrary({ sqlite: sq(), force: true });
+    const result = await unbindLibrary({
+      credentials: nodeCredentialStore(),
+      sqlite: sq(),
+      force: true,
+    });
     expect(result.discarded).toEqual({ total: 1, unpublishedDeletes: 0 });
     expect(counts().changes).toBe(0);
   });
@@ -167,7 +174,9 @@ describe('unbindLibrary', () => {
     seedBoundLibrary();
     enqueueDeleteLyrics(sq(), randomUUID());
 
-    await expect(unbindLibrary({ sqlite: sq() })).rejects.toThrow(FileOpBusyError);
+    await expect(
+      unbindLibrary({ credentials: nodeCredentialStore(), sqlite: sq() }),
+    ).rejects.toThrow(FileOpBusyError);
     expect(readSkybridgeCredentials()).not.toBeNull();
     expect(counts().binding).toBe(1);
   });
@@ -177,7 +186,7 @@ describe('unbindLibrary', () => {
     enqueueDeleteLyrics(sq(), randomUUID()); // no file on disk: a no-op that clears the row
     const fileOps = new FileEffectRuntime({ sqlite: sq() });
 
-    await unbindLibrary({ sqlite: sq(), fileOps });
+    await unbindLibrary({ credentials: nodeCredentialStore(), sqlite: sq(), fileOps });
 
     expect((sq().prepare('SELECT count(*) AS n FROM sync_file_ops').get() as { n: number }).n).toBe(
       0,
@@ -197,7 +206,9 @@ describe('unbindLibrary', () => {
       return original(sql, ...(rest as []));
     }) as typeof sqlite.prepare);
 
-    await expect(unbindLibrary({ sqlite })).rejects.toThrow('disk went away');
+    await expect(unbindLibrary({ credentials: nodeCredentialStore(), sqlite })).rejects.toThrow(
+      'disk went away',
+    );
     spy.mockRestore();
 
     expect(readSkybridgeCredentials()).toEqual(credentials);

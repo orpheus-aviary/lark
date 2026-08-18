@@ -97,7 +97,7 @@ function cacheOptions(ctx: AppContext): {
 
 export function readCacheStatus(ctx: AppContext): CacheStatusData {
   return {
-    ...cacheStatus(ctx.db, cacheOptions(ctx)),
+    ...cacheStatus(ctx.files, ctx.db, cacheOptions(ctx)),
     limit_mb: ctx.config.storage.cache_limit_mb,
   };
 }
@@ -118,6 +118,7 @@ export async function canRedownload(
 ): Promise<boolean> {
   const deps: PipelineDeps = {
     store: ctx.portable,
+    files: ctx.files,
     bilibili: ctx.bilibili,
     llm: null, // a probe never re-identifies; it only confirms the stored key
     // Carried for the type, never exercised: `probeSourceKey` asks bilibili
@@ -237,7 +238,7 @@ export class EvictionScheduler {
   ): Promise<EvictionSummary> {
     for (;;) {
       this.#dirty = false;
-      const run = await runEviction(this.#ctx.db, {
+      const run = await runEviction(this.#ctx.files, this.#ctx.db, {
         ...cacheOptions(this.#ctx),
         acquireFileClaim: (songId) => {
           try {

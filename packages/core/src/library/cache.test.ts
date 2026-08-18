@@ -10,10 +10,13 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
 import { ClaimRegistry } from '../download/claims.js';
+import { nodeFileContext } from '../node-fs.js';
+import { songAudioPath, songDirPath, songLyricsPath } from '../paths.js';
 import { songs } from '../portable/schema.js';
 import { type ClaimHandle, type EvictionOptions, cacheStatus, runEviction } from './cache.js';
-import { songAudioPath, songDirPath, songLyricsPath } from './lyrics.js';
 import { createSong, setFileOrigin, setPinned, touchLastAccessed } from './songs.js';
+
+const files = nodeFileContext();
 
 const DEAD_KEY = 'BV1dead0000:1';
 const ALIVE_KEY = 'BV1alive000:1';
@@ -96,7 +99,7 @@ describe('cacheStatus', () => {
     seed('imported', { bytes: 2000, origin: 'imported' });
     seed('rowOnly', { file: false });
 
-    const status = cacheStatus(db(), {
+    const status = cacheStatus(files, db(), {
       limitBytes: 0,
       isExcluded: () => false,
       streamCount: () => 0,
@@ -115,7 +118,7 @@ describe('cacheStatus', () => {
     ['a song with no source key', { key: null }],
   ])('never counts %s as eligible', (_label, seedOptions) => {
     seed('song', { bytes: 500, ...seedOptions });
-    const status = cacheStatus(db(), {
+    const status = cacheStatus(files, db(), {
       limitBytes: 100,
       isExcluded: () => false,
       streamCount: () => 0,
@@ -130,7 +133,7 @@ describe('cacheStatus', () => {
     const streaming = seed('streaming', { bytes: 200 });
     seed('free', { bytes: 400 });
 
-    const status = cacheStatus(db(), {
+    const status = cacheStatus(files, db(), {
       limitBytes: 1,
       isExcluded: (id) => id === excluded,
       streamCount: (id) => (id === streaming ? 1 : 0),
@@ -145,7 +148,7 @@ describe('runEviction', () => {
     const middle = seed('middle', { bytes: 1000, lastAccessed: 200 });
     const newest = seed('newest', { bytes: 1000, lastAccessed: 300 });
 
-    const run = await runEviction(db(), options({ limitBytes: 1500 }));
+    const run = await runEviction(files, db(), options({ limitBytes: 1500 }));
 
     expect(run.evicted.map((e) => e.song_id)).toEqual([oldest, middle]);
     expect(run.evicted.every((e) => e.freed_bytes === 1000)).toBe(true);
@@ -156,7 +159,7 @@ describe('runEviction', () => {
     const untouched = seed('untouched', { bytes: 1000 });
     const played = seed('played', { bytes: 1000, lastAccessed: Date.now() + 10_000 });
 
-    const run = await runEviction(db(), options({ limitBytes: 1000 }));
+    const run = await runEviction(files, db(), options({ limitBytes: 1000 }));
 
     expect(run.evicted.map((e) => e.song_id)).toEqual([untouched]);
     expect(hasAudio(played)).toBe(true);
@@ -165,7 +168,7 @@ describe('runEviction', () => {
   it('keeps the row and the lyrics of an evicted song', async () => {
     const id = seed('gone', { bytes: 4000 });
 
-    await runEviction(db(), options({ limitBytes: 1 }));
+    await runEviction(files, db(), options({ limitBytes: 1 }));
 
     expect(hasAudio(id)).toBe(false);
     expect(existsSync(songLyricsPath(id))).toBe(true);
@@ -175,8 +178,8 @@ describe('runEviction', () => {
   it('is a no-op when the limit is unlimited or already met', async () => {
     const id = seed('kept', { bytes: 4000 });
 
-    expect((await runEviction(db(), options({ limitBytes: 0 }))).evicted).toEqual([]);
-    expect((await runEviction(db(), options({ limitBytes: 8000 }))).evicted).toEqual([]);
+    expect((await runEviction(files, db(), options({ limitBytes: 0 }))).evicted).toEqual([]);
+    expect((await runEviction(files, db(), options({ limitBytes: 8000 }))).evicted).toEqual([]);
     expect(hasAudio(id)).toBe(true);
   });
 
@@ -184,7 +187,7 @@ describe('runEviction', () => {
     const imported = seed('imported', { bytes: 5000, origin: 'imported' });
     const pinned = seed('pinned', { bytes: 5000, pinned: true });
 
-    const run = await runEviction(db(), options({ limitBytes: 1 }));
+    const run = await runEviction(files, db(), options({ limitBytes: 1 }));
 
     expect(run.evicted).toEqual([]);
     expect(hasAudio(imported)).toBe(true);
@@ -196,6 +199,7 @@ describe('runEviction', () => {
     const alive = seed('alive', { bytes: 2000, key: ALIVE_KEY, lastAccessed: 2 });
 
     const run = await runEviction(
+      files,
       db(),
       options({ limitBytes: 2000, probe: (key) => Promise.resolve(key === ALIVE_KEY) }),
     );
@@ -209,7 +213,7 @@ describe('runEviction', () => {
     const busy = seed('busy', { bytes: 4000 });
     claims.acquire(busy, 'file', 'download-task');
 
-    const run = await runEviction(db(), options({ limitBytes: 1 }));
+    const run = await runEviction(files, db(), options({ limitBytes: 1 }));
 
     expect(run.evicted).toEqual([]);
     expect(hasAudio(busy)).toBe(true);
@@ -221,7 +225,7 @@ describe('runEviction', () => {
     mkdirSync(songAudioPath(id), { recursive: true });
     writeFileSync(join(songAudioPath(id), 'filler'), Buffer.alloc(4000));
 
-    const run = await runEviction(db(), options({ limitBytes: 1 }));
+    const run = await runEviction(files, db(), options({ limitBytes: 1 }));
 
     expect(run.evicted).toEqual([]);
     expect(run.failed).toHaveLength(1);
@@ -236,6 +240,7 @@ describe('runEviction', () => {
     const controller = new AbortController();
 
     const run = await runEviction(
+      files,
       db(),
       options({
         limitBytes: 1,
@@ -255,7 +260,11 @@ describe('runEviction', () => {
     seed('b', { bytes: 1000, lastAccessed: 2 });
     const seen: string[] = [];
 
-    await runEviction(db(), options({ limitBytes: 1, onEvicted: (e) => seen.push(e.song_id) }));
+    await runEviction(
+      files,
+      db(),
+      options({ limitBytes: 1, onEvicted: (e) => seen.push(e.song_id) }),
+    );
 
     expect(seen).toHaveLength(2);
   });
@@ -268,6 +277,7 @@ describe('runEviction re-checks after the probe', () => {
   const evictOne = async (mutate: (songId: string) => void): Promise<string> => {
     const id = seed('victim', { bytes: 4000 });
     await runEviction(
+      files,
       db(),
       options({
         limitBytes: 1,
@@ -296,6 +306,7 @@ describe('runEviction re-checks after the probe', () => {
     const id = seed('victim', { bytes: 4000 });
     let playing = false;
     await runEviction(
+      files,
       db(),
       options({
         limitBytes: 1,
@@ -313,6 +324,7 @@ describe('runEviction re-checks after the probe', () => {
     const id = seed('victim', { bytes: 4000 });
     let streams = 0;
     await runEviction(
+      files,
       db(),
       options({
         limitBytes: 1,
@@ -329,6 +341,7 @@ describe('runEviction re-checks after the probe', () => {
   it('frees the size the file has at deletion time, not the one it was picked with', async () => {
     const id = seed('replaced', { bytes: 4000 });
     const run = await runEviction(
+      files,
       db(),
       options({
         limitBytes: 1,
@@ -344,6 +357,7 @@ describe('runEviction re-checks after the probe', () => {
   it('skips a song deleted while the probe ran', async () => {
     const id = seed('deleted', { bytes: 4000 });
     const run = await runEviction(
+      files,
       db(),
       options({
         limitBytes: 1,

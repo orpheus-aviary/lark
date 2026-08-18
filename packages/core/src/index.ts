@@ -10,6 +10,15 @@ import { installNodeRuntime } from './node-runtime.js';
 installNodeRuntime();
 
 export * as paths from './paths.js';
+export {
+  CANONICAL_AUDIO_FILE,
+  LEGACY_AUDIO_FILE,
+  songAudioPath,
+  songDirPath,
+  songLyricsPath,
+} from './paths.js';
+export * from './node-fs.js';
+export type * from './portable/ports/index.js';
 export * from './config/index.js';
 export * from './daemon-control/index.js';
 export * from './logger/index.js';

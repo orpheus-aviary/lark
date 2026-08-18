@@ -146,7 +146,7 @@ async function install(ctx: AppContext, input: SyncLoginRequest): Promise<SyncLo
     const republish = bindingWritten || owed;
     // Read off disk BEFORE the transaction (a transaction cannot await) and
     // re-validated inside it against the outbox (R5-2).
-    const lyrics: LyricsSnapshot = owed ? await preReadLyrics(ctx.sqlite) : new Map();
+    const lyrics: LyricsSnapshot = owed ? await preReadLyrics(ctx.sqlite, ctx.files) : new Map();
     const serverNowMs = republish
       ? await callSkybridge('server time', () => api.serverTime(serverUrl))
       : Date.now();

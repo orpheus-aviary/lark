@@ -1,6 +1,7 @@
 import type {
   BilibiliClient,
   DownloadEngine,
+  FileContext,
   FileEffectRuntime,
   LarkDatabase,
   MediaToolsProvider,
@@ -82,6 +83,11 @@ export interface BaseContext {
    * third handle — `createDatabase` builds it from the two above.
    */
   portable: PortableDb;
+  /**
+   * Song files: the filesystem and the paths that resolve them (N1c). One per
+   * process, built at boot, handed to core rather than imported by it.
+   */
+  files: FileContext;
   /** Bearer token every request but `GET /status` must carry (R21/R29). */
   localToken: string;
   eventsBus: EventsBus;

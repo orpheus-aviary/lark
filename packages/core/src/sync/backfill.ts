@@ -26,11 +26,10 @@
 //   rank, then a set_rank. A backfill that folded rank into the put would
 //   reintroduce the second channel the whole rank design exists to avoid.
 
-import { readFile } from 'node:fs/promises';
 import type { SongSyncPayload } from '@lark/shared';
 import { membershipEntityId } from '@lark/shared';
 import { SyncChangeTooLargeError } from '../errors.js';
-import { songLyricsPath } from '../library/lyrics.js';
+import type { FileContext } from '../portable/ports/fs.js';
 import { utf8ByteLength } from '../portable/runtime/text.js';
 import type { SqliteLike } from '../portable/sqlite.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
@@ -94,16 +93,15 @@ export type LyricsSnapshot = Map<string, string>;
  * is async and a transaction cannot await — and its result is re-validated
  * inside.
  */
-export async function preReadLyrics(sqlite: SqliteLike): Promise<LyricsSnapshot> {
+export async function preReadLyrics(
+  sqlite: SqliteLike,
+  files: FileContext,
+): Promise<LyricsSnapshot> {
   const rows = sqlite.prepare('SELECT id FROM songs ORDER BY id').all() as { id: string }[];
   const snapshot: LyricsSnapshot = new Map();
   for (const { id } of rows) {
-    try {
-      const lrc = await readFile(songLyricsPath(id), 'utf-8');
-      if (lrc.trim() !== '') snapshot.set(id, lrc);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
+    const lrc = await files.fs.readText(files.paths.songLyrics(id));
+    if (lrc !== null && lrc.trim() !== '') snapshot.set(id, lrc);
   }
   return snapshot;
 }
@@ -291,7 +289,10 @@ export function markBackfillDone(sqlite: SqliteLike): void {
  * rebase and the binding share one transaction; this is for callers that only
  * want the backfill.
  */
-export async function runFullBackfill(sqlite: SqliteLike): Promise<BackfillResult> {
-  const lyrics = await preReadLyrics(sqlite);
+export async function runFullBackfill(
+  sqlite: SqliteLike,
+  files: FileContext,
+): Promise<BackfillResult> {
+  const lyrics = await preReadLyrics(sqlite, files);
   return sqlite.transaction(() => runFullBackfillInTx(sqlite, lyrics)).immediate();
 }

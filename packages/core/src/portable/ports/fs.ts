@@ -52,6 +52,11 @@ export interface FileSystemPort {
    *
    * If a host cannot do this, that is a decision to bring back for a ruling —
    * not something an adapter quietly weakens (subplan §2.4).
+   *
+   * The temp file's NAME is the adapter's business with one constraint: a host
+   * whose recovery sweeps residue by prefix has to keep producing names that
+   * sweep recognises. The desktop writes `.<basename>.<uuid>.tmp` for exactly
+   * that reason.
    */
   writeTextAtomic(path: string, text: string): Promise<void>;
 

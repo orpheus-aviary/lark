@@ -46,7 +46,6 @@ import {
   TaskNotCancellableError,
   TaskNotFoundError,
 } from '../errors.js';
-import { songAudioPath, songDirPath } from '../library/lyrics.js';
 import { addSongsToPlaylistInTx, createPlaylist } from '../library/playlists.js';
 import {
   createFileBackedSongInTx,
@@ -56,7 +55,9 @@ import {
 } from '../library/songs.js';
 import { findSongByKey } from '../library/source.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
+import { songAudioPath, songDirPath } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
+import type { FileContext } from '../portable/ports/fs.js';
 import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
@@ -133,6 +134,8 @@ export interface EngineCallbacks {
 export interface DownloadEngineOptions {
   /** The library, as one connection (N1c) — drizzle and the raw handle together. */
   store: PortableDb;
+  /** Where song files live, and how to touch them (N1c). */
+  files: FileContext;
   /**
    * The EFFECTIVE llm config, read fresh per call. Snapshotted once when a
    * task starts, so a config change mid-download cannot swap models halfway
@@ -773,6 +776,7 @@ export class DownloadEngine {
   #deps(task: TaskRecord): PipelineDeps {
     return {
       store: this.#options.store,
+      files: this.#options.files,
       bilibili: this.#bilibili,
       llm: task.llm,
       mediaTools: this.#options.mediaTools,
