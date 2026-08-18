@@ -17,6 +17,7 @@ export * from './logger.js';
 export * from './migrate.js';
 export * from './migrations/index.js';
 export * from './pending.js';
+export * from './ports/index.js';
 export * from './runtime/index.js';
 export * as schema from './schema.js';
 export * from './schema-signature.js';

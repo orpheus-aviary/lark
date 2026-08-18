@@ -13,42 +13,33 @@
 
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isUuidV4 } from '@lark/shared';
 import { type LarkDatabase, sqliteOf } from '../db/index.js';
-import { InvalidIdError, SyncChangeTooLargeError } from '../errors.js';
-import { songsDir } from '../paths.js';
+import { SyncChangeTooLargeError } from '../errors.js';
+import { nodePaths } from '../paths.js';
 import { uuid } from '../portable/runtime/random.js';
 import { utf8ByteLength } from '../portable/runtime/text.js';
 import { emitSyncChange, recordDeadLetter } from '../sync/changes.js';
 
+// One implementation of "where is this song's audio", in `paths.ts`, behind
+// the `PathsPort` interface a phone will implement too (N1a). These stay
+// exported under the names the rest of core already imports.
+const nodeSongPaths = nodePaths();
+
+export { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE } from '../paths.js';
+
 /** `songs/<id>/` — throws InvalidIdError before touching the filesystem. */
 export function songDirPath(id: string): string {
-  if (!isUuidV4(id)) throw new InvalidIdError(id);
-  return join(songsDir(), id);
+  return nodeSongPaths.songDir(id);
 }
-
-/**
- * The one audio file name in the library (0.3.0). Everything writes it and
- * everything reads it; there is no probing and no second format.
- */
-export const CANONICAL_AUDIO_FILE = 'song.m4a';
-
-/**
- * What 0.2.x wrote. Only two kinds of code may mention it: the one-time
- * migration, and the `has_file` probe while that migration is still pending
- * (a song not converted yet is present, and reporting it as missing would
- * offer the user a download for a file they already have).
- */
-export const LEGACY_AUDIO_FILE = 'song.mp3';
 
 /** `songs/<id>/song.m4a` */
 export function songAudioPath(id: string): string {
-  return join(songDirPath(id), CANONICAL_AUDIO_FILE);
+  return nodeSongPaths.songAudio(id);
 }
 
 /** `songs/<id>/lyrics.lrc` */
 export function songLyricsPath(id: string): string {
-  return join(songDirPath(id), 'lyrics.lrc');
+  return nodeSongPaths.songLyrics(id);
 }
 
 /** LRC text, or `null` when the song has no lyrics file. */

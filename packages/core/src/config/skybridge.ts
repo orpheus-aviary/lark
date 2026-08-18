@@ -42,51 +42,31 @@ import {
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'smol-toml';
 import { SKYBRIDGE_TEMP_PREFIX, skybridgeConfigPath } from '../paths.js';
+import type {
+  CredentialStash,
+  CredentialStore,
+  PublicSkybridgeCredentials,
+  SkybridgeAuthSection,
+  SkybridgeCredentials,
+  SkybridgeDeviceSection,
+  SkybridgeServerSection,
+  SkybridgeWorkspaceSection,
+} from '../portable/ports/credentials.js';
 
-export interface SkybridgeServerSection {
-  url: string;
-  /** The plaintext-http breaker (§3.7). Only ever set by an explicit opt-in. */
-  allow_insecure_http?: boolean;
-}
-
-export interface SkybridgeAuthSection {
-  user_id: string;
-  email: string;
-  token: string;
-  refresh_token?: string;
-  /** Access-token expiry, Unix ms. Absent on a server that does not issue one. */
-  expires_at?: number;
-}
-
-export interface SkybridgeDeviceSection {
-  id: string;
-  name: string;
-}
-
-export interface SkybridgeWorkspaceSection {
-  id: string;
-}
-
-export interface SkybridgeCredentials {
-  server: SkybridgeServerSection;
-  auth?: SkybridgeAuthSection;
-  device?: SkybridgeDeviceSection;
-  workspace?: SkybridgeWorkspaceSection;
-}
-
-/** Everything but the secrets — what a status route, a log line or `config-show` may see. */
-export interface PublicSkybridgeCredentials {
-  server_url: string;
-  allow_insecure_http: boolean;
-  user_id: string | null;
-  email: string | null;
-  has_token: boolean;
-  has_refresh_token: boolean;
-  expires_at: number | null;
-  device_id: string | null;
-  device_name: string | null;
-  workspace_id: string | null;
-}
+// The SHAPE of the credentials moved to `portable/ports/credentials.ts` in
+// N1a — it is a sync session, not a file format, and a phone holds the same
+// fields in SecureStore. Re-exported here, which is where core already imports
+// them from.
+export type {
+  CredentialStash,
+  CredentialStore,
+  PublicSkybridgeCredentials,
+  SkybridgeAuthSection,
+  SkybridgeCredentials,
+  SkybridgeDeviceSection,
+  SkybridgeServerSection,
+  SkybridgeWorkspaceSection,
+} from '../portable/ports/credentials.js';
 
 /**
  * Read the credentials, or `null` when this install has none to speak of.
@@ -174,25 +154,10 @@ export function deleteSkybridgeCredentials(path?: string): boolean {
   }
 }
 
-/**
- * A credential file moved aside, and the two ways to end that.
- *
- * Both the login installer and `unbind` need the same guarantee: they are
- * about to write (or delete) this file as part of a longer sequence that can
- * still fail, and the disk must never be left holding credentials that no
- * longer describe anything. A rename-away is the only move that gives that —
- * a copy could be interrupted halfway.
- */
-export interface SkybridgeStash {
-  /** True when there was a file to move aside. */
-  existed: boolean;
-  /** Put it back, discarding whatever the failed sequence wrote. */
-  restore(): void;
-  /** The sequence committed — drop the old copy. */
-  discard(): void;
-}
+/** The old name for `CredentialStash`, kept for the callers that use it. */
+export type SkybridgeStash = CredentialStash;
 
-export function stashSkybridgeCredentials(path?: string): SkybridgeStash {
+export function stashSkybridgeCredentials(path?: string): CredentialStash {
   const filePath = path ?? skybridgeConfigPath();
   if (!existsSync(filePath)) {
     return {
@@ -239,6 +204,25 @@ export function publicSkybridgeCredentials(
     device_id: credentials?.device?.id ?? null,
     device_name: credentials?.device?.name ?? null,
     workspace_id: credentials?.workspace?.id ?? null,
+  };
+}
+
+/**
+ * The desktop's `CredentialStore` (N1a).
+ *
+ * The four functions above, bound to one path. Callers that hold a coordinator
+ * context get this; the functions stay exported for the paths that address the
+ * file directly — `lark sync config-show`, which reads it with no daemon and
+ * no library, and the nest backup, which must know to skip it.
+ */
+export function nodeCredentialStore(path?: string): CredentialStore {
+  return {
+    read: () => readSkybridgeCredentials(path),
+    write: (credentials) => {
+      writeSkybridgeCredentials(credentials, path);
+    },
+    delete: () => deleteSkybridgeCredentials(path),
+    stash: () => stashSkybridgeCredentials(path),
   };
 }
 

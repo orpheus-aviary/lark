@@ -15,6 +15,7 @@ import { skybridgeConfigPath } from '../paths.js';
 import {
   type SkybridgeCredentials,
   deleteSkybridgeCredentials,
+  nodeCredentialStore,
   publicSkybridgeCredentials,
   readSkybridgeCredentials,
   stashSkybridgeCredentials,
@@ -157,5 +158,43 @@ describe('stashSkybridgeCredentials', () => {
     expect(deleteSkybridgeCredentials()).toBe(false);
     writeSkybridgeCredentials(full);
     expect(deleteSkybridgeCredentials()).toBe(true);
+  });
+});
+
+// The desktop's CredentialStore (N1a): the same four operations, bound to one
+// path, for callers that receive a context instead of reaching for the file.
+describe('nodeCredentialStore', () => {
+  const creds: SkybridgeCredentials = {
+    server: { url: 'https://sync.example.test' },
+    auth: { user_id: 'u1', email: 'a@b.test', token: 'tok' },
+    device: { id: 'd1', name: 'mac' },
+    workspace: { id: 'w1' },
+  };
+
+  it('reads, writes, stashes and deletes through the default path', () => {
+    const store = nodeCredentialStore();
+    expect(store.read()).toBeNull();
+
+    store.write(creds);
+    expect(store.read()).toEqual(creds);
+    expect(statSync(skybridgeConfigPath()).mode & 0o777).toBe(0o600);
+
+    const stash = store.stash();
+    expect(stash.existed).toBe(true);
+    expect(store.read()).toBeNull(); // moved aside, mid-sequence
+    stash.restore();
+    expect(store.read()).toEqual(creds);
+
+    expect(store.delete()).toBe(true);
+    expect(store.delete()).toBe(false);
+  });
+
+  it('binds to the path it was given', () => {
+    const elsewhere = join(nest, 'lark', 'other-skybridge.toml');
+    const store = nodeCredentialStore(elsewhere);
+    store.write(creds);
+    expect(existsSync(elsewhere)).toBe(true);
+    expect(readSkybridgeCredentials()).toBeNull(); // and not the default one
+    expect(store.read()).toEqual(creds);
   });
 });

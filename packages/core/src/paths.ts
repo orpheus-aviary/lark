@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { type PathsPort, assertSongId } from './portable/ports/paths.js';
 
 const NEST_DIR = 'orpheus-aviary-nest';
 const LARK_DIR = 'lark';
@@ -61,6 +62,45 @@ export function larkLogPath(): string {
 /** Song payload root: `lark/songs/` — one `<uuid>/` directory per song. */
 export function songsDir(): string {
   return join(larkDir(), 'songs');
+}
+
+/**
+ * The one audio file name in the library (0.3.0). Everything writes it and
+ * everything reads it; there is no probing and no second format.
+ */
+export const CANONICAL_AUDIO_FILE = 'song.m4a';
+
+/**
+ * What 0.2.x wrote. Only two kinds of code may mention it: the one-time
+ * migration, and the `has_file` probe while that migration is still pending
+ * (a song not converted yet is present, and reporting it as missing would
+ * offer the user a download for a file they already have).
+ */
+export const LEGACY_AUDIO_FILE = 'song.mp3';
+
+/** The song lyrics file name. */
+const LYRICS_FILE = 'lyrics.lrc';
+
+/**
+ * The desktop's `PathsPort` (N1a).
+ *
+ * The id gate runs before any join, exactly as it always has (R10) —
+ * `songs/<id>/` is a real location and an id that reaches a join unvalidated
+ * is a traversal waiting to happen. `library/lyrics.ts` delegates its path
+ * functions here, so there is ONE implementation rather than two that agree
+ * until they don't.
+ */
+export function nodePaths(): PathsPort {
+  const songDir = (id: string): string => {
+    assertSongId(id);
+    return join(songsDir(), id);
+  };
+  return {
+    songDir,
+    songAudio: (id) => join(songDir(id), CANONICAL_AUDIO_FILE),
+    songLegacyAudio: (id) => join(songDir(id), LEGACY_AUDIO_FILE),
+    songLyrics: (id) => join(songDir(id), LYRICS_FILE),
+  };
 }
 
 /** Trash staging dir for deleteSong's two-phase delete (R22): `lark/trash/` */
