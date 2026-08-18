@@ -36,7 +36,6 @@ import {
 import type BetterSqlite3 from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
-import { findSongByKey } from '../download/pipeline.js';
 import {
   InvalidImportFileError,
   InvalidReuseError,
@@ -49,7 +48,7 @@ import { decodeUtf8 } from '../portable/runtime/text.js';
 import { type SongRow, playlist_songs, playlists, songs } from '../portable/schema.js';
 import { addSongsToPlaylistInTx, createPlaylistInTx } from './playlists.js';
 import { createSongInTx, songFileInfo } from './songs.js';
-import { normalizeSource } from './source.js';
+import { findSongByKey, normalizeSource } from './source.js';
 
 /** Guardrails on one file, mirrored by the route's byte-size check (M5-13). */
 export const IMPORT_SONGS_MAX = 10_000;

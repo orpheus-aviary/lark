@@ -20,7 +20,7 @@ import {
   SourceKeyConflictError,
 } from '../errors.js';
 import type { ClaimToken, ClaimType } from './claims.js';
-import type { DownloadTarget } from './pipeline.js';
+import type { DownloadTarget } from './target.js';
 
 export const TERMINAL_STATES: ReadonlySet<TaskState> = new Set([
   'succeeded',

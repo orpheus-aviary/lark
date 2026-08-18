@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { enqueueDeleteLyrics, recordDeadLetter } from '@lark/core';
+import { countQuarantined, enqueueDeleteLyrics, recordDeadLetter } from '@lark/core';
 import type { SyncLoginRequest } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -53,7 +53,7 @@ function insertSong(key: string | null): string {
 
 describe('buildSyncStatus', () => {
   it('describes a fresh install as unconfigured rather than broken', () => {
-    expect(buildSyncStatus(ctx)).toMatchObject({
+    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
       configured: false,
       authenticated: false,
       bound: false,
@@ -72,7 +72,7 @@ describe('buildSyncStatus', () => {
   it('reports the three "is it usable" answers separately after a login', async () => {
     const login = await performSyncLogin(ctx, request);
 
-    expect(buildSyncStatus(ctx)).toMatchObject({
+    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
       configured: true,
       authenticated: true,
       bound: true,
@@ -88,7 +88,7 @@ describe('buildSyncStatus', () => {
     await performSyncLogin(ctx, request);
     await performSyncLogout(ctx);
 
-    expect(buildSyncStatus(ctx)).toMatchObject({
+    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
       configured: true,
       authenticated: false,
       bound: true,
@@ -101,7 +101,7 @@ describe('buildSyncStatus', () => {
     await performSyncLogin(ctx, request);
     ctx.sync.noteOffline('the server is not answering');
 
-    expect(buildSyncStatus(ctx)).toMatchObject({
+    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
       state: 'offline',
       auth_reason: null,
       last_error: 'the server is not answering',
@@ -117,7 +117,7 @@ describe('buildSyncStatus', () => {
     recordDeadLetter(ctx.sqlite, { direction: 'out', reason: 'change_too_large', payload: '{}' });
     enqueueDeleteLyrics(ctx.sqlite, randomUUID());
 
-    expect(buildSyncStatus(ctx)).toMatchObject({
+    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
       duplicate_source_keys: 2,
       dead_letters: { in: 1, out: 1 },
       pending_file_ops: 1,
@@ -137,7 +137,7 @@ describe('buildSyncStatus', () => {
       )
       .run();
 
-    expect(buildSyncStatus(ctx)).toMatchObject({ pulled_seq: 12, pushed_seq: 9 });
+    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({ pulled_seq: 12, pushed_seq: 9 });
   });
 
   it('survives a credential file it cannot read', async () => {
@@ -148,7 +148,7 @@ describe('buildSyncStatus', () => {
     rmSync(join(nest, 'lark', 'skybridge.toml'));
     mkdirSync(join(nest, 'lark', 'skybridge.toml'));
 
-    const status = buildSyncStatus(ctx);
+    const status = buildSyncStatus(ctx, countQuarantined);
 
     expect(status.configured).toBe(false);
     expect(status.bound).toBe(true);

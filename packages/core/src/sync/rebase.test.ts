@@ -7,6 +7,7 @@ import { type DatabaseHandles, createDatabase } from '../db/index.js';
 import { createPlaylist } from '../library/playlists.js';
 import { createSong, deleteSong } from '../library/songs.js';
 import { runFullBackfill } from './backfill.js';
+import { FileEffectRuntime } from './file-ops-runtime.js';
 import { readHlcState } from './hlc.js';
 import { REBASE_TOLERANCE_MS, rebaseLocalKeys } from './rebase.js';
 
@@ -110,7 +111,7 @@ describe('rebaseLocalKeys', () => {
 
   it('rewrites a tombstone together with the delete that made it', async () => {
     const songId = await seedFutureSong();
-    await deleteSong(db(), sq(), songId);
+    await deleteSong(db(), sq(), songId, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     sq()
       .prepare('UPDATE sync_tombstones SET updated_at = ? WHERE entity_id = ?')
       .run(FUTURE + 5, songId);

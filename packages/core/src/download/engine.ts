@@ -56,6 +56,7 @@ import {
   setFileOrigin,
   updateSongInTx,
 } from '../library/songs.js';
+import { findSongByKey } from '../library/source.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
 import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';
@@ -65,18 +66,17 @@ import { ClaimRegistry } from './claims.js';
 import { isLlmConfigured } from './llm.js';
 import type { LyricsOrigins } from './lyrics/shared.js';
 import {
-  type DownloadTarget,
   type PipelineDeps,
   type ResolvedTarget,
   type StepContext,
   fetchAudio,
-  findSongByKey,
   probeSourceKey,
   reidentifySource,
   resolveTarget,
   runLyrics,
 } from './pipeline.js';
 import { landSongFile } from './resolve.js';
+import type { DownloadTarget } from './target.js';
 import {
   POINT_OF_NO_RETURN,
   type TaskRecord,

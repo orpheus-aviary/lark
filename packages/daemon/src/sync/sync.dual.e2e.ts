@@ -26,6 +26,7 @@
 
 import { randomUUID } from 'node:crypto';
 import {
+  FileEffectRuntime,
   type LarkDatabase,
   type LyricsSnapshot,
   type RunSyncResult,
@@ -333,7 +334,9 @@ describe.skipIf(serverModule === null)('sync against a real skybridge server', (
 
     // B edits it while A deletes it — neither has seen the other.
     updateSong(b.db, b.sqlite, doomed.id, { name: '改过名字的' });
-    await deleteSong(a.db, a.sqlite, doomed.id);
+    await deleteSong(a.db, a.sqlite, doomed.id, {
+      fileOps: new FileEffectRuntime({ sqlite: a.sqlite }),
+    });
     await sync(a);
     await syncTwice(b);
     await sync(a);

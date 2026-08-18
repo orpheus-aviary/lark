@@ -6,14 +6,14 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type DatabaseHandles, createDatabase } from '../db/index.js';
 import { AmbiguousSourceKeyError } from '../errors.js';
-import { createSong } from '../library/songs.js';
-import { findSongByKey, findSongsByKey } from './pipeline.js';
+import { createSong } from './songs.js';
+import { findSongByKey, findSongsByKey } from './source.js';
 
 let nest: string;
 let handles: DatabaseHandles;
 
 beforeEach(() => {
-  nest = mkdtempSync(join(tmpdir(), 'lark-pipeline-test-'));
+  nest = mkdtempSync(join(tmpdir(), 'lark-source-test-'));
   vi.stubEnv('LARK_NEST_DIR', nest);
   handles = createDatabase({ dbPath: ':memory:' });
 });

@@ -254,7 +254,11 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // Async since v0.2: the row and the file removal are two steps now (a
       // journal entry between them), and the command must not exit before the
       // files it promised to delete are gone.
-      await attemptAsync(() => core.deleteSong(db, sqlite, validId(id)));
+      await attemptAsync(() =>
+        core.deleteSong(db, sqlite, validId(id), {
+          fileOps: new core.FileEffectRuntime({ sqlite }),
+        }),
+      );
       return ok({ id }, { message: 'song deleted' });
     },
     pinSong: (id, pinned) => {

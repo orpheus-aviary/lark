@@ -15,7 +15,7 @@ import {
   readCursor,
   runSync,
 } from './engine.js';
-import { FileEffectRuntime } from './file-ops.js';
+import { FileEffectRuntime } from './file-ops-runtime.js';
 import { readServerTimeOffset } from './hlc.js';
 
 const SERVER_ID = 'server-1';

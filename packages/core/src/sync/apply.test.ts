@@ -14,6 +14,7 @@ import { RANK_STEP } from '../library/rank.js';
 import { createSong, deleteSong } from '../library/songs.js';
 import { type InboundChange, applyChangesInTx } from './apply.js';
 import { listConflicts } from './conflicts.js';
+import { FileEffectRuntime } from './file-ops-runtime.js';
 import { readTombstone } from './tombstones.js';
 
 let nest: string;
@@ -141,7 +142,7 @@ describe('song puts', () => {
     expect(songRow(id)).toMatchObject({ name: '补回来' });
 
     const gone = createSong(db(), sq(), { name: '本地删掉' });
-    await deleteSong(db(), sq(), gone.id);
+    await deleteSong(db(), sq(), gone.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     const result = apply(change('song', gone.id, 'create', songPayload({ updated_at_ms: 9e12 })));
 
     // A song's delete is final. Even a much newer create is a stale echo.
@@ -313,7 +314,7 @@ describe('lyrics ops', () => {
 
   it('is stopped by the parent gate, tombstone or missing row alike', async () => {
     const gone = createSong(db(), sq(), { name: '删掉' });
-    await deleteSong(db(), sq(), gone.id);
+    await deleteSong(db(), sq(), gone.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     sq().prepare('DELETE FROM sync_file_ops').run();
 
     const result = apply(
@@ -519,7 +520,7 @@ describe('memberships', () => {
     const song = createSong(db(), sq(), { name: 's' });
     addSongsToPlaylist(db(), sq(), playlist.id, [song.id]);
     const entityId = membershipEntityId(playlist.id, song.id);
-    await deleteSong(db(), sq(), song.id);
+    await deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
 
     const result = apply(
       change('playlist_song', entityId, 'create', membership(playlist.id, song.id)),

@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm';
 import type { LarkDatabase } from '../db/index.js';
 import { NotFoundError } from '../errors.js';
 import { playlists } from '../portable/schema.js';
-import type { DownloadTarget } from './pipeline.js';
+import type { DownloadTarget } from './target.js';
 import { type TaskRecord, isTerminal } from './task-data.js';
 
 /** Batches retained for `GET /download/tasks`. */

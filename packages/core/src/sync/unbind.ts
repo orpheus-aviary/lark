@@ -28,7 +28,7 @@ import {
 import { FileOpBusyError, SyncPendingChangesError } from '../errors.js';
 import { bumpBackfillTarget } from './backfill.js';
 import { clearBindingInTx } from './binding.js';
-import { type FileEffectRuntime, countFileOps } from './file-ops.js';
+import { type FileEffectLike, countFileOps } from './file-ops.js';
 
 export interface UnpushedChanges {
   total: number;
@@ -55,7 +55,7 @@ export function countUnpushedChanges(sqlite: BetterSqlite3.Database): UnpushedCh
 export interface UnbindOptions {
   sqlite: BetterSqlite3.Database;
   /** Drained before anything is cleared. Omitted only when there is no journal to run. */
-  fileOps?: FileEffectRuntime;
+  fileOps?: FileEffectLike;
   /** Proceed even though unpushed changes will be lost. */
   force?: boolean;
   /** Credential file, for tests. Defaults to the nest location. */

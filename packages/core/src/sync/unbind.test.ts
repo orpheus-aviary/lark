@@ -16,7 +16,8 @@ import { writeBindingInTx } from './binding.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
 import { setSkybridgeDeviceId } from './device.js';
 import { writeCursor } from './engine.js';
-import { FileEffectRuntime, enqueueDeleteLyrics } from './file-ops.js';
+import { FileEffectRuntime } from './file-ops-runtime.js';
+import { enqueueDeleteLyrics } from './file-ops.js';
 import { writeTombstone } from './tombstones.js';
 import { countUnpushedChanges, unbindLibrary } from './unbind.js';
 

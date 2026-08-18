@@ -12,6 +12,7 @@ import {
 } from '../errors.js';
 import { songs } from '../portable/schema.js';
 import { setSkybridgeDeviceId } from '../sync/device.js';
+import { FileEffectRuntime } from '../sync/file-ops-runtime.js';
 import { readTombstone } from '../sync/tombstones.js';
 import {
   createSong,
@@ -305,7 +306,7 @@ describe('deleteSong — trash protocol (R22)', () => {
     const song = createSong(db(), sq(), { name: 's' });
     const dir = makeSongDir(song.id);
 
-    await deleteSong(db(), sq(), song.id);
+    await deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
 
     expect(existsSync(dir)).toBe(false);
     expect(() => getSong(db(), sq(), song.id)).toThrow(NotFoundError);
@@ -327,7 +328,9 @@ describe('deleteSong — trash protocol (R22)', () => {
     const dir = makeSongDir(song.id);
     sq().pragma('query_only = 1'); // inject a write failure
     try {
-      await expect(deleteSong(db(), sq(), song.id)).rejects.toThrow();
+      await expect(
+        deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
+      ).rejects.toThrow();
     } finally {
       sq().pragma('query_only = 0');
     }
@@ -341,13 +344,17 @@ describe('deleteSong — trash protocol (R22)', () => {
 
   it('works when no directory exists (metadata-only song)', async () => {
     const song = createSong(db(), sq(), { name: 's' });
-    await deleteSong(db(), sq(), song.id);
+    await deleteSong(db(), sq(), song.id, { fileOps: new FileEffectRuntime({ sqlite: sq() }) });
     expect(() => getSong(db(), sq(), song.id)).toThrow(NotFoundError);
   });
 
   it('rejects non-UUID ids before touching any path (R10)', async () => {
-    await expect(deleteSong(db(), sq(), '../etc/passwd')).rejects.toThrow(InvalidIdError);
-    await expect(deleteSong(db(), sq(), 'not-a-uuid')).rejects.toThrow(InvalidIdError);
+    await expect(
+      deleteSong(db(), sq(), '../etc/passwd', { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
+    ).rejects.toThrow(InvalidIdError);
+    await expect(
+      deleteSong(db(), sq(), 'not-a-uuid', { fileOps: new FileEffectRuntime({ sqlite: sq() }) }),
+    ).rejects.toThrow(InvalidIdError);
   });
 });
 

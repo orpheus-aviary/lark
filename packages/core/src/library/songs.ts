@@ -29,7 +29,7 @@ import { uuid } from '../portable/runtime/random.js';
 import { type SongRow, songs } from '../portable/schema.js';
 import { emitSyncChange } from '../sync/changes.js';
 import { readSkybridgeDeviceId } from '../sync/device.js';
-import { FileEffectRuntime, enqueueLocalDelete } from '../sync/file-ops.js';
+import { type FileEffectLike, enqueueLocalDelete } from '../sync/file-ops.js';
 import { nextSyncStamp } from '../sync/hlc.js';
 import { makeLwwTriple } from '../sync/lww.js';
 import { writeTombstone } from '../sync/tombstones.js';
@@ -323,11 +323,16 @@ export function listSongs(
 
 export interface DeleteSongOptions {
   /**
-   * The runtime that executes the queued file removal. A caller that already
-   * holds this song's claim passes ITS runtime (constructed with its own
-   * owner), so the drain reuses that claim instead of blocking on it.
+   * The runtime that executes the queued file removal — REQUIRED since N1b.
+   *
+   * It used to default to a fresh `FileEffectRuntime`, which quietly decided
+   * two things on the caller's behalf: which claim registry arbitrates the
+   * removal, and that this host has a filesystem executor at all. A caller
+   * that already holds this song's claim passes ITS runtime (constructed with
+   * its own owner) so the drain reuses that claim instead of blocking on it —
+   * a choice that has to be made where the claim is held, not here.
    */
-  fileOps?: FileEffectRuntime;
+  fileOps: FileEffectLike;
 }
 
 /**
@@ -348,7 +353,7 @@ export async function deleteSong(
   db: LarkDatabase,
   sqlite: BetterSqlite3.Database,
   id: string,
-  options: DeleteSongOptions = {},
+  options: DeleteSongOptions,
 ): Promise<void> {
   if (!isUuidV4(id)) throw new InvalidIdError(id);
 
@@ -381,8 +386,7 @@ export async function deleteSong(
     })
     .immediate();
 
-  const runtime = options.fileOps ?? new FileEffectRuntime({ sqlite });
-  await runtime.drain();
+  await options.fileOps.drain();
 }
 
 // ─── Local-field paths (R18) ───────────────────────────

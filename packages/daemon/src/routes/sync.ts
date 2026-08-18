@@ -21,6 +21,7 @@
 import {
   type FileEffectRuntime,
   type RunSyncResult,
+  countQuarantined,
   listFileOps,
   readBinding,
   readCursor,
@@ -122,7 +123,7 @@ export function registerSyncRoutes(app: FastifyInstance, ctx: AppContext): void 
   });
 
   app.get(API_PATHS.syncStatus, async (_req, reply) => {
-    ok(reply, buildSyncStatus(ctx) satisfies SyncStatusData);
+    ok(reply, buildSyncStatus(ctx, countQuarantined) satisfies SyncStatusData);
   });
 
   // GET /sync/devices — every device on the account, so the user can see what

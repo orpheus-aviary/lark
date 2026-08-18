@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   type ClaimType,
+  FileEffectRuntime,
   type UpdateSongInput,
   deleteSong,
   getSong,
@@ -231,7 +232,17 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     const id = idOf(req);
     // `exclusive`: deleting conflicts with every other writer, so an in-flight
     // download or lyrics fetch answers 409 rather than racing the delete.
-    await withClaim(id, 'exclusive', () => deleteSong(ctx.db, ctx.sqlite, id));
+    await withClaim(id, 'exclusive', () =>
+      // A runtime of its OWN, not `ctx.fileOps`: this request already holds
+      // the song's exclusive claim, and the shared registry would refuse the
+      // drain its own caller is waiting for.
+      // No logger, matching the default this replaced exactly: N1b is a
+      // structural batch, and "the delete route now logs file-op failures" is
+      // a behaviour change however welcome it would be.
+      deleteSong(ctx.db, ctx.sqlite, id, {
+        fileOps: new FileEffectRuntime({ sqlite: ctx.sqlite }),
+      }),
+    );
     // Memberships cascade, so every playlist view is stale too.
     ctx.eventsBus.emit({ type: 'songs:changed' });
     ctx.eventsBus.emit({ type: 'playlists:changed' });

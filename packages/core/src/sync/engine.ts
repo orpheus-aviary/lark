@@ -20,7 +20,7 @@ import {
 import type BetterSqlite3 from 'better-sqlite3';
 import { utf8ByteLength } from '../portable/runtime/text.js';
 import { type ApplyResult, type InboundChange, applyChangesInTx } from './apply.js';
-import type { FileEffectRuntime } from './file-ops.js';
+import type { FileEffectLike } from './file-ops.js';
 import { setServerTimeOffset } from './hlc.js';
 
 // ─── The client, as core needs it ──────────────────────
@@ -150,7 +150,7 @@ export interface RunSyncOptions {
   serverId: string;
   workspaceId: string;
   /** Executes the file effects an applied batch queued. */
-  fileOps?: FileEffectRuntime;
+  fileOps?: FileEffectLike;
   logger?: SyncRoundLogger;
   signal?: AbortSignal;
   nowMs?: () => number;

@@ -18,10 +18,12 @@ import { FileOpBusyError, FileOpNotFoundError } from '../errors.js';
 import { songAudioPath, songLyricsPath } from '../library/lyrics.js';
 import { recoveredSongsDir, songsDir } from '../paths.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
+// The suite stays whole across N1b's split: what it tests is the journal's
+// end-to-end contract — a decision written down in a transaction, then made
+// true on disk — and that contract is the pair, not either half.
+import { FileEffectRuntime, countQuarantined, pruneEmptyQuarantines } from './file-ops-runtime.js';
 import {
-  FileEffectRuntime,
   countFileOps,
-  countQuarantined,
   enqueueDeleteLyrics,
   enqueueLocalDelete,
   enqueueQuarantine,
@@ -29,7 +31,6 @@ import {
   enqueueWriteLyrics,
   listFileOps,
   pendingFileOpSongIds,
-  pruneEmptyQuarantines,
 } from './file-ops.js';
 
 let nest: string;

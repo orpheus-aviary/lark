@@ -33,6 +33,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  FileEffectRuntime,
   type LarkDatabase,
   createDatabase,
   createSong,
@@ -332,7 +333,9 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
       'A should have received the imported song',
     ).toBeDefined();
 
-    await deleteSong(a.db, a.sqlite, songId);
+    await deleteSong(a.db, a.sqlite, songId, {
+      fileOps: new FileEffectRuntime({ sqlite: a.sqlite }),
+    });
     await syncA(a);
     await syncB();
 

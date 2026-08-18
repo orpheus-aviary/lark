@@ -22,7 +22,6 @@ import {
   countDuplicateSourceKeySongs,
   countFileOps,
   countPendingChanges,
-  countQuarantined,
   readBinding,
   readCursor,
   readSkybridgeCredentials,
@@ -30,7 +29,13 @@ import {
 import type { SyncStatusData } from '@lark/shared';
 import type { AppContext } from '../context.js';
 
-export function buildSyncStatus(ctx: AppContext): SyncStatusData {
+/**
+ * `countQuarantined` arrives as a parameter (N1b) rather than being imported.
+ * Counting directories under `recovered-songs/` is a filesystem question, and
+ * the status builder is otherwise pure database + memory — on a host that
+ * keeps quarantined songs somewhere else, this is the one line that changes.
+ */
+export function buildSyncStatus(ctx: AppContext, countQuarantined: () => number): SyncStatusData {
   const session = ctx.sync.session;
   const binding = readBinding(ctx.sqlite);
   const credentials = readCredentialsQuietly(ctx);
