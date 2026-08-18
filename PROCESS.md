@@ -424,6 +424,7 @@
 - [x] **Phase B 移动版子计划**（2026-08-17，`aa63eac`）：N0 详案 + 全期框架 → 上面的 Phase B 段
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
+- [ ] **跨仓文档跟进 Phase B 起步**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md` 里 lark 的一行状态还停在「0.3.0 已发」，没有 N0b GO 与「下一步 N1」——发下个版本时一并跟进即可，不必单独开一轮
 - 归用户手动、尚未做的：**skill 的「agent 实际可调用」验收**（M6 起挂着，M7 也没做——需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令）
 
 ## 决策记录
