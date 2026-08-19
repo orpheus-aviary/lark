@@ -6,9 +6,14 @@
 // accessibility tree (`uiautomator dump`), scrolls until it is on screen, and
 // taps its centre.
 //
-// It also refuses to work when the spike is not in the foreground — twice
+// It also refuses to work when the target app is not in the foreground — twice
 // during N0b the phone was showing one of the user's own apps and the evidence
-// captured was of that (N0b-1 and N0b-2, both recorded in CLAUDE.md).
+// captured was of that (N0b-1 and N0b-2, both recorded in docs/LESSONS.md).
+//
+// The target is `LARK_PACKAGE` / `LARK_APP_ROOT`, defaulting to the spike
+// (N2a). `just mobile-drive` points it at `apps/mobile` instead — same driver,
+// two apps, because the product deliberately does not share the spike's
+// applicationId.
 //
 //   node scripts/drive.mjs dump                 # every label currently visible
 //   node scripts/drive.mjs tap "Run contract"   # scroll to the top, then to it, tap it
@@ -29,7 +34,16 @@ import { fileURLToPath } from 'node:url';
 
 const ANDROID_HOME = process.env.ANDROID_HOME ?? '/opt/homebrew/share/android-commandlinetools';
 const ADB = `${ANDROID_HOME}/platform-tools/adb`;
-const PACKAGE = 'com.orpheusaviary.lark.spike';
+
+// Which app on the phone (N2a). This used to be one hard-coded string, which
+// was fine while the spike was the only thing installed and became a way to
+// drive the wrong app the moment `apps/mobile` existed — the two are
+// deliberately different packages. `just mobile-drive` sets both of these;
+// bare `node scripts/drive.mjs` still means the spike, and every foreground
+// refusal below prints the package it was looking for.
+const PACKAGE = process.env.LARK_PACKAGE ?? 'com.orpheusaviary.lark.spike';
+/** Where `.runtime/` lives — the host side of what the device POSTs back. */
+const APP_ROOT = process.env.LARK_APP_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 
 const adb = (...args) =>
   execFileSync(ADB, args, { encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 });
@@ -45,16 +59,17 @@ function topActivity() {
 function requireForeground() {
   const top = topActivity();
   if (!top.startsWith(PACKAGE)) {
-    console.error(`✗ the spike is not in front — ${top} is.`);
+    console.error(`✗ ${PACKAGE} is not in front — ${top} is.`);
     console.error('  `pidof` would have said yes anyway; that is why this checks the activity.');
+    console.error('  (set LARK_PACKAGE if you meant to drive the other app.)');
     process.exit(2);
   }
 }
 
 /** Every labelled node with its centre, in draw order. */
 function visibleNodes() {
-  adb('shell', 'uiautomator', 'dump', '/sdcard/lark-spike-dump.xml');
-  const xml = adb('shell', 'cat', '/sdcard/lark-spike-dump.xml');
+  adb('shell', 'uiautomator', 'dump', '/sdcard/lark-ui-dump.xml');
+  const xml = adb('shell', 'cat', '/sdcard/lark-ui-dump.xml');
   const nodes = [];
   for (const m of xml.matchAll(/text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)) {
     const [, text, x1, y1, x2, y2] = m;
@@ -206,7 +221,7 @@ async function sendShare(text, { cold }) {
  * `just spike-mobile-probe-host` running.
  */
 async function confirmArrival(text, sentAt) {
-  const dir = fileURLToPath(new URL('../.runtime/', import.meta.url));
+  const dir = `${APP_ROOT}/.runtime/`;
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     const newest = (existsSync(dir) ? readdirSync(dir) : [])

@@ -44,6 +44,8 @@
       "spikes/**/.runtime",
       "spikes/mobile-foundation/android",
       "spikes/mobile-foundation/.expo",
+      "apps/mobile/android",
+      "apps/mobile/.expo",
       "vendor"
     ]
   },

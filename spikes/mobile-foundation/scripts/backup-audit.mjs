@@ -25,16 +25,19 @@ import { fileURLToPath } from 'node:url';
 const ANDROID_HOME = process.env.ANDROID_HOME ?? '/opt/homebrew/share/android-commandlinetools';
 const ADB = `${ANDROID_HOME}/platform-tools/adb`;
 const AAPT2 = `${ANDROID_HOME}/build-tools/36.0.0/aapt2`;
-const PACKAGE = 'com.orpheusaviary.lark.spike';
+
+// Which app is being audited (N2a). Both roots ship the same plugin, and both
+// have to be able to prove it on their own apk — `just mobile-backup-audit`
+// sets these two, a bare run still means the spike. Auditing one apk while
+// reporting on the other is precisely the failure this script exists to catch,
+// so the package is echoed in every layer's output below.
+const PACKAGE = process.env.LARK_PACKAGE ?? 'com.orpheusaviary.lark.spike';
+const APP_ROOT = process.env.LARK_APP_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
 /** A system package known to permit backup — layer 3's control. */
 const CONTROL_PACKAGE = 'com.android.providers.settings';
 const LOCAL_TRANSPORT = 'com.android.localtransport/.LocalTransport';
 
-const APK =
-  process.argv[2] ??
-  fileURLToPath(
-    new URL('../android/app/build/outputs/apk/release/app-release.apk', import.meta.url),
-  );
+const APK = process.argv[2] ?? `${APP_ROOT}/android/app/build/outputs/apk/release/app-release.apk`;
 
 /** Every domain `plugins/with-backup-rules.js` claims to exclude. */
 const DOMAINS = [
@@ -65,7 +68,7 @@ if (!existsSync(APK)) {
   console.error('  build one first: just spike-mobile-android-release');
   process.exit(2);
 }
-console.log(`APK: ${APK}\n`);
+console.log(`package: ${PACKAGE}\nAPK: ${APK}\n`);
 
 // ── layer 1: the merged manifest ────────────────────────────────────────────
 

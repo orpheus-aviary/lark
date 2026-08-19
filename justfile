@@ -53,13 +53,14 @@ shared-node-free:
 core-portable:
     bash scripts/check-core-portable.sh
 
-# The mobile spike is a PLATFORM spike (N0b): of our own packages it may only
-# reach for portable / shared / the skybridge SDK. Third-party deps are out of
-# this guard's scope on purpose.
+# Both Android roots — the N0b platform spike and `apps/mobile` — may reach for
+# exactly three of our packages: portable / shared / the skybridge SDK. Third-
+# party deps are out of this guard's scope on purpose. Widened from spike-only
+# in N2a; same guard, not a new one.
 
 [group('lint')]
-spike-mobile-imports:
-    bash scripts/check-spike-mobile-imports.sh
+mobile-imports:
+    bash scripts/check-mobile-imports.sh
 
 # The CLI's module graph (M6-21): no daemon / gui / electron, and no STATIC
 # import of the core barrel — that one would drag better-sqlite3 into commands
@@ -78,7 +79,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free spike-mobile-imports spike-mobile-bundle-smoke log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
@@ -516,15 +517,15 @@ spike-media-test:
 spike-media-check: spike-media-fixture
     node spikes/media-protocol/harness.mjs --full
 
-# ─── Mobile foundation spike (Phase B N0b) ──────────────
+# ─── Android (apps/mobile + the N0b spike) ──────────────
 #
 # JAVA_HOME is pinned HERE and not exported globally: this machine's default
 # JDK is 25, which the rest of the repo is happy with and which React Native's
 # Gradle line is not. Every recipe that shells into Gradle sets it itself.
 #
-# `android/` is generated (CNG) and untracked — `prebuild` is cheap and
-# reproducible, and anything that can only be expressed by hand-editing it
-# belongs in a config plugin instead.
+# `android/` is generated (CNG) and untracked in both roots — `prebuild` is
+# cheap and reproducible, and anything that can only be expressed by
+# hand-editing it belongs in a config plugin instead.
 
 _jdk17 := `/usr/libexec/java_home -v 17 2>/dev/null || echo ""`
 # The SDK location is pinned the same way JAVA_HOME is, and for the same
@@ -533,23 +534,75 @@ _jdk17 := `/usr/libexec/java_home -v 17 2>/dev/null || echo ""`
 # "spawn adb ENOENT" several minutes into a Gradle build.
 _android_home := env_var_or_default("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
 _adb := _android_home / "platform-tools/adb"
+_mobile := justfile_directory() / "apps/mobile"
+
+# ─── The product app (Phase B N2) ───────────────────────
+
+# Types only — `apps/mobile` is deliberately NOT in the root tsconfig
+# references (`tsc -b` would drag React Native's types into every desktop
+# build), so without this line its types are never checked at all. In `check`
+# for that reason; the spike's equivalent is not, because a spike may rot.
+[group('mobile')]
+mobile-typecheck: build-shared build-core
+    pnpm --filter @lark/mobile exec tsc --noEmit
+
+# Does portable RESOLVE under Metro, in BOTH roots? The rg guard reads source;
+# this reads the graph Metro actually builds, which is the only thing that
+# answers for a dependency's own imports and for export maps (N1a criterion 19,
+# widened to apps/mobile in N2a criterion 4).
+#
+# Two bundles, because with `disableHierarchicalLookup` a dependency declared
+# by one root is not resolvable from the other — one going green says nothing
+# about the other. `build-core` first is load bearing: both consume core
+# through `dist`, so a source change is invisible to Metro until it is compiled
+# (N0b-5b).
+[group('mobile')]
+mobile-bundle-smoke: build-shared build-core
+    node scripts/check-portable-bundles.mjs
+
+# Regenerate `apps/mobile/android/` from app.config.ts. Safe at any time; the
+# only sanctioned way that directory comes into existence.
+[group('mobile')]
+mobile-prebuild:
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/mobile exec expo prebuild --platform android --clean
+
+# Build + install the dev client, then serve Metro. Debug variant: development
+# only. Every NUMERIC criterion (N0 §3.2a) uses `mobile-android-release`.
+[group('mobile')]
+mobile-android: build-shared build-core
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/mobile exec expo run:android
+
+# The build every NUMERIC criterion is measured on. `--no-bundler` because a
+# release APK carries its own bytecode.
+#
+# The `rm` is not tidiness. Gradle's bundle task hashes the app's own inputs,
+# and `@lark/core`'s dist is reached through a workspace symlink OUTSIDE them:
+# rebuilding core leaves the task up to date and the APK carries YESTERDAY'S
+# core (MEASURED, N0b-5b). Deleting the bundle is what makes "build" mean it.
+[group('mobile')]
+mobile-android-release: build-shared build-core
+    rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
+
+# The spike's driver and backup auditor, pointed at the product app. Same
+# scripts, two targets (decision d keeps the spike alive and its host-side
+# tooling with it); the package is echoed in their output so a run cannot
+# quietly be about the other app.
+[group('mobile')]
+mobile-drive *ARGS:
+    LARK_PACKAGE=com.orpheusaviary.lark LARK_APP_ROOT="{{_mobile}}" node spikes/mobile-foundation/scripts/drive.mjs {{ARGS}}
+
+[group('mobile')]
+mobile-backup-audit *ARGS:
+    LARK_PACKAGE=com.orpheusaviary.lark LARK_APP_ROOT="{{_mobile}}" node spikes/mobile-foundation/scripts/backup-audit.mjs {{ARGS}}
+
+# ─── Mobile foundation spike (Phase B N0b) ──────────────
 
 # Types only — the spike is deliberately NOT in the root tsconfig references
 # (`tsc -b` would drag React Native's types into every desktop build).
 [group('spike')]
 spike-mobile-typecheck: build-shared build-core
     pnpm --filter @lark/spike-mobile-foundation exec tsc --noEmit
-
-# Does portable RESOLVE under Metro? The rg guard reads source; this reads the
-# graph Metro actually builds, which is the only thing that answers for a
-# dependency's own imports and for export maps (N1a, criterion 19).
-#
-# Run every batch from here on; it joins `just check` in N1i. `build-core`
-# first is load bearing — the spike consumes core through `dist`, so a source
-# change is invisible to Metro until it is compiled (N0b-5b).
-[group('spike')]
-spike-mobile-bundle-smoke: build-shared build-core
-    node scripts/check-portable-bundles.mjs
 
 # Regenerate `android/` from app.config.ts. Safe to run at any time; it is the
 # only sanctioned way that directory comes into existence.

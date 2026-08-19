@@ -51,6 +51,67 @@ importers:
         specifier: 4.1.4
         version: 4.1.4(@types/node@24.13.3)(jsdom@25.0.1)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.50.0)(yaml@2.9.0))
 
+  apps/mobile:
+    dependencies:
+      '@lark/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@lark/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@noble/hashes':
+        specifier: 2.3.0
+        version: 2.3.0
+      '@orpheus-aviary/skybridge-client':
+        specifier: 0.1.4
+        version: 0.1.4
+      '@orpheus-aviary/skybridge-proto':
+        specifier: 0.1.4
+        version: 0.1.4
+      drizzle-orm:
+        specifier: 0.38.4
+        version: 0.38.4(patch_hash=9bf61c43fbdeef6ab231e868285b9c2e2e78d2a8f86040dc476015ce171581b7)(@op-engineering/op-sqlite@18.0.0(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(@types/better-sqlite3@9.6.0)(@types/react@19.2.18)(better-sqlite3@12.11.1)(expo-sqlite@57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(react@19.2.4)
+      expo:
+        specifier: 57.0.13
+        version: 57.0.13(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(react-dom@19.2.4(react@19.2.4))(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
+      expo-build-properties:
+        specifier: 57.0.11
+        version: 57.0.11(expo@57.0.13)
+      expo-constants:
+        specifier: 57.0.11
+        version: 57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))
+      expo-crypto:
+        specifier: 57.0.1
+        version: 57.0.1(expo@57.0.13)
+      expo-dev-client:
+        specifier: 57.0.12
+        version: 57.0.12(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))
+      expo-file-system:
+        specifier: 57.0.4
+        version: 57.0.4(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))
+      expo-secure-store:
+        specifier: 57.0.1
+        version: 57.0.1(expo@57.0.13)
+      expo-sqlite:
+        specifier: 57.0.1
+        version: 57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
+      expo-status-bar:
+        specifier: 57.0.1
+        version: 57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
+      react:
+        specifier: 19.2.4
+        version: 19.2.4
+      react-native:
+        specifier: 0.86.2
+        version: 0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4)
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.18
+        version: 19.2.18
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/core:
     dependencies:
       '@lark/shared':
@@ -8803,7 +8864,7 @@ snapshots:
 
   compressible@2.0.18:
     dependencies:
-      mime-db: 1.52.0
+      mime-db: 1.54.0
 
   compression@1.8.1:
     dependencies:
