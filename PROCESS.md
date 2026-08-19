@@ -388,6 +388,23 @@
 
 **N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1i 已完成**（判据 22 的「对新构建产物复跑 accept 全系列」尚未做），桌面测试 **2481 → 2532 → 2571 → 2576 → 2578**；Metro 图 36 → 51 → 80 → 90 → 94 → **97 个 portable 模块**，且 bundle smoke 自 N1i 起就在 `just check` 里（整条 ~9s）。**N1h 之后，一台手机能解析的 core 包含 sync 全图、library 全图、SyncCoordinator、LibraryService 与整条下载编排**——`@lark/core/portable` 之外只剩真正属于这台机器的东西：`db/` 的打开与锁、ffmpeg 与落盘协议（`download/{audio-landing,ffmpeg,resolve,import}.ts`）、file-op 执行器、config、logger、paths 根解析，加上 daemon 的定时器/SSE 壳与 wire 层。**只剩 N1i**（守卫收编 + R1–R5 + D5 分段冻结）。
 
+**N2 子计划已出（2026-08-19，v1 → v2 → v3，两轮评审收敛）**——`docs/plans/2026-08-19-phase-b-mobile-n2.md`，七批 N2a–N2g / 判据 22 条 / 决策 a–o **全部未关闭**，修订对照在子计划 §8 与 §8.1。**两轮评审的性质相同：都不是「写漏了」，是「按它实施会红」。**
+
+**v1 的三条 P0 都不是「写漏了」，是「按它实施会红」**（逐条已代码复核）：
+
+- **移动 bootstrap 缺 `device_uuid` → 一切业务写入抛错**：`ensureDeviceUuid` 在 `db/index.ts:145`，签名吃的是 **`BetterSqlite3.Database`**——N1 没把它端口化，它留在了桌面那半；而 `readLocalDeviceUuid`（`portable/sync/changes.ts:100`）缺行即抛，每一次会 emit `sync_changes` 的写入都过它。v1 的六步 bootstrap 只迁移、验 schema、清 pending，判据 11 的契约与判据 13 的全部写路径会在第一次写入时红。→ 下沉为 portable 的 `ensureDeviceUuid(sqlite: SqliteLike)`（uuid 取 Random 端口），桌面 re-export，桌面现有四条测试原样绿是零行为变化的判据
+- **「删除只入队不执行」与现有服务和契约直接冲突**：`portable/library/songs.ts:382` 的 `deleteSong` 在事务后**无条件** `await options.fileOps.drain()`，而契约那一例的名字就叫「deleting a song takes its files with it, not just its row」（`contract/cases.ts:255-262` 断言 `!songFilesExist`）。「只入队」「契约 18 例全绿」「删除后目录还在」三条**不可能同时成立**。→ **file-op 执行器与 boot drain 从 N4 提前到 N2**，判据改成「journal 已消费且目录已删除」
+- **D16 排在打开原库之后 = 它自己的不变量不成立**：v1 把正常打开与迁移放 N2b、D16 放 N2f，等于让身份门跑在它要保护的东西后面。→ §2.2 **冻结启动序列**：`installPortableRuntime → 源文件在不在 → copy-then-open 身份判定 → 必要时收敛 → 打开原库 → 版本分派/迁移 → ensureDeviceUuid → 服务/UI`；D16 提前到 N2c，N2b 明令不推真实副本。顺带补上 v1 缺的定义（SecureStore key 与状态转移表 · fail-closed 清哪些表 · **不复用 `unbindLibrary`**——它为「用户主动解绑」而写、带 pending 检查且要完整 `CredentialStore`（`unbind.ts:51-67`）· **收敛后 `device_uuid` 必须重建**，否则两台安装共享本机身份）
+
+**另外五条 P1 也都属实**：① 打开协议只写了 fresh 库，而 `db/index.ts:51-58` 有**六类分派** → 补完整矩阵 + 决策「v1/v2 库拒绝而不迁移」；② **判据 10 会假绿**——桌面的「读 400 次」之所以观测得到，是因为 `writeTextAtomic` 是异步的给了事件循环窗口（`node-fs.test.ts:60`），同步 native 调用下同线程轮询恒为真，换成 `moveSync(overwrite)` 也全绿；顺带 **`FileSystemModule.kt:32` 是 `@RequiresApi(O)` = API 26 而 prebuild 实测 minSdk 24**，且 CNG config plugin ≠ Expo native module（前者改生成的原生工程，后者要自己的源码 + autolinking）；③ **真机夹具跑不起来**——`Paths.document` 是私有目录、release 包 push 不进去，两个驱动脚本还硬编码 `com.orpheusaviary.lark.spike`（`drive.mjs:32` / `backup-audit.mjs:28`），且真实桌面 v3 副本天然没有移动端 install_id、推进去会主动 fail-closed；④ **蓝牙歌词的两条回落不可区分**——`parseLrc` 只收带时间戳的行，「没有歌词」与「纯文本无时间戳」都返回 `[]`，五条并成四条；⑤ **「四种排序」没有落点**——`shared/types.ts:57` 只有三个字段，`default`/`duration` 是 GUI renderer 本地逻辑而守卫禁止 mobile import GUI。
+
+**两处数字更正**：`LibraryService` 是 **22** 个方法（v1 写 24、评审说 21，都不对）；契约 **18 例六组**含 cache 1 + transfer 1，所以 mobile hook 必须接 `exportPlaylist` 与 `cacheUsedBytes`，即使这两块的产品功能在 N4/N6。
+
+v1 那条读源码读出来的发现原样保留：
+
+- 🔴 **expo-file-system 57.0.4 在 Android 上没有原子替换**，而 `FileSystemPort.writeTextAtomic` 的合同要求「同目录临时文件 + 原子 rename 覆盖」（`portable/ports/fs.ts:41-61`，N1 §2.4 明写做不到要带回来做决策、不许适配层悄悄弱化）。两条路都堵着：**`moveSync(dst,{overwrite:true})` 先删目标再 rename**（`fsops/CopyMoveStrategy.kt:88-91` 的 `deleteRecursively()`，之后第 95-99 行那句自称 "Fast path: atomic rename" 的 `renameTo` 才跑）——窗口里读到的是「文件不存在」，而 `readText` 把不存在返回成 `null`，也就是**「歌词没了」而不是「歌词是旧的」**；**`rename(newName)` 拒绝已存在的目标**（`FileSystemPath.kt:201` 的 Kotlin `Path.moveTo` 默认 `overwrite = false`）。这正是 N1 §8 预留的那个「单独决策」，成了 N2 的决策 a（建议自建微型 Expo module 走 `Files.move(..., REPLACE_EXISTING, ATOMIC_MOVE)`）。顺带确认**五个端口调用的同步变体都在**（`info()` / `delete()` / `write()` / `textSync()` / `moveSync()`），缺的只有原子性这一条
+- **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定，主计划 §4.5 已加修订段）：机制是**复用 AVRCP 的 TITLE 字段**（关 = 歌名，开 = 当前歌词行），应用侧不碰蓝牙 API 只写系统 Now Playing。**桌面整个不做**——`MPNowPlayingInfoCenter → AVRCP` 这一跳查不到 Apple 的任何承诺，而桌面只有 mac 一个 target。落点：判定函数（`@lark/shared` 纯函数，唯一有逻辑的地方）+ config 字段 → **N2**；订阅/节流/开关 UI → **N3**。`expo-audio@57.0.3` 的 `updateLockScreenMetadata` 已经是**同步** API（`AudioModule.kt:516` 注册为 `Function`），底层 `MetadataInjectingPlayer` 自带去重，**不需要写原生模块**。**未实测的风险**：AOSP `MediaPlayerWrapper.isMetadataSynced()` 在 queue 非空时比对 queue item 与 metadata 的 (title, artist)，不一致要等 `CALLBACK_TIMEOUT_MS = 2000` 才推——歌词写进 title 正中这个分支。用户**没有带屏蓝牙接收端**，两个实测都不做，先按成熟方案开发
+
 **N1a 的六条实测**：
 
 - **`TextDecoder` 的默认值会静默改掉桌面行为**：它**剥掉** BOM 而 `Buffer.toString('utf8')` 留着，而 `parseAndValidate` 的下游是 `JSON.parse`——它拒绝带 BOM 的文本。照默认写，带 BOM 的导入文件就从「报错」变成「静默接受」。`decodeUtf8` 因此是 `{ ignoreBOM: true }`（这个选项名是反的：true = 保留），BOM 作为第五条 decode 夹具进了常跑测试
@@ -420,7 +437,8 @@
 | N1g | LibraryService + daemon 路由与 CLI direct 同时消费（两个 commit：服务层 / LibraryContract 18 例 × 两 hook） | 全测试 **2571** + smoke（90 → 94 模块）+ **`accept-cli` 27/27** + **contract 两 hook 全绿、mobile hook 显式 skip** | ✅ 2026-08-19 |
 | N1h | AudioLanding 切面 + download 编排进 portable（两个 commit：切面与 commit 协议测试 / engine·batches·pipeline 搬迁） | 全测试 **2576** + smoke（94 → 97 模块）+ **`accept-m5` 22/22**（真 bilibili） | ✅ 2026-08-19 |
 | N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
-| N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
+| N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | ⏳ 计划已出（**v3**，两轮评审收敛），**决策 a–o 待关闭** |
+| N3–N6 | 播放 / 下载 / 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
 

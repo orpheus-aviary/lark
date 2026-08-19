@@ -293,8 +293,9 @@ R 系列全绿 = D5 剩余子项冻结。**本条重排属 Stage-1 主计划修�
   2. **强制半恢复 fixture**：只注入旧 DB（adb push 模拟 OEM 无视排除），SecureStore 缺失 → fail-closed；
   3. DB install_id 与 SecureStore install_id **不同** → fail-closed；
   4. **收敛过程各崩溃点**（写意图后 / 写 DB 后 / 确认前 kill）：重启均收敛、binding/credentials **只清一次**。
-  另：移动端 config 宿主定案、曲库/歌单读写、四 tab 骨架。
-- **N3 播放**：PlayerDriver + minibar + 全屏歌词 + 队列 + 后台/锁屏/焦点；整晚 soak；行为判据不锁 API。
+  另：移动端 config 宿主定案、曲库/歌单读写、四 tab 骨架、**蓝牙歌词的判定函数**（`@lark/shared` 纯函数 + config 字段；接线在 N3）。
+  > **superseded（2026-08-19）**：N2 的可开工粒度以子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 为准（**v3**，两轮评审收敛，决策 a–o 待关闭）。本行只保留方向与 gate。子计划带来的**四条新事实**：① expo-file-system 57 在 Android 上**没有原子替换**（`moveSync(overwrite)` 先删目标再 rename，`rename()` 拒绝已存在的目标）——正是 N1 §8 预留的「单独决策」；② **`ensureDeviceUuid` 是桌面专有的**（`db/index.ts:145` 吃 `BetterSqlite3.Database`），不下沉则移动端一切业务写入抛错；③ **删除的文件半没法推迟**（`songs.ts:382` 无条件 drain + 契约断言目录已删）→ file-op 执行器提前进 N2；④ **本行写的「D16 落定」必须排在打开原库之前**，v1 排在数据层之后是错的——且它的启动序列要拆成「零写预检 → 写 intent → 读写打开 → 收敛 → 提交 intent → boot drain」，**fresh 首启也必须声明身份**（否则第二次启动会把自己刚建的库当恢复库清掉），完整 D2D restore 是与 `bmgr` 分开的一条 gate。
+- **N3 播放**：PlayerDriver + minibar + 全屏歌词 + 队列 + 后台/锁屏/焦点 + **蓝牙歌词接线**（订阅行号变化 → `updateLockScreenMetadata`，节流按行不按时间，开关 UI）；整晚 soak；行为判据不锁 API。
 - **N4 下载**：AAC 选流 + AudioLanding RN 实现（判据 19 形态）+ 添加页 + 分享 intent（R2 解析接上）+ ensure-file + 缓存管理（探活 fail-closed 不变量原样）+ **歌单导出 → 系统分享面板**（2026-08-17 主计划 §4.5 修订：cache 目录 + `expo-sharing`，不碰 SAF；与分享 intent 的接收侧同一片原生区域）。**TLS 死线**（D15）。
 - **N5 同步**：SyncCoordinator 接线 + 徽章/冲突页/file-ops UI；前置 TLS 验收全过；与桌面双端真机 soak（登录前验库身份的教训照搬）。
 - **N6 收尾**：多选批量 + 设置 + **歌单导入（桌面导出的去 id 文件）** + 签名 APK + developer verification go/no-go。

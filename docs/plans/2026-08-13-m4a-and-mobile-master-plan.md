@@ -220,8 +220,8 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 | **N0a** | 最小可移植边界（桌面仓内）：migration SQL registry + schema 切面（+ errors 三类 + `migration/pending.ts`）进 `@lark/core/portable` + DatabaseContract harness（prepare/get/all/run · `transaction().immediate()` · **单层事务 rollback** · FK · `PRAGMA user_version` · JSON1 含 CAST · 返回值字段差异 · **statement 生命周期计数组** · **drizzle/raw 共享连接组**）。**修订①（决策 c2）：harness 覆盖面按实测使用面收窄——嵌套 transaction / savepoint 不进契约保证面**（core 零使用；better-sqlite3 与 drizzle Expo driver 双方原生都支持，「嵌套即抛」的旧表述作废）：契约不测试、不禁止、不人为禁用，实现自带能力原样保留，将来要用先扩契约 | 桌面全测试 + 守卫绿 |
 | **N0b** | **修订②：N0b 是平台 spike，不是业务图验证**——workspace 内部包只 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（core 业务模块要到 N1 端口化后才能被 Metro 解析），其余判定用显式标注的探针 + 桌面用真 core 产出的夹具（WBI 三件套、音频流 header 集）。内容：Expo 57 进 workspace；expo-sqlite shim 跑 harness + migrations（op-sqlite 对照）；**drizzle statement 生命周期三选一定案 + JS 卡顿 gate（D4，proxy 负载）**；expo-audio 播真实 bilibili AAC 流（raw fMP4 判定，D17）+ 后台/锁屏/音频焦点（单 player vs playlist）；分享 intent；skybridge SDK RN 判定（`expo/fetch` 下 bundle/import · login/pull/push · SSE 流读 · abort/重连 · 离线恢复）；落定 D14 + **D16 机制（gate）** | 全判据过 → GO/NO-GO；**冻结分段（下同）：N0b 只冻结有真机证据的子项**（SQLite 选型与 statement 生命周期出口、crypto 形态、polyfill/端口三栏清单、raw 直存判定、D14/D16 机制、分批暂定值）。**2026-08-18：N0b = GO，冻结文本见本节 Stage-2 修订段** |
 | N1 | core 端口化 + 应用服务层 + SyncCoordinator 提取（冻结不变量原样保留；daemon 改消费提取物、**CLI direct 改薄壳消费服务层，daemon/direct/mobile 三方 contract tests**；桌面行为零变化）。gate 另加三守卫：portable 面 Node builtin/原生依赖 rg 守卫 + Expo/Metro bundle smoke（进 `just check`）+ **pnpm install + `expo prebuild`/原生构建 smoke（独立必跑 recipe，不进默认 `just check`——太重）**。**修订③：新增出口判据组 R1–R5「真机业务图复验」**——端口化后用**真实 core 代码**在真机复跑 bilibili 全链（含真实 WBI 算法）/ `link.ts` 解析 / 歌词三平台 / `runFullBackfillInTx` 满工作量 / `applyChangesInTx` 生产批次与卡顿阈值定稿 | 桌面全测试 + 三守卫绿 + **R1–R5 全绿 → D5 剩余子项冻结**（R 系列过完之前不做「D5 全部冻结」的宣称）。**2026-08-19 完成：R1–R5 全绿，冻结文本见 N1 子计划 §8.1（单一事实源）** |
-| N2 | 移动数据层 + 服务层接线 + 曲库/歌单读写 + 四 tab 骨架 + D16 落定（backup 排除 + install_id 检测 + D2D restore 测试） | 真库副本可读写 |
-| N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点。**耳机断开自动暂停等写成行为验收判据，不锁定回调接口**（expo-audio 由库层自动停止，官方无 becoming-noisy 事件 API） | 真机整晚播放不掉 + 行为判据 |
+| N2 | **D16 身份门（顺序在打开原库之前）** + 移动数据层（完整打开分派 + `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 曲库/歌单读写 + 四 tab 骨架 + **蓝牙歌词的判定函数**（`@lark/shared` 纯函数 + config 字段，接线在 N3）。**子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（v3，两轮评审收敛，决策 a–o 待关闭）**；头号决策 a = **原子替换**（expo-file-system 57 在 Android 上两条路都堵着，见子计划 §1.5）。**相对主计划本行的三处范围修订**：① **file-op 执行器与 boot drain 从 N4 提前到 N2，且控制面从桌面 `FileEffectRuntime` 提取进 portable**（`deleteSong` 无条件 drain、契约断言目录已删，三者无法同时成立；两套 scheduler 到 N5 必然漂移——子计划 §1.8）；② **`ensureDeviceUuid` 下沉进 portable**（它今天是桌面专有的，缺它则一切业务写入抛错——子计划 §1.7）；③ **D16 的完整 D2D restore 拆成独立 gate**（`bmgr` 证明不了 device-transfer 那条路，子计划判据 16b） | 真库副本可读写 + LibraryContract 18 例三 hook 全绿 + D16 四组 |
+| N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点 + **蓝牙歌词接线**（订阅行号变化 → `updateLockScreenMetadata`，节流按行不按时间；开关 UI）。**耳机断开自动暂停等写成行为验收判据，不锁定回调接口**（expo-audio 由库层自动停止，官方无 becoming-noisy 事件 API） | 真机整晚播放不掉 + 行为判据 |
 | N4 | 下载：AAC 选流 + RN 落盘 + 添加页 + 分享 intent + ensure-file + 缓存管理。TLS 完成死线 | 真实 bilibili 闭环 |
 | N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI。前置：TLS 验收全过 | 与桌面双端真机 soak |
 | N6 | 多选批量 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go | 验收 harness |
@@ -241,10 +241,18 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 | duration 无 ffprobe | bilibili `page.duration`；同步歌自带元数据 |
 | D2D 半身恢复 | D16（排除 + install_id 检测 + restore 测试） |
 | TLS 拖尾 | D15 负责人/时间窗/验收，N4 死线 |
+| **蓝牙歌词被 AOSP 的 queue 陷阱吃掉**（2026-08-19 新增） | `MediaPlayerWrapper.isMetadataSynced()` 在 queue 非空且 `activeQueueID != -1` 时比对 queue item 与 session metadata 的 (title, artist)，不一致就等 `CALLBACK_TIMEOUT_MS = 2000` 超时才推——**歌词写进 title 而 queue item 还是歌名正中这个分支**，表现是每行延迟 2 秒并被合并。逃生口 = queue 为 null 或 `activeQueueID == -1`（media3 会从 timeline 生成 queue）。N3 用 `dumpsys media_session` 验；真踩上要给 expo-audio 打补丁或加 config plugin。**用户已决定无带屏设备不实测、先开发** |
 
 ### 4.5 明确不做（v1）
 
 本地**音频**文件导入 · 跨端遥控 · 后台定时同步 · Android Auto / widget / 逐词歌词 · iOS（v2 议题）。
+
+**2026-08-19 修订（用户决定）——「蓝牙歌词」进 v1，只做 Android**：
+
+- **机制**：AVRCP 没有歌词字段，实现一律是**复用 TITLE**——关掉开关时 TITLE = 歌名，打开时 TITLE = 当前歌词行，随播放改写。应用侧不碰蓝牙 API，只写系统 Now Playing（Android = MediaSession），蓝牙栈自己去取。**与「逐词歌词」无关**，那条继续不做。
+- **桌面（macOS）整个不做**：`MPNowPlayingInfoCenter → AVRCP` 这一跳查不到 Apple 的任何承诺（只有零散用户报告），而 `electron-builder.yml` 只有 mac 一个 target、Mac 连车机的场景极少。**若将来要做，先验这一跳再说，别先写代码。**
+- **落点**：判定函数（纯函数，`@lark/shared`，唯一有逻辑的地方）+ config 字段 → **N2**；订阅、节流、开关 UI → **N3**（`expo-audio@57.0.3` 的 `updateLockScreenMetadata` 已经是同步 API，**不需要写原生模块**）。
+- **前提写明**：用户**没有带屏幕的蓝牙接收端**，S1/S2 两个实测都不做，按成熟方案先开发、后续有问题再修。§4.4 新增的那条风险是这个决定的已知代价。
 
 **2026-08-17 修订（用户决定）——「歌单导入导出」移出本清单，进 v1**：
 
