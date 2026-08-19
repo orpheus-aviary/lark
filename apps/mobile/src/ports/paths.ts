@@ -59,12 +59,37 @@ export const DATABASE_NAME = 'songs.db';
 /** Under the nest, beside `songs.db`. */
 const SONGS_DIRECTORY = 'songs';
 
+/**
+ * Where a remote delete parks what it cannot replace: `recovered-songs/`.
+ *
+ * Same name and same place as the desktop nest. Sync can tell this device a
+ * song is gone; audio it downloaded can be fetched again, but an imported file
+ * only ever existed here, so it is moved rather than unlinked.
+ */
+const RECOVERED_DIRECTORY = 'recovered-songs';
+
+/** `songs/<id>/` — R10 runs before the id becomes a path. Not after. */
+export function songDirectory(id: string): Directory {
+  assertSongId(id);
+  return new Directory(nestDirectory(), SONGS_DIRECTORY, id);
+}
+
+/** `recovered-songs/` itself. */
+export function recoveredSongsRoot(): Directory {
+  return new Directory(nestDirectory(), RECOVERED_DIRECTORY);
+}
+
+/**
+ * `recovered-songs/<target>/`.
+ *
+ * The target is a NAME the journal snapshotted, never a path — a nest that
+ * moved must still resolve it (`sync/file-ops.ts`).
+ */
+export function recoveredSongsDirectory(target: string): Directory {
+  return new Directory(recoveredSongsRoot(), target);
+}
+
 export function createPaths(): PathsPort {
-  const songDirectory = (id: string): Directory => {
-    // R10, before the id becomes a path. Not after.
-    assertSongId(id);
-    return new Directory(nestDirectory(), SONGS_DIRECTORY, id);
-  };
   const songFile = (id: string, name: string): string => new File(songDirectory(id), name).uri;
 
   return {

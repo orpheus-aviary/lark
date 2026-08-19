@@ -428,7 +428,14 @@
 - **判据 12 的桌面那半：原 23 条 + 新 4 条全绿**（core 1175 → 1179，全仓 2599 → 2603；`just test-sync-e2e` 19 条不变）。既有那 23 条现在跑的就是 portable 的决策，**它们原样绿正是「零行为变化」的证据**
 - **三个变异逐条验红，其中一个证明新用例不是凑数**：把 `keepLyrics` 写死 false → 红 4 条；**把 `locateAudio` 改成不查存在直接回首选名 → 只有新加的「崩溃重入」那条红**（原 23 条全绿——一个崩溃后会重复搬运的执行器能通过 N2d 之前的全部测试）；把「arg 读不出来」从抛改成静默成功 → 只有新加的 dead-letter 那条红
 - **崩溃重入的造法**：不是 `kill`，是**只破一个动词**（`removeSongDir` 第一次抛）——那正是「进程死在两次宿主调用之间」留下的持久状态：文件已救出、目录还在、行还在。顺带这是唯一直接驱动端口缝的用例，而缝正是手机要替换的东西
-- **剩下的**：移动端 `SongFilesPort` 实现 + 启动序列第 ⑪ 步的 boot drain 接线 + 判据 12 的真机六条
+**N2d 已完成（2026-08-19）——判据 12 真机 9/9，N2d 全绿**（acceptance artifact，release，冻结设备 V2408A）。移动端 `SongFilesPort` 五个动词落 `ports/song-files.ts`，启动序列第 ⑪ 步从注释占位换成真的 drain，`BootResult` 多带 `fileOps` + `drained`（N2e 的服务层必须复用**这一个** runtime——两个 runtime 管一条 journal 就是两套 claim 仲裁）。
+
+- **expo 的两条 move 语义是照 `fsops/CopyMoveStrategy.kt` 读出来的，不是猜的，而且两条都被反测点着**：`File → Directory` 要求目标目录**已存在**（`prepareAsDestination` 抛 `DestinationDoesNotExistException`）· `Directory → Directory` 按目标存不存在分叉——不存在则源**变成**它（父目录要在），存在则源被**塞进它里面**。后者执行器永远不该走到，所以适配器把它变成显式抛错，而不是安静地嵌一层
+- **判据 12③ 用的是真 SIGKILL，不是抛**——这笔债是 `d16.ts` 自己记下的（「a death in the middle of the file-op drain leaves half a file operation, which is not a database state at all」）。做法：面板把 drain **停在自己选的点上**（`removeSongDir` 里，两次抢救之后、删目录与删行之前）并显示 `PARKED`，`am force-stop` 打下去，重启后按 `local_metadata` 里的夹具断言。**点是选的、kill 是真的**——决策 o⑤ 要的那两件同时成立
+- **四个变异逐条验红**：`quarantineSongFile` 不建目标目录 → 只有矩阵那条红（`executed 1 of 6`）· `quarantineSongDir` 不建 `recovered-songs/` → 两条红 · `removeSongDir` 去掉 `exists` 守卫 → **只有「四种 op」那条红，而且只因为我在写反测前刚补了那个用例**（见下）· **把第 ⑪ 步的 drain 删掉 → 12③ 与 12⑥ 双双红，12⑥ 的失败文案就是 `the boot drain executed 0 of the 1 waiting`**
+- **两个用例是「想反测怎么破」时补出来的，不是跑红了才补的**：① `delete_song_files` 的 local 分支**不问 `songDirExists` 直接删**，所以「目录已经没了的本地删除」是 `removeSongDir` 唯一一个会收到不存在目录的入口——原来七条一条都没走它，`exists` 守卫等于没测；② `quarantineExists` 的 **true 分支**（移动发生过、崩在它之后）原来也没人走——造它要把重放的 op 指回**它自己的 target**，另起一个 target 的第二条 op 走的是「没东西可搬」那条路，证明不了任何事
+- **顺带一条要如实记的**：D16 的判据 19⑥ 现在有了真的 drain 之后仍然绿，是因为它塞的那条 op 是 `song-x`（过不了 uuid 门）——它断言的是「收敛不动 `sync_file_ops`」，**「并由第 ⑪ 步执行掉」那半由判据 12⑥ 覆盖，不是 19⑥**
+- **`recovered-songs/` 的空目录清扫（桌面的 `pruneEmptyQuarantines`）移动端没做**，理由：唯一会造出空目标的是 `quarantineSongFile` 的「建目录后崩」，而那条路径的重放**不查 `quarantineExists`**（只有 `quarantine_song_files` 查，且它的目标是被 rename 本身创建的），所以空目标只是不好看、不会让任何判定说谎。桌面清它是因为 `countQuarantined()` 会把它算成一次隔离——**N5 加徽章时要一起把这条补上**
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 

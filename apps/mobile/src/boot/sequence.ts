@@ -29,6 +29,8 @@
 // `songs.db`.
 
 import {
+  type DrainResult,
+  FileEffectRuntime,
   type PortableDb,
   type StructuredLogger,
   ensureDeviceUuid,
@@ -41,6 +43,9 @@ import { libraryExists, probeLibrary } from '../identity/snapshot';
 import { type IdentityDecision, type IdentityPurpose, decideIdentity } from '../identity/state';
 import { commitIdentity, readCommitted, readIntent, writeIntent } from '../identity/store';
 import { createSecureCredentialStore } from '../ports/credentials';
+import { createFileSystem } from '../ports/fs';
+import { createPaths } from '../ports/paths';
+import { createSongFiles } from '../ports/song-files';
 import { installPortableRuntime } from './runtime';
 
 export interface BootResult {
@@ -53,6 +58,20 @@ export interface BootResult {
   /** Present when step ⑧ ran. */
   converged: ConvergeResult | null;
   deviceUuid: string;
+  /**
+   * The journal runtime step ⑪ drained, handed on rather than rebuilt.
+   *
+   * `LibraryService` takes a `FileEffectLike` and `deleteSong` drains it
+   * unconditionally, so the services the caller assembles have to use THIS
+   * one: two runtimes over one journal would arbitrate song files against
+   * two different claim registries, which is the race the registry exists to
+   * prevent. (The desktop separates them because its boot drain runs before
+   * the download engine exists and the long-lived one shares the engine's
+   * registry; there is no engine here until N4.)
+   */
+  fileOps: FileEffectRuntime;
+  /** What step ⑪ found waiting. */
+  drained: DrainResult;
 }
 
 export interface BootOptions {
@@ -147,13 +166,25 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
     if (planned !== null) await commitIdentity(installId);
     crashPoint?.('after-commit');
 
-    // ⑪ boot drain — N2d. The executor does not exist yet, and this comment is
-    // the placeholder rather than a call to nothing: putting the drain in when
-    // there is something to drain keeps the ordering honest instead of
-    // reserving it with a no-op nobody re-reads.
+    // ⑪ boot drain. Every row in the journal is a consequence the database
+    // already committed whose file half has not happened yet — a song a peer
+    // deleted, lyrics that arrived, a directory to move aside. Anything that
+    // judges a song directory against the library would meet a half-finished
+    // effect and read it as residue (`portable/sync/file-ops.ts`), so this
+    // runs before the caller gets the library, not after.
+    const fileOps = new FileEffectRuntime({
+      sqlite: db.sqlite,
+      files: { fs: createFileSystem(), paths: createPaths() },
+      songFiles: createSongFiles(),
+      logger,
+    });
+    const drained = await fileOps.drain();
+    if (drained.executed + drained.failed + drained.skipped > 0) {
+      logger?.info({ ...drained }, 'sync file journal drained');
+    }
 
     // ⑫
-    return { handle, db, installId, decision, converged, deviceUuid };
+    return { handle, db, installId, decision, converged, deviceUuid, fileOps, drained };
   } catch (err) {
     handle.closeSync();
     throw err;

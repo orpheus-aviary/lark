@@ -47,8 +47,13 @@ export interface ScenarioRow {
 
 // ─── fixture plumbing ───────────────────────────────────
 
-/** Every trace of an install: the library, its sidecars, both SecureStore keys. */
-async function resetInstall(): Promise<void> {
+/**
+ * Every trace of an install: the library, its sidecars, both SecureStore keys.
+ *
+ * Shared with the file-op scenarios (N2d), which need the same "nothing has
+ * ever run here" starting point and must not grow a second version of it.
+ */
+export async function resetInstall(): Promise<void> {
   for (const part of ['', '-wal', '-shm']) {
     const file = new File(nestDirectory(), `${DATABASE_NAME}${part}`);
     if (file.exists) file.delete();
