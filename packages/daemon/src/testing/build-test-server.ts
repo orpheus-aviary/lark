@@ -161,7 +161,6 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     store: portable,
     files,
     bilibili,
-    mediaTools,
     audio: nodeAudioLanding({ store: portable, mediaTools, timeouts: DEFAULT_TIMEOUTS }),
     getLlmConfig: () => resolveLlmConfig(ctx.config),
     shutdownSignal: shutdownController.signal,

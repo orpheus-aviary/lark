@@ -10,11 +10,11 @@
 
 import type { DownloadBatchData, DownloadBatchGroupInput } from '@lark/shared';
 import { eq } from 'drizzle-orm';
+import type { PortableDrizzle } from '../db.js';
 import { NotFoundError } from '../errors.js';
-import type { PortableDrizzle } from '../portable/db.js';
-import type { DownloadTarget } from '../portable/download/target.js';
-import { type TaskRecord, isTerminal } from '../portable/download/task-data.js';
-import { playlists } from '../portable/schema.js';
+import { playlists } from '../schema.js';
+import type { DownloadTarget } from './target.js';
+import { type TaskRecord, isTerminal } from './task-data.js';
 
 /** Batches retained for `GET /download/tasks`. */
 const BATCH_RING = 20;

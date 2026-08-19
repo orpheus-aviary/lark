@@ -11,31 +11,31 @@ import { join } from 'node:path';
 import type { DownloadNamingMode, DownloadTaskData, LlmConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDatabase } from '../db/index.js';
-import type { LarkDatabase } from '../db/index.js';
+import { createDatabase } from '../../db/index.js';
+import type { LarkDatabase } from '../../db/index.js';
+import { nodeAudioLanding } from '../../download/audio-landing.js';
+import { type MediaToolsProvider, MediaToolsRegistry } from '../../media-tools/registry.js';
+import { resolveMediaTools } from '../../media-tools/resolve.js';
+import { nodeFileContext } from '../../node-fs.js';
+import { songLyricsPath } from '../../paths.js';
+import { songsDir } from '../../paths.js';
+import { fakeMediaTools } from '../../testing/fake-media-tools.js';
+import type { FakeUpstream } from '../../testing/fake-upstream.js';
+import { startFakeUpstream } from '../../testing/fake-upstream.js';
+import { toneWav } from '../../testing/tone-wav.js';
+import type { PortableDb } from '../db.js';
 import { MediaToolsUnavailableError } from '../errors.js';
-import { type MediaToolsProvider, MediaToolsRegistry } from '../media-tools/registry.js';
-import { resolveMediaTools } from '../media-tools/resolve.js';
-import { nodeFileContext } from '../node-fs.js';
-import { songLyricsPath } from '../paths.js';
-import { songsDir } from '../paths.js';
-import type { PortableDb } from '../portable/db.js';
-import { createBilibiliClient } from '../portable/download/bilibili.js';
-import { DEFAULT_TIMEOUTS } from '../portable/download/timeouts.js';
 import {
   createPlaylist,
   deletePlaylist,
   getPlaylistSongs,
   listPlaylists,
-} from '../portable/library/playlists.js';
-import { getSong, listSongs } from '../portable/library/songs.js';
-import { songs } from '../portable/schema.js';
-import { fakeMediaTools } from '../testing/fake-media-tools.js';
-import type { FakeUpstream } from '../testing/fake-upstream.js';
-import { startFakeUpstream } from '../testing/fake-upstream.js';
-import { toneWav } from '../testing/tone-wav.js';
-import { nodeAudioLanding } from './audio-landing.js';
+} from '../library/playlists.js';
+import { getSong, listSongs } from '../library/songs.js';
+import { songs } from '../schema.js';
+import { createBilibiliClient } from './bilibili.js';
 import { DownloadEngine, describeTaskError, downloadDedupeKey } from './engine.js';
+import { DEFAULT_TIMEOUTS } from './timeouts.js';
 
 const BVID = 'BV1Ki4y1y7HC';
 const NO_LLM: LlmConfig = { url: '', model: '', api_key: '', api_format: '' };
@@ -99,7 +99,6 @@ function build(options: BuildOptions = {}): DownloadEngine {
     store,
     files: nodeFileContext(),
     getLlmConfig: () => llmConfig,
-    mediaTools: tools,
     // The real desktop landing, exactly as boot builds it: these tests are
     // about the engine's decisions AROUND the bytes, and a fake here would
     // stop asserting that the six-step protocol still runs under them.

@@ -37,6 +37,7 @@ import type {
   TaskState,
 } from '@lark/shared';
 import { eq } from 'drizzle-orm';
+import type { PortableDb } from '../db.js';
 import {
   DownloadQueueFullError,
   InvalidSourceError,
@@ -45,36 +46,23 @@ import {
   TaskNotCancellableError,
   TaskNotFoundError,
 } from '../errors.js';
-import type { MediaToolsProvider } from '../media-tools/registry.js';
-import type { PortableDb } from '../portable/db.js';
-import { type BilibiliClient, createBilibiliClient } from '../portable/download/bilibili.js';
-import { ClaimRegistry } from '../portable/download/claims.js';
-import { isLlmConfigured } from '../portable/download/llm.js';
-import type { LyricsOrigins } from '../portable/download/lyrics/shared.js';
-import type { DownloadTarget } from '../portable/download/target.js';
-import {
-  POINT_OF_NO_RETURN,
-  type TaskRecord,
-  claimTypeFor,
-  describeTaskError,
-  downloadDedupeKey,
-  isTerminal,
-  toTaskData,
-} from '../portable/download/task-data.js';
-import { DEFAULT_TIMEOUTS, type DownloadTimeouts } from '../portable/download/timeouts.js';
-import { addSongsToPlaylistInTx, createPlaylist } from '../portable/library/playlists.js';
+import { addSongsToPlaylistInTx, createPlaylist } from '../library/playlists.js';
 import {
   createFileBackedSongInTx,
   getSong,
   setFileOrigin,
   updateSongInTx,
-} from '../portable/library/songs.js';
-import { findSongByKey } from '../portable/library/source.js';
-import type { AudioLandingPort, LandedAudio } from '../portable/ports/audio-landing.js';
-import type { FileContext } from '../portable/ports/fs.js';
-import { uuid } from '../portable/runtime/random.js';
-import { playlists, songs } from '../portable/schema.js';
+} from '../library/songs.js';
+import { findSongByKey } from '../library/source.js';
+import type { AudioLandingPort, LandedAudio } from '../ports/audio-landing.js';
+import type { FileContext } from '../ports/fs.js';
+import { uuid } from '../runtime/random.js';
+import { playlists, songs } from '../schema.js';
 import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
+import { type BilibiliClient, createBilibiliClient } from './bilibili.js';
+import { ClaimRegistry } from './claims.js';
+import { isLlmConfigured } from './llm.js';
+import type { LyricsOrigins } from './lyrics/shared.js';
 import {
   type PipelineDeps,
   type ResolvedTarget,
@@ -84,8 +72,19 @@ import {
   resolveTarget,
   runLyrics,
 } from './pipeline.js';
+import type { DownloadTarget } from './target.js';
+import {
+  POINT_OF_NO_RETURN,
+  type TaskRecord,
+  claimTypeFor,
+  describeTaskError,
+  downloadDedupeKey,
+  isTerminal,
+  toTaskData,
+} from './task-data.js';
+import { DEFAULT_TIMEOUTS, type DownloadTimeouts } from './timeouts.js';
 
-export { describeTaskError, downloadDedupeKey } from '../portable/download/task-data.js';
+export { describeTaskError, downloadDedupeKey } from './task-data.js';
 
 /** How the two naming modes read in a refusal. */
 const NAMING_LABEL: Record<DownloadNamingMode, string> = {
@@ -139,13 +138,6 @@ export interface DownloadEngineOptions {
    * (M3-4).
    */
   getLlmConfig: () => LlmConfig;
-  /**
-   * The process-wide media toolchain (M7-18). Required, and deliberately not
-   * defaulted to a fresh registry: two registries would probe twice, cache
-   * separately, and could disagree — the same second-truth bug the download
-   * pipeline had before.
-   */
-  mediaTools: MediaToolsProvider;
   /**
    * How this device gets a song's audio onto its storage (N1h).
    *
@@ -786,7 +778,6 @@ export class DownloadEngine {
       files: this.#options.files,
       bilibili: this.#bilibili,
       llm: task.llm,
-      mediaTools: this.#options.mediaTools,
       timeouts: this.#timeouts,
       ...(this.#options.fetchImpl === undefined ? {} : { fetchImpl: this.#options.fetchImpl }),
       ...(this.#options.lyricsOrigins === undefined

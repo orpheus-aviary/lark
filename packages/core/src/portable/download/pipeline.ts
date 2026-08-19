@@ -14,31 +14,19 @@
 //   multi-part with no ?p=                 → LLM (pick the part)
 //   stored key that no longer resolves     → LLM (re-identify), else SOURCE_GONE
 
-import { createWriteStream } from 'node:fs';
-import { mkdir, unlink } from 'node:fs/promises';
-import { Readable, Transform } from 'node:stream';
-import { pipeline as streamPipeline } from 'node:stream/promises';
 import type { DownloadStage, LlmConfig, SongData } from '@lark/shared';
+import type { PortableDb } from '../db.js';
 import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
-import type { MediaToolsProvider } from '../media-tools/registry.js';
-import type { PortableDb } from '../portable/db.js';
-import type { BiliPage, BilibiliClient } from '../portable/download/bilibili.js';
-import { type NormalizedSource, normalizeSourceOnline } from '../portable/download/link.js';
-import { chatCompletion, cleanLlmJson } from '../portable/download/llm.js';
-import { fetchLyrics } from '../portable/download/lyrics/select.js';
-import type { LyricsOrigins } from '../portable/download/lyrics/shared.js';
-import {
-  ANALYZE_PROMPT,
-  INFER_SONG_INFO_PROMPT,
-  multiPPrompt,
-  selectPrompt,
-} from '../portable/download/prompts.js';
-import type { DownloadTarget } from '../portable/download/target.js';
-import type { DownloadTimeouts } from '../portable/download/timeouts.js';
-import { writeLyrics } from '../portable/library/lyrics.js';
-import type { FileContext } from '../portable/ports/fs.js';
-import { probeAudio, processAudio } from './ffmpeg.js';
-import { stagePaths } from './resolve.js';
+import { writeLyrics } from '../library/lyrics.js';
+import type { FileContext } from '../ports/fs.js';
+import type { BiliPage, BilibiliClient } from './bilibili.js';
+import { type NormalizedSource, normalizeSourceOnline } from './link.js';
+import { chatCompletion, cleanLlmJson } from './llm.js';
+import { fetchLyrics } from './lyrics/select.js';
+import type { LyricsOrigins } from './lyrics/shared.js';
+import { ANALYZE_PROMPT, INFER_SONG_INFO_PROMPT, multiPPrompt, selectPrompt } from './prompts.js';
+import type { DownloadTarget } from './target.js';
+import type { DownloadTimeouts } from './timeouts.js';
 
 export interface PipelineDeps {
   /** The library, as one connection (N1c) — drizzle and the raw handle together. */
@@ -48,13 +36,6 @@ export interface PipelineDeps {
   bilibili: BilibiliClient;
   /** The task's config snapshot: `null` means no LLM for this whole task. */
   llm: LlmConfig | null;
-  /**
-   * The process-wide media toolchain (M7-18). Not a path pair: acquiring
-   * through the registry is what lets a toolchain that broke mid-session be
-   * re-probed, and what makes "no ffmpeg" a `MEDIA_TOOLS_UNAVAILABLE` before
-   * the download starts instead of a transcode failure after it.
-   */
-  mediaTools: MediaToolsProvider;
   timeouts: DownloadTimeouts;
   fetchImpl?: typeof fetch;
   lyricsOrigins?: Partial<LyricsOrigins>;
@@ -300,96 +281,6 @@ export async function reidentifySource(
   }
   const query = song.artist === '' ? song.name : `${song.name} ${song.artist}`;
   return resolveKeyword(deps, query, ctx);
-}
-
-// ─── Bytes ─────────────────────────────────────────────
-
-export interface StagedAudio {
-  /** Finished m4a at a task-scoped temp path, ready for `landSongFile`. */
-  path: string;
-  duration: number;
-}
-
-/**
- * Download and transcode into the song's own directory.
- *
- * Same-volume staging is deliberate: the Go version wrote to the system temp
- * directory and then renamed across devices, which fails on any setup where
- * the nest is not on the root filesystem.
- */
-export async function fetchAudio(
-  deps: PipelineDeps,
-  input: { songId: string; taskId: string; bvid: string; cid: number },
-  ctx: StepContext,
-): Promise<StagedAudio> {
-  const paths = stagePaths(input.songId, input.taskId);
-  // Before any bytes move: the transfer exists only to be transcoded, so a
-  // machine with no usable ffmpeg should fail here rather than after it has
-  // pulled down the whole track (M7-18).
-  await deps.mediaTools.acquire();
-  // A brand-new song has no directory yet, and staging happens INSIDE it (the
-  // whole point of same-volume staging), so it has to exist first.
-  await mkdir(paths.dir, { recursive: true });
-  const stream = await deps.bilibili.audioStream(input.bvid, input.cid, { signal: ctx.signal });
-
-  ctx.reportStage('downloading');
-  const response = await deps.bilibili.openAudio(stream.url, { signal: ctx.signal });
-  if (response.body === null) {
-    throw new BilibiliApiError(`audio stream for ${input.bvid}:${input.cid} had no body`);
-  }
-  // `null` rather than 0 when the source does not say: "unknown size" and
-  // "empty" ask a progress line for different things (§3.5).
-  const declared = Number(response.headers.get('content-length'));
-  const total = Number.isFinite(declared) && declared > 0 ? declared : null;
-  ctx.reportProgress?.(0, total);
-
-  await streamPipeline(
-    Readable.fromWeb(response.body as Parameters<typeof Readable.fromWeb>[0]),
-    countingStream(ctx, total),
-    createWriteStream(paths.download),
-    { signal: ctx.signal },
-  );
-
-  ctx.reportStage('converting');
-  const landed = await deps.mediaTools.use(async (tools) => {
-    const run = { signal: ctx.signal, timeouts: deps.timeouts };
-    try {
-      // Probe the bytes that arrived, and let THAT decide the conversion.
-      // `audioStream` already preferred an AAC candidate so this is normally a
-      // rewrap — the audio the user hears is the audio bilibili sent — but the
-      // decision is never taken from the DASH `codecs` field: a stream that
-      // says `mp4a.40.2` and delivers something else would otherwise be
-      // copied into a canonical file that cannot be played.
-      const source = await probeAudio(tools.ffprobe.path, paths.download, run);
-      await processAudio(tools.ffmpeg.path, paths.download, paths.transcoded, source, run);
-    } finally {
-      // The raw download is dead weight either way, and leaving it behind would
-      // make the next startup recovery report residue that is not residue.
-      await unlink(paths.download).catch(() => {});
-    }
-    // Probe the OUTPUT for the duration that goes in the row: a copy that
-    // silently carried no audio would otherwise be committed as a song.
-    return probeAudio(tools.ffprobe.path, paths.transcoded, run);
-  });
-  return { path: paths.transcoded, duration: landed.duration };
-}
-
-/**
- * A pass-through that counts. Chunk-level rather than a `data` listener on the
- * source: inside the pipeline it inherits the backpressure and the abort
- * handling that `streamPipeline` already gives every other member, and a task
- * cancelled mid-transfer tears down the whole chain rather than leaking a
- * listener on a stream nobody is reading.
- */
-function countingStream(ctx: StepContext, total: number | null): Transform {
-  let received = 0;
-  return new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      received += chunk.length;
-      ctx.reportProgress?.(received, total);
-      callback(null, chunk);
-    },
-  });
 }
 
 // ─── Lyrics ────────────────────────────────────────────

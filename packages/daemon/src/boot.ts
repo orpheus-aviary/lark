@@ -479,7 +479,6 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         store: portable,
         files,
         bilibili,
-        mediaTools,
         audio: nodeAudioLanding({ store: portable, mediaTools, timeouts: DEFAULT_TIMEOUTS }),
         // Read fresh, so a PATCH /config is picked up by the next task — and
         // snapshotted per task, so it cannot change mid-download.

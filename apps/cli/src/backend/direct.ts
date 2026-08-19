@@ -273,9 +273,6 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
         files,
         bilibili,
         llm: null,
-        // Carried for the type only: the eviction probe asks bilibili whether
-        // a stored key still resolves, and never touches a media file.
-        mediaTools: new core.MediaToolsRegistry(),
         timeouts: core.DEFAULT_TIMEOUTS,
       };
 
