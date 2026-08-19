@@ -1,5 +1,4 @@
-// The app's shell (N2a first screen, N2b data panel, N2c the real boot, N2f
-// the library itself).
+// The app's shell (N2a first screen, N2c the real boot, N2f the library).
 //
 // N2c is where the app was finally allowed to open its own library at launch,
 // and the reason is the whole point of that batch: until D16 existed, a

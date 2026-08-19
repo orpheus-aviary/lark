@@ -468,6 +468,17 @@
 - **`adb shell input text` 只能打 ASCII**（中文会从 `InputShellCommand.sendText` 抛 Java 栈）。所以搜索用的针**从夹具里选**——最长的、命中一部分而非全部的拉丁串（这次是 `LeoFM`，2/7）；中文搜索与 trim 那半由 LibraryContract 的用例在同一台手机上覆盖。`drive.mjs type` 现在自己拦下非 ASCII 并说清楚
 - **「删歌带走目录」需要一个能从外面看见的观测量**：`songs/` 是应用私有的，adb 看不了，所以设置页多了「曲库目录 N 个」（真读磁盘）。这也正是判据 15 里「journal 已消费」的证据——`deleteSong` 返回前会 drain，目录还在就说明写下的效果没执行
 
+**N2f 收尾：用户手测一轮，六处改动（2026-08-19，`4f5f442`）——N2f 完成**。手测比机器快，也看见了机器看不见的东西（六条里没有一条是判据能发现的）：
+
+- **行的点击是播放，菜单是自己的按钮**（右侧 ⋮，44dp）。原来「点行出菜单」在手机上不是人预期的动作。播放器要到 N3，所以这一下现在**明说**「播放在 N3 开放」而不是没反应——吞掉点击的行会被当成坏了
+- **图钉用桌面的图标和桌面的颜色**，位置在时长之后而不是歌名之前。颜色不是挑的：把桌面暗色主题的 `--state-pinned: oklch(0.72 0.16 255)` 换算成 `#59a6ff`；顺手把 `--state-active`（琥珀 `#efb146`）也放进 theme **留着不用**，N3 的播放行必须是那一个琥珀，不是那时候另挑的一个。图标栈因此引入 `react-native-svg@15.15.4`（照 Expo `bundledNativeModules`）+ `lucide-react-native@1.33.0`，桌面 `just check` / `just test` 复跑无回归
+- **删歌要确认**（「删除《歌名》？」→「删除，连同它的文件」）。只有删除问，因为**其他动作都能反着做一遍**，而删歌带走音频、手机上没有撤销也没有回收站
+- **取消要落在保存落的地方**：改歌名/改歌手的取消现在直接回列表，底下那层菜单一起关。回到菜单等于还要再点一次才能离开
+- **歌单页不显示虚拟 `all`**。这是**这一屏的呈现选择**，不是跟库不一致——`listPlaylists()` 照旧把它放第一位（M6 的契约在服务层settled）；手机的「歌曲」tab 本来就是全部歌曲，再列一遍就是同一份东西出现两次，而桌面之所以列是因为它的曲库视图和歌单列表是两个地方
+- **底部 tab 条被手势条压着**：Android 不给这个 inset（除非上 `react-native-safe-area-context`），先加 22px 底部留白
+- **验收脚本跟着改了一处**：歌单页的标记从「全部歌曲」换成「新建歌单」，否则它会因为这次改动误报
+- **清理**：删掉 `db/self-check.ts`（N2b 的数据层自检面板，N2f 之后没有任何调用者；它那六条判断已由桌面 `open-library.test.ts` 与 PROCESS 的 N2b 段留存）
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
@@ -519,7 +530,7 @@ v1 那条读源码读出来的发现原样保留：
 | N1g | LibraryService + daemon 路由与 CLI direct 同时消费（两个 commit：服务层 / LibraryContract 18 例 × 两 hook） | 全测试 **2571** + smoke（90 → 94 模块）+ **`accept-cli` 27/27** + **contract 两 hook 全绿、mobile hook 显式 skip** | ✅ 2026-08-19 |
 | N1h | AudioLanding 切面 + download 编排进 portable（两个 commit：切面与 commit 协议测试 / engine·batches·pipeline 搬迁） | 全测试 **2576** + smoke（94 → 97 模块）+ **`accept-m5` 22/22**（真 bilibili） | ✅ 2026-08-19 |
 | N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
-| N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | ⏳ 计划已出（**v3**，两轮评审收敛），**决策 a–o 待关闭** |
+| N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | 🔄 **N2a–N2f 完成**（判据 1–19 全过，**16b 与 14 的拖柄重排已按用户决定不做**，见 §8.2/§8.3）；只剩 **N2g** |
 | N3–N6 | 播放 / 下载 / 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。

@@ -21,7 +21,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 - **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定）：复用 AVRCP 的 TITLE 字段；判定函数（`@lark/shared` 纯函数）+ config 字段归 N2，接线与开关归 N3；**桌面整个不做**。见主计划 §4.5 的修订段。
 - 数值判据一律 **release 构建** + 冻结设备 vivo V2408A。逐批状态见 `PROCESS.md` 的 Phase B 段。
 
-**mobile / spike 的两条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-mobile-imports.sh` + Metro bundle smoke，两者的作用域自 N2a 起是 spike + `apps/mobile` 两处），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。
+**mobile / spike 的三条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-mobile-imports.sh` + Metro bundle smoke，两者的作用域自 N2a 起是 spike + `apps/mobile` 两处），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。③ **真机测试默认由用户跑**（2026-08-19 定）：我只负责 `just mobile-android-release`（adb 直接装到机器上），然后把「看什么」讲清楚——用户手测比脚本驱动快得多。**我自己驱动手机只在两种情况**：需要抓内容（logcat / dumpsys / 截屏比对），或者判据要求一段精确的流程（崩溃点、force-stop 时机、成组的顺序断言）。真要长跑，**开跑前说一声、跑完说一声**——用户以为跑完了就去动手机，症状会长得像应用 bug（`not in front` / 找不到屏幕上明明有的标签）。
 
 ### 🚨 曲库安全（每次动库前读）
 
@@ -38,7 +38,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 - **桌面**：Electron + electron-vite
 - **后端 daemon**：Fastify + better-sqlite3 + drizzle-orm
 - **前端**：React + shadcn/ui + Tailwind v4 + zustand
-- **移动**：Expo SDK 57 + CNG（Android only，N2 起）
+- **移动**：Expo SDK 57 + CNG（Android only，N2 起）；UI 是 RN 原生控件 + `lucide-react-native`（图标与桌面同一套），**没有 zustand、没有 router、没有手势栈**
 - **CLI**：commander
 - **包管理**：pnpm ／ **Lint**：Biome ／ **测试**：vitest
 
@@ -65,7 +65,9 @@ lark/
 │   └── gui/        # @lark/gui — Electron main/preload/renderer
 ├── apps/
 │   ├── cli/        # @lark/cli — 对外 CLI（发布为 @orpheus-aviary/lark-cli，bin `lark` / `lark-cli`）
-│   └── mobile/     # @lark/mobile — Android（N2 起）
+│   └── mobile/     # @lark/mobile — Android（N2 起）：boot/ 冻结启动序列 · identity/ D16 ·
+│                    #   db/ · ports/ · services/ · ui/ 四 tab · acceptance/（仅验收 bundle 可达）
+│                    #   modules/lark-fs 自建原生模块（原子替换 + 外部夹具目录）
 ├── spikes/
 │   ├── media-protocol/    # lark-media:// 验证工程，长期保留作 M4 移植参照
 │   └── mobile-foundation/ # Phase B 平台 spike + 真机驱动设施（drive.mjs / probe-host.mjs）
