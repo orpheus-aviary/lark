@@ -2,9 +2,9 @@
 // wide the resized ones are, and the sort state (D3/D4/D5 — all three are
 // persisted here, unlike the Go version which forgot them on every restart).
 
+import { DEFAULT_SORT, type SortState, isValidSort, toggleOrder } from '@lark/shared';
 import { create } from 'zustand';
 import { asWidthMap, readPref, writePref } from '../lib/prefs.js';
-import { DEFAULT_SORT, type SortState, isValidSort, toggleOrder } from '../lib/song-sort.js';
 import { useLibrary } from './library.js';
 
 export const OPTIONAL_COLUMNS = ['duration', 'fileSize', 'createdAt'] as const;

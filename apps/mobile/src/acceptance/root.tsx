@@ -14,8 +14,10 @@ import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { type ScenarioRow, runD16Scenarios } from './d16';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
+import { runFixtureImportScenarios } from './fixture-import';
 import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
+import { runSortScenarios } from './sort';
 
 export function Root() {
   const [rows, setRows] = useState<ScenarioRow[] | null>(null);
@@ -77,6 +79,23 @@ export function Root() {
           accessibilityRole="button"
         >
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run file op scenarios'}</Text>
+        </Pressable>
+
+        {/*
+          The one fixture that has to be pushed rather than synthesised: a
+          library the DESKTOP wrote. `just mobile-push-fixture` puts it where
+          this can reach it.
+        */}
+        <Pressable
+          style={styles.button}
+          onPress={run(runFixtureImportScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Import pushed fixture'}</Text>
+        </Pressable>
+
+        <Pressable style={styles.button} onPress={run(runSortScenarios)} accessibilityRole="button">
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sort scenarios'}</Text>
         </Pressable>
 
         {/*

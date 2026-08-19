@@ -7,6 +7,14 @@
 // active, because "the daemon's order" has no direction to flip.
 
 import {
+  SORT_FIELDS,
+  SORT_FIELD_LABELS,
+  type SortState,
+  isNumericField,
+  sortLabel,
+  withField,
+} from '@lark/shared';
+import {
   ArrowDown01,
   ArrowDownAZ,
   ArrowUp01,
@@ -14,14 +22,6 @@ import {
   ArrowUpDown,
   ChevronDown,
 } from 'lucide-react';
-import {
-  SORT_FIELDS,
-  SORT_FIELD_LABELS,
-  type SortState,
-  isNumericField,
-  sortLabel,
-  withField,
-} from '../lib/song-sort.js';
 import { useViewPrefs } from '../stores/view-prefs.js';
 import { Button } from './ui/button.js';
 import {

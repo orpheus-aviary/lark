@@ -630,6 +630,43 @@ mobile-drive *ARGS:
 mobile-backup-audit *ARGS:
     LARK_PACKAGE=com.orpheusaviary.lark LARK_APP_ROOT="{{_mobile}}" node spikes/mobile-foundation/scripts/backup-audit.mjs {{ARGS}}
 
+# Push a real desktop library to the phone for criterion 14 (decision o④).
+#
+# NEST is a `just backup-nest` copy, never the live one.
+#
+# THE APP MAKES THE DIRECTORY, NOT THIS (measured, N2f). `adb push` to a path
+# that does not exist yet creates the intermediate directories as `shell`, and
+# the app is then denied at `Android/data` — right string, unreadable place. So
+# the destination must already be there, made by `getExternalFilesDir` inside
+# the app, and this refuses rather than recreating it wrong.
+#
+#     just backup-nest /tmp/lark-fixture
+#     acceptance artifact → "Import pushed fixture"   (makes the directory)
+#     just mobile-push-fixture /tmp/lark-fixture
+#     acceptance artifact → "Import pushed fixture"   (imports it)
+[group('mobile')]
+mobile-push-fixture NEST:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    src="{{NEST}}/lark"
+    dst="/sdcard/Android/data/com.orpheusaviary.lark/files/lark-fixture"
+    adb="{{_android_home}}/platform-tools/adb"
+    test -f "$src/songs.db" || { echo "no songs.db under $src"; exit 1; }
+    # A -wal beside it means the copy was not checkpointed; pushing the main
+    # file alone would silently drop whatever is still in the log.
+    for sidecar in -wal -shm; do
+        test ! -e "$src/songs.db$sidecar" || { echo "$src carries a songs.db$sidecar — use backup-nest"; exit 1; }
+    done
+    "$adb" shell test -d "$dst" || {
+        echo "$dst is not there yet."
+        echo "tap \"Import pushed fixture\" once — the app has to create it, or nothing can read it."
+        exit 1
+    }
+    "$adb" shell rm -rf "$dst/songs" "$dst/songs.db"
+    "$adb" push "$src/songs.db" "$dst/songs.db"
+    test ! -d "$src/songs" || "$adb" push "$src/songs" "$dst/songs"
+    "$adb" shell du -sh "$dst"
+
 # ─── Mobile foundation spike (Phase B N0b) ──────────────
 
 # Types only — the spike is deliberately NOT in the root tsconfig references

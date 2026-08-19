@@ -1,4 +1,3 @@
-import type { SongData } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_SORT,
@@ -8,6 +7,7 @@ import {
   toggleOrder,
   withField,
 } from './song-sort.js';
+import type { SongData } from './types.js';
 
 function song(partial: Partial<SongData> & { id: string }): SongData {
   return {

@@ -18,13 +18,20 @@ import type {
   SongData,
   UpdateSongRequest,
 } from '@lark/shared';
-import { API_PATHS, ApiError, apiPath, parseLrc, request, requestText } from '@lark/shared';
+import {
+  API_PATHS,
+  ApiError,
+  apiPath,
+  parseLrc,
+  request,
+  requestText,
+  sortSongs,
+} from '@lark/shared';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 import { errorMessage } from '../lib/errors.js';
 import { createLane } from '../lib/lanes.js';
 import { readPref, writePref } from '../lib/prefs.js';
-import { sortSongs } from '../lib/song-sort.js';
 import { type MediaElement, mediaUrl } from '../player/media.js';
 import {
   invalidatePending,

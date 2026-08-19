@@ -1,15 +1,22 @@
-// Client-side list ordering (D5). Sorting stays in the renderer even though
-// the daemon accepts `?sort=`: SQLite has no Chinese collation, so `名` vs
-// `曲` would come back in code-point order. `localeCompare('zh-CN')` is the
-// only thing that puts a Chinese library in the order a user expects.
+// Client-side list ordering (D5). Sorting stays in the client even though the
+// daemon accepts `?sort=`: SQLite has no Chinese collation, so `名` vs `曲`
+// would come back in code-point order. An `Intl.Collator('zh-CN')` is the only
+// thing that puts a Chinese library in the order a user expects.
 //
 // The Go version's seven-state click cycle is gone (M5 follow-up). Five fields
 // would have made it nine states — nine clicks to get back to `default` — so
 // the two axes are split: the dropdown picks the FIELD, the button flips the
-// DIRECTION. `duration` is renderer-only; the daemon's sort domain
+// DIRECTION. `duration` is client-only; the daemon's sort domain
 // (`SONG_SORT_FIELDS`) does not include it and does not need to.
+//
+// HERE RATHER THAN IN THE RENDERER (N2f, decision n). Every line of this file
+// is pure, and the phone needs the same order the desktop shows — a library
+// that sorts one way on a laptop and another way in a pocket is two libraries.
+// What did NOT come along is `stores/view-prefs.ts`: it depends on zustand and
+// localStorage, so each front end keeps its own persistence adapter over these
+// same values.
 
-import type { SongData, SongSortField, SortOrder } from '@lark/shared';
+import type { SongData, SongSortField, SortOrder } from './types.js';
 
 /** `default` = whatever order the daemon returned (rank / creation order). */
 export type SortField = 'default' | SongSortField | 'duration';

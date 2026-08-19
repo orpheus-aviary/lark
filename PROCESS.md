@@ -447,6 +447,14 @@
 - CLI 那条 `it.skip('mobile hook — lands with the mobile app (N2)')` 换成了真断言（18 例），全仓 2603 → **2604**
 - **三块旧面板复跑过**（`BootResult` 加了字段、boot 里 `files` 只造一次）：file-op 7/7 · fs 7/7 · D16 8/8
 
+**N2f 前半（一）：排序落点 + 夹具导入通道（2026-08-19）**。`song-sort.ts` 整个搬进 `@lark/shared`（决策 n），桌面四个消费者改吃 `@lark/shared`，`stores/view-prefs.ts` 原地不动（zustand + localStorage 各端各留适配器）；测试跟着走，shared 79 → 90 / gui 443 → 432，全仓 **2604 不变**。真库副本（7 首 / 1 歌单 / 7 个目录）已经在手机上，启动判 `normal`。
+
+- **Hermes 上 `Intl.Collator('zh-CN')` 是真的**（真机 3/3）：`安静 · 半岛铁盒 · 稻香 · 龙卷风` 是拼音序，而**码点序会是** `半岛铁盒 · 安静 · 稻香 · 龙卷风`。用例把两句都断言了——**没有 ICU 的 Hermes 不抛，它回落成码点序**，只断言「等于拼音序」的用例分不出「回落」和「没排」
+- 🔴 **`adb push` 到 `/sdcard/Android/data/<pkg>/files/` 应用读不到**（两轮实测）：① push 会把中间目录建成 `shell` 所有，应用随后在 `Android/data` 就被挡住——可见性探针答 `0✓/Android✓/data✗/<pkg>✗/files✗`（对照：spike 那个目录是 `u0_a337`，应用自己建的）；② 光问 Android 要路径也不够——expo 的权限判定是对**路径本身**做 `File(path).canWrite()`（`FilePermissionService.kt`），不存在的目录不可写，于是「这个应用有权建的地方」被拒成 `Missing 'WRITE' permission`
+- **所以 `modules/lark-fs` 破例长出第二个函数**（`externalDirectory(name)` = `getExternalFilesDir(null)` + `mkdirs`）。模块原本明写「deliberately one function」，这次是**实测逼出来的**而不是图方便：JS 既拿不到这个路径，也建不了这个目录，而 `getExternalFilesDir` 不是查询——**它以本应用的身份把地方建出来**，adb 之后才推得进去、应用才读得回来。`just mobile-push-fixture` 因此在目标不存在时**拒绝执行**并让人先点一次按钮，而不是自己 `mkdir` 出一个谁也打不开的目录
+- **导入通道自己做两处身份改写**（决策 o「本次定死」的落地）：`install_id` 写成本机 committed 值、**删掉 `device_uuid`** 让第 ⑨ 步重铸。两条各验红一次：去掉前者 → 启动判 `converge`（判据 14 会变成在测 D16）；去掉后者 → `582fb1df… → 582fb1df…`，**手机继承了桌面的本机身份**（决策 j 说两台安装绝不能共享的那个值）
+- **第二条反测先逼我修了断言**：原来那句「库里存的 uuid 等于 boot 返回的」**恒为真**——⑨ 是新铸的还是沿用桌面的都成立。改成在删之前先把桌面那个读出来带回，再断言两者不同
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。

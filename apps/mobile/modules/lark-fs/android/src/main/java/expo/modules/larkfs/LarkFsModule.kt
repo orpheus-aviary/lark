@@ -8,6 +8,9 @@ import java.io.File
 class MoveFailedException(from: String, to: String, cause: Throwable) :
   CodedException("ERR_LARK_FS_MOVE", "could not move $from onto $to: ${cause.message}", cause)
 
+class ExternalStorageUnavailableException :
+  CodedException("ERR_LARK_FS_NO_EXTERNAL", "this device has no external files directory", null)
+
 /**
  * One function, wrapping `AtomicMove.atomic` — which lives next door so the
  * instrumentation test drives the production code rather than a copy of it.
@@ -33,6 +36,40 @@ class LarkFsModule : Module() {
       } catch (cause: Throwable) {
         throw MoveFailedException(from, to, cause)
       }
+    }
+
+    /**
+     * Make `<external files>/<name>` and answer its `file://` URI — the only
+     * channel that can carry a real desktop library onto the phone
+     * (decision o④).
+     *
+     * MEASURED TWICE, and the reason this module grew a second function after
+     * promising not to.
+     *
+     * ① Constructing the path in JS
+     * (`/storage/emulated/0/Android/data/<package>/files`) produces the right
+     * string and an unreadable directory: `adb push` creates the intermediate
+     * directories as `shell`, and the app is then denied at `Android/data` —
+     * the visibility probe answered `0✓/Android✓/data✗/<package>✗/files✗`.
+     *
+     * ② Asking Android for the path and then creating the child from JS fails
+     * too: expo's permission service decides by `File(path).canWrite()` on the
+     * path ITSELF (`FilePermissionService.kt`), and a directory that does not
+     * exist yet is not writable — "Missing 'WRITE' permission" for a place
+     * this app is entitled to make.
+     *
+     * So both halves are native. `getExternalFilesDir` makes the app-owned
+     * root, `mkdirs` makes the child, and everything expo touches afterwards
+     * already exists and reads back.
+     *
+     * Only the acceptance graph reaches it. Production has no fixtures.
+     */
+    Function("externalDirectory") { name: String ->
+      val root = appContext.reactContext?.getExternalFilesDir(null)
+        ?: throw ExternalStorageUnavailableException()
+      val dir = File(root, name)
+      dir.mkdirs()
+      "file://${dir.absolutePath}"
     }
   }
 

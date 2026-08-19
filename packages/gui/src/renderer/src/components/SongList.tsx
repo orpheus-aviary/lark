@@ -2,13 +2,12 @@
 // ordering (D5) and the one delete confirmation shared by every row (D9).
 
 import type { SongData } from '@lark/shared';
-import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID, sortSongs } from '@lark/shared';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { duplicateSourceKeyIds } from '../lib/duplicates.js';
 import { errorMessage } from '../lib/errors.js';
 import { isAllSelected, isPartiallySelected } from '../lib/selection.js';
-import { sortSongs } from '../lib/song-sort.js';
 import { useLibrary } from '../stores/library.js';
 import { useViewPrefs } from '../stores/view-prefs.js';
 import { ConfirmDialog } from './ConfirmDialog.js';

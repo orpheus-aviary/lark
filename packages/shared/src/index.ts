@@ -16,3 +16,4 @@ export * from './api-paths.js';
 export * from './uuid.js';
 export * from './events.js';
 export * from './lrc.js';
+export * from './song-sort.js';
