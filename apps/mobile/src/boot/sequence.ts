@@ -30,6 +30,7 @@
 
 import {
   type DrainResult,
+  type FileContext,
   FileEffectRuntime,
   type PortableDb,
   type StructuredLogger,
@@ -72,6 +73,15 @@ export interface BootResult {
   fileOps: FileEffectRuntime;
   /** What step ⑪ found waiting. */
   drained: DrainResult;
+  /**
+   * Files, as one capability, built once here and handed on.
+   *
+   * The port says the pair travels together as a field of the context a caller
+   * already receives, precisely so that it is not a module global two places
+   * construct separately (`ports/fs.ts`). Step ⑪ needs it; so does the library
+   * service the caller assembles next.
+   */
+  files: FileContext;
 }
 
 export interface BootOptions {
@@ -172,9 +182,10 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
     // judges a song directory against the library would meet a half-finished
     // effect and read it as residue (`portable/sync/file-ops.ts`), so this
     // runs before the caller gets the library, not after.
+    const files: FileContext = { fs: createFileSystem(), paths: createPaths() };
     const fileOps = new FileEffectRuntime({
       sqlite: db.sqlite,
-      files: { fs: createFileSystem(), paths: createPaths() },
+      files,
       songFiles: createSongFiles(),
       logger,
     });
@@ -184,7 +195,7 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
     }
 
     // ⑫
-    return { handle, db, installId, decision, converged, deviceUuid, fileOps, drained };
+    return { handle, db, installId, decision, converged, deviceUuid, fileOps, drained, files };
   } catch (err) {
     handle.closeSync();
     throw err;

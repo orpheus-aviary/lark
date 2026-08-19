@@ -15,6 +15,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'rea
 import { type ScenarioRow, runD16Scenarios } from './d16';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
 import { runFileSystemScenarios } from './fs';
+import { runLibraryContractScenarios } from './library-contract';
 
 export function Root() {
   const [rows, setRows] = useState<ScenarioRow[] | null>(null);
@@ -44,10 +45,20 @@ export function Root() {
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>lark · acceptance</Text>
-        <Text style={styles.line}>D16 — criteria 17, 18, 19 · files — 9, 10②③ · journal — 12</Text>
+        <Text style={styles.line}>
+          D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13
+        </Text>
 
         <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run D16 scenarios'}</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.button}
+          onPress={run(runLibraryContractScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run library contract'}</Text>
         </Pressable>
 
         <Pressable

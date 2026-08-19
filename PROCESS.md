@@ -437,6 +437,16 @@
 - **顺带一条要如实记的**：D16 的判据 19⑥ 现在有了真的 drain 之后仍然绿，是因为它塞的那条 op 是 `song-x`（过不了 uuid 门）——它断言的是「收敛不动 `sync_file_ops`」，**「并由第 ⑪ 步执行掉」那半由判据 12⑥ 覆盖，不是 19⑥**
 - **`recovered-songs/` 的空目录清扫（桌面的 `pruneEmptyQuarantines`）移动端没做**，理由：唯一会造出空目标的是 `quarantineSongFile` 的「建目录后崩」，而那条路径的重放**不查 `quarantineExists`**（只有 `quarantine_song_files` 查，且它的目标是被 rename 本身创建的），所以空目标只是不好看、不会让任何判定说谎。桌面清它是因为 `countQuarantined()` 会把它算成一次隔离——**N5 加徽章时要一起把这条补上**
 
+**N2e 已完成（2026-08-19）——判据 13（gate）真机 18/18**（acceptance artifact，release）。`services/library.ts` 组装 `createLibraryService`，四件依赖**全部来自 `BootResult`**；`acceptance/library-contract.ts` 是第三个 hook，**`cases.ts` 一个字没动**（`services/contract/index.ts:6` 那句承诺兑现）。
+
+- **`files` 也上提进 `BootResult`**：端口明写这一对要「作为调用方已经收到的那个 context 的字段」一起走，就是为了不让两处各造一份模块全局。第 ⑪ 步要它，服务层也要它——同一个 `fileOps` 的理由，同一句话
+- **hook 的翻译层是三个里最短的**（没有 wire、没有退出码，直接握着 service），所以它也是**最敏感的那个**：一条用例在这里绿，等于在 service 本身上绿。**没映上的错误原样抛**，不塞成 `other`——`other` 一律算失败，抛出去至少带栈
+- **每例一次完整启动序列**（18 次）。直接开库更快，也就不再测应用真正走的那条路了
+- **两个变异逐条验红，第二个是这批真正的收获**：① 删掉 `requiredName` 的 `.trim()`（计划要求的破法）→ **红的正是两条 §7 F13 用例**，文案就是当年那个 bug：`a blank playlist name: expected a refusal, got a result`；② **从 hook 的映射表里删掉 `NotFoundError`** → 两条红（`一个用不上的 uuid` 与 `删歌之后再读`），报 `expected a ContractRefusal, got NotFoundError`——**证明那张四行表是承重的，而计划 §1.3 记的「v1 漏了 `NotFoundError`」正是漏掉它会怎样**
+- **`cacheStatus` / `runEviction` 的选项定为 `NO_PLAYER_CACHE_OPTIONS`**（`limitBytes: 0` / `isExcluded: () => false` / `streamCount: () => 0`）：播放器归 N3、音频流归 N4，现在诚实地答「没有」而不是留一个到时候会安静作废的占位。缓存**功能**仍是 N4 的，这里只是因为契约的 cache 那一例是 N2 gate 的一部分
+- CLI 那条 `it.skip('mobile hook — lands with the mobile app (N2)')` 换成了真断言（18 例），全仓 2603 → **2604**
+- **三块旧面板复跑过**（`BootResult` 加了字段、boot 里 `files` 只造一次）：file-op 7/7 · fs 7/7 · D16 8/8
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。

@@ -193,8 +193,11 @@ describe('library contract over the --direct backend', () => {
     expect(result.status === 'pass' ? 'pass' : (result.detail ?? result.status)).toBe('pass');
   });
 
-  // N2 adds a third hook, over the mobile client's own service. It is named
-  // here rather than left absent so that "two hooks" stays a statement about
-  // where we are, not a number nobody counted.
-  it.skip('mobile hook — lands with the mobile app (N2)', () => {});
+  // The third hook landed in N2e and runs on the phone, not here: it holds the
+  // service directly, so there is no wire and no exit code between a case and
+  // core — which is what makes it the most sensitive of the three, and also
+  // why it cannot be a vitest file (`apps/mobile/src/acceptance/library-contract.ts`).
+  it('has a mobile sibling that runs the same cases on a device', () => {
+    expect(results.length).toBe(18);
+  });
 });
