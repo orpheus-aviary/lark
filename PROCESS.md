@@ -386,7 +386,7 @@
 
 **N0b-5a 已完成（2026-08-18）——判据 26 绿，D16 机制落定**。**零写打开取候选 ①（copy-then-open）**：50.2MB 库 copy+open+读 install_id **max 75.36ms**，带 4.0MB 热 WAL 时 **max 149.51ms**（预算 500ms），两组的**原件 size+mtime 五轮前后逐字节不变**，而恢复确实落在副本上（副本的 `-wal` 4,128,272 → 0 字节）；racing-writer 反测 → `FailClosedError`。**no-backup 侧取 SecureStore**（`requireAuthentication: false`），**卸载重装后读不出**，判定落到「fresh」。**backup 排除三层客观判据 10/10**（`just spike-mobile-backup-audit`）：APK 的 merged manifest（`allowBackup=false` + 两个属性经资源表翻回名字确认指向我们那两份）· 两份规则文件各 9 个 domain（`<cloud-backup>` 与 `<device-transfer>` 都有）· `bmgr backupnow` 答 **`Backup is not allowed`** 而同一轮控制组答 `Success`、`dumpsys backup` 里没有我们、restore 回 `0 packages`。**四条实测**：① `allowBackup=false` 只关云备份、关不掉 D2D（那要 `<device-transfer>`）；② **expo-secure-store 默认会抢那两个 manifest 属性**，必须 `configureAndroidBackup: false`，我们的 plugin 见到被占用直接抛错；③ **证据要取在能观测到的那一刻**——第一版查「副本旁边有没有 `-wal`/`-shm`」恒为假，因为关闭连接本身会 checkpoint 并删掉它们；④ **一个 `Uint8Array` 既是值也是对象**，shim 把它当成命名参数表（`bound key '0' …`），已修并在契约补一条 lone-bytes 用例（core 1046 → **1047**，全仓 **2481**）。缺口如实记：设备 API 35，`fullBackupContent` 那条老路只能静态检查；完整 D2D restore 与 fail-closed 分支仍归 **N2 gate 的四组**。**N0b-5b 已完成（2026-08-18）——判据 25 绿，N0b = GO，Stage-2 已落**。**D14 落定**：applicationId `com.orpheusaviary.lark` · APK 0.1.0 / versionCode 1 · keystore `lark-release.jks`（PKCS12 / alias `lark` / RSA 4096 / 有效期至 **2054-01-03** / 证书 SHA-256 `38:54:4C:9F:…:F6:3D`）· **决策 g 由用户拍板**：keystore 与密码**同放** `orpheus-aviary/android-keystore/`（git 仓之外，0700/0600，**不进钥匙串**，每次构建现读，备份由用户拷 U 盘）· **恢复演练过**（整个目录拷走，只用副本签 APK，`apksigner verify` 的指纹逐字符相同）。**政策快照**（查官方页与 FAQ）：2026-09-30 只覆盖巴西/印尼/新加坡/泰国的参与商店，**adb 安装明确豁免**，测量设备在中国不在首发之列，**2027 全球扩大**才相关；真要注册时 **limited distribution account**（免费、无政府 ID、上限 20 台）匹配，注册对象是包名 + 证书 SHA-256。**判据 14/16 因契约扩了一条用例而复跑**：expo **57/0/0** · 漏版反测 55/2 · op-sqlite **51/0/6**。**两条实测**：① **Gradle 的 bundle 任务看不见 `packages/core/dist` 的变化**（core 重建了，APK 里还是旧的，面板上连断言文案都是旧的），release recipe 因此先删生成的 bundle 再构建；② **同一个「Uint8Array 既是值也是对象」的歧义把两个适配器都咬了**，op-sqlite 那边更安静（blob 什么也没绑上、列读回 NULL）——正说明这条该由契约说一次。**GO/NO-GO：GO**（判据 11–26 全完成、gate 全绿、三条 NO-GO 线一条没碰）。
 
-**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1f 已完成**，桌面测试 **2481 → 2532**（N1a 之后总量不再变动，只在包之间转移：N1f 把 49 个 coordinator 用例从 daemon 搬进 core）；Metro 图 36 → 51 → 80 → **90 个 portable 模块**。**N1f 之后，一台手机能解析的 core 已经包含 sync 全图、library 全图与整个 SyncCoordinator**——`@lark/core/portable` 之外只剩桌面专有件（`db/` 的打开与锁、ffmpeg、落盘协议、file-op 执行器、config、logger、paths 根解析）、daemon 的定时器/SSE 壳，与尚未提取的服务层 / download 编排。
+**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1g 已完成**，桌面测试 **2481 → 2532 → 2571**（N1a 之后总量只在包之间转移，直到 N1g 的 LibraryContract 各给 daemon 与 CLI 加了一套 18 例）；Metro 图 36 → 51 → 80 → 90 → **94 个 portable 模块**。**N1g 之后，一台手机能解析的 core 已经包含 sync 全图、library 全图、整个 SyncCoordinator 与 LibraryService**——`@lark/core/portable` 之外只剩桌面专有件（`db/` 的打开与锁、ffmpeg、落盘协议、file-op 执行器、config、logger、paths 根解析）、daemon 的定时器/SSE 壳与 wire 层，与尚未提取的 download 编排。
 
 **N1a 的六条实测**：
 
@@ -417,7 +417,8 @@
 | — | **R1–R3 真机预跑**（计划 §4 建议动作；正式判据仍在 N1i） | **R1 双网络各 9/9 · R2 8/8 · R3 双网络绿** | ✅ 2026-08-18 |
 | N1e | sync + library 强连通体进 portable（52 文件搬迁，正文零改动；两个音频文件名常量随 `PathsPort` 走） | 全测试 + 守卫 + smoke（51 → 80 模块）+ e2e 19 | ✅ 2026-08-18 |
 | N1f | SyncCoordinator 提取（八文件 + triggers 对半拆 + `CoordinatorContext`；daemon 只剩组装与定时器/SSE 壳） | 全测试 + 守卫 + smoke（80 → 90 模块）+ e2e 19 + **`accept-sync` 34/34** | ✅ 2026-08-18 |
-| N1g–N1i | 服务层与 CLI 薄壳 / download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
+| N1g | LibraryService + daemon 路由与 CLI direct 同时消费（两个 commit：服务层 / LibraryContract 18 例 × 两 hook） | 全测试 **2571** + smoke（90 → 94 模块）+ **`accept-cli` 27/27** + **contract 两 hook 全绿、mobile hook 显式 skip** | ✅ 2026-08-19 |
+| N1h–N1i | download 编排与 AudioLanding / 守卫收编与 R1–R5 | 见子计划 §4 | ⏳ |
 | N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
@@ -429,6 +430,13 @@
 - **release APK 仍然会以 dev-client 的 URL 启动**（`expo run:android --variant release` 的最后一行就是它），但面板自报 `dev: false`：判断跑的是哪份 bundle 只能信 `__DEV__`，不能信启动方式（N0b-3 同一条）
 
 正式的 R1–R5 判据仍按计划在 **N1i** 用当轮 release 构建复跑；这次预跑的价值是：**core 的业务图在真机上能跑，这件事现在就知道了，而不是等到九批之后。**
+
+**N1g 的四条实测**：
+
+- **两个 hook 不一样敏感，而这件事只有把规则拆掉跑一遍才看得见**：LibraryContract 十八例第一次两边全绿。把 service 的 `requiredName` 里那句 `.trim()` 删掉重跑——**CLI hook 红两例，daemon hook 全绿**。因为 daemon 的 `optionalString` 自己先 trim 了，递给 service 的值已经满足了半条规则，那两例在 daemon 上测的其实是「wire 修过之后还有人拒绝」。补 `stringField`（只查类型、原样递进去）之后再破一次：**两边同样红两例**。**「绿」不是证据，「破了会红」才是**——这条 M5/T5 记过两次，这次是它在一个跨宿主契约上的形态
+- **`CodedError` 有语义，不是「带 code 的错误」的意思**：`LibraryInputError` 第一版继承了它，`errors.test.ts` 当场红三条——那个基类的意思是「携带客户端会收到的那个 wire code」，而这个错误存在的全部理由恰恰是**库对前端该报什么码没有意见**。降成普通 `Error` 之后由两边各自翻译（daemon 按 field 归 `INVALID_BODY`/`INVALID_QUERY`，CLI 归 `USAGE_ERROR`）。**一个反射式的注册表测试挡下了一次建模错误**
+- **消费服务层的信号是编译器报出一串死代码**：daemon 两个路由文件 + CLI direct 接上 service 之后，`tsc` 报的每一条都是 unused import / unused const——`listSongs`、`getPlaylistSongs`、`SEARCH_MAX`、`writableId`、`validId`、`requiredName`……**没有一条是「要改的地方」，全是「不再需要的地方」**。如果报的是类型不匹配，说明服务层的面画错了
+- **契约夹具不许假设插入顺序**：「虚拟 all 是每首歌按创建顺序」第一版断言「先 seed 的排前面」，同毫秒创建的两行在 `created_at` 上打平、回落到 id（M5 记过）。改成**跟它被定义成的那个查询逐首比**（`listSongs({sort:'created_at',order:'asc'})`）——既 tie-safe，又正好是这条规则真正的内容
 
 **N1f 的四条实测**：
 

@@ -38,6 +38,7 @@ import {
   queryString,
   requireFields,
   requiredBoolean,
+  stringField,
 } from '../validation.js';
 
 /**
@@ -107,11 +108,13 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     const body = requireFields(objectBody(req.body, SONG_UPDATE_FIELDS));
 
     const patch: UpdateSongInput = {};
-    // Uncapped and empty-tolerant here on purpose: 'is this a string' is the
-    // wire's question, 'is it a usable name' is the library's (N1g).
-    const name = optionalString(body, 'name', { allowEmpty: true });
+    // Verbatim on purpose: 'is this a string' is the wire's question, 'is it a
+    // usable name' is the library's, and the library has to be the one that
+    // trims or its rule is only enforced where somebody else happened to
+    // trim first (N1g).
+    const name = stringField(body, 'name');
     if (typeof name === 'string') patch.name = name;
-    const artist = optionalString(body, 'artist', { allowEmpty: true });
+    const artist = stringField(body, 'artist');
     if (typeof artist === 'string') patch.artist = artist;
     const lyricsOffset = optionalNumber(body, 'lyrics_offset');
     if (lyricsOffset !== undefined) patch.lyrics_offset = lyricsOffset;

@@ -111,6 +111,30 @@ export function requiredString(
   return value;
 }
 
+/**
+ * A string field, VERBATIM — type checked and nothing else (N1g).
+ *
+ * For the fields whose rules the library service owns: it trims, requires and
+ * caps, and it is the only place that does. `optionalString` would trim first
+ * and hand the service a value that already satisfies half the rule, which
+ * reads as harmless until you delete the service's trim and watch the daemon's
+ * contract cases stay green while the CLI's go red — the rule would then be
+ * enforced on one host by accident and on the other on purpose.
+ */
+export function stringField(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw invalidBody(`${key} must be a string`);
+  return value;
+}
+
+/** Same, but the field has to be there. */
+export function requiredStringField(body: Record<string, unknown>, key: string): string {
+  const value = stringField(body, key);
+  if (value === undefined) throw invalidBody(`${key} is required`);
+  return value;
+}
+
 function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
   const value = body[key];
   if (value === undefined) return undefined;

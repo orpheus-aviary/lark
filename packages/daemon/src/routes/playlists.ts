@@ -28,6 +28,7 @@ import {
   pathUuid,
   requiredSafeInteger,
   requiredString,
+  requiredStringField,
   requiredTarget,
   requiredUuid,
   requiredUuidList,
@@ -144,7 +145,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.post(API_PATHS.playlists, async (req, reply) => {
     const body = objectBody(req.body, ['name']);
-    const playlist = lib().createPlaylist(requiredString(body, 'name', { allowEmpty: true }));
+    const playlist = lib().createPlaylist(requiredStringField(body, 'name'));
     changed();
     ok(reply, playlist);
   });
@@ -158,7 +159,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   app.put(apiPath.playlist(':id'), async (req, reply) => {
     const id = rawId(req);
     const body = objectBody(req.body, ['name']);
-    const playlist = lib().renamePlaylist(id, requiredString(body, 'name', { allowEmpty: true }));
+    const playlist = lib().renamePlaylist(id, requiredStringField(body, 'name'));
     changed();
     ok(reply, playlist);
   });
