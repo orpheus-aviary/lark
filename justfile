@@ -606,6 +606,18 @@ mobile-acceptance-release: build-shared build-core
     rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
     JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" LARK_ACCEPTANCE=1 pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
 
+# Criterion 10①, and the only place it can be answered: two real threads and a
+# barrier, in `modules/lark-fs/android/src/androidTest/`. A JS-side poll loop
+# cannot see the window — same thread, so it only runs after the move returns,
+# and a delete-then-rename implementation would pass exactly as convincingly.
+#
+# Needs the device. The counter-test asserts it SAW the window; point it at the
+# atomic implementation and it fails, which is what stops the atomic case from
+# being vacuous (MEASURED).
+[group('mobile')]
+mobile-fs-instrumentation:
+    cd {{_mobile}}/android && JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" ./gradlew :lark-fs:connectedAndroidTest
+
 # The spike's driver and backup auditor, pointed at the product app. Same
 # scripts, two targets (decision d keeps the spike alive and its host-side
 # tooling with it); the package is echoed in their output so a run cannot

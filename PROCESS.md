@@ -419,7 +419,8 @@
 - **SDK 57 的 `expo-module-gradle-plugin` 既不推导 `namespace` 也不推导 `versionName`**，两个都要自己写；后者的报错是从 `node_modules/expo/android/build.gradle` 抛出来的，看着像 expo 自己的问题
 - **三条红各逮到一个真问题**（无一是断言写错）：Expo 的 `AsyncFunction` 转换 lambda 返回值 → `Files.move` 的 `Path` 变成 `Unknown type: sun.nio.fs.UnixPath` · `just` 的 `*ARGS` 拆掉引号 → 一整组结果读的是另一块面板 · `installPortableRuntime` 里多余的 `installed` 标志缓存了 portable 拥有的状态，`resetRandomForTesting()` 之后永久失配。三条都在 `docs/LESSONS.md`
 - **判据 11 是先意外撞上、再转成正式用例的**：验收入口不挂载即启动，于是 `no RandomSource` 自己冒了出来——端口按设计 fail-loud
-- **剩下的**：判据 10① 的 instrumentation（`modules/lark-fs/android/src/androidTest/` 已写好，两线程 + barrier + 「反测必须报告看见了窗口」；卡在 `junit:4.13.2` 解析不到）· **file-op 执行器与 boot drain**（决策 k：从桌面 `FileEffectRuntime` 424 行里提取控制面进 portable，只把文件动作留宿主）· 判据 12 的六条
+- **判据 10①（gate）真机绿**（`just mobile-fs-instrumentation`，两线程 + barrier，2000 轮原子替换）。反测**正向断言自己看见了窗口**；把它指向 `AtomicMove.atomic` 后以自己写的那句话失败——**所以原子那条不是恒真**。顺带一个网络坑：`junit:4.13.2` 从 Maven Central 回 403（两个域名都是，Google Maven 与阿里云镜像正常），由用户在网络侧解决，不是构建配置问题
+- **剩下的**：**file-op 执行器与 boot drain**（决策 k：从桌面 `FileEffectRuntime` 424 行里提取控制面进 portable，只把文件动作留宿主）· 判据 12 的六条
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 

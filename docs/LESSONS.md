@@ -245,6 +245,6 @@
 - **Expo 的 `AsyncFunction` 会转换 lambda 的返回值**（N2d 实测）：`Files.move(...)` 写在 try 表达式的末句，Kotlin 就把 lambda 的返回类型推成 `Path`，真机上报 `Unknown type: class sun.nio.fs.UnixPath`——一句完全不提「返回值」的话。把 move 提成一个 Unit 函数顺带修掉；提取本身另有理由：**instrumentation 测试必须驱动生产代码，不能是并排的一份复制品**
 - **`just <recipe> "带空格的参数"` 会被 `*ARGS` 拆开**（N2d 实测）：`just mobile-drive tap "Run file system scenarios"` 到 `drive.mjs` 手里只剩 `Run`，而 `tapByText` 是子串匹配 → 点了第一个 `Run…` 按钮并自信地打印 `tapped "Run D16 scenarios"`，**一整组结果读的是另一块面板**。驱动脚本改成把 `argv.slice(3)` join 起来。同一类形状：**「它报告自己干了什么」和「它干了你要的那件事」是两件事**
 - **缓存别人拥有的状态，就会在别人被重置时永久失配**（N2d 实测）：`installPortableRuntime()` 里有个模块级 `installed` 标志，而 `resetRandomForTesting()` 清的是 portable 那边——标志还说「装过了」，于是重装被跳过，之后每一个 id 都抛。`installRandom` 对同一个对象本来就幂等（source 是模块级常量正是为此），那个标志纯属多余。**判据 11 是先意外撞上、再被转成正式用例的**
-- **判据 10① 只能在 instrumentation 里回答**（N2d，计划早写、实施时才具体）：JS 侧同线程轮询下，一个「先删后 rename」的实现与原子实现一样绿——桌面 `node-fs.test.ts:60` 之所以观测得到，是因为那边的写是真异步。移动端的窗口要两条真线程 + barrier，且**反测必须报告「我看见了那个窗口」**，否则原子那条什么也没证明
+- **判据 10① 只能在 instrumentation 里回答**（N2d 实测）：JS 侧同线程轮询下，一个「先删后 rename」的实现与原子实现一样绿——桌面 `node-fs.test.ts:60` 之所以观测得到，是因为那边的写是真异步。移动端的窗口要两条真线程 + barrier，且**反测必须正向断言「我看见了那个窗口」**。**这条自身也验过**：把反测指向 `AtomicMove.atomic`，它以自己写的那句话失败（读者再也看不见缺失）——所以那条断言测的是删除窗口而不是恒真，原子那条才因此有意义。顺带：move 必须从 module 的 lambda 里**提取成顶层函数**，否则测试驱动的是一份并排的复制品，真实现改了它照样绿
 - **文本到没到看屏幕，文本对不对看回读**（N0b-4c）：屏幕证不出末尾少一个换行或空格变成 `%20`，所以 `drive.mjs share` 发完就去 `.runtime/` 读设备 POST 回来的那份**逐字符比对**。驱动用户自己的应用要**一步一 dump**：分享面板第一屏没有「更多」（要横滑），而收藏夹那条路上的盲点按钮是**会真的发动态**的
 

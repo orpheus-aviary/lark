@@ -6,6 +6,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -120,7 +121,4 @@ class AtomicMoveTest {
     assertFalse("the reader saw the target missing during an atomic replace", sawMissing.get())
     assertEquals("round 1999", target.readText())
   }
-
-  private fun assertEquals(expected: String, actual: String) =
-    org.junit.Assert.assertEquals(expected, actual)
 }

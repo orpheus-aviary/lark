@@ -46,6 +46,7 @@
       "spikes/mobile-foundation/.expo",
       "apps/mobile/android",
       "apps/mobile/.expo",
+      "apps/mobile/modules/**/build",
       "vendor"
     ]
   },
