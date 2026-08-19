@@ -21,7 +21,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 - **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定）：复用 AVRCP 的 TITLE 字段；判定函数（`@lark/shared` 纯函数）+ config 字段归 N2，接线与开关归 N3；**桌面整个不做**。见主计划 §4.5 的修订段。
 - 数值判据一律 **release 构建** + 冻结设备 vivo V2408A。逐批状态见 `PROCESS.md` 的 Phase B 段。
 
-**mobile / spike 的两条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-spike-mobile-imports.sh` + Metro bundle smoke），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。
+**mobile / spike 的两条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-mobile-imports.sh` + Metro bundle smoke，两者的作用域自 N2a 起是 spike + `apps/mobile` 两处），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。
 
 ### 🚨 曲库安全（每次动库前读）
 
@@ -53,7 +53,9 @@ lark/
 │   │               #   file-op 执行器、config、logger、paths 根解析、media-tools、migration
 │   │   └── src/portable/  # @lark/core/portable — 一台手机能解析的**整个业务图**（N1 出口）：
 │   │                      #   schema / migrations / migrate / schema-signature / pending /
-│   │                      #   errors 45 类 / logger 型 / SqliteLike / PortableDb /
+│   │                      #   db-identity（ensureDeviceUuid，N2b 下沉）/ open-library（移动端
+│   │                      #     打开分派 classifyLibrary+prepareLibrary）/
+│   │                      #   errors / logger 型 / SqliteLike / PortableDb /
 │   │                      #   ports/（fs·paths·credentials·events·device·audio-landing）/
 │   │                      #   runtime/（random·digest·text·base64）/ sync 全图 /
 │   │                      #   library 全图 / coordinator/（SyncCoordinator）/
@@ -73,7 +75,7 @@ lark/
 
 依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。**`core/portable` 是 core 内部的一层**：桌面专有的那半（`db/` · `download/{audio-landing,ffmpeg,resolve,import}` · `sync/file-ops-runtime` · `config/` · `logger/` · `paths.ts` · `media-tools/` · `migration/`）反向 import 它，它不许 import 任何 core（移动端只链这一块——`@lark/core/portable`，**CLI 不需要它，守卫的放行清单里也不加**）。
 
-**七条守卫**进 `just check`（整条 ~9s）：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · **按深度计数**的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**、**spike/mobile 只许 import portable/shared/skybridge SDK**（`check-spike-mobile-imports.sh`，只约束 `@lark/*` 与 `@orpheus-aviary/*`）、**Metro bundle smoke**（`scripts/check-portable-bundles.mjs`——读 Metro 真建出来的模块图，答 rg 守卫答不了的三件事；**探针必须放在 barrel 够得到的文件里**，孤立文件不在图里、塞什么都是绿的）。
+**七条守卫**进 `just check`（整条 ~9s）：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · **按深度计数**的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**、**spike/mobile 只许 import portable/shared/skybridge SDK**（`check-mobile-imports.sh`，只约束 `@lark/*` 与 `@orpheus-aviary/*`）、**Metro bundle smoke**（`scripts/check-portable-bundles.mjs`——读 Metro 真建出来的模块图，答 rg 守卫答不了的三件事；**探针必须放在 barrel 够得到的文件里**，孤立文件不在图里、塞什么都是绿的）。**后两条自 N2a 起各管两处**（`spikes/mobile-foundation` + `apps/mobile`）：smoke 建**两个 bundle**，因为 `disableHierarchicalLookup` 下一边声明的依赖另一边解不开，一边绿证明不了另一边；判据 7 的「`core/migration/` 不许进图」排在通用 escapee 规则**之前**，否则它是不可达的死代码。另加 `just mobile-typecheck`（`apps/mobile` 不在根 `tsc -b` 里，不进 check 就等于没类型检查）。
 
 **已决定**（主计划 §1）：不抽 `@orpheus-aviary/daemon-kit`，v0.1 直接复制 owl 模式，出现明显重复再重构。
 
@@ -106,6 +108,6 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
   - v0.3：`2026-08-13-m4a-unification.md`（判据 1–61 / 决策 a–n / **§9 附表 A 错误分型映射表**）
   - v0.2：`2026-08-11-v0.2-skybridge-sync.md`（§3 协议冻结 / §5 不变量 ㉑–㉚ / §8 决策 D1–D8）· soak 清单 `2026-08-12-v0.2-soak-checklist.md`
   - v0.1：`2026-07-31-m0-…` / `2026-07-31-m1-…` / `2026-08-04-m2-…` / `2026-08-04-m3-…` / `2026-08-05-m4-…` / `2026-08-06-m5-…`（+ followup）/ `2026-08-07-m6-cli.md` / `2026-08-08-m7-packaging.md`
-- **常用命令**：`justfile` —— `just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（15 条）/ `just accept-m5`（22 条，跑真实 bilibili）/ `just accept-cli`（27 条，驱动真实二进制）/ `just test-sync-e2e`（两套 e2e）/ `just accept-sync`（34 条，真 server + 两台 daemon + 真 GUI）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（28 条）/ `just backup-nest <目录>` / `just spike-media-*` / `just spike-mobile-*`
+- **常用命令**：`justfile` —— `just check` / `just test` / `just dev-daemon` / `just cli <args>`（= 对外的 `lark`）/ `just accept-gui`（15 条）/ `just accept-m5`（22 条，跑真实 bilibili）/ `just accept-cli`（27 条，驱动真实二进制）/ `just test-sync-e2e`（两套 e2e）/ `just accept-sync`（34 条，真 server + 两台 daemon + 真 GUI）/ `just fetch-ffmpeg`（自建 vendor ffmpeg + 门禁）/ `just package [bundled|system]` / `just pack-cli` / `just accept-pack <mode> <dmg> <tgz>`（28 条）/ `just backup-nest <目录>` / `just mobile-*`（`mobile-typecheck` / `mobile-bundle-smoke` / `mobile-prebuild` / `mobile-android[-release]` / `mobile-drive` / `mobile-backup-audit`）/ `just spike-media-*` / `just spike-mobile-*`
 - **Go 版（功能参照）**：`../lark-go/`
 - **跨仓**：`../aviary/docs/DESIGN.md`、`../aviary/docs/ROADMAP.md`、`../aviary/docs/SKYBRIDGE_ARCH.md`

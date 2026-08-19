@@ -11,13 +11,15 @@ the skybridge SDK. `scripts/check-mobile-imports.sh` enforces it and
 the rg guard reads source, the smoke reads the bundle, and only the second one
 catches a dependency reaching for `node:fs` from inside its own package.
 
-Four dependencies here are not ours to use directly: `drizzle-orm`,
-`@noble/hashes`, `@orpheus-aviary/skybridge-client` and `-proto` are
-`@lark/core`'s. They are declared anyway because `metro.config.js` sets
-`disableHierarchicalLookup`, so `packages/core/dist/**` resolves its own
-imports through THIS package's `node_modules` and the workspace root — and
-nothing else. A dependency that only resolves because pnpm hoisted it
-somewhere convenient fails here rather than on a phone.
+Four dependencies here are not ours to import directly: `drizzle-orm`,
+`@noble/hashes`, `@orpheus-aviary/skybridge-client` and `-proto` belong to
+`@lark/core`. They are declared anyway, and the reason is worth stating because
+it is not "otherwise it breaks": the repo runs `node-linker=hoisted`, so an
+undeclared dependency resolves perfectly well from the workspace root. That is
+exactly the problem. `metro.config.js` sets `disableHierarchicalLookup` and
+pins resolution to this package plus the root, and declaring what
+`packages/core/dist/**` needs makes that resolution intentional rather than a
+side effect of what someone else happened to install. The spike does the same.
 
 ## Versions
 

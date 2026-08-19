@@ -390,6 +390,10 @@
 
 **N2 子计划已出（2026-08-19，v1 → v2 → v3，两轮评审收敛）**——`docs/plans/2026-08-19-phase-b-mobile-n2.md`，七批 N2a–N2g / 判据 22 条，修订对照在子计划 §8 与 §8.1。**两轮评审的性质相同：都不是「写漏了」，是「按它实施会红」。**
 
+**N2a 已完成（2026-08-19，`b5c95f5`）——`apps/mobile` 立项**。Expo 57 + CNG，applicationId `com.orpheusaviary.lark` / versionCode 1 / **minSdk 26**（决策 a），`plugins/with-backup-rules.js` 从 spike 复制一份（`apps/` 不 import `spikes/`）。**判据 2/3/4 绿**：与 spike 共有的依赖逐字节同版（`react-native 0.86.2` 对得上 Expo 的 `bundledNativeModules.json`），三条反测各自点名——barrel import 报 `apps/mobile/src/App.tsx:16`、`node:fs/promises` 由 Metro 打出 import stack、非 portable 的 core 模块由 escapee 检查点名。**两条守卫作用域从 spike 扩到 spike + mobile**（`check-spike-mobile-imports.sh` → `check-mobile-imports.sh`；bundle smoke 建两个 bundle），驱动脚本改吃 `LARK_PACKAGE` / `LARK_APP_ROOT`。`just check` 8s 上下、`just test` **2578 不变**。**判据 1（真机装起显首屏）等手机**。
+
+**N2b 桌面那半已完成（2026-08-19，`eb6a28e`）**：`ensureDeviceUuid` 下沉为 `portable/db-identity.ts`（桌面 `db/index.ts` 改调它并保留 re-export，25 条 `db/index.test.ts` 与两套 daemon e2e 一个字没改）；§2.4 的打开分派落 `portable/open-library.ts`，拆成 **`classifyLibrary`（零写，步骤 ③ 跑在副本上）+ `prepareLibrary`（步骤 ⑦，`onVerdict` 钩子是宿主唯一被允许设 WAL 的时刻）**——放 portable 而不是 `apps/mobile`，就是为了让六格在桌面 test runner 上跑得起来。**六个变异逐条验红**，其中一个抓到自己的测试有洞：converge 用例第一版只断言返回值、没断言持久化，于是「mint 了不落库」是绿的（已补 `expect(stored()).toBe(after)`）。判据 7 的「`core/migration/` 不进图」排在通用 escapee 规则**之前**，否则它是不可达的死代码——`core/migration/`（桌面 ffmpeg 那套）与 `core/portable/migrations/`（schema 链）差一个字符、结论相反。桌面测试 2578 → **2596**。
+
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
 
 **v1 的三条 P0 都不是「写漏了」，是「按它实施会红」**（逐条已代码复核）：

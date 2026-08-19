@@ -83,6 +83,20 @@ export function classifyLibrary(sqlite: SqliteLike, dbPath: string): LibraryVerd
   return 'current';
 }
 
+export interface PrepareLibraryOptions {
+  /**
+   * Called once the verdict is in and before anything is written.
+   *
+   * This is where a host sets `journal_mode = WAL`, and the reason it is a
+   * callback rather than something each host does around this call: WAL is a
+   * FILE-level property, so setting it a moment too early modifies a database
+   * that is about to be refused. Handing the host a hook means the ordering
+   * lives here, tested once, instead of being a rule every host is trusted to
+   * re-derive. Never called on a refusal.
+   */
+  onVerdict?: (verdict: LibraryVerdict) => void;
+}
+
 /**
  * Bring the library to the current schema on a handle open for writing
  * (§2.2 step ⑦), and say which shape it turned out to be.
@@ -91,9 +105,19 @@ export function classifyLibrary(sqlite: SqliteLike, dbPath: string): LibraryVerd
  * verdict was read from a copy; re-deriving it costs two pragma reads and
  * means no code path can act on a stale answer about a file it is about to
  * write to.
+ *
+ * NOT a usable library yet. §2.2 continues: converge (⑧), `ensureDeviceUuid`
+ * (⑨), commit the intent (⑩), drain the file-op journal (⑪). Skipping ⑨ in
+ * particular leaves a library that reads perfectly and throws on the first
+ * write — see `db-identity.ts`.
  */
-export function prepareLibrary(sqlite: SqliteLike, dbPath: string): LibraryVerdict {
+export function prepareLibrary(
+  sqlite: SqliteLike,
+  dbPath: string,
+  options: PrepareLibraryOptions = {},
+): LibraryVerdict {
   const verdict = classifyLibrary(sqlite, dbPath);
+  options.onVerdict?.(verdict);
 
   if (verdict === 'fresh') {
     applyForwardMigrations(sqlite, 0, LATEST_KNOWN_VERSION);

@@ -218,3 +218,44 @@ describe('criterion 6 — the pending flag', () => {
     }
   });
 });
+
+describe('the onVerdict hook — where WAL is allowed to happen', () => {
+  it('runs after the verdict and before the first write', () => {
+    const sqlite = open(path());
+    try {
+      let versionAtHook: number | undefined;
+      let verdictAtHook: string | undefined;
+      prepareLibrary(sqlite, 'db', {
+        onVerdict: (verdict) => {
+          verdictAtHook = verdict;
+          versionAtHook = version(sqlite);
+        },
+      });
+      expect(verdictAtHook).toBe('fresh');
+      // Nothing migrated yet — which is what makes this the safe moment to
+      // turn on WAL, and the whole reason the hook exists rather than each
+      // host re-deriving the ordering.
+      expect(versionAtHook).toBe(0);
+      expect(version(sqlite)).toBe(LATEST_KNOWN_VERSION);
+    } finally {
+      sqlite.close();
+    }
+  });
+
+  it('is not called at all when the library is refused', () => {
+    const sqlite = open(libraryAt(1));
+    try {
+      let called = 0;
+      expect(() =>
+        prepareLibrary(sqlite, 'db', {
+          onVerdict: () => {
+            called += 1;
+          },
+        }),
+      ).toThrow(ForwardMigrationUnsupportedError);
+      expect(called).toBe(0);
+    } finally {
+      sqlite.close();
+    }
+  });
+});
