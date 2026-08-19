@@ -71,6 +71,7 @@ export * from './sync/device.js';
 export * from './sync/duplicates.js';
 export * from './sync/engine.js';
 export * from './sync/file-ops.js';
+export * from './sync/file-ops-runtime.js';
 export * from './sync/hlc.js';
 export * from './sync/lww.js';
 export * from './sync/rebase.js';

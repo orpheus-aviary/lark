@@ -40,6 +40,16 @@ export const CANONICAL_AUDIO_FILE = 'song.m4a';
  */
 export const LEGACY_AUDIO_FILE = 'song.mp3';
 
+/**
+ * The lyrics file's name, beside the audio.
+ *
+ * Here for the same reason as the audio names: the journal executor moves a
+ * rescued file into `recovered-songs/` BY NAME (`sync/file-ops-runtime.ts`),
+ * and a name is the same string on every host. Every adapter builds
+ * `songLyrics` from it, so there is one place it is spelled.
+ */
+export const LYRICS_FILE = 'lyrics.lrc';
+
 export interface PathsPort {
   /** `songs/<id>/` — the song's own directory. */
   songDir(id: string): string;

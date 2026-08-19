@@ -1,9 +1,11 @@
 // The filesystem, as the portable half of core uses it (N1a, subplan §2.4).
 //
 // The surface is the USED surface, not a filesystem abstraction: five calls,
-// each with a caller named in the subplan. Anything the desktop does that no
-// portable module needs — the journal executor's quarantine moves, backups,
-// lock files — stays in core proper, where it can keep using `node:fs`.
+// each about ONE file, each with a caller named in the subplan. Anything the
+// desktop does that no portable module needs — backups, lock files — stays in
+// core proper, where it can keep using `node:fs`. The journal executor's
+// directory-level verbs became portable in N2d and live in their own port
+// (`song-files.ts`) rather than growing this one.
 //
 // Two rules hold for every implementation:
 //

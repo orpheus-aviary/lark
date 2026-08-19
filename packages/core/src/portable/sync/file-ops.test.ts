@@ -13,19 +13,25 @@ import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../../db/index.js';
+import { nodeFileContext } from '../../node-fs.js';
 import { songAudioPath, songLyricsPath } from '../../paths.js';
 import { recoveredSongsDir, songsDir } from '../../paths.js';
-// The suite stays whole across N1b's split: what it tests is the journal's
-// end-to-end contract — a decision written down in a transaction, then made
-// true on disk — and that contract is the pair, not either half.
+// The suite stays whole across N1b's split, and across N2d's: what it tests is
+// the journal's end-to-end contract — a decision written down in a
+// transaction, then made true on disk — and that contract is the pair, not
+// either half. Since N2d the deciding half is portable and this drives it
+// through the desktop's host verbs; the phone drives the SAME half through
+// expo's (criterion 12).
 import {
   FileEffectRuntime,
   countQuarantined,
+  nodeSongFiles,
   pruneEmptyQuarantines,
 } from '../../sync/file-ops-runtime.js';
 import { ClaimRegistry } from '../download/claims.js';
 import { FileOpBusyError, FileOpNotFoundError } from '../errors.js';
 import { emitSyncChange, recordDeadLetter } from './changes.js';
+import { FileEffectRuntime as PortableFileEffectRuntime } from './file-ops-runtime.js';
 import {
   countFileOps,
   enqueueDeleteLyrics,
@@ -185,6 +191,33 @@ describe('executing a delete', () => {
     const rescued = join(recoveredSongsDir(), dir);
     expect(existsSync(join(rescued, 'lyrics.lrc'))).toBe(true);
     expect(existsSync(join(rescued, 'song.m4a'))).toBe(false);
+  });
+
+  // The remaining corners of `audio_origin` × `lyrics_disposition` (criterion
+  // 12①). The pairs above cover replaceable audio with both dispositions and
+  // all three origins with publishable lyrics; these are the two where BOTH
+  // halves have to survive the same op, into the same target directory.
+  it.each([
+    { origin: 'imported' as const, why: 'a file that only ever existed here' },
+    { origin: null, why: 'a Go-migrated song with no source at all' },
+  ])('rescues both halves when the audio is $why', async ({ origin }) => {
+    const id = randomUUID();
+    seedSong(id, { lyrics: true });
+    emitSyncChange(sqlite, {
+      entityType: 'song',
+      entityId: id,
+      op: 'set_lyrics',
+      payload: { lrc: '[00:01.00]unpublished' },
+    });
+    enqueueRemoteDelete(sqlite, id, origin);
+
+    await runtime().drain();
+
+    const [target] = quarantineOf(id);
+    expect(target).toBeDefined();
+    const rescued = join(recoveredSongsDir(), target);
+    expect(readdirSync(rescued).sort()).toEqual(['lyrics.lrc', 'song.m4a']);
+    expect(existsSync(join(songsDir(), id))).toBe(false);
   });
 
   it('is a no-op when the files are already gone', async () => {
@@ -353,8 +386,118 @@ describe('ordering and failure', () => {
   });
 });
 
+describe('crash re-entry', () => {
+  /**
+   * A crash is not a failure the runtime handled — it is the process ending
+   * between two host calls, with the row still committed and the directory
+   * half dealt with. Breaking ONE verb reproduces exactly that state: the
+   * rescue happened, the removal did not, and nothing deleted the row.
+   *
+   * This is also the one place the port seam is driven directly, because the
+   * seam is what a phone will substitute (criterion 12③).
+   */
+  function crashingOnRemove(now: () => number): PortableFileEffectRuntime {
+    const real = nodeSongFiles();
+    let armed = true;
+    return new PortableFileEffectRuntime({
+      sqlite,
+      nowMs: now,
+      files: nodeFileContext(),
+      songFiles: {
+        ...real,
+        async removeSongDir(id) {
+          if (armed) {
+            armed = false;
+            throw new Error('the process died here');
+          }
+          await real.removeSongDir(id);
+        },
+      },
+    });
+  }
+
+  it('resumes the same row after dying mid-op, without rescuing twice', async () => {
+    const id = randomUUID();
+    seedSong(id, { lyrics: true });
+    emitSyncChange(sqlite, {
+      entityType: 'song',
+      entityId: id,
+      op: 'set_lyrics',
+      payload: { lrc: '[00:01.00]unpublished' },
+    });
+    enqueueRemoteDelete(sqlite, id, 'imported');
+
+    let now = 1_000_000;
+    const rt = crashingOnRemove(() => now);
+    expect(await rt.drain()).toEqual({ executed: 0, failed: 1, skipped: 0 });
+
+    // The half-state: both files are out, the directory and the row are not.
+    const [target] = quarantineOf(id);
+    expect(readdirSync(join(recoveredSongsDir(), target)).sort()).toEqual([
+      'lyrics.lrc',
+      'song.m4a',
+    ]);
+    expect(existsSync(join(songsDir(), id))).toBe(true);
+    expect(countFileOps(sqlite)).toMatchObject({ pending: 1, failed: 0 });
+
+    now += 3_600_000;
+    expect(await rt.drain()).toEqual({ executed: 1, failed: 0, skipped: 0 });
+
+    // Same target, same two files: the rerun found nothing left to rescue,
+    // which is what "tolerates having already happened" has to mean when the
+    // second half of the op is a directory removal.
+    expect(quarantineOf(id)).toEqual([target]);
+    expect(readdirSync(join(recoveredSongsDir(), target)).sort()).toEqual([
+      'lyrics.lrc',
+      'song.m4a',
+    ]);
+    expect(existsSync(join(songsDir(), id))).toBe(false);
+    expect(countFileOps(sqlite)).toMatchObject({ pending: 0, failed: 0 });
+  });
+});
+
 describe('retry and discard', () => {
   const BROKEN = 'not-a-uuid';
+
+  /** A row whose arg no longer parses — a truncated write, or a hand edit. */
+  function corrupt(id: number): void {
+    sqlite.prepare('UPDATE sync_file_ops SET arg = ? WHERE id = ?').run('{not json', id);
+  }
+
+  it('sends an unreadable row to the dead-letter archive rather than stalling', async () => {
+    const healthy = randomUUID();
+    seedSong(healthy);
+    enqueueLocalDelete(sqlite, randomUUID());
+    corrupt((sqlite.prepare('SELECT id FROM sync_file_ops').get() as { id: number }).id);
+    enqueueLocalDelete(sqlite, healthy);
+
+    let now = 1_000_000;
+    const rt = runtime({ now: () => now });
+
+    // A row nobody can read is a failure like any other: counted, backed off,
+    // and — crucially — not in anyone else's way.
+    expect(await rt.drain()).toEqual({ executed: 1, failed: 1, skipped: 0 });
+    expect(existsSync(join(songsDir(), healthy))).toBe(false);
+
+    for (let i = 0; i < 4; i++) {
+      now += 3_600_000;
+      await rt.drain();
+    }
+    const counts = countFileOps(sqlite);
+    expect(counts).toMatchObject({ pending: 0, failed: 1 });
+    expect(counts.lastError).toContain('unreadable arg');
+
+    const id = (sqlite.prepare('SELECT id FROM sync_file_ops').get() as { id: number }).id;
+    rt.discard(id);
+    const letter = sqlite
+      .prepare("SELECT reason, op, payload FROM sync_dead_letters WHERE direction='out'")
+      .get() as { reason: string; op: string; payload: string };
+    expect(letter.reason).toBe('file_op_discarded');
+    expect(letter.op).toBe('delete_song_files');
+    // The arg could not be read, so there is no digest of it to keep — the
+    // archive still records that the effect will never happen.
+    expect(JSON.parse(letter.payload)).toMatchObject({ attempts: 5, inline: null });
+  });
 
   async function failPermanently(rt: FileEffectRuntime, advance: () => void): Promise<number> {
     enqueueDeleteLyrics(sqlite, BROKEN);

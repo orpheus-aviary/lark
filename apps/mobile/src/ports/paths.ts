@@ -21,6 +21,7 @@
 import {
   CANONICAL_AUDIO_FILE,
   LEGACY_AUDIO_FILE,
+  LYRICS_FILE,
   type PathsPort,
   assertSongId,
 } from '@lark/core/portable';
@@ -70,6 +71,6 @@ export function createPaths(): PathsPort {
     songDir: (id) => songDirectory(id).uri,
     songAudio: (id) => songFile(id, CANONICAL_AUDIO_FILE),
     songLegacyAudio: (id) => songFile(id, LEGACY_AUDIO_FILE),
-    songLyrics: (id) => songFile(id, 'lyrics.lrc'),
+    songLyrics: (id) => songFile(id, LYRICS_FILE),
   };
 }

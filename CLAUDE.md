@@ -56,7 +56,7 @@ lark/
 │   │                      #   db-identity（ensureDeviceUuid，N2b 下沉）/ open-library（移动端
 │   │                      #     打开分派 classifyLibrary+prepareLibrary）/
 │   │                      #   errors / logger 型 / SqliteLike / PortableDb /
-│   │                      #   ports/（fs·paths·credentials·events·device·audio-landing）/
+│   │                      #   ports/（fs·paths·song-files·credentials·events·device·audio-landing）/
 │   │                      #   runtime/（random·digest·text·base64）/ sync 全图 /
 │   │                      #   library 全图 / coordinator/（SyncCoordinator）/
 │   │                      #   services/（LibraryService + LibraryContract）/

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   CANONICAL_AUDIO_FILE,
   LEGACY_AUDIO_FILE,
+  LYRICS_FILE,
   type PathsPort,
   assertSongId,
 } from './portable/ports/paths.js';
@@ -69,13 +70,10 @@ export function songsDir(): string {
   return join(larkDir(), 'songs');
 }
 
-// The two audio file names are declared with the `PathsPort` (N1e): portable
+// The three file names are declared with the `PathsPort` (N1e, N2d): portable
 // code needs them and cannot import this file. Re-exported here because this
 // is where the desktop has always read them from.
 export { CANONICAL_AUDIO_FILE, LEGACY_AUDIO_FILE };
-
-/** The song lyrics file name. */
-const LYRICS_FILE = 'lyrics.lrc';
 
 /**
  * The desktop's `PathsPort` (N1a).

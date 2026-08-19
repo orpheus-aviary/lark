@@ -14,3 +14,4 @@ export * from './device.js';
 export * from './events.js';
 export * from './fs.js';
 export * from './paths.js';
+export * from './song-files.js';

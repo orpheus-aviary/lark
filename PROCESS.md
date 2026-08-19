@@ -420,7 +420,15 @@
 - **三条红各逮到一个真问题**（无一是断言写错）：Expo 的 `AsyncFunction` 转换 lambda 返回值 → `Files.move` 的 `Path` 变成 `Unknown type: sun.nio.fs.UnixPath` · `just` 的 `*ARGS` 拆掉引号 → 一整组结果读的是另一块面板 · `installPortableRuntime` 里多余的 `installed` 标志缓存了 portable 拥有的状态，`resetRandomForTesting()` 之后永久失配。三条都在 `docs/LESSONS.md`
 - **判据 11 是先意外撞上、再转成正式用例的**：验收入口不挂载即启动，于是 `no RandomSource` 自己冒了出来——端口按设计 fail-loud
 - **判据 10①（gate）真机绿**（`just mobile-fs-instrumentation`，两线程 + barrier，2000 轮原子替换）。反测**正向断言自己看见了窗口**；把它指向 `AtomicMove.atomic` 后以自己写的那句话失败——**所以原子那条不是恒真**。顺带一个网络坑：`junit:4.13.2` 从 Maven Central 回 403（两个域名都是，Google Maven 与阿里云镜像正常），由用户在网络侧解决，不是构建配置问题
-- **剩下的**：**file-op 执行器与 boot drain**（决策 k：从桌面 `FileEffectRuntime` 424 行里提取控制面进 portable，只把文件动作留宿主）· 判据 12 的六条
+**N2d 后半（一）：控制面已进 portable（2026-08-19，决策 k）**。桌面 `FileEffectRuntime` 424 行拆成两半：调度与**四种 op 的语义**去了 `portable/sync/file-ops-runtime.ts`（drain / retry / discard / claims / 退避 / dead-letter / `deleteRemote` 的分支矩阵 / `locateAudio` / 空歌词即无歌词），桌面 `core/src/sync/file-ops-runtime.ts` 只剩 `nodeSongFiles()`（五个动词）+ 一个把宿主端口预置好的子类 + `recovered-songs/` 的两个 boot 扫描。**call site 一个字没改**（daemon context / boot / `--direct` 仍是 `new FileEffectRuntime({ sqlite, … })`）。
+
+- **新端口 `SongFilesPort`（五个动词）而不是给 `FileSystemPort` 加方法**：后者是**文件级**的「用到的那点面」，而执行器要的是目录级的三件（删目录、把一个文件挪进 `recovered-songs/`、把整个目录挪进去）+ 两个存在性问题。分开之后，一个还没有 journal 要 drain 的宿主一眼能看出自己缺的是哪半。词汇沿用 `PathsPort`：只说 song id 与 quarantine **名字**，`join` 与 R10 都留在适配器
+- **`quarantineExists` 是个问句不是 `moveIfAbsent`**：目标已存在意味着「移动发生过、崩在它之后」，该丢下剩余目录还是合并，是执行器的判断，不是宿主的
+- **`LYRICS_FILE` 上提到 `ports/paths.ts`**：桌面 `paths.ts` 与 mobile `ports/paths.ts` 各拼各的 `'lyrics.lrc'`，而执行器现在要**按名字**搬这个文件——三处同一个字符串，收到一处
+- **判据 12 的桌面那半：原 23 条 + 新 4 条全绿**（core 1175 → 1179，全仓 2599 → 2603；`just test-sync-e2e` 19 条不变）。既有那 23 条现在跑的就是 portable 的决策，**它们原样绿正是「零行为变化」的证据**
+- **三个变异逐条验红，其中一个证明新用例不是凑数**：把 `keepLyrics` 写死 false → 红 4 条；**把 `locateAudio` 改成不查存在直接回首选名 → 只有新加的「崩溃重入」那条红**（原 23 条全绿——一个崩溃后会重复搬运的执行器能通过 N2d 之前的全部测试）；把「arg 读不出来」从抛改成静默成功 → 只有新加的 dead-letter 那条红
+- **崩溃重入的造法**：不是 `kill`，是**只破一个动词**（`removeSongDir` 第一次抛）——那正是「进程死在两次宿主调用之间」留下的持久状态：文件已救出、目录还在、行还在。顺带这是唯一直接驱动端口缝的用例，而缝正是手机要替换的东西
+- **剩下的**：移动端 `SongFilesPort` 实现 + 启动序列第 ⑪ 步的 boot drain 接线 + 判据 12 的真机六条
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
