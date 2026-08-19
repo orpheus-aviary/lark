@@ -259,3 +259,21 @@ describe('the onVerdict hook — where WAL is allowed to happen', () => {
     }
   });
 });
+
+describe('what prepareLibrary deliberately does NOT do', () => {
+  // §2.2 puts `ensureDeviceUuid` at step ⑨, after converge — so a library that
+  // has only been through step ⑦ carries no local identity yet. Folding it in
+  // here would look like a tidy-up and would silently move a step the D16 gate
+  // has to own. MEASURED on the phone: the first version of the mobile panel
+  // assumed the opposite and went red for exactly this reason.
+  it('does not mint a device_uuid', () => {
+    const sqlite = open(path());
+    try {
+      prepareLibrary(sqlite, 'db');
+      const row = sqlite.prepare("SELECT value FROM local_metadata WHERE key='device_uuid'").get();
+      expect(row).toBeUndefined();
+    } finally {
+      sqlite.close();
+    }
+  });
+});

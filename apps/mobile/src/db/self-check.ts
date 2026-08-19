@@ -113,17 +113,27 @@ export function runDataLayerSelfCheck(): CheckRow[] {
       }),
     );
 
-    check('device_uuid survives and is idempotent', () =>
-      withScratch((library) => {
-        const first = deviceUuid(library);
-        if (first === undefined) throw new Error('no device_uuid after open');
-        // §2.2 step ⑨ is the boot sequence's job, not `openLibrary`'s — so on
-        // this path the row is here because a previous case put it here.
+    check('step ⑨ mints device_uuid, and it survives a reopen', () => {
+      const minted = withScratch((library) => {
+        // MEASURED, and the first version of this case got it backwards: an
+        // opened library has NO local identity yet. `openLibrary` stops after
+        // §2.2 step ⑦ on purpose, so this assertion is what goes red the day
+        // somebody folds step ⑨ into it "for convenience".
+        const before = deviceUuid(library);
+        if (before !== undefined) {
+          throw new Error(`openLibrary minted one (${before}) — step ⑨ is not its job`);
+        }
+        return ensureDeviceUuid(library.db.sqlite);
+      });
+
+      return withScratch((library) => {
+        const after = deviceUuid(library);
+        if (after !== minted) throw new Error(`reopen read ${String(after)}, expected ${minted}`);
         const again = ensureDeviceUuid(library.db.sqlite);
-        if (again !== first) throw new Error(`asking again changed it: ${first} -> ${again}`);
-        return first;
-      }),
-    );
+        if (again !== minted) throw new Error(`asking again changed it: ${minted} -> ${again}`);
+        return minted;
+      });
+    });
 
     check('a converged library refuses writes until step ⑨ runs', () =>
       withScratch((library) => {

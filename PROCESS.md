@@ -394,6 +394,10 @@
 
 **N2b 桌面那半已完成（2026-08-19，`eb6a28e`）**：`ensureDeviceUuid` 下沉为 `portable/db-identity.ts`（桌面 `db/index.ts` 改调它并保留 re-export，25 条 `db/index.test.ts` 与两套 daemon e2e 一个字没改）；§2.4 的打开分派落 `portable/open-library.ts`，拆成 **`classifyLibrary`（零写，步骤 ③ 跑在副本上）+ `prepareLibrary`（步骤 ⑦，`onVerdict` 钩子是宿主唯一被允许设 WAL 的时刻）**——放 portable 而不是 `apps/mobile`，就是为了让六格在桌面 test runner 上跑得起来。**六个变异逐条验红**，其中一个抓到自己的测试有洞：converge 用例第一版只断言返回值、没断言持久化，于是「mint 了不落库」是绿的（已补 `expect(stored()).toBe(after)`）。判据 7 的「`core/migration/` 不进图」排在通用 escapee 规则**之前**，否则它是不可达的死代码——`core/migration/`（桌面 ffmpeg 那套）与 `core/portable/migrations/`（schema 链）差一个字符、结论相反。桌面测试 2578 → **2596**。
 
+**N2b 真机验收（2026-08-19，release 构建、冻结设备 V2408A / Android 15 / API 35）——判据 1 绿 + 自检 6/6**。`com.orpheusaviary.lark` 与 `…lark.spike` 同机共存、MainActivity 在前台、首屏三行都在（`schema v3` / `protocol v6` 是从 portable 与 shared 真读出来的，说明 97+ 个 portable 模块在真机上真的解析并执行）。APK 合并 manifest：`minSdkVersion=26` / `targetSdkVersion=36` / `versionCode=1` / `versionName=0.1.0`。数据层自检六条全过：fresh 到 v3 · `0003` 的标志清成 `'0'` 且行还在 · 重开是 `current` 且不动标志 · **步骤 ⑨ mint 出的 uuid 重开还在且幂等** · **收敛后第一次写抛「device_uuid is missing」、跑完 ⑨ 才写得进（新 uuid 与旧的不同——决策 j）** · 更高版本库被 `IncompatibleDbError` 拒绝。
+
+- **第一轮是 5/6，红的那条是我自己的断言写反了**：`openLibrary` 按 §2.2 只做 ⑥⑦，**不产 `device_uuid`**（⑨ 归 N2c 的身份门），而用例假设「开完就该有」。修成断言真正的不变量（开完没有 → mint → 重开还在 → 幂等），并在桌面 `open-library.test.ts` 补一条「`prepareLibrary` 不 mint」守着同一件事。**面板的第一条红是它自己的断言——这正好证明它不是白跑的**。桌面测试 2596 → **2599**
+
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
 
 **v1 的三条 P0 都不是「写漏了」，是「按它实施会红」**（逐条已代码复核）：
