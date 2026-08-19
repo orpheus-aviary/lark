@@ -59,7 +59,15 @@ export function requireFields(body: Record<string, unknown>): Record<string, unk
 }
 
 export interface StringOptions {
-  maxLength: number;
+  /**
+   * Ceiling, when the WIRE owns one.
+   *
+   * Optional since N1g: the library's own fields (a song name, a playlist
+   * name, a search term) are capped by the library service, which is the one
+   * place all three front ends share. What stays here is request SHAPE — is
+   * this a string at all, may it be null, is the trailing whitespace gone.
+   */
+  maxLength?: number;
   /** Allow `''` after trimming (artist can be cleared; name cannot). */
   allowEmpty?: boolean;
   /** Allow an explicit `null` (clears an optional column). */
@@ -87,7 +95,7 @@ export function optionalString(
   if (trimmed === '' && options.allowEmpty !== true) {
     throw invalidBody(`${key} must not be empty`);
   }
-  if (trimmed.length > options.maxLength) {
+  if (options.maxLength !== undefined && trimmed.length > options.maxLength) {
     throw invalidBody(`${key} must be at most ${options.maxLength} characters`);
   }
   return trimmed;
@@ -178,12 +186,14 @@ export function optionalUuid(body: Record<string, unknown>, key: string): string
 export function requiredUuidList(
   body: Record<string, unknown>,
   key: string,
-  maxLength: number,
+  maxLength?: number,
 ): string[] {
   const value = body[key];
   if (!Array.isArray(value)) throw invalidBody(`${key} must be an array`);
   if (value.length === 0) throw invalidBody(`${key} must not be empty`);
-  if (value.length > maxLength) throw invalidBody(`${key} must hold at most ${maxLength} ids`);
+  if (maxLength !== undefined && value.length > maxLength) {
+    throw invalidBody(`${key} must hold at most ${maxLength} ids`);
+  }
   for (const item of value) {
     if (typeof item !== 'string' || !isUuidV4(item)) {
       throw new InvalidRequestError('INVALID_ID', `${key} must contain only UUID v4 ids`);
@@ -271,12 +281,12 @@ export function queryEnum<T extends string>(
 export function queryString(
   query: Record<string, string | undefined>,
   key: string,
-  maxLength: number,
+  maxLength?: number,
 ): string | undefined {
   const value = query[key];
   if (value === undefined) return undefined;
   const trimmed = value.trim();
-  if (trimmed.length > maxLength) {
+  if (maxLength !== undefined && trimmed.length > maxLength) {
     throw invalidQuery(`${key} must be at most ${maxLength} characters`);
   }
   return trimmed;

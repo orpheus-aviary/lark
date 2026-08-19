@@ -22,6 +22,12 @@ const CODE_BY_ERROR_NAME: Record<string, CliErrorCode> = {
   SourceKeyConflictError: 'SOURCE_KEY_CONFLICT',
   SongBusyError: 'SONG_BUSY',
   InvalidReorderError: 'INVALID_REORDER',
+  // The library service's own rules (N1g). A trimmed-to-empty name or an
+  // over-long search term is a USAGE problem at a terminal, exactly as it was
+  // when this file checked them itself; the daemon answers INVALID_BODY /
+  // INVALID_QUERY for the same error, because that is ITS vocabulary.
+  LibraryInputError: 'USAGE_ERROR',
+  VirtualPlaylistError: 'VIRTUAL_PLAYLIST',
 
   // Playlist transfer.
   UnsupportedFormatVersionError: 'UNSUPPORTED_FORMAT_VERSION',

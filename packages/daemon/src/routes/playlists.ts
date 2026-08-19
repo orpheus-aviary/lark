@@ -8,36 +8,18 @@
 // dropping the user's edit.
 
 import { readFile, stat } from 'node:fs/promises';
-import {
-  IMPORT_SONGS_MAX,
-  type ImportTarget,
-  addSongsToPlaylist,
-  buildExport,
-  createPlaylist,
-  deletePlaylist,
-  getPlaylist,
-  getPlaylistSongs,
-  importPlaylist,
-  listPlaylists,
-  listSongs,
-  parseAndValidate,
-  previewImport,
-  removeSongFromPlaylist,
-  renamePlaylist,
-  reorderSong,
-  songFileInfo,
-} from '@lark/core';
+import { IMPORT_SONGS_MAX, type ImportTarget, type LibraryService } from '@lark/core';
 import {
   API_PATHS,
   PLAYLIST_NAME_MAX,
   type PlaylistData,
   type PlaylistImportTarget,
-  type SongData,
   VIRTUAL_ALL_PLAYLIST_ID,
   apiPath,
 } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
+import { libraryService } from '../library-service.js';
 import { ok } from '../response.js';
 import {
   InvalidRequestError,
@@ -50,10 +32,6 @@ import {
   requiredUuid,
   requiredUuidList,
 } from '../validation.js';
-
-// PLAYLIST_NAME_MAX is shared with the sync payload validator (v0.2); the
-// request-shape bound below stays local to the route.
-const SONG_IDS_MAX = 1000;
 
 /**
  * Import guardrails (M5-13). The file arrives as a PATH, not as a body: 20MB
@@ -131,106 +109,86 @@ function readableId(raw: string): string {
   return raw === VIRTUAL_ALL_PLAYLIST_ID ? raw : pathUuid(raw);
 }
 
-/** An id acceptable to a WRITE route: `all` is read-only. */
-function writableId(raw: string): string {
-  if (raw === VIRTUAL_ALL_PLAYLIST_ID) {
-    throw new InvalidRequestError(
-      'VIRTUAL_PLAYLIST',
-      'the virtual "all" playlist is read-only: it cannot be renamed, deleted, or edited',
-    );
-  }
-  return pathUuid(raw);
-}
-
 const rawId = (req: { params: unknown }): string => (req.params as { id: string }).id;
 
+/** Include an optional anchor only when it is actually there (exactOptionalPropertyTypes). */
+const pick = <K extends string>(
+  key: K,
+  value: string | undefined,
+): Record<K, string> | undefined =>
+  value === undefined ? undefined : ({ [key]: value } as Record<K, string>);
+
 export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const enrich = (song: SongData): SongData => ({
-    ...song,
-    ...songFileInfo(ctx.files, song.id, { audioMode: 'canonical' }),
-  });
+  const lib = (): LibraryService => libraryService(ctx);
   const changed = (): void => {
     ctx.eventsBus.emit({ type: 'playlists:changed' });
   };
 
-  /** `limit: 0` fetches no rows but still reports the count. */
-  const songTotal = (): number => listSongs(ctx.db, ctx.sqlite, { limit: 0 }).total;
-
-  const virtualAll = (): PlaylistData => ({
-    id: VIRTUAL_ALL_PLAYLIST_ID,
-    name: VIRTUAL_ALL_PLAYLIST_ID,
-    created_at: 0,
-    updated_at: 0,
-    song_count: songTotal(),
-  });
+  /**
+   * The virtual playlist, taken from the one place that composes it (N1g).
+   *
+   * The route used to build its own, which is how the daemon and `--direct`
+   * came to disagree about what listing playlists returns. Asking the service
+   * costs one extra count on a rarely-taken path and removes the second
+   * definition entirely.
+   */
+  const virtualAll = (): PlaylistData => {
+    const [all] = lib().listPlaylists();
+    return all as PlaylistData;
+  };
 
   app.get(API_PATHS.playlists, async (_req, reply) => {
-    const playlists = [virtualAll(), ...listPlaylists(ctx.db, ctx.sqlite)];
+    const playlists = lib().listPlaylists();
     ok(reply, playlists, undefined, playlists.length);
   });
 
   app.post(API_PATHS.playlists, async (req, reply) => {
     const body = objectBody(req.body, ['name']);
-    const playlist = createPlaylist(
-      ctx.portable,
-      requiredString(body, 'name', { maxLength: PLAYLIST_NAME_MAX }),
-    );
+    const playlist = lib().createPlaylist(requiredString(body, 'name', { allowEmpty: true }));
     changed();
     ok(reply, playlist);
   });
 
   app.get(apiPath.playlist(':id'), async (req, reply) => {
-    const id = readableId(rawId(req));
+    const id = rawId(req);
     if (id === VIRTUAL_ALL_PLAYLIST_ID) return ok(reply, virtualAll());
-    ok(reply, getPlaylist(ctx.db, ctx.sqlite, id));
+    ok(reply, lib().getPlaylist(id));
   });
 
   app.put(apiPath.playlist(':id'), async (req, reply) => {
-    const id = writableId(rawId(req));
+    const id = rawId(req);
     const body = objectBody(req.body, ['name']);
-    const playlist = renamePlaylist(
-      ctx.portable,
-      id,
-      requiredString(body, 'name', { maxLength: PLAYLIST_NAME_MAX }),
-    );
+    const playlist = lib().renamePlaylist(id, requiredString(body, 'name', { allowEmpty: true }));
     changed();
     ok(reply, playlist);
   });
 
   app.delete(apiPath.playlist(':id'), async (req, reply) => {
-    const id = writableId(rawId(req));
-    deletePlaylist(ctx.portable, id);
+    const id = rawId(req);
+    lib().deletePlaylist(id);
     changed();
     ok(reply, { id }, 'playlist deleted');
   });
 
   app.get(apiPath.playlistSongs(':id'), async (req, reply) => {
-    const id = readableId(rawId(req));
     // `all` is every song in creation order — the same list the library view
     // shows by default. Real playlists come back in rank order (R23).
-    const songs =
-      id === VIRTUAL_ALL_PLAYLIST_ID
-        ? listSongs(ctx.db, ctx.sqlite, { sort: 'created_at', order: 'asc' }).songs
-        : getPlaylistSongs(ctx.db, ctx.sqlite, id);
-    ok(reply, songs.map(enrich), undefined, songs.length);
+    const songs = lib().listPlaylistSongs(rawId(req));
+    ok(reply, songs, undefined, songs.length);
   });
 
   app.post(apiPath.playlistSongs(':id'), async (req, reply) => {
-    const id = writableId(rawId(req));
+    const id = rawId(req);
     const body = objectBody(req.body, ['song_ids']);
-    const added = addSongsToPlaylist(
-      ctx.portable,
-      id,
-      requiredUuidList(body, 'song_ids', SONG_IDS_MAX),
-    );
+    const added = lib().addPlaylistSongs(id, requiredUuidList(body, 'song_ids'));
     changed();
     ok(reply, { added });
   });
 
   app.delete(apiPath.playlistSong(':id', ':songId'), async (req, reply) => {
     const params = req.params as { id: string; songId: string };
-    const id = writableId(params.id);
-    removeSongFromPlaylist(ctx.portable, id, pathUuid(params.songId));
+    const id = params.id;
+    lib().removePlaylistSong(id, params.songId);
     changed();
     ok(reply, { playlist_id: id, song_id: params.songId }, 'song removed from playlist');
   });
@@ -244,14 +202,13 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
    * so a `Content-Disposition` here would serve neither.
    */
   app.get(apiPath.playlistExport(':id'), async (req, reply) => {
-    const id = readableId(rawId(req));
+    const id = rawId(req);
     ok(
       reply,
-      buildExport(
-        ctx.db,
+      lib().buildExport(
         id === VIRTUAL_ALL_PLAYLIST_ID
           ? { playlistId: null, name: VIRTUAL_ALL_PLAYLIST_ID }
-          : { playlistId: id },
+          : { playlistId: readableId(id) },
       ),
     );
   });
@@ -260,8 +217,9 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   app.post(API_PATHS.playlistImportPreview, async (req, reply) => {
     const body = objectBody(req.body, ['file_path']);
     const filePath = requiredString(body, 'file_path', { maxLength: IMPORT_PATH_MAX });
-    const file = await parseAndValidate(await readImportFile(filePath));
-    ok(reply, previewImport(ctx.db, ctx.files, file));
+    const service = lib();
+    const file = await service.parseImportFile(await readImportFile(filePath));
+    ok(reply, service.previewImport(file));
   });
 
   /**
@@ -282,7 +240,8 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
     const target = requiredTarget(body.target, PLAYLIST_NAME_MAX);
     const reuse = readReuse(body.reuse);
 
-    const file = await parseAndValidate(await readImportFile(filePath));
+    const service = lib();
+    const file = await service.parseImportFile(await readImportFile(filePath));
     if (file.digest !== digest) {
       throw new InvalidRequestError(
         'IMPORT_SOURCE_CHANGED',
@@ -290,7 +249,7 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
       );
     }
 
-    const result = importPlaylist(ctx.portable, ctx.files, {
+    const result = service.importPlaylist({
       entries: file.entries,
       target: toCoreTarget(target),
       reuse,
@@ -304,11 +263,12 @@ export function registerPlaylistRoutes(app: FastifyInstance, ctx: AppContext): v
   // ranks are sparse floats the wire never sees, and an index would be stale
   // the moment another window reordered the same list.
   app.post(apiPath.playlistReorder(':id'), async (req, reply) => {
-    const id = writableId(rawId(req));
+    const id = rawId(req);
     const body = objectBody(req.body, ['song_id', 'before_song_id', 'after_song_id']);
-    reorderSong(ctx.portable, id, requiredUuid(body, 'song_id'), {
-      before_song_id: optionalUuid(body, 'before_song_id'),
-      after_song_id: optionalUuid(body, 'after_song_id'),
+    lib().reorderPlaylist(id, {
+      song_id: requiredUuid(body, 'song_id'),
+      ...pick('before_song_id', optionalUuid(body, 'before_song_id')),
+      ...pick('after_song_id', optionalUuid(body, 'after_song_id')),
     });
     changed();
     ok(reply, { playlist_id: id }, 'playlist reordered');

@@ -18,20 +18,14 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { probeNativeAbi } from '@lark/core/native-probe';
-import { VIRTUAL_ALL_PLAYLIST_ID, isUuidV4 } from '@lark/shared';
-import type { ApiResponse, PlaylistData, SongData } from '@lark/shared';
-import { CliError, usageError } from '../lib/errors.js';
+import { PLAYLIST_NAME_MAX, VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import type { ApiResponse } from '@lark/shared';
+import { CliError } from '../lib/errors.js';
 import { abiError } from '../lib/native-abi.js';
 import { toDirectCliError } from './direct-errors.js';
 import type { Backend, ImportCommitRequest, SongListQuery } from './types.js';
 
 type Core = typeof import('@lark/core');
-
-/** Input caps, copied from the daemon's route contract so both agree (§4.1). */
-const NAME_MAX = 500;
-const SEARCH_MAX = 200;
-const LIMIT_MAX = 1000;
-const SONG_IDS_MAX = 1000;
 
 export interface DirectBackend {
   backend: Backend;
@@ -145,23 +139,26 @@ async function attemptAsync<T>(fn: () => Promise<T>): Promise<T> {
 type Handles = ReturnType<Core['createDatabase']>;
 
 function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Backend {
-  const { db, sqlite, portable: store } = handles;
+  const { sqlite, portable: store } = handles;
   const files = core.nodeFileContext();
 
-  /** `has_file` / `file_size` are a live disk probe, exactly as the daemon does. */
+  // The library's own rules — the id gate, trim-then-require-then-cap, the
+  // virtual `all`, the list ceilings — come from the service rather than from
+  // this file (N1g). They used to be written out here a second time, and the
+  // second copy was subtly different: it checked a name's LENGTH but never
+  // trimmed it, so `--direct` accepted a blank name the daemon refused.
   //
-  // Which NAME counts as the file comes from the library's own migration flag
-  // (§3.2-12). A direct READ is allowed while the conversion is still running
-  // — reads take no lock — and a song waiting its turn still has its audio, as
-  // an mp3. Reporting it as missing would tell the user to download something
-  // they already have.
-  //
-  // Read once, at open: the mode only ever WIDENS what counts (m4a, or m4a and
-  // mp3), so a pass finishing mid-command cannot make this answer wrong.
-  const audioMode = core.isAudioMigrationPending(sqlite) ? 'migration-pending' : 'canonical';
-  const enrich = (song: SongData): SongData => ({
-    ...song,
-    ...core.songFileInfo(files, song.id, { audioMode }),
+  // `audioMode` is read ONCE, here: the mode only ever WIDENS (m4a, or m4a and
+  // mp3), so a conversion finishing mid-command cannot make an answer wrong. A
+  // direct READ is allowed while one is running — reads take no lock — and a
+  // song waiting its turn still has its audio, as an mp3.
+  const library = core.createLibraryService({
+    db: store,
+    files,
+    // This process owns the library alone (R31 + the writer lock), so a fresh
+    // registry is the whole truth about who is holding what.
+    fileOps: new core.FileEffectRuntime({ sqlite }),
+    audioMode: core.isAudioMigrationPending(sqlite) ? 'migration-pending' : 'canonical',
   });
 
   const ok = <T>(data: T, extra: { message?: string; total?: number } = {}): ApiResponse<T> => {
@@ -178,165 +175,71 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     }
   };
 
-  /**
-   * The id gate the daemon's route layer applies before core sees anything
-   * (§4.1). Core would eventually notice too, but it reports "not found" —
-   * and a malformed id is a USAGE problem, not a missing row.
-   */
-  const validId = (id: string): string => {
-    if (!isUuidV4(id)) throw new CliError('INVALID_ID', `不是合法的 id：${JSON.stringify(id)}`);
-    return id;
-  };
-
-  /** Readable ids also accept the virtual `all` (R3/R24). */
-  const readableId = (id: string): string => (id === VIRTUAL_ALL_PLAYLIST_ID ? id : validId(id));
-
-  /** `all` is a view: readable, never writable. */
-  const writablePlaylistId = (id: string): string => {
-    if (id === VIRTUAL_ALL_PLAYLIST_ID) {
-      throw new CliError('VIRTUAL_PLAYLIST', '「all」是虚拟歌单，不能写入。');
-    }
-    return validId(id);
-  };
-
-  const capped = (value: string, max: number, what: string): string => {
-    if (value.length > max) throw usageError(`${what}最长 ${max} 个字符。`);
-    return value;
-  };
-
-  /**
-   * A name, by the same rule the HTTP route uses (§7 F13).
-   *
-   * Trimmed FIRST, then required to be non-empty, and the trimmed value is
-   * what gets written — `'  '` is not a name, and `' 稻香 '` and `'稻香'` are
-   * the same song. `--direct` only checked the LENGTH, so the two backends
-   * disagreed about what the library accepts, which is exactly the shape of
-   * difference nobody finds until their library has a row named `'   '`.
-   */
-  const requiredName = (value: string, max: number, what: string): string => {
-    const trimmed = value.trim();
-    if (trimmed === '') throw usageError(`${what}不能为空。`);
-    return capped(trimmed, max, what);
-  };
-
   return {
     status: () =>
       Promise.reject(new CliError('USAGE_ERROR', '`status` 只描述 daemon，不走直连后端。')),
 
     // ── Songs ──────────────────────────────────────────
     listSongs: (query: SongListQuery) => {
-      const options: SongListQuery = { ...query };
-      // Trimmed like the route trims it: a search for `' 稻香 '` is a search
-      // for `'稻香'`, and LIKE would not agree (§7 F13).
-      if (options.search !== undefined) {
-        options.search = capped(options.search.trim(), SEARCH_MAX, '搜索词');
-      }
-      if (options.limit !== undefined && options.limit > LIMIT_MAX) {
-        throw usageError(`--limit 最大 ${LIMIT_MAX}。`);
-      }
-      const result = attempt(() => core.listSongs(db, sqlite, options));
+      const result = attempt(() => library.listSongs(query));
       // `total` is the filtered count BEFORE pagination — what a pager needs.
-      return Promise.resolve(ok(result.songs.map(enrich), { total: result.total }));
+      return Promise.resolve(ok(result.songs, { total: result.total }));
     },
-    getSong: (id) =>
-      Promise.resolve(ok(enrich(attempt(() => core.getSong(db, sqlite, validId(id)))))),
+    getSong: (id) => Promise.resolve(ok(attempt(() => library.getSong(id)))),
     updateSong: (id, patch) => {
       writable();
-      const edit = { ...patch };
-      // The artist MAY be cleared; the name may not — the same asymmetry
-      // `validation.ts` encodes for the route.
-      if (edit.name !== undefined) edit.name = requiredName(edit.name, NAME_MAX, '歌名');
-      if (edit.artist !== undefined) edit.artist = capped(edit.artist.trim(), NAME_MAX, '歌手名');
-      const updated = attempt(() => core.updateSong(store, validId(id), edit));
-      return Promise.resolve(ok(enrich(updated)));
+      return Promise.resolve(ok(attempt(() => library.updateSong(id, patch))));
     },
     deleteSong: async (id) => {
       writable();
       // Async since v0.2: the row and the file removal are two steps now (a
       // journal entry between them), and the command must not exit before the
       // files it promised to delete are gone.
-      await attemptAsync(() =>
-        core.deleteSong(store, validId(id), {
-          fileOps: new core.FileEffectRuntime({ sqlite }),
-        }),
-      );
+      await attemptAsync(() => library.deleteSong(id));
       return ok({ id }, { message: 'song deleted' });
     },
     pinSong: (id, pinned) => {
       writable();
-      attempt(() => core.setPinned(db, sqlite, validId(id), pinned));
-      return Promise.resolve(ok(enrich(attempt(() => core.getSong(db, sqlite, validId(id))))));
+      return Promise.resolve(ok(attempt(() => library.pinSong(id, pinned))));
     },
 
     // ── Playlists ──────────────────────────────────────
     listPlaylists: () => {
-      // The virtual `all` comes FIRST, exactly as the daemon composes it
-      // (R3/R24). It is not a row, so core does not return it — and a list
-      // that differs between the two backends would make every name-based
-      // reference resolve differently depending on whether a daemon happened
-      // to be running.
-      const virtualAll: PlaylistData = {
-        id: VIRTUAL_ALL_PLAYLIST_ID,
-        name: VIRTUAL_ALL_PLAYLIST_ID,
-        created_at: 0,
-        updated_at: 0,
-        // `limit: 0` fetches no rows but still reports the count.
-        song_count: attempt(() => core.listSongs(db, sqlite, { limit: 0 })).total,
-      };
-      const rows = [virtualAll, ...attempt(() => core.listPlaylists(db, sqlite))];
+      const rows = attempt(() => library.listPlaylists());
       return Promise.resolve(ok(rows, { total: rows.length }));
     },
     createPlaylist: (name) => {
       writable();
-      const created = attempt(() =>
-        core.createPlaylist(store, requiredName(name, NAME_MAX, '歌单名')),
-      );
-      return Promise.resolve(ok(created as PlaylistData));
+      return Promise.resolve(ok(attempt(() => library.createPlaylist(name))));
     },
     renamePlaylist: (id, name) => {
       writable();
-      const renamed = attempt(() =>
-        core.renamePlaylist(store, writablePlaylistId(id), requiredName(name, NAME_MAX, '歌单名')),
-      );
-      return Promise.resolve(ok(renamed as PlaylistData));
+      return Promise.resolve(ok(attempt(() => library.renamePlaylist(id, name))));
     },
     deletePlaylist: (id) => {
       writable();
-      attempt(() => core.deletePlaylist(store, writablePlaylistId(id)));
+      attempt(() => library.deletePlaylist(id));
       return Promise.resolve(ok({ id }, { message: 'playlist deleted' }));
     },
     listPlaylistSongs: (id) => {
-      // The virtual playlist is every song in creation order — the same list
-      // the library view shows by default.
-      const songs =
-        id === VIRTUAL_ALL_PLAYLIST_ID
-          ? attempt(() => core.listSongs(db, sqlite, { sort: 'created_at', order: 'asc' })).songs
-          : attempt(() => core.getPlaylistSongs(db, sqlite, readableId(id)));
-      return Promise.resolve(ok(songs.map(enrich), { total: songs.length }));
+      const songs = attempt(() => library.listPlaylistSongs(id));
+      return Promise.resolve(ok(songs, { total: songs.length }));
     },
     addPlaylistSongs: (id, songIds) => {
       writable();
-      if (songIds.length > SONG_IDS_MAX) throw usageError(`一次最多添加 ${SONG_IDS_MAX} 首。`);
-      const added = attempt(() =>
-        core.addSongsToPlaylist(store, writablePlaylistId(id), songIds.map(validId)),
-      );
+      const added = attempt(() => library.addPlaylistSongs(id, songIds));
       return Promise.resolve(ok({ added }));
     },
     removePlaylistSong: (id, songId) => {
       writable();
-      attempt(() => core.removeSongFromPlaylist(store, writablePlaylistId(id), validId(songId)));
+      attempt(() => library.removePlaylistSong(id, songId));
       return Promise.resolve(
         ok({ playlist_id: id, song_id: songId }, { message: 'song removed from playlist' }),
       );
     },
     reorderPlaylist: (id, move) => {
       writable();
-      const anchors: { before_song_id?: string; after_song_id?: string } = {};
-      if (move.before_song_id !== undefined) anchors.before_song_id = move.before_song_id;
-      if (move.after_song_id !== undefined) anchors.after_song_id = move.after_song_id;
-      attempt(() =>
-        core.reorderSong(store, writablePlaylistId(id), validId(move.song_id), anchors),
-      );
+      attempt(() => library.reorderPlaylist(id, move));
       return Promise.resolve(ok({ playlist_id: id }, { message: 'playlist reordered' }));
     },
 
@@ -346,7 +249,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // create a default config file or chmod an existing one (M6-23).
       const config = attempt(() => core.loadConfigReadonly());
       const status = attempt(() =>
-        core.cacheStatus(files, db, {
+        library.cacheStatus({
           limitBytes: config.storage.cache_limit_mb * core.MIB,
           // Nothing is playing, nothing is queued: this process is the only
           // one holding the library, guaranteed by R31 + the writer lock.
@@ -377,7 +280,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       };
 
       const run = await attemptAsync(() =>
-        core.runEviction(files, db, {
+        library.runEviction({
           limitBytes,
           isExcluded: () => false,
           streamCount: () => 0,
@@ -399,7 +302,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       );
 
       const after = attempt(() =>
-        core.cacheStatus(files, db, { limitBytes, isExcluded: () => false, streamCount: () => 0 }),
+        library.cacheStatus({ limitBytes, isExcluded: () => false, streamCount: () => 0 }),
       );
       return ok(
         {
@@ -486,7 +389,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // this process: R31 guarantees no daemon, and the writer lock excludes
       // every other writer, so this process is the only one that could be
       // writing that file.
-      const deleted = await attemptAsync(() => core.deleteLyrics(store, files, validId(id)));
+      const deleted = await attemptAsync(() => library.deleteLyrics(id));
       if (!deleted) throw new CliError('LYRICS_NOT_FOUND', '这首歌没有歌词文件。');
       return ok({ id }, { message: 'lyrics deleted' });
     },
@@ -496,14 +399,14 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       const source =
         id === VIRTUAL_ALL_PLAYLIST_ID
           ? { playlistId: null, name: VIRTUAL_ALL_PLAYLIST_ID }
-          : { playlistId: validId(id) };
-      return Promise.resolve(ok(attempt(() => core.buildExport(db, source))));
+          : { playlistId: core.assertLibraryId(id) };
+      return Promise.resolve(ok(attempt(() => library.buildExport(source))));
     },
     importPreview: async (filePath) => {
       const file = await attemptAsync(
-        async () => await core.parseAndValidate(await readImportFile(filePath)),
+        async () => await library.parseImportFile(await readImportFile(filePath)),
       );
-      return ok(attempt(() => core.previewImport(db, files, file)));
+      return ok(attempt(() => library.previewImport(file)));
     },
     importPlaylist: async (request: ImportCommitRequest) => {
       writable();
@@ -511,14 +414,14 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // and the digest is what makes that safe: identical bytes mean
       // `reuse[].index` still points at the entry the user saw (M5-13).
       const file = await attemptAsync(
-        async () => await core.parseAndValidate(await readImportFile(request.file_path)),
+        async () => await library.parseImportFile(await readImportFile(request.file_path)),
       );
       if (file.digest !== request.digest) {
         throw new CliError('IMPORT_SOURCE_CHANGED', '文件在预览之后发生了变化，请重新预览再导入');
       }
-      const target = toCoreTarget(request.target);
+      const target = toCoreTarget(core, request.target);
       const result = attempt(() =>
-        core.importPlaylist(store, files, {
+        library.importPlaylist({
           entries: file.entries,
           target,
           ...(request.reuse === undefined ? {} : { reuse: [...request.reuse] }),
@@ -583,8 +486,17 @@ async function readImportFile(filePath: string): Promise<Buffer> {
   return buffer;
 }
 
-/** The wire's `all` is core's `library`: songs land, no membership rows. */
+/**
+ * The wire's `all` is core's `library`: songs land, no membership rows.
+ *
+ * The new-playlist name goes through the same rule every other name does
+ * (N1g). It used to be SLICED to the cap here while the daemon rejected it,
+ * so `--import` into a new playlist with a 600-character name silently created
+ * one called something else — a convergence on the daemon's semantics, which
+ * is the rule for this batch.
+ */
 function toCoreTarget(
+  core: Core,
   target: ImportCommitRequest['target'],
 ): Parameters<Core['importPlaylist']>[2]['target'] {
   switch (target.kind) {
@@ -593,6 +505,9 @@ function toCoreTarget(
     case 'playlist':
       return { kind: 'playlist', playlistId: target.playlist_id };
     case 'new':
-      return { kind: 'new', name: target.name.slice(0, NAME_MAX) };
+      return {
+        kind: 'new',
+        name: core.requiredName(target.name, PLAYLIST_NAME_MAX, 'playlist_name'),
+      };
   }
 }

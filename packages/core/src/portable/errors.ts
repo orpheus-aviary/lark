@@ -308,6 +308,57 @@ export abstract class CodedError extends Error {
   abstract readonly code: string;
 }
 
+/** Why a value the library service was handed is not usable (N1g). */
+export type LibraryInputReason = 'required' | 'too_long' | 'too_many' | 'out_of_range';
+
+/**
+ * A caller broke one of the library's own input rules (N1g).
+ *
+ * Trim-then-require-then-cap, the id gate, the list ceilings: rules that are
+ * the LIBRARY's, not any one front end's, and that used to be written out
+ * separately in the daemon's request validator and the CLI's direct backend.
+ * They agreed until they didn't — `--direct` checked a name's length but not
+ * whether it was blank, so `' 稻香 '` and `'稻香'` were two different songs
+ * over HTTP and one song in process (§7 F13).
+ *
+ * It carries `field` and `reason` rather than only a sentence because each
+ * front end still speaks its own vocabulary: the daemon has to answer
+ * `INVALID_BODY` for a name and `INVALID_QUERY` for a search term, and the CLI
+ * has to answer `USAGE_ERROR` for both. The message here is the one a PERSON
+ * reads at a terminal.
+ *
+ * Deliberately NOT a `CodedError`: that base class means "carries the wire
+ * code a client will receive", and the whole point of this one is that the
+ * library has no opinion about which code a front end owes its caller.
+ */
+export class LibraryInputError extends Error {
+  readonly field: string;
+  readonly reason: LibraryInputReason;
+  /** The ceiling that was exceeded, for `too_long` / `too_many`. */
+  readonly limit?: number;
+  constructor(field: string, reason: LibraryInputReason, message: string, limit?: number) {
+    super(message);
+    this.name = 'LibraryInputError';
+    this.field = field;
+    this.reason = reason;
+    if (limit !== undefined) this.limit = limit;
+  }
+}
+
+/**
+ * A write aimed at the virtual all-songs playlist (R3/R24).
+ *
+ * `all` is a view synthesised by the read paths; it has no row, so a write
+ * against it cannot be a no-op — that would silently drop a user's edit and
+ * leave a front-end bug invisible.
+ */
+export class VirtualPlaylistError extends Error {
+  constructor(message = '「all」是虚拟歌单，不能写入。') {
+    super(message);
+    this.name = 'VirtualPlaylistError';
+  }
+}
+
 /** No usable LLM in either lark's config or aviary's, for an operation that needs one. */
 export class LlmNotConfiguredError extends CodedError {
   readonly code = 'LLM_NOT_CONFIGURED';

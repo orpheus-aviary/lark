@@ -3,34 +3,28 @@ import {
   type ClaimType,
   FileEffectRuntime,
   type UpdateSongInput,
-  deleteSong,
   getSong,
   importSongs,
   isLlmConfigured,
-  listSongs,
   normalizeSourceOnline,
   parseSongInput,
   resolveLlmConfig,
-  setPinned,
   songFileInfo,
-  updateSong,
 } from '@lark/core';
 import {
   API_PATHS,
   type DownloadTaskAcceptedData,
   type RecognizeUrlData,
-  SONG_ARTIST_MAX,
-  SONG_NAME_MAX,
   SONG_SORT_FIELDS,
   SONG_SOURCE_KEY_MAX,
   SONG_SOURCE_PROVIDER_MAX,
   SONG_SOURCE_URL_MAX,
   SORT_ORDERS,
-  type SongData,
   apiPath,
 } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
+import { libraryService } from '../library-service.js';
 import { ok } from '../response.js';
 import {
   InvalidRequestError,
@@ -45,14 +39,6 @@ import {
   requireFields,
   requiredBoolean,
 } from '../validation.js';
-
-// The entity string bounds now live in @lark/shared (SONG_NAME_MAX and
-// friends): the sync payload validator screens the same fields coming in from
-// another device and has to reject exactly what this route rejects. The
-// query-shape bounds stay here — nothing outside an HTTP request has a
-// `search` or a `limit`.
-const SEARCH_MAX = 200;
-const LIMIT_MAX = 1000;
 
 /**
  * Fields `PUT /songs/:id` accepts. Online normalisation of a pasted URL into
@@ -75,14 +61,6 @@ const IMPORT_PATH_MAX = 4096;
 const idOf = (req: { params: unknown }): string => pathUuid((req.params as { id: string }).id);
 
 export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void {
-  /** has_file / file_size are disk probes, not columns — added at the wire edge. */
-  // Always canonical: business routes do not serve while a migration is
-  // pending, so the daemon never reads a library that still holds mp3s.
-  const enrich = (song: SongData): SongData => ({
-    ...song,
-    ...songFileInfo(ctx.files, song.id, { audioMode: 'canonical' }),
-  });
-
   const bilibili = ctx.bilibili;
   const netSignal = (): AbortSignal =>
     AbortSignal.any([ctx.shutdownSignal, AbortSignal.timeout(60_000)]);
@@ -109,19 +87,19 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
 
   app.get(API_PATHS.songs, async (req, reply) => {
     const query = queryParams(req.query, ['search', 'sort', 'order', 'limit', 'offset']);
-    const result = listSongs(ctx.db, ctx.sqlite, {
-      search: queryString(query, 'search', SEARCH_MAX),
+    const result = libraryService(ctx).listSongs({
+      search: queryString(query, 'search'),
       sort: queryEnum(query, 'sort', SONG_SORT_FIELDS),
       order: queryEnum(query, 'order', SORT_ORDERS),
-      limit: queryInteger(query, 'limit', { min: 1, max: LIMIT_MAX }),
+      limit: queryInteger(query, 'limit', { min: 1 }),
       offset: queryInteger(query, 'offset', { min: 0 }),
     });
     // `total` is the filtered count BEFORE pagination — what a pager needs.
-    ok(reply, result.songs.map(enrich), undefined, result.total);
+    ok(reply, result.songs, undefined, result.total);
   });
 
   app.get(apiPath.song(':id'), async (req, reply) => {
-    ok(reply, enrich(getSong(ctx.db, ctx.sqlite, idOf(req))));
+    ok(reply, libraryService(ctx).getSong(idOf(req)));
   });
 
   app.put(apiPath.song(':id'), async (req, reply) => {
@@ -129,9 +107,11 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     const body = requireFields(objectBody(req.body, SONG_UPDATE_FIELDS));
 
     const patch: UpdateSongInput = {};
-    const name = optionalString(body, 'name', { maxLength: SONG_NAME_MAX });
+    // Uncapped and empty-tolerant here on purpose: 'is this a string' is the
+    // wire's question, 'is it a usable name' is the library's (N1g).
+    const name = optionalString(body, 'name', { allowEmpty: true });
     if (typeof name === 'string') patch.name = name;
-    const artist = optionalString(body, 'artist', { maxLength: SONG_ARTIST_MAX, allowEmpty: true });
+    const artist = optionalString(body, 'artist', { allowEmpty: true });
     if (typeof artist === 'string') patch.artist = artist;
     const lyricsOffset = optionalNumber(body, 'lyrics_offset');
     if (lyricsOffset !== undefined) patch.lyrics_offset = lyricsOffset;
@@ -176,9 +156,9 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
 
     // The write may change which file this song points at, so it takes the
     // same claim a download would — the normalisation above ran outside it.
-    const song = await withClaim(id, 'file', () => updateSong(ctx.portable, id, patch));
+    const song = await withClaim(id, 'file', () => libraryService(ctx).updateSong(id, patch));
     ctx.eventsBus.emit({ type: 'songs:changed' });
-    ok(reply, enrich(song));
+    ok(reply, song);
   });
 
   /**
@@ -239,9 +219,9 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
       // No logger, matching the default this replaced exactly: N1b is a
       // structural batch, and "the delete route now logs file-op failures" is
       // a behaviour change however welcome it would be.
-      deleteSong(ctx.portable, id, {
+      libraryService(ctx, {
         fileOps: new FileEffectRuntime({ sqlite: ctx.sqlite }),
-      }),
+      }).deleteSong(id),
     );
     // Memberships cascade, so every playlist view is stale too.
     ctx.eventsBus.emit({ type: 'songs:changed' });
@@ -362,8 +342,8 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.put(apiPath.songPin(':id'), async (req, reply) => {
     const id = idOf(req);
     const body = objectBody(req.body, ['pinned']);
-    setPinned(ctx.db, ctx.sqlite, id, requiredBoolean(body, 'pinned'));
+    const song = libraryService(ctx).pinSong(id, requiredBoolean(body, 'pinned'));
     ctx.eventsBus.emit({ type: 'songs:changed' });
-    ok(reply, enrich(getSong(ctx.db, ctx.sqlite, id)));
+    ok(reply, song);
   });
 }

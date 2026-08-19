@@ -11,9 +11,11 @@ import {
   InvalidIdError,
   InvalidReorderError,
   InvalidSourceError,
+  LibraryInputError,
   NotFoundError,
   SongBusyError,
   SourceKeyConflictError,
+  VirtualPlaylistError,
 } from '@lark/core';
 import { type DaemonEnvelopeErrorCode, isDaemonEnvelopeErrorCode } from '@lark/shared';
 
@@ -137,7 +139,27 @@ export function statusForCode(code: DaemonEnvelopeErrorCode): number {
 }
 
 /** Map a core business error, or `null` if `err` is not one. */
+/**
+ * Which library input fields arrive in the QUERY STRING.
+ *
+ * The service enforces the library's own rules (trim, then non-empty, then
+ * cap) and throws one error class for all of them (N1g); the daemon still owes
+ * a client the code it has always sent, and that depends on where the value
+ * came from. Everything not listed here reached us in a body.
+ */
+const QUERY_FIELDS: ReadonlySet<string> = new Set(['search', 'limit', 'offset', 'sort', 'order']);
+
 export function mapCoreError(err: unknown): MappedError | null {
+  // The library service's two refusals (N1g). Neither is a `CodedError`,
+  // because that base class means "carries the wire code a client receives" —
+  // and a front end's vocabulary is the front end's. A rejected name is
+  // `INVALID_BODY` or `INVALID_QUERY` depending on where it came from, which
+  // is knowledge only this side has.
+  if (err instanceof LibraryInputError) {
+    return { status: 400, code: QUERY_FIELDS.has(err.field) ? 'INVALID_QUERY' : 'INVALID_BODY' };
+  }
+  if (err instanceof VirtualPlaylistError) return { status: 400, code: 'VIRTUAL_PLAYLIST' };
+
   // M3's classes carry their own code, so this branch needs no per-class list
   // — only the status table above.
   if (err instanceof CodedError) {
