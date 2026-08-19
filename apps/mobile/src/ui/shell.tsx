@@ -27,11 +27,15 @@ type Tab = (typeof TABS)[number];
 
 export function Shell() {
   const [tab, setTab] = useState<Tab>('歌曲');
+  // Which playlist is open lives HERE, not in the tab: switching tabs
+  // unmounts the tab, and a detail screen that forgot where it was every time
+  // you glanced at 设置 is a screen you stop using.
+  const [openPlaylist, setOpenPlaylist] = useState<string | null>(null);
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>
         {tab === '歌曲' && <SongsTab />}
-        {tab === '歌单' && <PlaylistsTab />}
+        {tab === '歌单' && <PlaylistsTab openId={openPlaylist} onOpen={setOpenPlaylist} />}
         {tab === '添加' && <AddTab />}
         {tab === '设置' && <SettingsTab />}
       </View>
@@ -132,8 +136,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.border,
     backgroundColor: C.surface,
+    // Room for the gesture pill. Android hands out no inset here without
+    // `react-native-safe-area-context`, and the labels sat under the bar
+    // until this was here (MEASURED, frozen device).
+    paddingBottom: 22,
   },
-  tab: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  tab: { flex: 1, alignItems: 'center', paddingTop: 12, paddingBottom: 6 },
   tabLabel: { color: C.faint, fontSize: 14 },
   tabOn: { color: C.text, fontWeight: '600' },
 });

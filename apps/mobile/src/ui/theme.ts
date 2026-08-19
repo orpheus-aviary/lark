@@ -21,8 +21,18 @@ export const C = {
   /** Destructive only. Nothing else in the app is red. */
   danger: '#ef4444',
   ok: '#22c55e',
-  /** A song whose file is not here — the desktop's amber channel. */
-  missing: '#f59e0b',
+  /**
+   * State, and only state — the desktop's own two tokens, converted from the
+   * `oklch` its dark theme uses (`style.css`: `--state-pinned` blue,
+   * `--state-active` amber). Neither is an accent: lark has none, `--primary`
+   * is the body colour, so nothing decorative may reach for these.
+   *
+   * `active` has no user yet. It is here because the player lands in N3 and
+   * the row that plays must be the SAME amber the desktop paints, not a
+   * second amber somebody picks then.
+   */
+  pinned: '#59a6ff',
+  active: '#efb146',
 } as const;
 
 export const S = {

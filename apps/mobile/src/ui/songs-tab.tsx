@@ -7,10 +7,16 @@
 // `Intl.Collator('zh-CN')` — rather than `?sort=`, because SQLite has no
 // Chinese collation (decision n).
 //
-// A row does not play. Nothing in this build plays: the player is N3 and the
-// download link is N4, so a tap opens the actions instead. Saying that here
-// because "the list does not respond to a tap" is otherwise a bug report
-// waiting to happen.
+// A ROW'S TAP IS PLAY, and the menu is its own button — the shape every
+// mobile music app has, and the one a thumb expects. Nothing in this build
+// plays (the player is N3, the download link N4), so the tap says so out loud
+// rather than doing nothing: a row that swallows taps reads as broken.
+//
+// Pinned is a channel, not a prefix. The desktop paints four states through
+// four things that never collide (`SongRow.tsx`); here the pin sits AFTER the
+// duration, in the desktop's own blue, so a long title keeps the whole width
+// and an unpinned song shows nothing at all. The amber is the OTHER token and
+// stays reserved for the playing row, which lands with the player.
 
 import {
   DEFAULT_SORT,
@@ -23,8 +29,9 @@ import {
   toggleOrder,
   withField,
 } from '@lark/shared';
+import { EllipsisVertical, Pin } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
@@ -38,6 +45,7 @@ export function SongsTab() {
   const [picking, setPicking] = useState(false);
   const [acting, setActing] = useState<SongData | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
+  const [confirming, setConfirming] = useState<SongData | null>(null);
 
   const songs = useMemo(() => {
     const trimmed = search.trim();
@@ -46,11 +54,20 @@ export function SongsTab() {
     return sortSongs(view.songs(trimmed === '' ? {} : { search: trimmed }).songs, sort);
   }, [view, search, sort]);
 
+  /** Every write ends the same way: do it, close everything, re-read. */
   const write = (body: () => void) => {
     body();
+    closeAll();
+    changed();
+  };
+
+  // Cancelling has to land in the same place as saving. Dropping back to the
+  // menu you came from means a second tap to leave, and the menu is not what
+  // anybody wanted to see again.
+  const closeAll = () => {
     setActing(null);
     setEditing(null);
-    changed();
+    setConfirming(null);
   };
 
   return (
@@ -85,7 +102,7 @@ export function SongsTab() {
       <FlatList
         data={songs}
         keyExtractor={(song) => song.id}
-        renderItem={({ item }) => <SongRow song={item} onPress={() => setActing(item)} />}
+        renderItem={({ item }) => <SongRow song={item} onMenu={() => setActing(item)} />}
         ListEmptyComponent={
           <Text style={styles.empty}>{search === '' ? '曲库是空的。' : '没有匹配的歌。'}</Text>
         }
@@ -106,8 +123,8 @@ export function SongsTab() {
         </Sheet>
       )}
 
-      {acting !== null && editing === null && (
-        <Sheet title={acting.name} onClose={() => setActing(null)}>
+      {acting !== null && editing === null && confirming === null && (
+        <Sheet title={acting.name} onClose={closeAll}>
           <SheetAction label="改歌名" onPress={() => setEditing({ song: acting, field: 'name' })} />
           <SheetAction
             label="改歌手"
@@ -117,14 +134,23 @@ export function SongsTab() {
             label={acting.pinned ? '取消固定' : '固定'}
             onPress={() => write(() => library.pinSong(acting.id, !acting.pinned))}
           />
+          <SheetAction label="删除" danger onPress={() => setConfirming(acting)} />
+        </Sheet>
+      )}
+
+      {confirming !== null && (
+        // A delete takes the audio with it, and on a phone there is no undo
+        // and no trash — so it asks. Nothing else here does: every other
+        // action on this sheet can be done again backwards.
+        <Sheet title={`删除《${confirming.name}》？`} onClose={closeAll}>
           <SheetAction
-            label="删除"
+            label="删除，连同它的文件"
             danger
             onPress={() => {
               // The only async write on this screen: `deleteSong` drains the
               // file journal, so the row and its directory go together
               // (`portable/library/songs.ts`).
-              void library.deleteSong(acting.id).then(() => write(() => undefined));
+              void library.deleteSong(confirming.id).then(() => write(() => undefined));
             }}
           />
         </Sheet>
@@ -135,7 +161,7 @@ export function SongsTab() {
           title={editing.field === 'name' ? '改歌名' : '改歌手'}
           initial={editing.field === 'name' ? editing.song.name : editing.song.artist}
           confirmLabel="保存"
-          onClose={() => setEditing(null)}
+          onClose={closeAll}
           onConfirm={(value) =>
             write(() =>
               library.updateSong(
@@ -150,20 +176,42 @@ export function SongsTab() {
   );
 }
 
-function SongRow({ song, onPress }: { song: SongData; onPress: () => void }) {
+function SongRow({ song, onMenu }: { song: SongData; onMenu: () => void }) {
   return (
-    <Pressable style={styles.row} onPress={onPress} accessibilityRole="button">
-      <View style={styles.fill}>
+    <View style={styles.row}>
+      <Pressable
+        style={styles.rowBody}
+        onPress={() => ToastAndroid.show('播放在 N3 开放', ToastAndroid.SHORT)}
+        accessibilityRole="button"
+        accessibilityLabel={`播放 ${song.name}`}
+      >
         <Text style={styles.rowName} numberOfLines={1}>
-          {song.pinned ? '📌 ' : ''}
           {song.name}
         </Text>
-        <Text style={styles.rowMeta} numberOfLines={1}>
-          {song.artist === '' ? '未知歌手' : song.artist} · {duration(song.duration)}
-          {song.has_file === false ? ' · 需要下载' : ''}
-        </Text>
-      </View>
-    </Pressable>
+        <View style={styles.rowMetaLine}>
+          <Text style={styles.rowMeta} numberOfLines={1}>
+            {song.artist === '' ? '未知歌手' : song.artist} · {duration(song.duration)}
+            {song.has_file === false ? ' · 需要下载' : ''}
+          </Text>
+          {song.pinned && (
+            <>
+              <Text style={styles.rowMeta}> · </Text>
+              <Pin size={12} color={C.pinned} fill={C.pinned} accessibilityLabel="已固定" />
+            </>
+          )}
+        </View>
+      </Pressable>
+      {/* Its own target, because the row's is play. 44dp is the smallest
+          thing a thumb hits reliably. */}
+      <Pressable
+        style={styles.rowMenu}
+        onPress={onMenu}
+        accessibilityRole="button"
+        accessibilityLabel={`${song.name} 的菜单`}
+      >
+        <EllipsisVertical size={18} color={C.muted} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -194,12 +242,15 @@ const styles = StyleSheet.create({
   sortLabel: { color: C.muted, fontSize: 13 },
   count: { color: C.faint, fontSize: 12, paddingHorizontal: S.pad, paddingBottom: 4 },
   row: {
-    paddingVertical: 10,
-    paddingHorizontal: S.pad,
+    flexDirection: 'row',
+    alignItems: 'center',
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: C.border,
   },
+  rowBody: { flex: 1, paddingVertical: 10, paddingLeft: S.pad },
+  rowMenu: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   rowName: { color: C.text, fontSize: 16 },
-  rowMeta: { color: C.faint, fontSize: 12, marginTop: 2 },
+  rowMetaLine: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
+  rowMeta: { color: C.faint, fontSize: 12 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
 });

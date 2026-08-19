@@ -1,9 +1,13 @@
 // The 歌单 tab: the list, and one detail screen (N2f, criteria 14 and 15).
 //
-// The virtual `all` is FIRST and comes from the service, not from here — a
-// list that differed between front ends is the M6 divergence the
-// LibraryContract exists to pin. It is readable and never writable, so the
-// detail screen offers no actions for it.
+// THE VIRTUAL `all` IS NOT SHOWN HERE, and that is a presentation choice, not
+// a disagreement with the library. `listPlaylists()` still returns it first —
+// a list that differed between front ends is the M6 divergence the
+// LibraryContract exists to pin, and the service is where that is settled.
+// What differs is the screen: on a phone the 歌曲 tab already IS every song,
+// so an entry called 全部歌曲 next to the real playlists is the same list
+// twice. The desktop shows it because its library view and its playlist list
+// are different places.
 //
 // NO DRAG REORDER (subplan §8.3, user's call): long-press is easy to trigger
 // by accident and mainstream mobile music apps do not offer it either. The
@@ -11,7 +15,7 @@
 // what is missing is the handle, and with it the three native dependencies a
 // draggable list would have cost.
 
-import type { PlaylistData, SongData } from '@lark/shared';
+import type { SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -19,19 +23,34 @@ import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
 
-export function PlaylistsTab() {
-  const [openId, setOpenId] = useState<string | null>(null);
+/**
+ * Which playlist is open is the SHELL's state, not this component's.
+ *
+ * A tab is unmounted while another one is showing, so anything kept here is
+ * forgotten the moment somebody looks at 设置 and comes back — and coming back
+ * to the list you were already inside is the whole point of a detail screen.
+ */
+export function PlaylistsTab({
+  openId,
+  onOpen,
+}: {
+  openId: string | null;
+  onOpen: (id: string | null) => void;
+}) {
   return openId === null ? (
-    <PlaylistList onOpen={setOpenId} />
+    <PlaylistList onOpen={onOpen} />
   ) : (
-    <PlaylistDetail id={openId} onBack={() => setOpenId(null)} />
+    <PlaylistDetail id={openId} onBack={() => onOpen(null)} />
   );
 }
 
 function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
   const { library, view, changed } = useLibrary();
   const [creating, setCreating] = useState(false);
-  const playlists = useMemo(() => view.playlists(), [view]);
+  const playlists = useMemo(
+    () => view.playlists().filter((playlist) => playlist.id !== VIRTUAL_ALL_PLAYLIST_ID),
+    [view],
+  );
 
   return (
     <View style={styles.fill}>
@@ -48,10 +67,11 @@ function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
         keyExtractor={(playlist) => playlist.id}
         renderItem={({ item }) => (
           <Pressable style={styles.row} onPress={() => onOpen(item.id)} accessibilityRole="button">
-            <Text style={styles.rowName}>{label(item)}</Text>
+            <Text style={styles.rowName}>{item.name}</Text>
             <Text style={styles.rowMeta}>{item.song_count} 首</Text>
           </Pressable>
         )}
+        ListEmptyComponent={<Text style={styles.empty}>还没有歌单。曲库在「歌曲」里。</Text>}
       />
 
       {creating && (
@@ -77,7 +97,6 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
   const [adding, setAdding] = useState(false);
   const [acting, setActing] = useState<SongData | null>(null);
 
-  const virtual = id === VIRTUAL_ALL_PLAYLIST_ID;
   const detail = useMemo(() => {
     const playlist = view.playlists().find((p) => p.id === id) ?? null;
     return playlist === null ? null : { playlist, songs: view.playlistSongs(id) };
@@ -105,43 +124,37 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
   return (
     <View style={styles.fill}>
       <Back onPress={onBack} />
-      <Text style={styles.detailTitle}>{label(detail.playlist)}</Text>
+      <Text style={styles.detailTitle}>{detail.playlist.name}</Text>
 
-      {!virtual && (
-        <View style={styles.actions}>
-          <Pressable
-            style={styles.newButton}
-            onPress={() => setAdding(true)}
-            accessibilityRole="button"
-          >
-            <Text style={styles.newLabel}>加歌</Text>
-          </Pressable>
-          <Pressable
-            style={styles.newButton}
-            onPress={() => setRenaming(true)}
-            accessibilityRole="button"
-          >
-            <Text style={styles.newLabel}>歌单改名</Text>
-          </Pressable>
-          <Pressable
-            style={styles.newButton}
-            onPress={() => write(() => library.deletePlaylist(id))}
-            accessibilityRole="button"
-          >
-            <Text style={[styles.newLabel, styles.danger]}>删除歌单</Text>
-          </Pressable>
-        </View>
-      )}
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.newButton}
+          onPress={() => setAdding(true)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.newLabel}>加歌</Text>
+        </Pressable>
+        <Pressable
+          style={styles.newButton}
+          onPress={() => setRenaming(true)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.newLabel}>歌单改名</Text>
+        </Pressable>
+        <Pressable
+          style={styles.newButton}
+          onPress={() => write(() => library.deletePlaylist(id))}
+          accessibilityRole="button"
+        >
+          <Text style={[styles.newLabel, styles.danger]}>删除歌单</Text>
+        </Pressable>
+      </View>
 
       <FlatList
         data={detail.songs}
         keyExtractor={(song) => song.id}
         renderItem={({ item }) => (
-          <Pressable
-            style={styles.row}
-            onPress={() => (virtual ? undefined : setActing(item))}
-            accessibilityRole="button"
-          >
+          <Pressable style={styles.row} onPress={() => setActing(item)} accessibilityRole="button">
             <Text style={styles.rowName} numberOfLines={1}>
               {item.name}
             </Text>
@@ -222,10 +235,6 @@ function Back({ onPress }: { onPress: () => void }) {
     </Pressable>
   );
 }
-
-/** The virtual playlist's id IS its name; a real one carries its own. */
-const label = (playlist: PlaylistData): string =>
-  playlist.id === VIRTUAL_ALL_PLAYLIST_ID ? '全部歌曲' : playlist.name;
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
