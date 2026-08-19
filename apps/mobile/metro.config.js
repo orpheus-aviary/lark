@@ -28,4 +28,29 @@ config.resolver.nodeModulesPaths = [
 ];
 config.resolver.disableHierarchicalLookup = true;
 
+// Decision o①: `LARK_ACCEPTANCE=1` swaps the root component, and it does so by
+// redirecting one specifier rather than by branching at runtime. The point of
+// doing it here is what it makes checkable — the production bundle's module
+// graph contains no `acceptance/` module at all, which a guard can assert and
+// a runtime flag could never be trusted about.
+//
+// Two artifacts, not two flags stacked (decision o②): `just
+// mobile-android-release` builds the product, `just mobile-acceptance-release`
+// builds the same package, same signing, with this redirect on. They cannot be
+// installed side by side, and that is the accepted cost of D16's criteria
+// testing the SAME package the user gets.
+const ROOT_SPECIFIER = './src/root';
+const ACCEPTANCE_ROOT = './src/acceptance/root';
+
+if (process.env.LARK_ACCEPTANCE === '1') {
+  const upstream = config.resolver.resolveRequest;
+  config.resolver.resolveRequest = (context, moduleName, platform) => {
+    const resolve = upstream ?? context.resolveRequest;
+    if (moduleName === ROOT_SPECIFIER && context.originModulePath.startsWith(projectRoot)) {
+      return resolve(context, ACCEPTANCE_ROOT, platform);
+    }
+    return resolve(context, moduleName, platform);
+  };
+}
+
 module.exports = config;

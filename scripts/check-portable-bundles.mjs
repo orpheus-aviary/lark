@@ -45,6 +45,9 @@ if (targets.length === 0) {
   process.exit(1);
 }
 
+/** Set by `just mobile-acceptance-smoke`; flips the o⑥ assertion. */
+const ACCEPTANCE_MODE = process.env.LARK_ACCEPTANCE === '1';
+
 function fail(target, message, detail) {
   console.error(`✗ [${target.name}] ${message}`);
   if (detail) console.error(detail);
@@ -132,8 +135,38 @@ function smoke(target) {
       fail(target, 'the portable barrel is not in the bundle — this smoke proved nothing');
     }
 
+    // Decision o⑥, both directions.
+    //
+    // Without `LARK_ACCEPTANCE` this bundles the PRODUCT, and the product must
+    // not contain the fixtures, the crash hooks or the `forgetIdentity` the
+    // acceptance root reaches for. A runtime flag could never be checked this
+    // way; a module-graph fork can.
+    //
+    // WITH it, the assertion inverts — the modules must be there. That is not
+    // symmetry for its own sake: an entry-point fork that silently stopped
+    // forking would leave the production assertion passing forever while every
+    // acceptance run measured the product. One of these two has to be able to
+    // notice that, and it is this one.
+    const acceptance = sources.filter((s) => s.includes(`/${target.name}/src/acceptance/`));
+    if (ACCEPTANCE_MODE) {
+      if (acceptance.length === 0) {
+        fail(
+          target,
+          'LARK_ACCEPTANCE=1 built the production graph — the entry-point fork is not forking',
+        );
+      }
+    } else if (acceptance.length > 0) {
+      fail(
+        target,
+        'acceptance-only modules reached the production bundle',
+        acceptance.map((s) => `  ${s.replace(/.*\/src\//, 'src/')}`).join('\n'),
+      );
+    }
+
     console.log(
-      `✓ [${target.name}] portable bundles for Metro (${portable.length} modules, ${(size / 1024 / 1024).toFixed(1)}MB bundle)`,
+      `✓ [${target.name}] ${ACCEPTANCE_MODE ? 'acceptance graph forks' : 'portable bundles'} for Metro` +
+        ` (${portable.length} portable modules${ACCEPTANCE_MODE ? `, ${acceptance.length} acceptance` : ''},` +
+        ` ${(size / 1024 / 1024).toFixed(1)}MB bundle)`,
     );
   } finally {
     rmSync(out, { recursive: true, force: true });

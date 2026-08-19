@@ -26,6 +26,11 @@ import type { CredentialStore } from '@lark/core/portable';
 import { INSTALL_ID_KEY } from './snapshot';
 
 export interface ConvergeResult {
+  /**
+   * The transaction had already committed on an earlier, crashed attempt —
+   * nothing was done this time.
+   */
+  alreadyConverged: boolean;
   changes: number;
   tombstones: number;
   deadLetters: number;
@@ -51,6 +56,16 @@ export interface ConvergeOptions {
  * fails leaves the library unclaimed and the old credentials in place, and the
  * next launch — seeing a library it has no identity for — converges again.
  * That re-entry is the compensation.
+ *
+ * IDEMPOTENT, and it has to be. A crash between this transaction and the
+ * SecureStore commit leaves an intent that the next launch redoes verbatim —
+ * so this runs twice. Every clear here survives that; `bumpBackfillTarget`
+ * does not, and a double bump costs the next login a whole extra backfill
+ * pass. MEASURED: criterion 19④ caught exactly that, `backfill target 1 → 3`.
+ *
+ * The marker is `install_id` itself, read INSIDE the transaction that writes
+ * it. Same transaction as every clear, so it is exact rather than a heuristic:
+ * either all of this happened or none of it did.
  */
 export function convergeLibrary(options: ConvergeOptions): ConvergeResult {
   const { db, installId } = options;
@@ -58,9 +73,26 @@ export function convergeLibrary(options: ConvergeOptions): ConvergeResult {
 
   const result = sqlite
     .transaction(() => {
+      const current = (
+        sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').get(INSTALL_ID_KEY) as
+          | { value: string }
+          | undefined
+      )?.value;
       const fileOpsKept = (
         sqlite.prepare('SELECT count(*) AS n FROM sync_file_ops').get() as { n: number }
       ).n;
+
+      if (current === installId) {
+        return {
+          alreadyConverged: true,
+          changes: 0,
+          tombstones: 0,
+          deadLetters: 0,
+          cursors: 0,
+          bindings: 0,
+          fileOpsKept,
+        };
+      }
 
       const changes = sqlite.prepare('DELETE FROM sync_changes').run().changes;
       const tombstones = sqlite.prepare('DELETE FROM sync_tombstones').run().changes;
@@ -86,10 +118,19 @@ export function convergeLibrary(options: ConvergeOptions): ConvergeResult {
       // library that syncs but never sends what it already had.
       bumpBackfillTarget(sqlite);
 
-      return { changes, tombstones, deadLetters, cursors, bindings, fileOpsKept };
+      return {
+        alreadyConverged: false,
+        changes,
+        tombstones,
+        deadLetters,
+        cursors,
+        bindings,
+        fileOpsKept,
+      };
     })
     .immediate();
 
+  // Safe to repeat: `delete()` on nothing answers false.
   options.credentials.delete();
   return result;
 }

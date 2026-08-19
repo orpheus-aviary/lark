@@ -404,7 +404,15 @@
 - **一个实现细节值得记**：intent **读不出来时当作没有是安全的**——它写在步骤 ⑤（DB 尚未被碰），落回 settled 行会重新推出同一个结论。intent 买的是幂等（同一个 id），不是正确性
 - **converge 比 §2.2.2 的清单多做一件**：`bumpBackfillTarget`。`unbindLibrary` 清同样这些表时也 bump，理由相同——outbox 没了，活下来的东西必须重新发布。不做的话症状要到 N5 才出现，且表现为「同步正常但从不发送已有的东西」
 - **步骤 ⑪ 的 boot drain 是注释占位不是空调用**：执行器归 N2d，塞一个 no-op 占位会让顺序看起来已经落实
-- **剩下的**：决策 o 的验收注入通道（entrypoint 分叉 / 两个 artifact / 夹具导入 / 崩溃钩子 / 守卫）· 判据 16a 的 `bmgr` 审计 · 判据 17 / 18 / 19③④⑤⑥ ——**这几条都要先有注入通道**（`Paths.document` 推不进去）
+**N2c 已完成（2026-08-19）——四组 gate 全绿**（16b 已搁置）。验收通道按决策 o 落地：**entrypoint 分叉在 Metro 的模块图上而不是运行期开关**（`metro.config.js` 在 `LARK_ACCEPTANCE=1` 时把 `./src/root` 重定向到 `./src/acceptance/root`）——这样「生产 bundle 里没有 `acceptance/`」才是**守卫查得了**的事，运行期开关永远查不了。两个 artifact 同包名同签名（`just mobile-android-release` / `just mobile-acceptance-release`），不能共存是决策 o③ 认下的代价。
+
+- **判据 16a：10/10**（`just mobile-backup-audit`，真 APK 的 merged manifest + 编译后资源翻回名字 + `bmgr` 三层）。`<device-transfer>` 的九个 domain **在 APK 里是齐的**——搁置的 16b 是「走一遍手机搬家」，不是这份声明
+- **判据 17 / 18 / 19②③④⑤⑥：真机 8/8**（acceptance artifact，release 构建）
+- **守卫双向都验过**：从产品 import 一个 `acceptance/` 模块 → 红并点名；`LARK_ACCEPTANCE=1` 建出来的图里**必须**有 acceptance 模块（`just mobile-acceptance-smoke`）——**只有后一条能发现「分叉悄悄不分叉了」**，否则生产那条断言会永远绿而每次验收测的都是产品
+- **第一轮 6/8，两条红是真 bug**：converge 崩在 DB 事务之后重启会整段重跑，所有 `DELETE` 幂等而 `bumpBackfillTarget` 不是（`backfill 1 → 3`）。判据 19④ 的「只清一次」当时读起来像措辞，实际是唯一能观测它的断言。修法见 `docs/LESSONS.md`
+- **决策 o④ 收窄**：D16 自己的判据一条也不需要推文件——夹具在设备上**用真路径造真库再把身份拿掉**（那正是恢复干的事）；`adb push` 通道只服务判据 14 的真实桌面副本，随 N2f 落地
+- **崩溃点用「抛」模拟**：持久化状态与真 kill 相同、点位是选的不是猜的；唯一差别（开着的句柄 / 热 WAL）如实记在 `d16.ts` 的头注释里，**到 N2d 的 drain 才重要**
+- **步骤 ⑪ 的 boot drain 仍是注释占位**（执行器归 N2d）
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 

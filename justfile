@@ -560,6 +560,14 @@ mobile-typecheck: build-shared build-core
 mobile-bundle-smoke: build-shared build-core
     node scripts/check-portable-bundles.mjs
 
+# The other direction of decision o⑥: with the flag on, the acceptance modules
+# MUST be in the graph. A fork that silently stopped forking would leave the
+# production assertion green forever while every acceptance run measured the
+# product — this is the only thing that notices.
+[group('mobile')]
+mobile-acceptance-smoke: build-shared build-core
+    LARK_ACCEPTANCE=1 node scripts/check-portable-bundles.mjs apps/mobile
+
 # Regenerate `apps/mobile/android/` from app.config.ts. Safe at any time; the
 # only sanctioned way that directory comes into existence.
 [group('mobile')]
@@ -583,6 +591,20 @@ mobile-android: build-shared build-core
 mobile-android-release: build-shared build-core
     rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
     JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
+
+# The acceptance artifact (decision o②): the SAME package and signing as the
+# product, built with Metro's root redirected to `src/acceptance/`. Not a flag
+# on top of the release build — a second artifact, so the two cannot be
+# installed side by side and D16's criteria are measured on the package the
+# user actually gets.
+#
+# The `rm` matters more here than anywhere: switching LARK_ACCEPTANCE does not
+# change any input Gradle hashes, so without it the APK carries whichever
+# bundle was built last (the N0b-5b trap, one flag over).
+[group('mobile')]
+mobile-acceptance-release: build-shared build-core
+    rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" LARK_ACCEPTANCE=1 pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
 
 # The spike's driver and backup auditor, pointed at the product app. Same
 # scripts, two targets (decision d keeps the spike alive and its host-side
