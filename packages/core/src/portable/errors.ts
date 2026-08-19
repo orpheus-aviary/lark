@@ -100,6 +100,30 @@ export class IncompatibleDbError extends Error {
   }
 }
 
+/**
+ * The db is at a version this host CAN forward-migrate in principle, and
+ * refuses to (N2b, decision m).
+ *
+ * Deliberately not `IncompatibleDbError`: that one means "I do not recognise
+ * this", and its message tells you to upgrade the app — advice that is exactly
+ * backwards for a library that is too OLD. The Android client refuses v1/v2
+ * because it has none of the desktop's migration safety net (the writer lock,
+ * the backup-and-swap, the mp3 scan), and because such a library cannot arise
+ * there naturally — only from a restore or a file copy.
+ */
+export class ForwardMigrationUnsupportedError extends Error {
+  readonly dbPath: string;
+  readonly dbVersion: number;
+  constructor(dbPath: string, dbVersion: number) {
+    super(
+      `Database at ${dbPath} is at v${dbVersion}, from an older lark. This client does not migrate libraries — open it with the desktop app to bring it up to date.`,
+    );
+    this.name = 'ForwardMigrationUnsupportedError';
+    this.dbPath = dbPath;
+    this.dbVersion = dbVersion;
+  }
+}
+
 export type MigrationBusyReason =
   | 'migrate_lock_busy'
   | 'daemon_alive'

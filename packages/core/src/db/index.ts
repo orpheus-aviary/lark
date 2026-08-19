@@ -6,12 +6,11 @@
 // verdict would flip the still-in-daily-use Go library from DELETE to WAL, or
 // pollute a future-version db before refusing it.
 
-import { randomUUID } from 'node:crypto';
-import { isUuidV4 } from '@lark/shared';
 import BetterSqlite3 from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { GoMigrationRequiredError, IncompatibleDbError } from '../errors.js';
 import type { Logger } from '../logger/index.js';
+import { ensureDeviceUuid } from '../portable/db-identity.js';
 import type { PortableDb } from '../portable/db.js';
 import {
   LATEST_KNOWN_VERSION,
@@ -133,44 +132,14 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandles {
 }
 
 /**
- * Ensure `local_metadata.device_uuid` holds a valid lowercase UUID v4 — the
- * install's LOCAL identity (distinct from the skybridge registration id that
- * lives on entity rows as device_id, R18). Single code path, no SQL seeding:
- * every value ever stored here came from `randomUUID()`.
+ * Re-exported, not redefined (N2b, decision j).
  *
- * An existing value that fails isUuidV4 counts as corruption: regenerate +
- * warn. (v0.1 — nothing downstream depends on it yet; once v0.2 registers it
- * into the sync domain this becomes fail-closed.)
+ * The implementation moved to `portable/db-identity.ts` because the mobile
+ * boot sequence needs the same guarantee `readLocalDeviceUuid` relies on, and
+ * the old signature (`BetterSqlite3.Database`) made that impossible. Everything
+ * that imported it from here — the desktop tests, the two daemon e2e suites —
+ * keeps importing it from here.
  */
-export function ensureDeviceUuid(sqlite: BetterSqlite3.Database, logger?: Logger): string {
-  const read = () =>
-    sqlite.prepare("SELECT value FROM local_metadata WHERE key='device_uuid'").get() as
-      | { value: string }
-      | undefined;
-
-  const existing = read();
-  if (existing && isUuidV4(existing.value)) return existing.value;
-
-  const fresh = randomUUID();
-  if (existing) {
-    logger?.warn(
-      { stored: existing.value },
-      'local_metadata.device_uuid was invalid — regenerated',
-    );
-    sqlite.prepare("UPDATE local_metadata SET value=? WHERE key='device_uuid'").run(fresh);
-  } else {
-    sqlite
-      .prepare(
-        "INSERT INTO local_metadata (key, value) VALUES ('device_uuid', ?) ON CONFLICT(key) DO NOTHING",
-      )
-      .run(fresh);
-  }
-
-  const persisted = read();
-  if (!persisted || !isUuidV4(persisted.value)) {
-    throw new Error('ensureDeviceUuid failed to persist a valid device_uuid');
-  }
-  return persisted.value;
-}
+export { ensureDeviceUuid } from '../portable/db-identity.js';
 
 export { schema };

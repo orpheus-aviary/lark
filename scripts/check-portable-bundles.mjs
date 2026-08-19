@@ -102,6 +102,19 @@ function smoke(target) {
     const core = sources.filter((s) => s.includes('/core/dist/'));
     const portable = core.filter((s) => s.includes('/core/dist/portable/'));
 
+    // Criterion 7, checked BEFORE the general rule so that it is the message
+    // you get. `core/migration/` is the desktop's mp3 -> m4a machinery (ffmpeg,
+    // backup-and-swap, the writer lock); `core/portable/migrations/` is the
+    // schema chain and belongs here. One character apart, opposite verdicts.
+    const mp3Migration = core.filter((s) => s.includes('/core/dist/migration/'));
+    if (mp3Migration.length > 0) {
+      fail(
+        target,
+        "the desktop's audio migration reached the mobile bundle",
+        mp3Migration.map((s) => `  ${s.replace(/.*\/core\/dist\//, '@lark/core/')}`).join('\n'),
+      );
+    }
+
     // These may link portable and NOTHING else of core (N0b's sixth guard).
     // Checked here against the built graph as well as against the source,
     // because an export map or a stray re-export can put a module in the
