@@ -11,12 +11,14 @@
 import type { BilibiliClient, MediaToolsProvider, SkybridgeApi } from '@lark/core';
 import {
   DEFAULT_CONFIG,
+  DEFAULT_TIMEOUTS,
   DownloadEngine,
   FileEffectRuntime,
   MediaToolsRegistry,
   SyncRuntime,
   createBilibiliClient,
   createDatabase,
+  nodeAudioLanding,
   nodeFileContext,
   realSkybridgeApi,
   resolveLlmConfig,
@@ -160,6 +162,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     files,
     bilibili,
     mediaTools,
+    audio: nodeAudioLanding({ store: portable, mediaTools, timeouts: DEFAULT_TIMEOUTS }),
     getLlmConfig: () => resolveLlmConfig(ctx.config),
     shutdownSignal: shutdownController.signal,
     callbacks: {

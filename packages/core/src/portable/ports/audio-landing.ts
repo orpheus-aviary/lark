@@ -31,11 +31,20 @@ export interface AudioStreamExpectation {
   codecs: string;
   isAac: boolean;
   /**
-   * Upstream's claim about length, in seconds (the selected page's duration).
+   * Upstream's claim about length, in seconds (the selected page's duration),
+   * or `null` when nothing upstream said.
+   *
    * A REFERENCE for validation only — the row is written from what actually
-   * landed, never from what the server promised.
+   * landed, never from what the server promised, and the desktop deliberately
+   * ignores it: it probes the bytes that arrived, because a stream that
+   * announces `mp4a.40.2` and delivers something else would otherwise be
+   * copied into a canonical file that cannot be played.
+   *
+   * Nullable because a redownload resolves from a stored source key rather
+   * than from a page, so there is no page duration to quote (N1h). The
+   * cross-host signature is not frozen until N4 (§8), and this stays additive.
    */
-  expectedDurationSeconds: number;
+  expectedDurationSeconds: number | null;
 }
 
 export interface LandedAudio {

@@ -42,6 +42,7 @@
 
 import { mkdirSync } from 'node:fs';
 import {
+  DEFAULT_TIMEOUTS,
   DestructiveForwardMigrationError,
   DownloadEngine,
   FileEffectRuntime,
@@ -63,6 +64,7 @@ import {
   createLogger,
   isAudioMigrationPending,
   loadConfig,
+  nodeAudioLanding,
   nodeFileContext,
   paths,
   pendingFileOpSongIds,
@@ -478,6 +480,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         files,
         bilibili,
         mediaTools,
+        audio: nodeAudioLanding({ store: portable, mediaTools, timeouts: DEFAULT_TIMEOUTS }),
         // Read fresh, so a PATCH /config is picked up by the next task — and
         // snapshotted per task, so it cannot change mid-download.
         getLlmConfig: () => resolveLlmConfig(ctx?.config ?? config),

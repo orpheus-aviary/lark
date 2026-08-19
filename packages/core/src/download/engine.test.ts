@@ -34,6 +34,7 @@ import { fakeMediaTools } from '../testing/fake-media-tools.js';
 import type { FakeUpstream } from '../testing/fake-upstream.js';
 import { startFakeUpstream } from '../testing/fake-upstream.js';
 import { toneWav } from '../testing/tone-wav.js';
+import { nodeAudioLanding } from './audio-landing.js';
 import { DownloadEngine, describeTaskError, downloadDedupeKey } from './engine.js';
 
 const BVID = 'BV1Ki4y1y7HC';
@@ -93,11 +94,16 @@ interface BuildOptions {
 
 function build(options: BuildOptions = {}): DownloadEngine {
   const llmConfig: LlmConfig = options.llm ?? NO_LLM;
+  const tools = options.mediaTools ?? mediaTools;
   engine = new DownloadEngine({
     store,
     files: nodeFileContext(),
     getLlmConfig: () => llmConfig,
-    mediaTools: options.mediaTools ?? mediaTools,
+    mediaTools: tools,
+    // The real desktop landing, exactly as boot builds it: these tests are
+    // about the engine's decisions AROUND the bytes, and a fake here would
+    // stop asserting that the six-step protocol still runs under them.
+    audio: nodeAudioLanding({ store, mediaTools: tools, timeouts: DEFAULT_TIMEOUTS }),
     bilibili: createBilibiliClient({ apiBase: upstream.baseUrl, timeouts: DEFAULT_TIMEOUTS }),
     lyricsOrigins: upstream.lyricsOrigins(),
     ...(options.capacity === undefined ? {} : { capacity: options.capacity }),

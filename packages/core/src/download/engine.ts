@@ -23,7 +23,6 @@
 // Batch snapshots live in batches.ts; the task shape and error mapping in
 // task-data.ts.
 
-import { existsSync, rmSync } from 'node:fs';
 import type {
   DownloadBatchData,
   DownloadBatchGroupInput,
@@ -47,7 +46,6 @@ import {
   TaskNotFoundError,
 } from '../errors.js';
 import type { MediaToolsProvider } from '../media-tools/registry.js';
-import { songAudioPath, songDirPath } from '../paths.js';
 import type { PortableDb } from '../portable/db.js';
 import { type BilibiliClient, createBilibiliClient } from '../portable/download/bilibili.js';
 import { ClaimRegistry } from '../portable/download/claims.js';
@@ -72,6 +70,7 @@ import {
   updateSongInTx,
 } from '../portable/library/songs.js';
 import { findSongByKey } from '../portable/library/source.js';
+import type { AudioLandingPort, LandedAudio } from '../portable/ports/audio-landing.js';
 import type { FileContext } from '../portable/ports/fs.js';
 import { uuid } from '../portable/runtime/random.js';
 import { playlists, songs } from '../portable/schema.js';
@@ -80,13 +79,11 @@ import {
   type PipelineDeps,
   type ResolvedTarget,
   type StepContext,
-  fetchAudio,
   probeSourceKey,
   reidentifySource,
   resolveTarget,
   runLyrics,
 } from './pipeline.js';
-import { landSongFile } from './resolve.js';
 
 export { describeTaskError, downloadDedupeKey } from '../portable/download/task-data.js';
 
@@ -149,6 +146,16 @@ export interface DownloadEngineOptions {
    * pipeline had before.
    */
   mediaTools: MediaToolsProvider;
+  /**
+   * How this device gets a song's audio onto its storage (N1h).
+   *
+   * Required, and the last Node-shaped thing the engine used to do itself: it
+   * called `existsSync`, `rmSync` and a six-step landing protocol directly.
+   * A phone answers all three differently — it stores bilibili's fMP4 as it
+   * arrives (D17) — while the queue, the state machine and the commit contents
+   * above it are the same everywhere.
+   */
+  audio: AudioLandingPort;
   bilibili?: BilibiliClient;
   logger?: EngineLogger;
   timeouts?: DownloadTimeouts;
@@ -762,7 +769,7 @@ export class DownloadEngine {
       .get();
     if (row !== undefined) return;
     try {
-      rmSync(songDirPath(task.songId), { recursive: true, force: true });
+      this.#options.audio.discardUncommitted(task.songId);
     } catch (err) {
       this.#logger.warn({ task: task.id, err }, 'could not remove an uncommitted song directory');
     }
@@ -815,7 +822,7 @@ export class DownloadEngine {
       // file is already there needs no key, no probe and no LLM — and a song
       // that has a file but no key (every Go-era import) could not produce a
       // ResolvedTarget at all.
-      if (task.kind === 'ensure-file' && existsSync(songAudioPath(song.id))) {
+      if (task.kind === 'ensure-file' && this.#options.audio.hasAudio(song.id)) {
         return { needsSource: false, existing: song };
       }
       const live =
@@ -873,37 +880,53 @@ export class DownloadEngine {
     const songId = task.songId as string;
     // `force` for a redownload, "only if missing" otherwise — the
     // resolveSongFile decision tree (M3-7).
-    const needsFile = task.kind === 'redownload' || !existsSync(songAudioPath(songId));
-    const staged =
-      resolved !== null && needsFile
-        ? await fetchAudio(
-            deps,
-            { songId, taskId: task.id, bvid: resolved.source.bvid, cid: resolved.source.cid },
-            ctx,
-          )
-        : null;
-
-    this.#setStage(task, POINT_OF_NO_RETURN);
-    const targets = [...task.playlistIds];
+    const needsFile = task.kind === 'redownload' || !this.#options.audio.hasAudio(songId);
     const failed: string[] = [];
 
-    if (resolved === null || staged === null) {
+    if (resolved === null || !needsFile) {
       // Nothing to land: the song and its file are already here, so this is a
       // membership-only merge (and for an ensure-file, not even that).
+      this.#setStage(task, POINT_OF_NO_RETURN);
+      const targets = [...task.playlistIds];
       sqlite.transaction(() => this.#addMemberships(targets, songId, failed)).immediate();
     } else {
-      const result = landSongFile(db, sqlite, {
+      // Which stream to open is the CLIENT's question and stays here; what to
+      // do with the bytes is the host's (N1h). The DASH pick still prefers an
+      // AAC candidate, and the landing still decides by probing what actually
+      // arrived rather than by trusting this.
+      const stream = await this.#bilibili.audioStream(resolved.source.bvid, resolved.source.cid, {
+        signal: ctx.signal,
+      });
+      const result = await this.#options.audio.land({
         taskId: task.id,
         songId,
-        stagedPath: staged.path,
         mode: existing === null ? 'new' : 'replace',
-        commit: () => {
+        openStream: (signal: AbortSignal) => this.#bilibili.openAudio(stream.url, { signal }),
+        expect: {
+          codecs: stream.codecs,
+          isAac: stream.isAac,
+          // `null` until a host actually reads it (N4). Quoting a length here
+          // would cost a second `pagelist` round-trip on every download to
+          // fill a field the desktop deliberately ignores — it probes the
+          // bytes that arrived instead — and a redownload, which resolves from
+          // a stored key, has no page to quote at all.
+          expectedDurationSeconds: null,
+        },
+        reportStage: (stage: DownloadStage) => this.#setStage(task, stage),
+        onProgress: (received: number, totalBytes: number | null) =>
+          ctx.reportProgress?.(received, totalBytes),
+        signal: ctx.signal,
+        commit: ({ duration }: LandedAudio) => {
+          // Read here rather than before `land`: entering `saving` is what
+          // freezes the target list (second review ⑫), and that now happens
+          // INSIDE the landing, immediately before this runs.
+          const targets = [...task.playlistIds];
           if (existing === null) {
             createFileBackedSongInTx(this.#options.store, {
               id: songId,
               name: resolved.name,
               artist: resolved.artist,
-              duration: staged.duration,
+              duration,
               file_origin: 'downloaded',
               source_url: resolved.source.source_url,
               source_provider: resolved.source.source_provider,
@@ -911,7 +934,7 @@ export class DownloadEngine {
             });
           } else {
             updateSongInTx(this.#options.store, songId, {
-              duration: staged.duration,
+              duration,
               source_url: resolved.source.source_url,
               source_provider: resolved.source.source_provider,
               source_key: resolved.source.source_key,

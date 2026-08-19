@@ -96,6 +96,7 @@ export * from './portable/download/lyrics/qq.js';
 export * from './portable/download/lyrics/kugou.js';
 export * from './portable/download/lyrics/select.js';
 export * from './portable/download/claims.js';
+export * from './download/audio-landing.js';
 export * from './download/resolve.js';
 export * from './download/import.js';
 export * from './download/pipeline.js';
