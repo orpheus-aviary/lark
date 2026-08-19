@@ -1,0 +1,35 @@
+// Decision a's native half. One function, and the reason it exists is that
+// expo-file-system 57 cannot replace a file atomically on Android:
+// `moveSync(overwrite: true)` DELETES the target first
+// (`CopyMoveStrategy.kt`'s `prepareAsDestination`) and `rename()` refuses an
+// existing target (Kotlin's `Path.moveTo` defaults to `overwrite = false`).
+// The delete is the whole problem — a reader in that window sees "no file",
+// and `readText` turns that into `null`, which for lyrics means "there are no
+// lyrics" rather than "the lyrics are the old ones".
+
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.larkfs'
+version = '0.1.0'
+
+android {
+  // Both spelled out because SDK 57's plugin derives neither: AGP 8 requires
+  // the namespace, and expo-autolinking reads `versionName` while configuring
+  // every linked project (the failure is "'android.defaultConfig.versionName'
+  // is not defined", raised from `node_modules/expo/android/build.gradle`).
+  namespace "expo.modules.larkfs"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    // Criterion 10① runs as instrumentation, because it needs two real threads.
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+  }
+}
+
+dependencies {
+  androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+  androidTestImplementation 'androidx.test:runner:1.6.2'
+}

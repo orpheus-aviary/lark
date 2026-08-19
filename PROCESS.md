@@ -414,6 +414,13 @@
 - **崩溃点用「抛」模拟**：持久化状态与真 kill 相同、点位是选的不是猜的；唯一差别（开着的句柄 / 热 WAL）如实记在 `d16.ts` 的头注释里，**到 N2d 的 drain 才重要**
 - **步骤 ⑪ 的 boot drain 仍是注释占位**（执行器归 N2d）
 
+**N2d 进行中（2026-08-19）——决策 a 的 native module 与两个端口已落地，判据 9 / 10②③ / 11 真机 7/7**（acceptance artifact，release）。`modules/lark-fs` 自建 Expo native module：一个 `moveAtomic`，`Files.move(REPLACE_EXISTING, ATOMIC_MOVE)`，**没有降级分支**（不支持时直接抛 = 判据 10④ 由实现保证）。判据 10⑤ 已由 APK 合并 manifest 断言 `minSdkVersion=26`。`FileSystemPort` / `PathsPort` 实现完成；`writeTextAtomic` 的临时文件是同目录兄弟 `.<basename>.<uuid>.tmp`，前缀可扫。
+
+- **SDK 57 的 `expo-module-gradle-plugin` 既不推导 `namespace` 也不推导 `versionName`**，两个都要自己写；后者的报错是从 `node_modules/expo/android/build.gradle` 抛出来的，看着像 expo 自己的问题
+- **三条红各逮到一个真问题**（无一是断言写错）：Expo 的 `AsyncFunction` 转换 lambda 返回值 → `Files.move` 的 `Path` 变成 `Unknown type: sun.nio.fs.UnixPath` · `just` 的 `*ARGS` 拆掉引号 → 一整组结果读的是另一块面板 · `installPortableRuntime` 里多余的 `installed` 标志缓存了 portable 拥有的状态，`resetRandomForTesting()` 之后永久失配。三条都在 `docs/LESSONS.md`
+- **判据 11 是先意外撞上、再转成正式用例的**：验收入口不挂载即启动，于是 `no RandomSource` 自己冒了出来——端口按设计 fail-loud
+- **剩下的**：判据 10① 的 instrumentation（`modules/lark-fs/android/src/androidTest/` 已写好，两线程 + barrier + 「反测必须报告看见了窗口」；卡在 `junit:4.13.2` 解析不到）· **file-op 执行器与 boot drain**（决策 k：从桌面 `FileEffectRuntime` 424 行里提取控制面进 portable，只把文件动作留宿主）· 判据 12 的六条
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。

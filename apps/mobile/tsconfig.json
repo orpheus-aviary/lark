@@ -8,5 +8,5 @@
     "jsx": "react-jsx",
     "types": []
   },
-  "include": ["index.ts", "app.config.ts", "src"]
+  "include": ["index.ts", "app.config.ts", "src", "modules"]
 }

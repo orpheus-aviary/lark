@@ -13,8 +13,16 @@
 // been created and migrated.
 //
 // Idempotent by construction: the same source object every time, so a second
-// import (or a Fast Refresh) is a no-op rather than the "one process, one
-// source of ids" refusal.
+// call (or a Fast Refresh) is a no-op rather than the "one process, one source
+// of ids" refusal.
+//
+// NO LOCAL `installed` FLAG, and that is a correction rather than an omission.
+// There was one, and it cached a fact this module does not own: after
+// `resetRandomForTesting()` the port had no source while the flag still said
+// "done", so the reinstall was skipped and every later id threw. MEASURED —
+// criterion 11's case failed on exactly that. `installRandom` already answers
+// the question idempotently; asking it every time is both shorter and the only
+// version that cannot go stale.
 
 import { installRandom } from '@lark/core/portable';
 import { getRandomValues, randomUUID } from 'expo-crypto';
@@ -24,11 +32,7 @@ const source = {
   bytes: (count: number): Uint8Array => getRandomValues(new Uint8Array(count)),
 };
 
-let installed = false;
-
-/** Safe to call from anywhere; the first call wins and the rest are no-ops. */
+/** Safe to call from anywhere, any number of times. */
 export function installPortableRuntime(): void {
-  if (installed) return;
   installRandom(source);
-  installed = true;
 }

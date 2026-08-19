@@ -242,5 +242,9 @@
 - **幂等的清理里混进一个不幂等的写，只有「只清一次」这种判据逮得到**（N2c 实测）：converge 崩在 DB 事务之后再重启，会整段重跑一遍——所有 `DELETE` 都幂等，唯独 `bumpBackfillTarget` 不是，实测 `backfill target 1 → 3` 而不是 `1 → 2`。代价是下次登录白跑一整轮 backfill，且症状要到 N5 才显形。修法是**在写 `install_id` 的同一个事务里先读它**，已经等于目标就整体跳过：同一个事务 = 要么全发生要么全没发生，所以这个标记是精确的而不是启发式的。判据 19④ 那句「binding/credentials **只清一次**」当时读起来像措辞，实际是唯一能观测这件事的断言
 - **D16 的夹具不必推文件**（N2c）：决策 o④ 的 `adb push` 通道是为判据 14 的真实桌面副本准备的；D16 自己的判据要的是「一个本机没有身份的库」，忠实造法是**用真路径造一个真库再把身份拿掉**——那正是恢复干的事。推文件反而把导入通道一起测进去了
 - **崩溃点用「抛」模拟，与真 kill 的差别只有一处**（N2c）：到达崩溃点时该写的都已落盘（SQLite 已提交、SecureStore 的写是同步的），所以抛出留下的**持久化状态**与 `kill -9` 相同，且点位是选的不是猜的（`am force-stop` 猜不准）。唯一的差别是抛出会栈展开、顺手关掉句柄，而真死亡留下开着的句柄和可能热的 WAL。这条差别在 D16 这几条上不重要（N0b-5a 已量过 4MB 热 WAL 的 copy-then-open），**到 N2d 的 file-op drain 才重要**——drain 中途死掉留下的是半个文件操作，那不是数据库状态
+- **Expo 的 `AsyncFunction` 会转换 lambda 的返回值**（N2d 实测）：`Files.move(...)` 写在 try 表达式的末句，Kotlin 就把 lambda 的返回类型推成 `Path`，真机上报 `Unknown type: class sun.nio.fs.UnixPath`——一句完全不提「返回值」的话。把 move 提成一个 Unit 函数顺带修掉；提取本身另有理由：**instrumentation 测试必须驱动生产代码，不能是并排的一份复制品**
+- **`just <recipe> "带空格的参数"` 会被 `*ARGS` 拆开**（N2d 实测）：`just mobile-drive tap "Run file system scenarios"` 到 `drive.mjs` 手里只剩 `Run`，而 `tapByText` 是子串匹配 → 点了第一个 `Run…` 按钮并自信地打印 `tapped "Run D16 scenarios"`，**一整组结果读的是另一块面板**。驱动脚本改成把 `argv.slice(3)` join 起来。同一类形状：**「它报告自己干了什么」和「它干了你要的那件事」是两件事**
+- **缓存别人拥有的状态，就会在别人被重置时永久失配**（N2d 实测）：`installPortableRuntime()` 里有个模块级 `installed` 标志，而 `resetRandomForTesting()` 清的是 portable 那边——标志还说「装过了」，于是重装被跳过，之后每一个 id 都抛。`installRandom` 对同一个对象本来就幂等（source 是模块级常量正是为此），那个标志纯属多余。**判据 11 是先意外撞上、再被转成正式用例的**
+- **判据 10① 只能在 instrumentation 里回答**（N2d，计划早写、实施时才具体）：JS 侧同线程轮询下，一个「先删后 rename」的实现与原子实现一样绿——桌面 `node-fs.test.ts:60` 之所以观测得到，是因为那边的写是真异步。移动端的窗口要两条真线程 + barrier，且**反测必须报告「我看见了那个窗口」**，否则原子那条什么也没证明
 - **文本到没到看屏幕，文本对不对看回读**（N0b-4c）：屏幕证不出末尾少一个换行或空格变成 `%20`，所以 `drive.mjs share` 发完就去 `.runtime/` 读设备 POST 回来的那份**逐字符比对**。驱动用户自己的应用要**一步一 dump**：分享面板第一屏没有「更多」（要横滑），而收藏夹那条路上的盲点按钮是**会真的发动态**的
 

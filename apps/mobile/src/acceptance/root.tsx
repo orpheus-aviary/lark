@@ -13,15 +13,16 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { type ScenarioRow, runD16Scenarios } from './d16';
+import { runFileSystemScenarios } from './fs';
 
 export function Root() {
   const [rows, setRows] = useState<ScenarioRow[] | null>(null);
   const [running, setRunning] = useState(false);
 
-  const run = () => {
+  const run = (suite: () => Promise<ScenarioRow[]>) => () => {
     setRunning(true);
     setRows(null);
-    runD16Scenarios()
+    suite()
       .then(setRows)
       .catch((err: unknown) => {
         setRows([
@@ -42,10 +43,20 @@ export function Root() {
       <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>lark · acceptance</Text>
-        <Text style={styles.line}>D16 — criteria 17, 18, 19</Text>
+        <Text style={styles.line}>D16 — criteria 17, 18, 19 · files — 9, 10②③</Text>
 
-        <Pressable style={styles.button} onPress={run} accessibilityRole="button">
+        <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run D16 scenarios'}</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.button}
+          onPress={run(runFileSystemScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>
+            {running ? 'Running…' : 'Run file system scenarios'}
+          </Text>
         </Pressable>
 
         {rows !== null && (

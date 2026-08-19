@@ -281,7 +281,13 @@ function shareTargets() {
   }
 }
 
-const [command, argument] = process.argv.slice(2);
+const [command, ...rest] = process.argv.slice(2);
+// JOINED, not `rest[0]`. `just mobile-drive tap "Run file system scenarios"`
+// loses the quoting on its way through just's `*ARGS`, so the needle used to
+// arrive as "Run" — which matched the FIRST button whose label starts that
+// way and reported a confident `tapped "Run D16 scenarios"`. MEASURED: an
+// entire suite's results were read off the wrong panel.
+const argument = rest.length > 0 ? rest.join(' ') : undefined;
 
 switch (command) {
   case 'top':
