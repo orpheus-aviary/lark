@@ -626,6 +626,22 @@ mobile-fs-instrumentation:
 mobile-drive *ARGS:
     LARK_PACKAGE=com.orpheusaviary.lark LARK_APP_ROOT="{{_mobile}}" node spikes/mobile-foundation/scripts/drive.mjs {{ARGS}}
 
+# Criteria 14 and 15, through the PRODUCT's UI (N2f).
+#
+# Needs the production artifact installed and the fixture already imported by
+# the acceptance one — the script says so if either is missing. The full dance,
+# because the two artifacts cannot be installed at once (decision o③):
+#
+#     just backup-nest /tmp/lark-fixture
+#     just mobile-acceptance-release      # tap "Import pushed fixture" once to
+#     just mobile-push-fixture /tmp/lark-fixture   #   create the directory
+#     # tap "Import pushed fixture" again
+#     just mobile-android-release
+#     just mobile-accept-library /tmp/lark-fixture
+[group('mobile')]
+mobile-accept-library NEST:
+    node spikes/mobile-foundation/scripts/accept-library.mjs {{NEST}}
+
 [group('mobile')]
 mobile-backup-audit *ARGS:
     LARK_PACKAGE=com.orpheusaviary.lark LARK_APP_ROOT="{{_mobile}}" node spikes/mobile-foundation/scripts/backup-audit.mjs {{ARGS}}

@@ -17,6 +17,8 @@
 //
 //   node scripts/drive.mjs dump                 # every label currently visible
 //   node scripts/drive.mjs tap "Run contract"   # scroll to the top, then to it, tap it
+//   node scripts/drive.mjs tap-visible "删除"    # tap what is on screen NOW — modals
+//   node scripts/drive.mjs type "hello"          # into whatever holds focus (ASCII)
 //   node scripts/drive.mjs shot out.png         # screencap, foreground-checked
 //   node scripts/drive.mjs top                  # what is actually in front
 //   node scripts/drive.mjs audio                # who is holding the speaker (criterion 19)
@@ -122,11 +124,67 @@ function scrollToTop() {
   for (let i = 0; i < 25; i += 1) scrollUp();
 }
 
+/**
+ * Tap what is ALREADY on screen, without scrolling to find it.
+ *
+ * MEASURED (N2f): `tapByText` scrolls to the top first, and 25 swipes across
+ * an open modal land on its backdrop — one of them registers as a press, the
+ * sheet dismisses, and the label is then genuinely not there. Every result
+ * that followed was of the screen behind it. So anything modal is driven with
+ * this, and the scroll stays where it earned its place: long lists.
+ */
+function tapVisible(needle) {
+  requireForeground();
+  const node = pick(visibleNodes(), needle);
+  if (!node) {
+    console.error(`✗ nothing on screen contains "${needle}"`);
+    process.exit(1);
+  }
+  adb('shell', 'input', 'tap', String(node.x), String(node.y));
+  console.log(`tapped "${node.text}" at ${node.x},${node.y}`);
+  return true;
+}
+
+/**
+ * Type into whatever holds focus.
+ *
+ * `adb shell input text` is ASCII-only and takes %s for a space, which is why
+ * acceptance names are ASCII: the criterion is that the write path works, and
+ * the trimming and Chinese rules are the LibraryContract's to assert.
+ */
+function typeText(value) {
+  requireForeground();
+  // `input text` is ASCII-only: anything else comes back as a Java stack
+  // trace out of `InputShellCommand.sendText`, which reads like a device
+  // fault rather than "that character cannot be typed this way" (MEASURED).
+  const offending = [...value].find((ch) => ch.charCodeAt(0) > 0x7f);
+  if (offending !== undefined) {
+    console.error(`✗ \`input text\` cannot type ${JSON.stringify(offending)} — ASCII only.`);
+    console.error('  (a Chinese needle needs an IME; the contract covers that half instead.)');
+    process.exit(1);
+  }
+  adb('shell', 'input', 'text', value.replace(/ /g, '%s'));
+  console.log(`typed ${JSON.stringify(value)}`);
+}
+
+/**
+ * EXACT match first, substring only as a fallback.
+ *
+ * MEASURED (N2f): the 设置 tab grew a field labelled `歌曲目录`, and every
+ * `tap "歌曲"` after that pressed the field instead of the tab — silently,
+ * because a label that contains the needle is a plausible answer. Substring
+ * matching is still wanted (`Run file op scenarios` is tapped as a phrase),
+ * but an exact hit is never the wrong one.
+ */
+function pick(nodes, needle) {
+  return nodes.find((n) => n.text === needle) ?? nodes.find((n) => n.text.includes(needle));
+}
+
 function tapByText(needle, { attempts = 12 } = {}) {
   requireForeground();
   scrollToTop();
   for (let i = 0; i < attempts; i += 1) {
-    const node = visibleNodes().find((n) => n.text.includes(needle));
+    const node = pick(visibleNodes(), needle);
     if (node) {
       adb('shell', 'input', 'tap', String(node.x), String(node.y));
       console.log(`tapped "${node.text}" at ${node.x},${node.y}`);
@@ -307,6 +365,20 @@ switch (command) {
     }
     tapByText(argument);
     break;
+  case 'tap-visible':
+    if (!argument) {
+      console.error('usage: drive.mjs tap-visible "<label substring>"');
+      process.exit(64);
+    }
+    tapVisible(argument);
+    break;
+  case 'type':
+    if (!argument) {
+      console.error('usage: drive.mjs type "<ascii text>"');
+      process.exit(64);
+    }
+    typeText(argument);
+    break;
   case 'senders':
     shareTargets();
     break;
@@ -327,7 +399,7 @@ switch (command) {
   }
   default:
     console.error(
-      'commands: top | audio | senders | dump | tap "<label>" | share[-cold] "<text>" | shot [file]',
+      'commands: top | audio | senders | dump | tap "<label>" | tap-visible "<label>" | type "<text>" | share[-cold] "<text>" | shot [file]',
     );
     process.exit(64);
 }

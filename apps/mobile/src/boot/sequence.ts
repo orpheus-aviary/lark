@@ -119,6 +119,40 @@ function plannedIdentity(decision: IdentityDecision): {
   }
 }
 
+/**
+ * The boot the PRODUCT does: once per process, whatever the Activity does.
+ *
+ * MEASURED (N2f, frozen device): press BACK and relaunch — the Activity is
+ * destroyed and rebuilt while the process lives — and a second
+ * `runBootSequence` fails with `NativeDatabase.prepareSync … NullPointerException`.
+ * expo-sqlite 57.0.1's `OnDestroy` is meant to close its cached databases and
+ * does not: `removeAllCachedDatabases` returns the very list it just cleared,
+ * so `forEach` walks nothing. What is left behind is JS handles whose native
+ * side is gone, and the next open trips over them.
+ *
+ * Booting once per process is the right shape regardless. The sequence is a
+ * PROCESS-level act — the identity gate, the migration, the journal drain —
+ * and running it again because a screen remounted would re-probe and re-drain
+ * a library this process already owns.
+ *
+ * Acceptance keeps calling `runBootSequence` directly: its whole job is to
+ * boot repeatedly from states it chose, and a memo would hand it the previous
+ * scenario's library.
+ */
+let booted: Promise<BootResult> | null = null;
+
+export function bootOnce(options: BootOptions = {}): Promise<BootResult> {
+  if (booted === null) {
+    booted = runBootSequence(options).catch((err: unknown) => {
+      // A refusal is not a cached answer: the next launch of this process
+      // should get to try again rather than inherit a verdict.
+      booted = null;
+      throw err;
+    });
+  }
+  return booted;
+}
+
 export async function runBootSequence(options: BootOptions = {}): Promise<BootResult> {
   const { logger, crashPoint } = options;
 
