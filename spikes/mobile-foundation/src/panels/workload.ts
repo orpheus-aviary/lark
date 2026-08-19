@@ -78,7 +78,7 @@ export function fakeUuid(n: number): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4000-8000-${hex.padStart(12, '0')}`;
 }
 
-export const LOCAL_DEVICE_UUID = fakeUuid(999_999);
+const LOCAL_DEVICE_UUID = fakeUuid(999_999);
 /** The cursor is keyed by (server, workspace), never by URL (0002's comment). */
 const SERVER_ID = fakeUuid(888_888);
 const WORKSPACE_ID = fakeUuid(777_777);

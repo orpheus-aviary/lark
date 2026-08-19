@@ -166,7 +166,7 @@ export function requiredName(value: string, max: number, what: string): string {
 }
 
 /** Same rule, for a field that MAY be blank (a song's artist). */
-export function optionalName(value: string, max: number, what: string): string {
+function optionalName(value: string, max: number, what: string): string {
   return capped(value.trim(), max, what);
 }
 

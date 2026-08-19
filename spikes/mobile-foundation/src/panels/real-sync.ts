@@ -40,7 +40,7 @@ const APPLY_BUDGET_MS = 100;
  * second run would find the work already done — the count, not the clock, is
  * the judgement.
  */
-export function runR4Panel(): WorkloadRow[] {
+function runR4Panel(): WorkloadRow[] {
   // Every entity id the backfill mints goes through core's Random provider,
   // which refuses to guess on a host that has not answered (N1a). RN has no
   // `crypto.getRandomValues`, so without this the first `uuid()` throws — which
@@ -166,7 +166,7 @@ function measureBatches(sqlite: SqliteLike, size: number, startRound = 0): Batch
  * coordinator hands `runSync`, and a number that drifted from the one measured
  * here would be a batch size nobody had ever timed.
  */
-export function runR5Panel(): WorkloadRow[] {
+function runR5Panel(): WorkloadRow[] {
   installPortableRuntime();
   const rows: WorkloadRow[] = [];
 
