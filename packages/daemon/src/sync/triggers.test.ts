@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { type FakeSkybridge, createFakeSkybridge } from '@lark/core/testing';
 import type { SyncLoginRequest } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,9 +10,7 @@ import {
   closeTestContext,
   createTestContext,
 } from '../testing/build-test-server.js';
-import { type FakeSkybridge, createFakeSkybridge } from '../testing/fake-skybridge.js';
-import { performSyncLogin } from './login.js';
-import { performSyncLogout } from './logout.js';
+import { performSyncLogin, performSyncLogout } from './coordinator.js';
 import { type SyncHandles, attachSyncHandles } from './triggers.js';
 
 let nest: string;

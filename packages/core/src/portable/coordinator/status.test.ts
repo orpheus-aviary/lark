@@ -2,21 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { countQuarantined, enqueueDeleteLyrics, recordDeadLetter } from '@lark/core';
 import type { SyncLoginRequest } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type TestContext,
-  closeTestContext,
-  createTestContext,
-} from '../testing/build-test-server.js';
-import { type FakeSkybridge, createFakeSkybridge } from '../testing/fake-skybridge.js';
+  type CoordinatorHarness,
+  type FakeSkybridge,
+  createCoordinatorHarness,
+  createFakeSkybridge,
+} from '../../testing/index.js';
+import { recordDeadLetter } from '../sync/changes.js';
+import { enqueueDeleteLyrics } from '../sync/file-ops.js';
 import { performSyncLogin } from './login.js';
 import { performSyncLogout } from './logout.js';
 import { buildSyncStatus } from './status.js';
 
 let nest: string;
-let ctx: TestContext;
+let ctx: CoordinatorHarness;
 let fake: FakeSkybridge;
 
 const request: SyncLoginRequest = {
@@ -30,11 +31,11 @@ beforeEach(() => {
   vi.stubEnv('LARK_NEST_DIR', nest);
   mkdirSync(join(nest, 'lark'), { recursive: true });
   fake = createFakeSkybridge();
-  ctx = createTestContext({ skybridge: fake.api });
+  ctx = createCoordinatorHarness({ api: fake.api });
 });
 
-afterEach(async () => {
-  await closeTestContext(ctx);
+afterEach(() => {
+  ctx.close();
   vi.unstubAllEnvs();
   rmSync(nest, { recursive: true, force: true });
 });
@@ -53,7 +54,7 @@ function insertSong(key: string | null): string {
 
 describe('buildSyncStatus', () => {
   it('describes a fresh install as unconfigured rather than broken', () => {
-    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
+    expect(buildSyncStatus(ctx)).toMatchObject({
       configured: false,
       authenticated: false,
       bound: false,
@@ -72,7 +73,7 @@ describe('buildSyncStatus', () => {
   it('reports the three "is it usable" answers separately after a login', async () => {
     const login = await performSyncLogin(ctx, request);
 
-    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
+    expect(buildSyncStatus(ctx)).toMatchObject({
       configured: true,
       authenticated: true,
       bound: true,
@@ -88,7 +89,7 @@ describe('buildSyncStatus', () => {
     await performSyncLogin(ctx, request);
     await performSyncLogout(ctx);
 
-    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
+    expect(buildSyncStatus(ctx)).toMatchObject({
       configured: true,
       authenticated: false,
       bound: true,
@@ -101,7 +102,7 @@ describe('buildSyncStatus', () => {
     await performSyncLogin(ctx, request);
     ctx.sync.noteOffline('the server is not answering');
 
-    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
+    expect(buildSyncStatus(ctx)).toMatchObject({
       state: 'offline',
       auth_reason: null,
       last_error: 'the server is not answering',
@@ -117,7 +118,7 @@ describe('buildSyncStatus', () => {
     recordDeadLetter(ctx.sqlite, { direction: 'out', reason: 'change_too_large', payload: '{}' });
     enqueueDeleteLyrics(ctx.sqlite, randomUUID());
 
-    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({
+    expect(buildSyncStatus(ctx)).toMatchObject({
       duplicate_source_keys: 2,
       dead_letters: { in: 1, out: 1 },
       pending_file_ops: 1,
@@ -137,7 +138,7 @@ describe('buildSyncStatus', () => {
       )
       .run();
 
-    expect(buildSyncStatus(ctx, countQuarantined)).toMatchObject({ pulled_seq: 12, pushed_seq: 9 });
+    expect(buildSyncStatus(ctx)).toMatchObject({ pulled_seq: 12, pushed_seq: 9 });
   });
 
   it('survives a credential file it cannot read', async () => {
@@ -148,7 +149,7 @@ describe('buildSyncStatus', () => {
     rmSync(join(nest, 'lark', 'skybridge.toml'));
     mkdirSync(join(nest, 'lark', 'skybridge.toml'));
 
-    const status = buildSyncStatus(ctx, countQuarantined);
+    const status = buildSyncStatus(ctx);
 
     expect(status.configured).toBe(false);
     expect(status.bound).toBe(true);

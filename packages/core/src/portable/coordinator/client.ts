@@ -1,4 +1,4 @@
-// The skybridge SDK, as the daemon uses it (v0.2 T3b, §4.1).
+// The skybridge SDK, as the coordinator uses it (v0.2 T3b, §4.1).
 //
 // Two jobs, both small on purpose:
 //
@@ -18,7 +18,6 @@
 // untouched. A TypeError from our own code must not be reported as an
 // unreachable server.
 
-import { SyncAuthRequiredError, SyncUnavailableError } from '@lark/core';
 import {
   ApiError,
   type AuthContext,
@@ -31,6 +30,7 @@ import {
   refresh,
 } from '@orpheus-aviary/skybridge-client';
 import type { ApiRefreshResult } from '@orpheus-aviary/skybridge-proto';
+import { SyncAuthRequiredError, SyncUnavailableError } from '../errors.js';
 
 export type { AuthContext, SkybridgeClient };
 

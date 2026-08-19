@@ -17,35 +17,33 @@
 // bound library pointed at a DIFFERENT workspace is a refusal. One boolean
 // could not tell those apart.
 
-import {
-  countDeadLetters,
-  countDuplicateSourceKeySongs,
-  countFileOps,
-  countPendingChanges,
-  readBinding,
-  readCursor,
-  readSkybridgeCredentials,
-} from '@lark/core';
 import type { SyncStatusData } from '@lark/shared';
-import type { AppContext } from '../context.js';
+import type { SkybridgeCredentials } from '../ports/credentials.js';
+import { readBinding } from '../sync/binding.js';
+import { countDeadLetters, countPendingChanges } from '../sync/changes.js';
+import { countDuplicateSourceKeySongs } from '../sync/duplicates.js';
+import { readCursor } from '../sync/engine.js';
+import { countFileOps } from '../sync/file-ops.js';
+import type { CoordinatorContext } from './context.js';
 
 /**
- * `countQuarantined` arrives as a parameter (N1b) rather than being imported.
- * Counting directories under `recovered-songs/` is a filesystem question, and
- * the status builder is otherwise pure database + memory — on a host that
- * keeps quarantined songs somewhere else, this is the one line that changes.
+ * `countQuarantined` arrives on the context (N1b/N1f) rather than being
+ * imported. Counting directories under `recovered-songs/` is a filesystem
+ * question, and the status builder is otherwise pure database + memory — on a
+ * host that keeps quarantined songs somewhere else, this is the one line that
+ * changes.
  */
-export function buildSyncStatus(ctx: AppContext, countQuarantined: () => number): SyncStatusData {
+export function buildSyncStatus(ctx: CoordinatorContext): SyncStatusData {
   const session = ctx.sync.session;
-  const binding = readBinding(ctx.sqlite);
+  const binding = readBinding(ctx.db.sqlite);
   const credentials = readCredentialsQuietly(ctx);
 
   const cursor =
     binding === null
       ? { pulledSeq: 0, pushedSeq: 0 }
-      : readCursor(ctx.sqlite, binding.server_id, binding.workspace_id);
-  const deadLetters = countDeadLetters(ctx.sqlite);
-  const fileOps = countFileOps(ctx.sqlite);
+      : readCursor(ctx.db.sqlite, binding.server_id, binding.workspace_id);
+  const deadLetters = countDeadLetters(ctx.db.sqlite);
+  const fileOps = countFileOps(ctx.db.sqlite);
 
   return {
     configured: credentials !== null,
@@ -54,7 +52,7 @@ export function buildSyncStatus(ctx: AppContext, countQuarantined: () => number)
     server_url: session?.serverUrl ?? credentials?.server.url ?? null,
     device_id: session?.deviceId ?? credentials?.device?.id ?? null,
     workspace_id: binding?.workspace_id ?? credentials?.workspace?.id ?? null,
-    pending_count: countPendingChanges(ctx.sqlite),
+    pending_count: countPendingChanges(ctx.db.sqlite),
     pulled_seq: cursor.pulledSeq,
     pushed_seq: cursor.pushedSeq,
     last_sync_at: ctx.sync.lastSyncAt,
@@ -65,10 +63,10 @@ export function buildSyncStatus(ctx: AppContext, countQuarantined: () => number)
     auth_reason: ctx.sync.state === 'auth_required' ? ctx.sync.authReason : null,
     last_error: ctx.sync.lastError,
     dead_letters: deadLetters,
-    duplicate_source_keys: countDuplicateSourceKeySongs(ctx.sqlite),
+    duplicate_source_keys: countDuplicateSourceKeySongs(ctx.db.sqlite),
     pending_file_ops: fileOps.pending,
     file_op_failures: fileOps.failed,
-    quarantined_count: countQuarantined(),
+    quarantined_count: ctx.countQuarantined(),
     last_file_error: fileOps.lastError,
   };
 }
@@ -77,9 +75,9 @@ export function buildSyncStatus(ctx: AppContext, countQuarantined: () => number)
  * An unreadable credential file must not take the status endpoint down with
  * it — the status is where a user would find out about it.
  */
-function readCredentialsQuietly(ctx: AppContext): ReturnType<typeof readSkybridgeCredentials> {
+function readCredentialsQuietly(ctx: CoordinatorContext): SkybridgeCredentials | null {
   try {
-    return readSkybridgeCredentials();
+    return ctx.credentials.read();
   } catch (err) {
     ctx.logger.warn({ err }, 'sync credential file could not be read');
     return null;

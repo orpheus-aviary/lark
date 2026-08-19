@@ -8,15 +8,17 @@
 // unpatched original; caller-supplied headers always win, so a single call can
 // override the bearer inline.
 
-import type { BilibiliClient, MediaToolsProvider } from '@lark/core';
+import type { BilibiliClient, MediaToolsProvider, SkybridgeApi } from '@lark/core';
 import {
   DEFAULT_CONFIG,
   DownloadEngine,
   FileEffectRuntime,
   MediaToolsRegistry,
+  SyncRuntime,
   createBilibiliClient,
   createDatabase,
   nodeFileContext,
+  realSkybridgeApi,
   resolveLlmConfig,
 } from '@lark/core';
 import type { LarkConfig } from '@lark/shared';
@@ -40,8 +42,7 @@ import { GuiChannel, type GuiChannelOptions } from '../events/gui-channel.js';
 import { DaemonLifecycle } from '../lifecycle.js';
 import { PlayerRuntime } from '../player-runtime.js';
 import { buildServer } from '../server.js';
-import type { SkybridgeApi } from '../sync/client.js';
-import { SyncRuntime } from '../sync/runtime.js';
+
 import { type SyncHandlesOptions, attachSyncHandles } from '../sync/triggers.js';
 
 /** Fixed token used by harness-built servers. */
@@ -228,6 +229,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     guiChannel: new GuiChannel(options.guiChannel),
     mediaTools,
     bilibili,
+    skybridge: options.skybridge ?? realSkybridgeApi,
     shutdownSignal: shutdownController.signal,
     // Default `normal`: an in-memory library owes no conversion, and every
     // pre-0.3 test would otherwise be talking to a gated daemon. The migration
@@ -244,10 +246,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     cacheLeases: new SongLeaseRegistry(options.cacheLeases),
     cacheScheduler: new EvictionScheduler(ctx),
     downloads,
-    sync: new SyncRuntime({
-      ...(options.skybridge === undefined ? {} : { api: options.skybridge }),
-      triggers: options.syncTriggers === true,
-    }),
+    sync: new SyncRuntime({ triggers: options.syncTriggers === true }),
     fileOps: new FileEffectRuntime({
       sqlite,
       claims: downloads.claims,

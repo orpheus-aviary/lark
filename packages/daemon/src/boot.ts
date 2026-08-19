@@ -67,9 +67,11 @@ import {
   paths,
   pendingFileOpSongIds,
   pruneEmptyQuarantines,
+  realSkybridgeApi,
   recoverSongsStore,
   resolveLlmConfig,
 } from '@lark/core';
+import { SyncRuntime } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import { AudioStreamRegistry } from './audio-streams.js';
@@ -91,8 +93,7 @@ import { MigrationRuntime } from './migration/runtime.js';
 import { DaemonAlreadyRunningError, acquireDaemonLock, removePid } from './pid.js';
 import { PlayerRuntime } from './player-runtime.js';
 import { buildServer } from './server.js';
-import { SyncRuntime } from './sync/runtime.js';
-import { restoreSession } from './sync/session.js';
+import { restoreSession } from './sync/coordinator.js';
 import { attachSyncHandles } from './sync/triggers.js';
 
 export interface BootOptions {
@@ -456,6 +457,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       guiChannel: new GuiChannel(),
       mediaTools,
       bilibili,
+      skybridge: realSkybridgeApi,
       shutdownSignal: shutdownController.signal,
       lifecycle,
       ...(options.acceptance === undefined ? {} : { acceptance: options.acceptance }),

@@ -21,7 +21,6 @@
 import {
   type FileEffectRuntime,
   type RunSyncResult,
-  countQuarantined,
   listFileOps,
   readBinding,
   readCursor,
@@ -42,11 +41,13 @@ import {
 import type { FastifyInstance } from 'fastify';
 import type { AppContext } from '../context.js';
 import { ok } from '../response.js';
-import { callSkybridge } from '../sync/client.js';
-import { performSyncLogin } from '../sync/login.js';
-import { performSyncLogout } from '../sync/logout.js';
-import { requireSession } from '../sync/session.js';
-import { buildSyncStatus } from '../sync/status.js';
+import {
+  buildSyncStatus,
+  callSkybridge,
+  performSyncLogin,
+  performSyncLogout,
+  requireSession,
+} from '../sync/coordinator.js';
 import {
   objectBody,
   queryEnum,
@@ -123,7 +124,7 @@ export function registerSyncRoutes(app: FastifyInstance, ctx: AppContext): void 
   });
 
   app.get(API_PATHS.syncStatus, async (_req, reply) => {
-    ok(reply, buildSyncStatus(ctx, countQuarantined) satisfies SyncStatusData);
+    ok(reply, buildSyncStatus(ctx) satisfies SyncStatusData);
   });
 
   // GET /sync/devices — every device on the account, so the user can see what

@@ -22,34 +22,6 @@
 // The credential file is moved aside before it is rewritten, so a failure in
 // the last two steps restores the file that was there.
 
-import { hostname } from 'node:os';
-import {
-  type BackfillResult,
-  type DeviceStampResult,
-  type LyricsSnapshot,
-  type RebaseResult,
-  type SkybridgeCredentials,
-  type SkybridgeStash,
-  SyncBindingMismatchError,
-  SyncSchemaVersionMismatchError,
-  SyncUnavailableError,
-  backfillOwed,
-  markBackfillDone,
-  normalizeSyncServerUrl,
-  preReadLyrics,
-  readBinding,
-  readLocalDeviceUuid,
-  readSkybridgeCredentials,
-  readSkybridgeDeviceId,
-  rebaseLocalKeys,
-  runFullBackfillInTx,
-  setServerTimeOffset,
-  setSkybridgeDeviceId,
-  stampDeviceIdInTx,
-  stashSkybridgeCredentials,
-  writeBindingInTx,
-  writeSkybridgeCredentials,
-} from '@lark/core';
 import {
   SYNC_SCHEMA_VERSION,
   SYNC_WORKSPACE_NAME,
@@ -57,7 +29,31 @@ import {
   type SyncLoginRequest,
 } from '@lark/shared';
 import type { ApiDevice } from '@orpheus-aviary/skybridge-proto';
-import type { AppContext } from '../context.js';
+import {
+  SyncBindingMismatchError,
+  SyncSchemaVersionMismatchError,
+  SyncUnavailableError,
+} from '../errors.js';
+import type { CredentialStash, SkybridgeCredentials } from '../ports/credentials.js';
+import {
+  type BackfillResult,
+  type LyricsSnapshot,
+  backfillOwed,
+  markBackfillDone,
+  preReadLyrics,
+  runFullBackfillInTx,
+} from '../sync/backfill.js';
+import { readBinding, writeBindingInTx } from '../sync/binding.js';
+import { readLocalDeviceUuid } from '../sync/changes.js';
+import {
+  type DeviceStampResult,
+  readSkybridgeDeviceId,
+  setSkybridgeDeviceId,
+  stampDeviceIdInTx,
+} from '../sync/device.js';
+import { setServerTimeOffset } from '../sync/hlc.js';
+import { type RebaseResult, rebaseLocalKeys } from '../sync/rebase.js';
+import { normalizeSyncServerUrl } from '../sync/server-url.js';
 import {
   type AuthContext,
   SKYBRIDGE_CLIENT_VERSION,
@@ -65,6 +61,7 @@ import {
   type SkybridgeClient,
   callSkybridge,
 } from './client.js';
+import type { CoordinatorContext } from './context.js';
 import { buildSession, restoreSession } from './session.js';
 
 export interface SyncLoginResult {
@@ -84,14 +81,14 @@ export interface SyncLoginResult {
 
 /** Serialized against logout, refresh persistence and unbind (§3.11). */
 export function performSyncLogin(
-  ctx: AppContext,
+  ctx: CoordinatorContext,
   input: SyncLoginRequest,
 ): Promise<SyncLoginResult> {
   return ctx.sync.lifecycle(() => install(ctx, input));
 }
 
-async function install(ctx: AppContext, input: SyncLoginRequest): Promise<SyncLoginResult> {
-  const api = ctx.sync.api;
+async function install(ctx: CoordinatorContext, input: SyncLoginRequest): Promise<SyncLoginResult> {
+  const api = ctx.api;
   const allowInsecureHttp = input.allow_insecure_http === true;
   const serverUrl = normalizeSyncServerUrl(input.server_url, { allowInsecureHttp });
 
@@ -107,11 +104,11 @@ async function install(ctx: AppContext, input: SyncLoginRequest): Promise<SyncLo
   }
 
   let registeredDeviceId: string | null = null;
-  let stash: SkybridgeStash | null = null;
+  let stash: CredentialStash | null = null;
   let sessionDropped = false;
 
   try {
-    const binding = readBinding(ctx.sqlite);
+    const binding = readBinding(ctx.db.sqlite);
     if (binding !== null) {
       // The workspace id is not known yet; the transaction below checks it
       // against the same row before writing anything.
@@ -142,14 +139,14 @@ async function install(ctx: AppContext, input: SyncLoginRequest): Promise<SyncLo
     //     changed" branch is reachable at all — a replaced device arrives on a
     //     re-login, when the binding is long since written.
     const bindingWritten = binding === null;
-    const owed = backfillOwed(ctx.sqlite);
+    const owed = backfillOwed(ctx.db.sqlite);
     const republish = bindingWritten || owed;
     // Read off disk BEFORE the transaction (a transaction cannot await) and
     // re-validated inside it against the outbox (R5-2).
-    const lyrics: LyricsSnapshot = owed ? await preReadLyrics(ctx.sqlite, ctx.files) : new Map();
+    const lyrics: LyricsSnapshot = owed ? await preReadLyrics(ctx.db.sqlite, ctx.files) : new Map();
     const serverNowMs = republish
       ? await callSkybridge('server time', () => api.serverTime(serverUrl))
-      : Date.now();
+      : ctx.now();
 
     // The old session goes BEFORE the transaction, not after it. The backfill
     // and the rebase rewrite the keys of changes that have not been pushed;
@@ -158,35 +155,35 @@ async function install(ctx: AppContext, input: SyncLoginRequest): Promise<SyncLo
     await ctx.sync.teardownSession();
     sessionDropped = true;
 
-    const installed = ctx.sqlite
+    const installed = ctx.db.sqlite
       .transaction(() => {
         // Asserts against the existing row, so a workspace change is caught
         // here even though the pre-check above could not see it yet.
-        writeBindingInTx(ctx.sqlite, {
+        writeBindingInTx(ctx.db.sqlite, {
           server_id: serverId,
           user_id: auth.user.id,
           workspace_id: workspace.id,
           schema_version: workspace.schemaVersion,
         });
 
-        if (republish) setServerTimeOffset(ctx.sqlite, serverNowMs - Date.now());
-        const backfill = owed ? runFullBackfillInTx(ctx.sqlite, lyrics) : null;
+        if (republish) setServerTimeOffset(ctx.db.sqlite, serverNowMs - ctx.now());
+        const backfill = owed ? runFullBackfillInTx(ctx.db.sqlite, lyrics) : null;
         // After the backfill, never before (⑬): the backfill is what
         // guarantees every surviving entity has a pending op to rewrite, which
         // is what keeps the row and the op in agreement.
-        const rebase = republish ? rebaseLocalKeys(ctx.sqlite, serverNowMs) : null;
+        const rebase = republish ? rebaseLocalKeys(ctx.db.sqlite, serverNowMs) : null;
 
-        const previous = readSkybridgeDeviceId(ctx.sqlite);
+        const previous = readSkybridgeDeviceId(ctx.db.sqlite);
         const stamp =
           previous === device.device.id
             ? null
-            : stampDeviceIdInTx(ctx.sqlite, {
+            : stampDeviceIdInTx(ctx.db.sqlite, {
                 deviceId: device.device.id,
                 previousId: previous,
-                localUuid: readLocalDeviceUuid(ctx.sqlite),
+                localUuid: readLocalDeviceUuid(ctx.db.sqlite),
               });
-        setSkybridgeDeviceId(ctx.sqlite, device.device.id);
-        if (republish) markBackfillDone(ctx.sqlite);
+        setSkybridgeDeviceId(ctx.db.sqlite, device.device.id);
+        if (republish) markBackfillDone(ctx.db.sqlite);
         return { backfill, rebase, stamp };
       })
       .immediate();
@@ -199,8 +196,8 @@ async function install(ctx: AppContext, input: SyncLoginRequest): Promise<SyncLo
       workspaceId: workspace.id,
     });
 
-    stash = stashSkybridgeCredentials();
-    writeSkybridgeCredentials(credentials);
+    stash = ctx.credentials.stash();
+    ctx.credentials.write(credentials);
     ctx.sync.installSession(buildSession(api, credentials, serverId));
     stash.discard();
     stash = null;
@@ -262,7 +259,7 @@ interface ResolvedDevice {
  * device issues from then on, for no reason the user asked for.
  */
 async function resolveDevice(
-  ctx: AppContext,
+  ctx: CoordinatorContext,
   api: SkybridgeApi,
   auth: AuthContext,
 ): Promise<ResolvedDevice> {
@@ -282,7 +279,7 @@ async function resolveDevice(
 
   const device = await callSkybridge('device registration', () =>
     bootstrap.registerDevice({
-      name: hostname(),
+      name: ctx.deviceName(),
       appVersion: `lark ${ctx.version}`,
       clientVersion: SKYBRIDGE_CLIENT_VERSION,
     }),
@@ -297,11 +294,11 @@ async function resolveDevice(
  * credential file is the fallback for the window where a login wrote the file
  * but the row is from an older shape.
  */
-function storedDeviceId(ctx: AppContext): string | null {
-  const fromDb = readSkybridgeDeviceId(ctx.sqlite);
+function storedDeviceId(ctx: CoordinatorContext): string | null {
+  const fromDb = readSkybridgeDeviceId(ctx.db.sqlite);
   if (fromDb !== null) return fromDb;
   try {
-    return readSkybridgeCredentials()?.device?.id ?? null;
+    return ctx.credentials.read()?.device?.id ?? null;
   } catch {
     return null; // an unreadable file is not a device id
   }
@@ -337,7 +334,7 @@ function composeCredentials(input: {
  * the user needs to see.
  */
 async function compensate(
-  ctx: AppContext,
+  ctx: CoordinatorContext,
   api: SkybridgeApi,
   auth: AuthContext,
   registeredDeviceId: string | null,

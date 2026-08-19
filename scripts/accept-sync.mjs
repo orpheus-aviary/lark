@@ -954,10 +954,28 @@ try {
     const el = document.querySelector('button[aria-label^="同步："]');
     return el ? el.innerText.replace(/\\s+/g, ' ').trim() : null;
   })()`);
+  // The attention count is its own element, and it has to be read as one.
+  //
+  // Reading the button's whole text instead ("does it still end in 1?") cannot
+  // tell an unresolved conflict from the label `待同步 1` — which is what the
+  // badge legitimately says for the second or two between this resolve
+  // emitting its own change and the outbox trigger pushing it. That made this
+  // criterion a coin flip on where the click landed in the 1s poll cycle, and
+  // it failed twice for a resolve that had worked perfectly: count 0,
+  // attention 0, label `待同步 1`.
+  //
+  // `null` when the button is missing, so a window that never rendered the
+  // badge fails rather than reading as "nothing to attend to".
+  const attentionAfter = await cdp.evaluate(`(() => {
+    const button = document.querySelector('button[aria-label^="同步："]');
+    if (button === null) return null;
+    const badge = button.querySelector('span.bg-destructive');
+    return badge === null ? 0 : Number(badge.textContent.trim());
+  })()`);
   check(
     'F5 · "保留本机" resolves through the CAS and the count drops live, with no reload',
-    clickedKeep === true && countAfter === 0 && !/(^|\s)1$/.test(badgeAfter ?? '1'),
-    `count ${countAfter} → badge "${badgeAfter}"`,
+    clickedKeep === true && countAfter === 0 && attentionAfter === 0,
+    `count ${countAfter} → attention ${attentionAfter}, badge "${badgeAfter}"`,
   );
 
   const listView = await cdp.evaluate(`(() => {

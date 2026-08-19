@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { enqueueWriteLyrics } from '@lark/core';
+import { type FakeSkybridge, createFakeSkybridge } from '@lark/core/testing';
 import {
   API_PATHS,
   type ApiResponse,
@@ -20,7 +21,6 @@ import {
   closeTestContext,
   createTestContext,
 } from '../testing/build-test-server.js';
-import { type FakeSkybridge, createFakeSkybridge } from '../testing/fake-skybridge.js';
 
 let nest: string;
 let ctx: TestContext;
@@ -131,7 +131,7 @@ describe('POST /sync/login', () => {
   it('refuses a second workspace on a bound library', async () => {
     await post(API_PATHS.syncLogin, login);
     const other = createFakeSkybridge({ workspaceId: 'workspace-2' });
-    ctx.sync.api.createClient = other.api.createClient;
+    ctx.skybridge.createClient = other.api.createClient;
 
     const res = await post(API_PATHS.syncLogin, login);
 

@@ -18,13 +18,9 @@
 // back in continues where this left off instead of registering a second device
 // and re-pulling the workspace from zero. Only `unbind` takes those.
 
-import {
-  type SkybridgeCredentials,
-  readSkybridgeCredentials,
-  writeSkybridgeCredentials,
-} from '@lark/core';
-import type { AppContext } from '../context.js';
+import type { SkybridgeCredentials } from '../ports/credentials.js';
 import type { SkybridgeClient } from './client.js';
+import type { CoordinatorContext } from './context.js';
 
 export interface SyncLogoutResult {
   /** False when there was nothing to log out of. */
@@ -33,11 +29,11 @@ export interface SyncLogoutResult {
   revoked_remotely: boolean;
 }
 
-export function performSyncLogout(ctx: AppContext): Promise<SyncLogoutResult> {
+export function performSyncLogout(ctx: CoordinatorContext): Promise<SyncLogoutResult> {
   return ctx.sync.lifecycle(() => logout(ctx));
 }
 
-async function logout(ctx: AppContext): Promise<SyncLogoutResult> {
+async function logout(ctx: CoordinatorContext): Promise<SyncLogoutResult> {
   const session = ctx.sync.session;
   const client: SkybridgeClient | null = session?.client ?? null;
 
@@ -45,7 +41,7 @@ async function logout(ctx: AppContext): Promise<SyncLogoutResult> {
   await ctx.sync.teardownSession();
   ctx.sync.noteAuthRequired('missing_session');
 
-  clearStoredAuth();
+  clearStoredAuth(ctx);
 
   let revokedRemotely = false;
   if (client !== null) {
@@ -73,10 +69,10 @@ async function logout(ctx: AppContext): Promise<SyncLogoutResult> {
  * this file is: the writer holds the complete truth, and merging would be how
  * a stale token outlives the logout that removed it.
  */
-function clearStoredAuth(): void {
+function clearStoredAuth(ctx: CoordinatorContext): void {
   let credentials: SkybridgeCredentials | null = null;
   try {
-    credentials = readSkybridgeCredentials();
+    credentials = ctx.credentials.read();
   } catch {
     // Unreadable: there is no session to describe, and rewriting a file we
     // could not parse would throw away device and workspace ids for nothing.
@@ -85,5 +81,5 @@ function clearStoredAuth(): void {
   if (credentials === null || credentials.auth === undefined) return;
 
   const { auth: _gone, ...rest } = credentials;
-  writeSkybridgeCredentials(rest);
+  ctx.credentials.write(rest);
 }

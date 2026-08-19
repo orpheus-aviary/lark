@@ -17,16 +17,15 @@
 // verdict (`REFRESH_INVALID` / `REFRESH_REPLAYED` / 401) drops the session.
 // Anything else keeps the credentials and tries again on the next tick.
 
-import { readSkybridgeCredentials, writeSkybridgeCredentials } from '@lark/core';
-import type { AppContext } from '../context.js';
 import { isRefreshTokenDead } from './client.js';
+import type { CoordinatorContext } from './context.js';
 import { emitStatus } from './runner.js';
 import { buildSession } from './session.js';
 
 /** Refresh once the token is inside this window of its expiry. */
 export const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
-export function tokenNeedsRefresh(ctx: AppContext, nowMs: number = Date.now()): boolean {
+export function tokenNeedsRefresh(ctx: CoordinatorContext, nowMs: number = ctx.now()): boolean {
   const auth = ctx.sync.session?.credentials.auth;
   if (auth === undefined) return false;
   // A server that issues no expiry gives us nothing to act on; the round's own
@@ -36,11 +35,11 @@ export function tokenNeedsRefresh(ctx: AppContext, nowMs: number = Date.now()): 
 }
 
 /** Exchange the refresh token. Returns whether the session now holds a new one. */
-export function refreshSessionToken(ctx: AppContext): Promise<boolean> {
+export function refreshSessionToken(ctx: CoordinatorContext): Promise<boolean> {
   return ctx.sync.lifecycle(() => exchange(ctx));
 }
 
-async function exchange(ctx: AppContext): Promise<boolean> {
+async function exchange(ctx: CoordinatorContext): Promise<boolean> {
   const session = ctx.sync.session;
   const auth = session?.credentials.auth;
   if (session === null || auth === undefined || auth.refresh_token === undefined) return false;
@@ -48,7 +47,7 @@ async function exchange(ctx: AppContext): Promise<boolean> {
   const epoch = ctx.sync.epoch;
   let refreshed: { token: string; refreshToken: string; expiresAt: number };
   try {
-    refreshed = await ctx.sync.api.refresh(session.serverUrl, auth.refresh_token);
+    refreshed = await ctx.api.refresh(session.serverUrl, auth.refresh_token);
   } catch (err) {
     if (isRefreshTokenDead(err)) {
       ctx.sync.dropSession('token_rejected');
@@ -73,7 +72,7 @@ async function exchange(ctx: AppContext): Promise<boolean> {
   // What DOES disqualify it is the file describing something else — no auth
   // section, another device, another workspace. Then the token belongs to a
   // session that no longer exists in any sense.
-  const current = readSkybridgeCredentials();
+  const current = ctx.credentials.read();
   if (
     current === null ||
     current.auth === undefined ||
@@ -96,8 +95,8 @@ async function exchange(ctx: AppContext): Promise<boolean> {
       expires_at: refreshed.expiresAt,
     },
   };
-  writeSkybridgeCredentials(credentials);
-  ctx.sync.installSession(buildSession(ctx.sync.api, credentials, session.serverId));
+  ctx.credentials.write(credentials);
+  ctx.sync.installSession(buildSession(ctx.api, credentials, session.serverId));
   ctx.logger.info({ expires_at: refreshed.expiresAt }, 'sync token refreshed');
   return true;
 }

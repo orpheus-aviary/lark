@@ -10,15 +10,12 @@
 // state whether or not the network is there, and the first round is what
 // discovers a token the server no longer likes.
 
-import {
-  type SkybridgeCredentials,
-  SyncAuthRequiredError,
-  readBinding,
-  readSkybridgeCredentials,
-} from '@lark/core';
 import type { SyncAuthReason } from '@lark/shared';
-import type { AppContext } from '../context.js';
+import { SyncAuthRequiredError } from '../errors.js';
+import type { SkybridgeCredentials } from '../ports/credentials.js';
+import { readBinding } from '../sync/binding.js';
 import type { SkybridgeApi, SkybridgeClient } from './client.js';
+import type { CoordinatorContext } from './context.js';
 
 export interface SyncSession {
   client: SkybridgeClient;
@@ -78,7 +75,7 @@ export function buildSession(
  * `SYNC_AUTH_REQUIRED` is a state rather than a fault: the daemon keeps
  * serving the library, and the only thing that does not work is sync.
  */
-export function requireSession(ctx: AppContext): SyncSession {
+export function requireSession(ctx: CoordinatorContext): SyncSession {
   const session = ctx.sync.session;
   if (session === null) throw new SyncAuthRequiredError();
   return session;
@@ -106,7 +103,7 @@ export type RestoreOutcome =
  * else, and syncing a library into the wrong workspace is precisely the damage
  * the binding exists to prevent.
  */
-export function restoreSession(ctx: AppContext): RestoreOutcome {
+export function restoreSession(ctx: CoordinatorContext): RestoreOutcome {
   const outcome = resolveRestore(ctx);
   if (!outcome.installed) {
     if (outcome.reason === null) ctx.sync.noteError(outcome.error);
@@ -115,10 +112,10 @@ export function restoreSession(ctx: AppContext): RestoreOutcome {
   return outcome;
 }
 
-function resolveRestore(ctx: AppContext): RestoreOutcome {
+function resolveRestore(ctx: CoordinatorContext): RestoreOutcome {
   let credentials: SkybridgeCredentials | null;
   try {
-    credentials = readSkybridgeCredentials();
+    credentials = ctx.credentials.read();
   } catch (err) {
     return {
       installed: false,
@@ -136,7 +133,7 @@ function resolveRestore(ctx: AppContext): RestoreOutcome {
     return { installed: false, reason: 'credentials_missing' };
   }
 
-  const binding = readBinding(ctx.sqlite);
+  const binding = readBinding(ctx.db.sqlite);
   if (binding === null) {
     // Credentials without a binding: the login transaction writes both, so
     // this only happens to a library the credentials did not come from.
@@ -150,6 +147,6 @@ function resolveRestore(ctx: AppContext): RestoreOutcome {
     };
   }
 
-  ctx.sync.installSession(buildSession(ctx.sync.api, credentials, binding.server_id));
+  ctx.sync.installSession(buildSession(ctx.api, credentials, binding.server_id));
   return { installed: true };
 }

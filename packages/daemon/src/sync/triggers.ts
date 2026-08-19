@@ -1,4 +1,4 @@
-// What starts a sync round, and the one queue they all go through (v0.2 T3c).
+// What starts a sync round on THIS host (v0.2 T3c; halved in N1f).
 //
 // Four things ask for a round:
 //
@@ -18,33 +18,23 @@
 // event bus. Polling asks the only question that is always true or always
 // false: is there a row nobody has pushed?
 //
-// The probe is `MAX(local_seq) WHERE synced_at IS NULL`, which the partial
-// index from 0001 covers, and the debounce (quiet for 800ms, but never more
-// than 5s of waiting) turns a burst of edits into one round instead of one
-// round per keystroke.
-//
-// All four funnel through a two-slot coalescer: one round in flight, at most
-// one queued behind it. A caller that arrives mid-round gets the FOLLOW-UP,
-// never the in-flight promise — the in-flight round may have read the outbox
-// before that caller's commit landed, and telling them "your change was
-// pushed" would be a lie.
+// What is LEFT in this file after N1f is exactly the part an operating system
+// has opinions about: `setInterval`, `unref`, and the SDK's event stream. The
+// coalescer, the debounce, the backoff and the "is there a session" gate went
+// to `@lark/core/portable` (`coordinator/rounds.ts`) — a phone asks at
+// different moments, and must not answer differently.
 
-import type { RunSyncResult } from '@lark/core';
+import {
+  type RunSyncResult,
+  type SyncBackgroundHandles,
+  SyncRoundQueue,
+  type SyncTrigger,
+} from '@lark/core';
 import type { AppContext } from '../context.js';
-import { refreshSessionToken, tokenNeedsRefresh } from './refresh.js';
-import { type SyncTrigger, runSyncRound } from './runner.js';
-import type { SyncBackgroundHandles } from './runtime.js';
+import { coordinatorContext, refreshSessionToken, tokenNeedsRefresh } from './coordinator.js';
 
 /** Outbox poll cadence, and the resolution of its debounce. */
 const POLL_MS = 1_000;
-/** Fire once the outbox has stopped growing for this long. */
-const QUIET_MS = 800;
-/** …but never wait longer than this, however fast the user keeps typing. */
-const MAX_WAIT_MS = 5_000;
-/** Backoff after a failed round, in ms. The last entry repeats. */
-const BACKOFF_MS: readonly number[] = [2_000, 4_000, 8_000, 16_000, 30_000];
-/** ±20% spread, so devices that failed together do not retry in lockstep. */
-const JITTER_RATIO = 0.2;
 /** How often the token expiry is checked. */
 const REFRESH_POLL_MS = 60_000;
 /** After a stream error, wait this long before subscribing again. */
@@ -56,34 +46,20 @@ export interface SyncHandlesOptions {
 }
 
 /**
- * The background half of sync: the coalescer, three triggers and the refresh
- * timer. One per daemon, attached for its whole life — every trigger gates on
- * "is there a session right now", so a logout does not have to dismantle them
- * and a login does not have to rebuild them.
+ * The background half of sync: the timers, the server subscription and the
+ * round queue they drive. One per daemon, attached for its whole life — every
+ * trigger gates on "is there a session right now", so a logout does not have
+ * to dismantle them and a login does not have to rebuild them.
  */
 export class SyncHandles implements SyncBackgroundHandles {
   readonly #ctx: AppContext;
   readonly #now: () => number;
-  readonly #random: () => number;
+  readonly #queue: SyncRoundQueue;
 
   #stopped = false;
   #timers: NodeJS.Timeout[] = [];
   /** The clock trigger specifically: it is the one that can be re-armed (F1). */
   #scheduler: NodeJS.Timeout | null = null;
-
-  // ── coalescer ──
-  #inflight: Promise<RunSyncResult | null> | null = null;
-  #followUp: Promise<RunSyncResult | null> | null = null;
-  #queued = new Set<SyncTrigger>();
-  #controller: AbortController | null = null;
-
-  // ── outbox debounce ──
-  /** Highest pending local_seq seen; null when the outbox is clean. */
-  #lastHi: number | null = null;
-  #hiChangedAt = 0;
-  #dirtySince = 0;
-  #failures = 0;
-  #nextAttemptAt = 0;
 
   // ── server stream ──
   #unsubscribe: (() => void) | null = null;
@@ -93,7 +69,13 @@ export class SyncHandles implements SyncBackgroundHandles {
   constructor(ctx: AppContext, options: SyncHandlesOptions = {}) {
     this.#ctx = ctx;
     this.#now = options.now ?? Date.now;
-    this.#random = options.random ?? Math.random;
+    // One context for the queue's whole life, carrying THIS host's clock: the
+    // trigger tests drive a virtual one, and a queue reading a different clock
+    // to the timers around it would debounce against a time nobody is at.
+    this.#queue = new SyncRoundQueue(
+      { ...coordinatorContext(ctx), now: this.#now },
+      options.random === undefined ? {} : { random: options.random },
+    );
   }
 
   /** Start the timers. Does nothing when this context runs without triggers. */
@@ -144,48 +126,16 @@ export class SyncHandles implements SyncBackgroundHandles {
     return timer;
   }
 
-  /**
-   * Ask for a round.
-   *
-   * A caller that arrives while one is running is served by the follow-up, not
-   * by the round already in flight: that round may have read the outbox before
-   * this caller's change was committed.
-   */
+  /** Ask for a round. Every caller goes through the one queue. */
   run(trigger: SyncTrigger): Promise<RunSyncResult | null> {
-    this.#queued.add(trigger);
-    if (this.#inflight === null) return this.#start();
-    if (this.#followUp !== null) return this.#followUp;
-    // The chain swallows the in-flight rejection: the follow-up's caller did
-    // not ask for that attempt and must not inherit its failure.
-    this.#followUp = this.#inflight
-      .catch(() => undefined)
-      .then(() => {
-        this.#followUp = null;
-        return this.#start();
-      });
-    return this.#followUp;
-  }
-
-  #start(): Promise<RunSyncResult | null> {
-    const triggers = [...this.#queued];
-    this.#queued.clear();
-    const controller = new AbortController();
-    this.#controller = controller;
-
-    const round = runSyncRound(this.#ctx, { triggers, signal: controller.signal }).finally(() => {
-      if (this.#inflight === round) {
-        this.#inflight = null;
-        this.#controller = null;
-      }
-    });
-    this.#inflight = round;
-    return round;
+    return this.#queue.run(trigger);
   }
 
   /** Stop the timers and the stream for good. The daemon is going away. */
   stop(): void {
     if (this.#stopped) return;
     this.#stopped = true;
+    this.#queue.stop();
     for (const timer of this.#timers) clearInterval(timer);
     this.#timers = [];
     this.#scheduler = null;
@@ -195,18 +145,12 @@ export class SyncHandles implements SyncBackgroundHandles {
   /**
    * Cancel the round in flight and wait for it to unwind.
    *
-   * Cooperative: `runSync` stops between batches, so a round parked on a slow
-   * request finishes that request first. It never abandons a batch midway,
-   * which is the property that lets the cursor and the apply share one
-   * transaction.
+   * The subscription goes first: it is the one trigger that can fire from
+   * outside this process while the drain is waiting.
    */
   async abortAndDrain(): Promise<void> {
     this.#dropSubscription();
-    this.#controller?.abort(new Error('sync session replaced'));
-    const pending = [this.#inflight, this.#followUp].filter(
-      (p): p is Promise<RunSyncResult | null> => p !== null,
-    );
-    if (pending.length > 0) await Promise.allSettled(pending);
+    await this.#queue.abortAndDrain();
   }
 
   // ── triggers ──
@@ -216,86 +160,27 @@ export class SyncHandles implements SyncBackgroundHandles {
    * about a debounce should not have to wait a real second for it.
    */
   tickOutbox(): void {
-    if (!this.#ready()) return;
+    if (!this.#queue.ready()) return;
     this.#ensureSubscription();
-    if (this.#inflight !== null) {
+    if (this.#queue.busy) {
       // Load-bearing: the coalescer runs a follow-up even when the in-flight
       // round rejected, so polling into it every second would re-run a failing
-      // push immediately and step straight over the backoff below.
+      // push immediately and step straight over the backoff.
       return;
     }
-    const hi = this.#dueNow();
-    if (hi === null) return;
-    void this.#runTracked('outbox');
+    if (this.#queue.outboxDue() === null) return;
+    void this.#queue.runTracked('outbox');
   }
 
   tickScheduler(): void {
-    if (!this.#ready() || this.#inflight !== null) return;
-    if (this.#now() < this.#nextAttemptAt) return;
-    void this.#runTracked('scheduler');
+    if (!this.#queue.ready() || this.#queue.busy) return;
+    if (!this.#queue.backoffElapsed) return;
+    void this.#queue.runTracked('scheduler');
   }
 
   async tickRefresh(): Promise<void> {
     if (this.#stopped || !tokenNeedsRefresh(this.#ctx, this.#now())) return;
     await refreshSessionToken(this.#ctx);
-  }
-
-  /** Run, and let the outcome drive the backoff the triggers respect. */
-  async #runTracked(trigger: SyncTrigger): Promise<void> {
-    const epoch = this.#ctx.sync.epoch;
-    try {
-      await this.run(trigger);
-      if (this.#stale(epoch)) return;
-      this.#failures = 0;
-      this.#nextAttemptAt = 0;
-      // Whatever is still pending after a successful round starts a fresh
-      // dirty window rather than an already-expired one.
-      this.#lastHi = null;
-      this.#dirtySince = 0;
-    } catch {
-      if (this.#stale(epoch)) return;
-      this.#failures += 1;
-      const base = BACKOFF_MS[Math.min(this.#failures - 1, BACKOFF_MS.length - 1)];
-      const delay = Math.round(base * (1 + (this.#random() - 0.5) * 2 * JITTER_RATIO));
-      this.#nextAttemptAt = this.#now() + delay;
-      // The round itself already logged what went wrong.
-    }
-  }
-
-  #stale(epoch: number): boolean {
-    return this.#stopped || this.#ctx.sync.isStale(epoch);
-  }
-
-  /** A round can only succeed with a session; anything else is silence. */
-  #ready(): boolean {
-    return !this.#stopped && this.#ctx.sync.session !== null;
-  }
-
-  /**
-   * Is the outbox due? Owns the debounce bookkeeping so `tickOutbox` reads as
-   * a straight line.
-   */
-  #dueNow(): number | null {
-    const row = this.#ctx.sqlite
-      .prepare('SELECT MAX(local_seq) AS hi FROM sync_changes WHERE synced_at IS NULL')
-      .get() as { hi: number | null } | undefined;
-    const hi = row?.hi ?? null;
-    const now = this.#now();
-
-    if (hi === null) {
-      this.#lastHi = null;
-      this.#dirtySince = 0;
-      return null;
-    }
-    if (hi !== this.#lastHi) {
-      this.#lastHi = hi;
-      this.#hiChangedAt = now;
-      if (this.#dirtySince === 0) this.#dirtySince = now;
-    }
-    if (now < this.#nextAttemptAt) return null;
-    const settled = now - this.#hiChangedAt >= QUIET_MS;
-    const starved = now - this.#dirtySince >= MAX_WAIT_MS;
-    return settled || starved ? hi : null;
   }
 
   // ── the server's event stream ──
@@ -317,8 +202,8 @@ export class SyncHandles implements SyncBackgroundHandles {
     try {
       this.#unsubscribe = session.client.subscribeEvents(session.workspaceId, {
         onChange: () => {
-          if (this.#stale(epoch)) return;
-          void this.#runTracked('remote');
+          if (this.#queue.stale(epoch)) return;
+          void this.#queue.runTracked('remote');
         },
         onError: (err) => {
           // The SDK does not reconnect (it is deliberately stateless), so the

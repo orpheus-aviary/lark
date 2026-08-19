@@ -15,16 +15,12 @@
 // waits for the round in flight to unwind, and the round in flight is this
 // one. `dropSession` bumps the epoch and returns.
 
-import {
-  RETENTION_MS,
-  type RunSyncResult,
-  SyncAuthRequiredError,
-  classifySyncFailure,
-  countUnresolvedConflicts,
-  runRetention,
-  runSync,
-} from '@lark/core';
-import type { AppContext } from '../context.js';
+import { SyncAuthRequiredError } from '../errors.js';
+import { countUnresolvedConflicts } from '../sync/conflicts.js';
+import { type RunSyncResult, runSync } from '../sync/engine.js';
+import { RETENTION_MS, runRetention } from '../sync/retention.js';
+import { classifySyncFailure } from '../sync/retry.js';
+import type { CoordinatorContext } from './context.js';
 
 /** What asked for this round. Only ever used for the log line. */
 export type SyncTrigger = 'manual' | 'scheduler' | 'outbox' | 'remote' | 'boot';
@@ -45,7 +41,7 @@ export interface RunRoundOptions {
  * never produce it.
  */
 export async function runSyncRound(
-  ctx: AppContext,
+  ctx: CoordinatorContext,
   options: RunRoundOptions,
 ): Promise<RunSyncResult> {
   const session = ctx.sync.session;
@@ -57,13 +53,15 @@ export async function runSyncRound(
 
   try {
     const result = await runSync({
-      sqlite: ctx.sqlite,
+      sqlite: ctx.db.sqlite,
       client: session.client,
       serverId: session.serverId,
       workspaceId: session.workspaceId,
       fileOps: ctx.fileOps,
       logger: ctx.logger,
       signal: options.signal,
+      nowMs: ctx.now,
+      pullLimit: ctx.pullLimit,
     });
 
     // A login or a logout replaced the session while this was in flight. Its
@@ -71,7 +69,7 @@ export async function runSyncRound(
     // as the current state would overwrite what that lifecycle change set.
     if (ctx.sync.isStale(epoch)) return result;
 
-    ctx.sync.noteSuccess(Date.now());
+    ctx.sync.noteSuccess(ctx.now());
     announce(ctx, result);
     maybeTrimOutbox(ctx);
     emitStatus(ctx);
@@ -116,8 +114,8 @@ export async function runSyncRound(
   }
 }
 
-export function emitStatus(ctx: AppContext): void {
-  ctx.eventsBus.emit({ type: 'sync:status_changed', state: ctx.sync.state });
+export function emitStatus(ctx: CoordinatorContext): void {
+  ctx.events.emit({ type: 'sync:status_changed', state: ctx.sync.state });
 }
 
 /**
@@ -127,18 +125,18 @@ export function emitStatus(ctx: AppContext): void {
  * changed because another device edited it is not a different kind of change
  * to a GUI, and inventing sync-specific events would double every listener.
  */
-function announce(ctx: AppContext, result: RunSyncResult): void {
+function announce(ctx: CoordinatorContext, result: RunSyncResult): void {
   if (result.applied > 0) {
-    if (result.songsTouched) ctx.eventsBus.emit({ type: 'songs:changed' });
-    if (result.playlistsTouched) ctx.eventsBus.emit({ type: 'playlists:changed' });
+    if (result.songsTouched) ctx.events.emit({ type: 'songs:changed' });
+    if (result.playlistsTouched) ctx.events.emit({ type: 'playlists:changed' });
     for (const songId of new Set(result.lyricsTouched)) {
-      ctx.eventsBus.emit({ type: 'lyrics:changed', song_id: songId });
+      ctx.events.emit({ type: 'lyrics:changed', song_id: songId });
     }
   }
   if (result.conflicts > 0) {
-    ctx.eventsBus.emit({
+    ctx.events.emit({
       type: 'conflicts:changed',
-      count: countUnresolvedConflicts(ctx.sqlite),
+      count: countUnresolvedConflicts(ctx.db.sqlite),
     });
   }
 }
@@ -149,12 +147,12 @@ function announce(ctx: AppContext, result: RunSyncResult): void {
  * Per round would be wasteful — the DELETE walks the outbox — and per boot
  * would never fire on a daemon that runs for weeks, which is the normal case.
  */
-function maybeTrimOutbox(ctx: AppContext): void {
-  const now = Date.now();
+function maybeTrimOutbox(ctx: CoordinatorContext): void {
+  const now = ctx.now();
   const last = ctx.sync.lastRetentionAt;
   if (last !== null && now - last < RETENTION_INTERVAL_MS) return;
   ctx.sync.lastRetentionAt = now;
-  const trimmed = runRetention(ctx.sqlite, { nowMs: now });
+  const trimmed = runRetention(ctx.db.sqlite, { nowMs: now });
   if (trimmed.removed > 0) {
     ctx.logger.info(
       { removed: trimmed.removed, before: trimmed.before, retention_ms: RETENTION_MS },

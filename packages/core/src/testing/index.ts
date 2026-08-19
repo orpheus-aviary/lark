@@ -6,7 +6,9 @@
 
 export * from '../db/fixture-go-db.js';
 export * from './audio-fixtures.js';
+export * from './coordinator-harness.js';
 export * from './fake-media-tools.js';
+export * from './fake-skybridge.js';
 export * from './fake-upstream.js';
 export * from './mp3-fixture.js';
 export * from './tone-wav.js';

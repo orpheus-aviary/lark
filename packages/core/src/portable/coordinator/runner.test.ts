@@ -2,25 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SyncAuthRequiredError } from '@lark/core';
 import type { LarkEvent, SyncLoginRequest } from '@lark/shared';
 import { ApiError } from '@orpheus-aviary/skybridge-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  type TestContext,
-  closeTestContext,
-  createTestContext,
-} from '../testing/build-test-server.js';
-import {
+  type CoordinatorHarness,
   type FakeSkybridge,
+  createCoordinatorHarness,
   createFakeSkybridge,
   remoteSongCreate,
-} from '../testing/fake-skybridge.js';
+} from '../../testing/index.js';
+import { SyncAuthRequiredError } from '../errors.js';
 import { performSyncLogin } from './login.js';
 import { runSyncRound } from './runner.js';
 
 let nest: string;
-let ctx: TestContext;
+let ctx: CoordinatorHarness;
 let fake: FakeSkybridge;
 let events: LarkEvent[];
 
@@ -35,15 +32,14 @@ beforeEach(async () => {
   vi.stubEnv('LARK_NEST_DIR', nest);
   mkdirSync(join(nest, 'lark'), { recursive: true });
   fake = createFakeSkybridge();
-  ctx = createTestContext({ skybridge: fake.api });
-  events = [];
-  ctx.eventsBus.subscribe((event) => events.push(event));
+  ctx = createCoordinatorHarness({ api: fake.api });
+  events = ctx.events.emitted;
   await performSyncLogin(ctx, request);
   events.length = 0;
 });
 
-afterEach(async () => {
-  await closeTestContext(ctx);
+afterEach(() => {
+  ctx.close();
   vi.unstubAllEnvs();
   rmSync(nest, { recursive: true, force: true });
 });

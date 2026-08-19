@@ -15,7 +15,7 @@ import type {
   LocalChange,
   ServerChange,
 } from '@orpheus-aviary/skybridge-proto';
-import type { AuthContext, SkybridgeApi, SkybridgeClient } from '../sync/client.js';
+import type { AuthContext, SkybridgeApi, SkybridgeClient } from '../portable/coordinator/client.js';
 
 /** Every call the daemon makes, in the order it makes them. */
 export type FakeSkybridgeCall =

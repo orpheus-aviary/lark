@@ -16,9 +16,8 @@
 // triggers and the runner through `attachHandles`, and everything here needs
 // from them is "stop, and tell me when the in-flight round has unwound".
 
-import type { RunSyncResult } from '@lark/core';
 import type { SyncAuthReason, SyncState } from '@lark/shared';
-import { type SkybridgeApi, realSkybridgeApi } from './client.js';
+import type { RunSyncResult } from '../sync/engine.js';
 import type { SyncTrigger } from './runner.js';
 import type { SyncSession } from './session.js';
 
@@ -41,15 +40,11 @@ export interface SyncBackgroundHandles {
 }
 
 export interface SyncRuntimeOptions {
-  /** The SDK surface. Tests pass a fake; boot passes the real one. */
-  api?: SkybridgeApi;
   /** Run the background triggers (timers + server subscription). Default true. */
   triggers?: boolean;
 }
 
 export class SyncRuntime {
-  readonly api: SkybridgeApi;
-
   #session: SyncSession | null = null;
   #epoch = 0;
   /** Tail of the lifecycle chain — the mutex, as a promise nobody rejects. */
@@ -72,7 +67,6 @@ export class SyncRuntime {
   readonly triggersEnabled: boolean;
 
   constructor(options: SyncRuntimeOptions = {}) {
-    this.api = options.api ?? realSkybridgeApi;
     this.triggersEnabled = options.triggers ?? true;
   }
 

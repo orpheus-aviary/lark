@@ -6,6 +6,8 @@ import type {
   LarkDatabase,
   MediaToolsProvider,
   PortableDb,
+  SkybridgeApi,
+  SyncRuntime,
 } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type BetterSqlite3 from 'better-sqlite3';
@@ -15,7 +17,7 @@ import type { EventsBus } from './events/bus.js';
 import type { GuiChannel } from './events/gui-channel.js';
 import type { DaemonLifecycle } from './lifecycle.js';
 import type { PlayerRuntime } from './player-runtime.js';
-import type { SyncRuntime } from './sync/runtime.js';
+
 import { DAEMON_VERSION } from './version.js';
 
 /** Loopback only. The daemon is a local service; nothing binds a public NIC. */
@@ -107,6 +109,14 @@ export interface BaseContext {
    * second client would be a second identity to risk control.
    */
   bilibili: BilibiliClient;
+  /**
+   * The skybridge SDK surface the coordinator talks through (N1f).
+   *
+   * On the base context because it is a constant handle, not a session: it
+   * exists before there is anything to log in to, and tests substitute it
+   * wholesale rather than mocking a module.
+   */
+  skybridge: SkybridgeApi;
   /**
    * Aborted when the daemon starts stopping (M3-13).
    *

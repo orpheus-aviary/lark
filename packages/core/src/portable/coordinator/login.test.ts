@@ -2,27 +2,28 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SyncLoginRequest } from '@lark/shared';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readSkybridgeCredentials } from '../../config/skybridge.js';
+import * as paths from '../../paths.js';
+import {
+  type CoordinatorHarness,
+  type FakeSkybridge,
+  createCoordinatorHarness,
+  createFakeSkybridge,
+  makeDevice,
+} from '../../testing/index.js';
 import {
   SyncBindingMismatchError,
   SyncInsecureUrlError,
   SyncSchemaVersionMismatchError,
-  paths,
-  readBinding,
-  readSkybridgeCredentials,
-  readSkybridgeDeviceId,
-} from '@lark/core';
-import type { SyncLoginRequest } from '@lark/shared';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  type TestContext,
-  closeTestContext,
-  createTestContext,
-} from '../testing/build-test-server.js';
-import { type FakeSkybridge, createFakeSkybridge, makeDevice } from '../testing/fake-skybridge.js';
+} from '../errors.js';
+import { readBinding } from '../sync/binding.js';
+import { readSkybridgeDeviceId } from '../sync/device.js';
 import { performSyncLogin } from './login.js';
 
 let nest: string;
-let ctx: TestContext;
+let ctx: CoordinatorHarness;
 let fake: FakeSkybridge;
 
 const request: SyncLoginRequest = {
@@ -36,11 +37,11 @@ beforeEach(() => {
   vi.stubEnv('LARK_NEST_DIR', nest);
   mkdirSync(join(nest, 'lark'), { recursive: true });
   fake = createFakeSkybridge();
-  ctx = createTestContext({ skybridge: fake.api });
+  ctx = createCoordinatorHarness({ api: fake.api });
 });
 
-afterEach(async () => {
-  await closeTestContext(ctx);
+afterEach(() => {
+  ctx.close();
   vi.unstubAllEnvs();
   rmSync(nest, { recursive: true, force: true });
 });
@@ -161,7 +162,7 @@ describe('refusals', () => {
     fake.calls.length = 0;
 
     const other = createFakeSkybridge({ userId: 'user-2' });
-    ctx.sync.api.login = other.api.login;
+    ctx.api.login = other.api.login;
 
     await expect(performSyncLogin(ctx, request)).rejects.toThrow(SyncBindingMismatchError);
     // Nothing was registered this round, so nothing is revoked — but the token

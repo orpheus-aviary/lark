@@ -59,6 +59,12 @@ importers:
       '@noble/hashes':
         specifier: 2.3.0
         version: 2.3.0
+      '@orpheus-aviary/skybridge-client':
+        specifier: 0.1.4
+        version: 0.1.4
+      '@orpheus-aviary/skybridge-proto':
+        specifier: 0.1.4
+        version: 0.1.4
       better-sqlite3:
         specifier: 12.11.1
         version: 12.11.1

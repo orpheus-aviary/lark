@@ -12,6 +12,16 @@
 // and friends); this barrel is the entry point OUTSIDE the package.
 
 export * from './contract/index.js';
+export * from './coordinator/client.js';
+export * from './coordinator/context.js';
+export * from './coordinator/login.js';
+export * from './coordinator/logout.js';
+export * from './coordinator/refresh.js';
+export * from './coordinator/rounds.js';
+export * from './coordinator/runner.js';
+export * from './coordinator/runtime.js';
+export * from './coordinator/session.js';
+export * from './coordinator/status.js';
 export * from './db.js';
 export * from './download/bilibili.js';
 export * from './download/claims.js';

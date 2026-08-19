@@ -44,6 +44,16 @@ export * from './migration/scanner.js';
 export * from './migration/verify.js';
 // sync (v0.2). The engine and apply land in T2; these are what the write
 // paths and the daemon already need.
+export * from './portable/coordinator/client.js';
+export * from './portable/coordinator/context.js';
+export * from './portable/coordinator/login.js';
+export * from './portable/coordinator/logout.js';
+export * from './portable/coordinator/refresh.js';
+export * from './portable/coordinator/rounds.js';
+export * from './portable/coordinator/runner.js';
+export * from './portable/coordinator/runtime.js';
+export * from './portable/coordinator/session.js';
+export * from './portable/coordinator/status.js';
 export * from './portable/sync/apply.js';
 export * from './portable/sync/backfill.js';
 export * from './portable/sync/binding.js';

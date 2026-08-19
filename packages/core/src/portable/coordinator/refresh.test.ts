@@ -1,22 +1,22 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readSkybridgeCredentials } from '@lark/core';
 import type { SyncLoginRequest } from '@lark/shared';
 import { ApiError } from '@orpheus-aviary/skybridge-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { readSkybridgeCredentials } from '../../config/skybridge.js';
 import {
-  type TestContext,
-  closeTestContext,
-  createTestContext,
-} from '../testing/build-test-server.js';
-import { type FakeSkybridge, createFakeSkybridge } from '../testing/fake-skybridge.js';
+  type CoordinatorHarness,
+  type FakeSkybridge,
+  createCoordinatorHarness,
+  createFakeSkybridge,
+} from '../../testing/index.js';
 import { performSyncLogin } from './login.js';
 import { performSyncLogout } from './logout.js';
 import { REFRESH_MARGIN_MS, refreshSessionToken, tokenNeedsRefresh } from './refresh.js';
 
 let nest: string;
-let ctx: TestContext;
+let ctx: CoordinatorHarness;
 let fake: FakeSkybridge;
 
 const SERVER_TIME = 1_700_000_000_000;
@@ -33,12 +33,12 @@ beforeEach(async () => {
   vi.stubEnv('LARK_NEST_DIR', nest);
   mkdirSync(join(nest, 'lark'), { recursive: true });
   fake = createFakeSkybridge({ serverTimeMs: SERVER_TIME });
-  ctx = createTestContext({ skybridge: fake.api });
+  ctx = createCoordinatorHarness({ api: fake.api });
   await performSyncLogin(ctx, request);
 });
 
-afterEach(async () => {
-  await closeTestContext(ctx);
+afterEach(() => {
+  ctx.close();
   vi.unstubAllEnvs();
   rmSync(nest, { recursive: true, force: true });
 });
@@ -164,7 +164,7 @@ function gatedRefresh(): { entered: Promise<void>; release: () => void } {
   const started = new Promise<void>((resolve) => {
     entered = resolve;
   });
-  ctx.sync.api.refresh = async () => {
+  ctx.api.refresh = async () => {
     entered();
     await gate;
     return { token: 'token-late', refreshToken: 'refresh-late', expiresAt: EXPIRES_AT };
