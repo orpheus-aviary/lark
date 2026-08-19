@@ -1,6 +1,6 @@
 # Phase B 子计划：N2 —— `apps/mobile` 本体 + 身份门 + 数据层 + 服务层接线 + 四 tab 骨架
 
-> 2026-08-19 **v3（二轮评审收敛）**。修订对照见 §8；决策 a–o **全部未关闭**。上承主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4.3 N2 行 + N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md` §5 N2 段 + N1 子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md` §8.1（D5 分段冻结，单一事实源）。
+> 2026-08-19 **v3（二轮评审收敛）**，同日 **决策 a–o 全部关闭**（用户拍板「照建议关」，正文在 §5；建议里留白的三处由本次一并定死：决策 c 的 key/默认值/非法值/版本、决策 a 的 minSdk、决策 o 的判据 14 身份路径）。修订对照见 §8。上承主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4.3 N2 行 + N0 子计划 `docs/plans/2026-08-17-phase-b-mobile-n0.md` §5 N2 段 + N1 子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md` §8.1（D5 分段冻结，单一事实源）。
 >
 > 调查方法：portable 出口面盘点（N1 产物）+ spike 现有实现盘点 + **expo-file-system 57.0.4 的 Android Kotlin 源码逐段读** + 一轮评审的反例逐条代码复核。file:line 落到 **HEAD `370ba2e`**。桌面测试基线 **2578**（逐包数以开工当天 `just test` 为准）。
 >
@@ -162,7 +162,7 @@ v1 只写了 brand-new 那一行，却又要求「打开真实 v3」「验证未
 apps/mobile (@lark/mobile, Expo SDK 57 + CNG，Android only)
 ├── app.config.ts        # 一切影响原生工程的东西写在这里（android/ 是 CNG 产物，不进仓）
 ├── plugins/             # CNG config plugin（改 manifest / gradle）：D16 的 backup 排除
-├── modules/             # 我方 Expo native module（若决策 a 取①）：Kotlin 源码 + expo-module.config.json
+├── modules/             # 我方 Expo native module（决策 a = ①）：Kotlin 源码 + expo-module.config.json
 │   └── lark-fs/         #   autolinking 由 expo-modules-autolinking 按此目录发现
 ├── src/
 │   ├── boot/            # §2.2 的启动序列，一条线，不散在各处
@@ -175,7 +175,7 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG，Android only)
 └── acceptance/          # 仅验收构建可达：contract hook、seedSong、DB 注入、崩溃钩子（决策 o）
 ```
 
-- **CNG config plugin ≠ Expo native module**（v2 修正）：前者改生成出来的原生工程，后者是我们自己的原生代码 + autolinking。决策 a 若取①，产物落 `modules/`，不是 `plugins/`。
+- **CNG config plugin ≠ Expo native module**（v2 修正）：前者改生成出来的原生工程，后者是我们自己的原生代码 + autolinking。决策 a 取①，产物落 `modules/lark-fs/`，不是 `plugins/`。
 - **applicationId 用 D14 的 `com.orpheusaviary.lark`**，不是 spike 的 `…lark.spike`——两者必须不同，否则第一次装真包会继承 spike 的 data 目录（N0b-1 实测）。
 - **spike 不退役**（决策 d）：它继续持有平台探针与 `drive.mjs` / `probe-host.mjs`，但那两个脚本要**参数化 package 与 app root**（§1.9）。
 
@@ -232,7 +232,7 @@ SecureStore 两个 key（沿用 spike 的前缀，由 N2 正式定义）：`lark
 | `statSync(path)` | `new File(uri).info()` → `{ size }`；不存在回 `null` | `info()` 同步。**「不存在」是返回值不是异常**（`fs.ts:10-13`） |
 | `unlinkSync(path)` | `exists` 判 + `delete()` | `delete()` 同步且「不存在即抛」，所以先问 `exists` |
 | `readText(path)` | `text()`，不存在回 `null` | 其余错误**原样抛宿主的**（`fs.ts:15-17`），不翻译 |
-| `writeTextAtomic(path, text)` | **见决策 a** | 同目录 `.<basename>.<uuid>.tmp` 的命名要保住（`fs.ts:56-59`，扫残留按前缀）；**父目录自动创建**（`fs.ts:45`） |
+| `writeTextAtomic(path, text)` | **`modules/lark-fs` 的 `Files.move(…, REPLACE_EXISTING, ATOMIC_MOVE)`**（决策 a = ①，后台 `AsyncFunction`） | 同目录 `.<basename>.<uuid>.tmp` 的命名要保住（`fs.ts:56-59`，扫残留按前缀）；**父目录自动创建**（`fs.ts:45`） |
 | `unlink(path)` | 同 `unlinkSync` 的 async 包装 | |
 
 `PathsPort` 的根 = 移动 nest 根（决策 b）。`CANONICAL_AUDIO_FILE` / `LEGACY_AUDIO_FILE` 已在 `portable/ports/paths.ts:33,41`。
@@ -245,7 +245,7 @@ SecureStore 两个 key（沿用 spike 的前缀，由 N2 正式定义）：`lark
 | `0` 且 schema 空 | 正向迁移 `0 → 3`，**然后 `clearAudioMigrationPending`**（只有这一格清） |
 | `0` 且 Go 旧库指纹 | 拒绝并报「不支持」（`isGoLegacyDb` 判定保留，`migrate.ts:93`） |
 | `0` 且其它非空 | 拒绝（`IncompatibleDbError`） |
-| `1` / `2` | **决策 m**：拒绝 / 迁移 / 特殊恢复三选一 |
+| `1` / `2` | **拒绝**（决策 m 已关闭），报一句人话：这个库来自更早的桌面版本，移动端不迁移 |
 | `3` | `assertCurrentSchema` 后打开；**不碰 pending 标志** |
 
 **所有拒绝路径在设 WAL 之前完成并关掉 handle**（M1「判定前零写入」，桌面有字节级不变断言）。
@@ -266,9 +266,9 @@ export function nowPlayingTitle(input: {
 
 - **放 `shared` 不放 `portable`**：不碰数据库，`LrcLine` 本来就在 shared，两端都已依赖它。
 - **回落四条**（v2 由五条合并而来，§1.10），全部回**歌名**而不是空串：① `mode === 'title'`；② **`lyrics.length === 0`**（涵盖「没有歌词」与「纯文本无时间戳」——`parseLrc` 对两者都给 `[]`，函数分不开也不该假装分得开）；③ `currentLrcIndex` 回 `-1`（还在第一行之前）；④ 命中的那一行是空串（间奏）。
-- **长度上限**（决策 h）：要定死**单位**（UTF-16 code unit / code point / grapheme / 字节）与**截断方式**——直接 `slice(0,64)` 会把 emoji 或代理对切成半个；还要定**歌名回落本身受不受这个上限约束**。
+- **长度上限**（决策 h 已关闭）：**64 个 Unicode code point**，按 code point 截断（`[...s]` 而不是 `slice`，否则 emoji 与代理对会被切成半个），**歌名回落同样受限**。64 这个数字没有实测支撑，判据只断言「有上限且不切半个字符」。
 - **不造 port 抽象**：N3 的 adapter 是 mobile 播放层直接调 `updateLockScreenMetadata`。节流口径先记在这里：按 `currentLrcIndex` 的**返回值变了**触发而不是按时间，再压 ≥500ms 下限——AVRCP 与 A2DP 共用同一条 ACL 链路；**去重必须在我们这侧成立**，不依赖 expo-audio 自带那层。
-- **N2g 不是零耦合**（v2 修正）：config 字段若按决策 c 落 `local_metadata`，它就依赖 N2b 的库打开；纯函数那半才是零耦合。
+- **N2g 不是零耦合**（v2 修正）：config 字段按决策 c 落 `local_metadata`（key `now_playing_mode`，值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'`），它因此依赖 N2b 的库打开；纯函数那半才是零耦合。
 
 ---
 
@@ -278,7 +278,7 @@ export function nowPlayingTitle(input: {
 
 | 批 | 内容 | 本批 gate |
 |---|---|---|
-| **N2a** | `apps/mobile` 立项：Expo 57 + CNG 脚手架、依赖与 spike 逐字节同版、`app.config.ts`（D14 的 applicationId、minSdk 见决策 a）、`just` recipes、**守卫扩面**（现有两条守卫的作用域从 spike 扩到 spike + mobile，**不新增编号**）、驱动脚本参数化 package/app root | 判据 1–4；桌面零回归 |
+| **N2a** | `apps/mobile` 立项：Expo 57 + CNG 脚手架、依赖与 spike 逐字节同版、`app.config.ts`（D14 的 applicationId、**minSdk 26**）、`just` recipes、**守卫扩面**（现有两条守卫的作用域从 spike 扩到 spike + mobile，**不新增编号**）、驱动脚本参数化 package/app root | 判据 1–4；桌面零回归 |
 | **N2b** | 数据层原语：shim + `portableDbOf` 毕业、drizzle patch 接线、**完整打开分派（§2.4）**、bootstrap、**`ensureDeviceUuid` 下沉进 portable + 桌面改调下沉版** | 判据 5–8（**判据 8 是 gate**）；桌面 `db/index.test.ts` 原样绿 |
 | **N2c** | **D16 身份门**：SecureStore 两个 key、§2.2.1 状态机、copy-then-open、fresh 身份声明、收敛（§2.2.2）、启动序列 §2.2 全条接线 + **验收注入通道**（决策 o） | 判据 16a、16b、17、18、19（**五组全是 gate**） |
 | **N2d** | 端口实现：FileSystem / Paths + logger + **file-op 执行器与 boot drain**；**决策 a 的产物**（原子替换）+ 它的反测 | 判据 9–12（**判据 10 是 gate**） |
@@ -299,7 +299,7 @@ export function nowPlayingTitle(input: {
 4. **Metro bundle smoke 覆盖 mobile**：模块图里没有 Node builtin、没有 better-sqlite3、没有 `@lark/core` 非 portable 子路径。反测两条都要点着，且报出**具体是哪个文件**。
 
 **数据层**
-5. **打开分派六格各一条用例**（§2.4）：`>3` / fresh / Go 指纹 / 未知 v0 / v1·v2（按决策 m）/ v3。拒绝路径断言**库文件字节未变且无 `-wal`/`-shm`**（判定前零写入）。
+5. **打开分派六格各一条用例**（§2.4）：`>3` / fresh / Go 指纹 / 未知 v0 / v1·v2（**拒绝**，决策 m）/ v3。拒绝路径断言**库文件字节未变且无 `-wal`/`-shm`**（判定前零写入）。
 6. fresh 库跑完 `0 → 3`，`user_version = 3` 且 `audio_migration_pending = '0'`（**行还在、值是 `'0'`**）；v3 现有库打开**不碰**该标志。
 7. **桌面 mp3 迁移语义在移动端不可达**：模块图里没有 `migration/` 任何模块。
 8. **【gate】`ensureDeviceUuid` 下沉**：fresh 库 / 已有 v3 库 / D16 收敛后的库三条都拿到合法 uuid v4，重开幂等；**桌面 `db/index.test.ts` 的四条原样绿**（零行为变化）。反测：跳过第 ⑦ 步 → 第一次 `deleteSong`/`createPlaylist` 抛 `readLocalDeviceUuid` 那个错。
@@ -311,7 +311,7 @@ export function nowPlayingTitle(input: {
     - ② 临时文件是**同目录兄弟**、命名可被前缀扫描识别。
     - ③ **父目录自动创建**；**写失败时旧文件原样保留**；**失败后不留 tmp 残渣**。
     - ④ **`ATOMIC_MOVE` 不被支持时必须失败，不许静默降级**成 copy+delete。
-    - ⑤ 若决策 a 保留 minSdk 24：**在一台 API 24/25 模拟器上跑完 ①–④**。
+    - ⑤ **minSdk = 26**（决策 a）：断言**构建出来的 APK 的合并 manifest** 里 `minSdkVersion` 是 26，不是读 `app.config.ts`。API 24/25 那条备路随决策 a 一并取消。
 11. `installPortableRuntime()` 未调用时，第一次 mint uuid **抛**（`no RandomSource`），不是静默产坏 uuid。
 12. **file-op 执行器与 boot drain**——按 op 面而不是按一条路径（v3 扩，二轮评审：v2 只测本地删歌，一个只实现了本地删除的执行器能通过）：
     - ① **四种 op 各一条**：`delete_song_files`（本地）· `delete_song_files`（远端，`audio_origin` 的 `downloaded` / `imported` / `null` **三分支** × `lyrics_disposition` 的 `delete` / `quarantine`）· `quarantine_song_files` · `write_lyrics` · `delete_lyrics`。
@@ -325,7 +325,7 @@ export function nowPlayingTitle(input: {
 13. **【gate】LibraryContract 18 例在 mobile hook 上真机全绿**（含 cache 与 transfer 那两例），`daemon` / `cli-direct` 两个 hook 不受影响。四个错误类的映射各命中一次。**破法验证**：删掉 `requiredName` 的 `.trim()` → mobile hook 必须红。
 
 **曲库与骨架**
-14. 一份**真实 v3 曲库副本**经决策 o 的注入通道进入设备后（**含 D16 侧的预期路径说明**）：四 tab 可切、按决策 n 定下的每个排序字段各出一次、搜索命中、歌单详情可拖柄重排；重排后杀进程重开顺序仍在。
+14. 一份**真实 v3 曲库副本**经决策 o 的注入通道进入设备后（导入通道同时把 DB 侧 `install_id` 写成本机 committed 值 → 启动判成 **normal**，不触发收敛）：四 tab 可切、按决策 n 定下的每个排序字段各出一次、搜索命中、歌单详情可拖柄重排；重排后杀进程重开顺序仍在。
 15. 写路径各一条：改歌名 / 改歌手 / 固定 / **删歌（journal 已消费且 `songs/<id>/` 已删除）** / 建歌单 / 改名 / 删歌单 / 加歌 / 移除。
 
 **D16（五组，全是 gate；v3 把 v2 的判据 16 拆成 16a/16b）**
@@ -343,29 +343,31 @@ export function nowPlayingTitle(input: {
 
 **蓝牙歌词**
 20. `nowPlayingTitle` 单测覆盖 §2.5 的**四条**回落 + 长度上限（按决策 h 定下的单位，含一条 emoji/代理对不被切半）+ 正常命中。**每条都要有反测**：把该分支删掉 → 那条必须红。
-21. config 字段按决策 c 落地并可读回，**含非法值回落**；**N2 不断言任何蓝牙行为**（没有播放器、没有设备）。
+21. config 字段 `now_playing_mode` 落 `local_metadata` 并可读回（决策 c）：缺行 → `'title'`；写 `'lyrics'` → 读回 `'lyrics'`；**塞一个非法串（含空串）→ 读回 `'title'` 且库里那一行未被改写**（读路径不修库）。**N2 不断言任何蓝牙行为**（没有播放器、没有设备）。
 
 ---
 
-## §5 待拍板决策（a–o，**全部未关闭**）
+## §5 决策（a–o，**2026-08-19 全部关闭**）
 
-| # | 决策 | 建议 |
+用户拍板「a、l、o 照建议关，其余也照建议关」。下表的**结论**列即定案；建议里三处留白由本次一并定死，各自标了「**本次定死**」。
+
+| # | 决策 | 结论（已关闭） |
 |---|---|---|
-| **a** | **原子替换**（§1.5）：① 自建 Expo native module（`Files.move(..., REPLACE_EXISTING, ATOMIC_MOVE)`，落 `modules/lark-fs/`）；② `pnpm patch` expo-file-system 去掉目标预删；③ 放弃原子性改「写 `.new` + 启动清扫」。**外加两个子问题**：minSdk 升 26 还是给 24/25 备路；判据 10① 用 instrumentation 还是把 move 做成后台 `AsyncFunction` | **①+ minSdk 升 26**。①的边际成本低且跨 SDK 升级不会静默失效；②打在别人的 Kotlin 上更脆；③直接弱化冻结不变量（歌词是库里唯一不可重下的文档，`fs.ts:49`），**必须用户显式拍板**。minSdk 26 顺带消掉 `FileSystemModule.kt:32` 的 `@RequiresApi(O)` 缺口；若要保 24，判据 10⑤ 是硬要求。**move 做成 `AsyncFunction`** 一并解决判据 10① 的可观测性 |
+| **a** | **原子替换**（§1.5）：① 自建 Expo native module（`Files.move(..., REPLACE_EXISTING, ATOMIC_MOVE)`，落 `modules/lark-fs/`）；② `pnpm patch` expo-file-system 去掉目标预删；③ 放弃原子性改「写 `.new` + 启动清扫」。**外加两个子问题**：minSdk 升 26 还是给 24/25 备路；判据 10① 用 instrumentation 还是把 move 做成后台 `AsyncFunction` | **取 ①，minSdk 升 26**。①的边际成本低且跨 SDK 升级不会静默失效；②打在别人的 Kotlin 上更脆；③直接弱化冻结不变量（歌词是库里唯一不可重下的文档，`fs.ts:49`）。minSdk 26 顺带消掉 `FileSystemModule.kt:32` 的 `@RequiresApi(O)` 缺口，**判据 10⑤ 因此改成「断言合并后的 manifest 里 minSdkVersion = 26」**，不再需要 API 24/25 模拟器。**本次定死**：`modules/lark-fs` 的 move 是后台 `AsyncFunction`（理由只是「别卡 JS 线程」），**判据 10① 一律走 Android instrumentation 两线程 + barrier**，不拿 `AsyncFunction` 当验证机制 |
 | b | 移动 nest 根与库路径 | `FileSystem.Paths.document` 下 `lark/`，内部布局与桌面同构（`songs.db` + `songs/<id>/`）。注意它**不可 adb push**（§1.9），夹具注入走决策 o |
-| c | config 宿主：① AsyncStorage；② 库里的 `local_metadata`；③ 独立 JSON 文件。**外加**：key 名、默认值、非法值回落、版本策略 | **②**，不引第四种存储且随「只碰一个库文件」的备份故事走。**key/默认值/非法值三件必须一起定**——T5b 的教训：枚举字段没有域校验 = 静默说错协议 |
+| c | config 宿主：① AsyncStorage；② 库里的 `local_metadata`；③ 独立 JSON 文件。**外加**：key 名、默认值、非法值回落、版本策略 | **取 ②**（`local_metadata`），不引第四种存储且随「只碰一个库文件」的备份故事走。**本次定死四件**：<br>· **key** = `now_playing_mode`（`local_metadata.key`，与 `device_uuid` 同表同域——per-install 本地偏好，**不进 `sync_changes`**）；<br>· **值域与默认值** = `'title' \| 'lyrics'`，缺行即 `'title'`（**默认关**：蓝牙歌词在本机无法实测，见 §1.10）；<br>· **非法值回落** = 任何不在值域内的字符串（含空串）读成 `'title'` 并 warn 一次，**不抛也不写回**（读路径不修库）；<br>· **版本策略** = 不设版本字段。`local_metadata` 是 KV，未知 key 一律忽略、缺 key 即默认值；语义变了就换 key 名，不做原地重解释 |
 | d | spike 与 `apps/mobile` 的关系 | **复制 + spike 保留**（驱动设施还要用）。两份 shim 会漂移，所以**契约是唯一真相**：两边都跑 DatabaseContract |
 | e | 「添加」tab 在 N2 做什么（没有下载链路） | 显式空态 + 一句「N4 开放」，**不做半个粘贴框** |
 | f | LibraryContract mobile hook 跑在哪 | **真机**（release 构建 + 决策 o 的验收构建），不是桌面 jsdom |
 | g | `nowPlayingTitle` 落 `@lark/shared` 还是 `portable` | **shared**（§2.5 已给理由） |
-| h | 蓝牙歌词长度上限的**单位与截断方式**，以及歌名回落受不受限 | 先取 **64 个 Unicode code point**、按 code point 截断（不切代理对）、**歌名回落同样受限**；数值没有实测支撑，判据只断言「有上限且不切半个字符」，**不把 64 当契约** |
+| h | 蓝牙歌词长度上限的**单位与截断方式**，以及歌名回落受不受限 | **64 个 Unicode code point**、按 code point 截断（不切代理对）、**歌名回落同样受限**；数值没有实测支撑，判据只断言「有上限且不切半个字符」，**不把 64 当契约** |
 | i | 移动端 `audioMode` | 恒 `canonical`（移动端没有 0.2.x 遗留库） |
 | **j** | **`device_uuid`**（§1.7）：下沉函数的签名与位置；以及 **D16 收敛后旧库里的 `device_uuid` 要不要重建** | 下沉为 `portable/db-identity.ts` 的 `ensureDeviceUuid(sqlite: SqliteLike, logger?)`，uuid 取 Random 端口；桌面 re-export。**收敛后必须重建**——它的定义是「this install's local identity」（`changes.ts:99`），留旧值等于两台安装共享身份，而同步的墓碑与回声判定全靠它 |
 | **k** | **file-op 执行器提前到 N2**（§1.8）：接受，还是改判据 13/15 的口径。**外加**：控制面提取进 portable，还是移动端另写一套 scheduler | **接受提前 + 提取控制面**。`FileEffectRuntime`（424 行）里调度那一半与宿主无关（`drain`/`retry`/`discard`/`#drainOnce`/`#tryClaim`/`#recordFailure`/dead-letter），只有 `node:fs` 动作与路径解析是宿主的。两套 scheduler 到 N5 双端同步时必然漂移，且漂移表现成「同一条 op 在两台设备上退避次数不同」——这种病没人会往调度器上想 |
-| **l** | **D16 的状态与清理面**——**v3 已把正文写进 §2.2.1 / §2.2.2**，这里只剩拍板：两个 SecureStore key 名 · 状态转移表 · **写序 SecureStore 先 DB 后** · 收敛清单 · **不清 `sync_file_ops`** · 不复用 `unbindLibrary` · CredentialStore 进 N2 但只做 SecureStore 读写 | 按 §2.2.1/§2.2.2 通过。**最需要你确认的是写序**：它决定了崩溃后哪一种谎更便宜——先 SecureStore 崩掉只值一次覆盖，先 DB 崩掉会把刚建的空库当恢复库清一遍（v2 的 bug 就是这么来的） |
+| **l** | **D16 的状态与清理面**——正文在 §2.2.1 / §2.2.2 | **按 §2.2.1/§2.2.2 全条通过**，含：两个 SecureStore key（`lark.install_id` = committed / `lark.install_intent` = 在途意图）· 状态转移表以**库文件在不在**为判别式 · **写序 SecureStore 先、DB 后**（先 SecureStore 崩只值一次覆盖，先 DB 崩会把刚建的空库当恢复库清一遍）· 收敛清单 · **不清 `sync_file_ops`** · 不复用 `unbindLibrary` · CredentialStore 进 N2 但只做 SecureStore 读写 |
 | **m** | v1/v2 库在首个移动版本里：拒绝 / 迁移 / 特殊恢复 | **拒绝并给一句人话**。移动端不存在自然产生的 v1/v2 库（只可能来自异常恢复），而迁移路径没有桌面那套备份与探活；拒绝是唯一不会悄悄毁数据的选项 |
 | **n** | 排序落点（§1.11） | **只提取 `lib/song-sort.ts` 那一层**（`SortState` / 常量 / `isValidSort` / `toggleOrder` / `withField` / `sortSongs` 比较器）进 `@lark/shared`——它整个是纯的。**`stores/view-prefs.ts` 不动**：它依赖 zustand 与 localStorage，持久化各端各留一个适配器。v2 写「视图偏好整体抽进 shared」是错的（二轮评审） |
-| **o** | **验收注入通道**（§1.9）：真机怎么塞夹具库、怎么打崩溃点，且**不进生产 APK** | 建议一套**具体**的（v3 按二轮评审落地——`acceptance/` 目录本身不构成构建变体）：<br>① **entrypoint 分叉**：`app.config.ts` 读 `LARK_ACCEPTANCE=1`，该值决定入口模块（生产入口不 import `acceptance/`）；<br>② **两个 artifact**：**「release 模式的 acceptance artifact」**（跑判据 13/14/17/18/19 与 file-op 各条）与**「生产 release artifact」**（跑判据 1/16a/16b）——不是「release + acceptance」两个 flag 叠加；<br>③ **applicationId 相同**、同一 keystore 签名，否则 D16 的 backup 判据测的是另一个包（代价：两者不能同时装，验收脚本要显式换装）；<br>④ **夹具经 `adb push` 到外部目录 + acceptance 入口的一次导入**（`Paths.document` 推不进去，§1.9）；<br>⑤ **崩溃点是 acceptance 入口里的显式钩子**，不是 `am force-stop` 猜时机——判据 19 的五个点要能精确打中；<br>⑥ **守卫**：生产 release bundle 的 Metro 图里**不许出现 `acceptance/`**（与判据 4 同一把尺子）；<br>⑦ 驱动脚本参数化 package/app root（`drive.mjs:32` / `backup-audit.mjs:28` 现在写死 `…lark.spike`）。<br>**还要拍板**：判据 14 的真实 v3 副本天然没有移动端 install_id → 它是「预期走一次 converge」还是「测试前把 SecureStore 一并配好」 |
+| **o** | **验收注入通道**（§1.9）：真机怎么塞夹具库、怎么打崩溃点，且**不进生产 APK** | **七条全取**（v3 按二轮评审落地——`acceptance/` 目录本身不构成构建变体）：<br>① **entrypoint 分叉**：`app.config.ts` 读 `LARK_ACCEPTANCE=1`，该值决定入口模块（生产入口不 import `acceptance/`）；<br>② **两个 artifact**：**「release 模式的 acceptance artifact」**（跑判据 13/14/17/18/19 与 file-op 各条）与**「生产 release artifact」**（跑判据 1/16a/16b）——不是「release + acceptance」两个 flag 叠加；<br>③ **applicationId 相同**、同一 keystore 签名，否则 D16 的 backup 判据测的是另一个包（代价：两者不能同时装，验收脚本要显式换装）；<br>④ **夹具经 `adb push` 到外部目录 + acceptance 入口的一次导入**（`Paths.document` 推不进去，§1.9）；<br>⑤ **崩溃点是 acceptance 入口里的显式钩子**，不是 `am force-stop` 猜时机——判据 19 的五个点要能精确打中；<br>⑥ **守卫**：生产 release bundle 的 Metro 图里**不许出现 `acceptance/`**（与判据 4 同一把尺子）；<br>⑦ 驱动脚本参数化 package/app root（`drive.mjs:32` / `backup-audit.mjs:28` 现在写死 `…lark.spike`）。<br>**本次定死**：判据 14 的真实 v3 副本走 **normal**——acceptance 入口的导入通道在落库的同时把 DB 侧 `install_id` 写成本机 committed 值（**导入通道本身是身份感知的**，不是「先推文件再祈祷」）。理由：判据 14 是曲库/UI 判据，而 converge 会清 binding/sync 状态并重建 `device_uuid`——那正是 14 不关心、却足以把它的失败和 D16 的失败搅在一起的东西；converge 路径由判据 17/18 专测，它们注入的是**故意不配身份**的库 |
 
 ---
 

@@ -388,7 +388,9 @@
 
 **N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1i 已完成**（判据 22 的「对新构建产物复跑 accept 全系列」尚未做），桌面测试 **2481 → 2532 → 2571 → 2576 → 2578**；Metro 图 36 → 51 → 80 → 90 → 94 → **97 个 portable 模块**，且 bundle smoke 自 N1i 起就在 `just check` 里（整条 ~9s）。**N1h 之后，一台手机能解析的 core 包含 sync 全图、library 全图、SyncCoordinator、LibraryService 与整条下载编排**——`@lark/core/portable` 之外只剩真正属于这台机器的东西：`db/` 的打开与锁、ffmpeg 与落盘协议（`download/{audio-landing,ffmpeg,resolve,import}.ts`）、file-op 执行器、config、logger、paths 根解析，加上 daemon 的定时器/SSE 壳与 wire 层。**只剩 N1i**（守卫收编 + R1–R5 + D5 分段冻结）。
 
-**N2 子计划已出（2026-08-19，v1 → v2 → v3，两轮评审收敛）**——`docs/plans/2026-08-19-phase-b-mobile-n2.md`，七批 N2a–N2g / 判据 22 条 / 决策 a–o **全部未关闭**，修订对照在子计划 §8 与 §8.1。**两轮评审的性质相同：都不是「写漏了」，是「按它实施会红」。**
+**N2 子计划已出（2026-08-19，v1 → v2 → v3，两轮评审收敛）**——`docs/plans/2026-08-19-phase-b-mobile-n2.md`，七批 N2a–N2g / 判据 22 条，修订对照在子计划 §8 与 §8.1。**两轮评审的性质相同：都不是「写漏了」，是「按它实施会红」。**
+
+**决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
 
 **v1 的三条 P0 都不是「写漏了」，是「按它实施会红」**（逐条已代码复核）：
 
