@@ -1,36 +1,57 @@
-// The first screen (N2a, criterion 1) plus N2b's data-layer panel.
+// The app's shell (N2a first screen, N2b data panel, N2c the real boot).
 //
-// Two of the three header lines are read out of the packages this app is
-// allowed to link, and the panel below drives the real open factory. That is
-// the point: `just mobile-bundle-smoke` asserts the portable barrel is IN the
-// built module graph, and a screen that imported nothing would let that
-// assertion pass while proving nothing (N1i — an isolated file is not in the
-// graph and stays green no matter what you put in it).
+// N2c is where the app is finally allowed to open its own library at launch,
+// and the reason is the whole point of the batch: until D16 existed, a
+// persistent startup path was a build that would adopt a restored library as
+// its own (§3). It goes through `runBootSequence` and nothing else — that
+// function is the only thing entitled to open `songs.db`.
 //
-// NOTHING RUNS ON MOUNT. The subplan's §3 forbids N2b from wiring a persistent
-// startup path: there is no D16 gate yet, and a build that opens a library at
-// launch is a build that will happily adopt a restored one. The panel is a
-// button, and it works on a scratch file it makes and deletes itself.
+// The boot's verdict is on screen rather than in a log because a release build
+// has no logcat to print to (N0b-3), and criteria 17/18/19 are judged by
+// reading it back off the device.
 //
-// The four tabs, the library, and the identity gate arrive in N2c–N2f.
+// The four tabs and the library itself arrive in N2f.
 
 import { LATEST_KNOWN_VERSION } from '@lark/core/portable';
 import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { installPortableRuntime } from './boot/runtime';
+import { type BootResult, runBootSequence } from './boot/sequence';
 import { type CheckRow, runDataLayerSelfCheck } from './db/self-check';
 
+type BootState =
+  | { status: 'booting' }
+  | { status: 'ready'; result: BootResult }
+  | { status: 'refused'; name: string; message: string };
+
 export function App() {
+  const [boot, setBoot] = useState<BootState>({ status: 'booting' });
   const [rows, setRows] = useState<CheckRow[] | null>(null);
 
-  const run = () => {
-    // §2.2 step ①. Without it the first minted uuid throws, and on this path
-    // that is `ensureDeviceUuid` — after a library has already been created.
-    installPortableRuntime();
-    setRows(runDataLayerSelfCheck());
-  };
+  useEffect(() => {
+    let cancelled = false;
+    // The one external system this component synchronises with, and the one
+    // `useEffect` in the app: the library on disk.
+    runBootSequence()
+      .then((result) => {
+        if (!cancelled) setBoot({ status: 'ready', result });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // A refusal is a screen, not a crash. §2.4's refusals mean somebody's
+        // library is sitting there untouched, and the worst thing to do with
+        // it is retry in a loop.
+        setBoot({
+          status: 'refused',
+          name: err instanceof Error ? err.name : 'Error',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const failed = rows?.filter((row) => !row.ok).length ?? 0;
 
@@ -42,7 +63,37 @@ export function App() {
         <Text style={styles.line}>schema v{LATEST_KNOWN_VERSION}</Text>
         <Text style={styles.line}>protocol v{LOCAL_API_VERSION}</Text>
 
-        <Pressable style={styles.button} onPress={run} accessibilityRole="button">
+        {boot.status === 'booting' && <Text style={styles.line}>boot: …</Text>}
+
+        {boot.status === 'refused' && (
+          <View style={styles.row}>
+            <Text style={[styles.rowName, styles.fail]}>boot refused: {boot.name}</Text>
+            <Text style={styles.rowDetail}>{boot.message}</Text>
+          </View>
+        )}
+
+        {boot.status === 'ready' && (
+          <View style={styles.row}>
+            <Text style={[styles.rowName, styles.pass]}>boot: {boot.result.decision.action}</Text>
+            <Text style={styles.rowDetail}>{boot.result.decision.reason}</Text>
+            <Text style={styles.rowDetail}>install_id {boot.result.installId}</Text>
+            <Text style={styles.rowDetail}>device_uuid {boot.result.deviceUuid}</Text>
+            {boot.result.converged !== null && (
+              <Text style={styles.rowDetail}>
+                converged: {boot.result.converged.changes} changes ·{' '}
+                {boot.result.converged.tombstones} tombstones · {boot.result.converged.cursors}{' '}
+                cursors · {boot.result.converged.bindings} bindings · kept{' '}
+                {boot.result.converged.fileOpsKept} file ops
+              </Text>
+            )}
+          </View>
+        )}
+
+        <Pressable
+          style={styles.button}
+          onPress={() => setRows(runDataLayerSelfCheck())}
+          accessibilityRole="button"
+        >
           <Text style={styles.buttonLabel}>Run data layer check</Text>
         </Pressable>
 
@@ -61,7 +112,7 @@ export function App() {
           </View>
         ))}
 
-        <Text style={styles.note}>N2b：数据层原语。曲库、身份门与四 tab 还没到。</Text>
+        <Text style={styles.note}>N2c：身份门。曲库与四 tab 还没到。</Text>
       </ScrollView>
     </SafeAreaView>
   );

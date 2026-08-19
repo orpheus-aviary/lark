@@ -398,6 +398,16 @@
 
 - **第一轮是 5/6，红的那条是我自己的断言写反了**：`openLibrary` 按 §2.2 只做 ⑥⑦，**不产 `device_uuid`**（⑨ 归 N2c 的身份门），而用例假设「开完就该有」。修成断言真正的不变量（开完没有 → mint → 重开还在 → 幂等），并在桌面 `open-library.test.ts` 补一条「`prepareLibrary` 不 mint」守着同一件事。**面板的第一条红是它自己的断言——这正好证明它不是白跑的**。桌面测试 2596 → **2599**
 
+**N2c 进行中（2026-08-19）——身份门的机制半边已接进启动路径**。`identity/{state,store,snapshot,converge}.ts` + `ports/credentials.ts` + `boot/sequence.ts`（§2.2 的 ①–⑫ 一条线一个文件），`App.tsx` 挂载即走 `runBootSequence()`——**到 N2c 才允许接持久化启动入口**，因为在此之前那等于一个会把恢复库当自己库打开的构建（§3）。**判据 19①② 真机绿**：第一次 `fresh` → 双侧写 `install_id`；force-stop 冷启第二次判 `normal`，install_id 与 device_uuid **逐字符不变**——这正是 v2 那个「第二次启动清掉自己刚建的库」的回归测试。
+
+- **§2.2.1 的判定表做成纯函数并单独给 `apps/mobile` 配了 vitest**（`include` 只收 `identity/state.test.ts` 一个文件）：两轮评审的 bug 都长在这张表上，值得用秒级测试而不是「构建-安装-点按」去试错。10 条用例；两个变异验红——把「fresh 由身份判定」写回去（**v2 原样的 bug**）只有为它写的那条红，把 intent 降到 settled 行之后 3 条红
+- **一个实现细节值得记**：intent **读不出来时当作没有是安全的**——它写在步骤 ⑤（DB 尚未被碰），落回 settled 行会重新推出同一个结论。intent 买的是幂等（同一个 id），不是正确性
+- **converge 比 §2.2.2 的清单多做一件**：`bumpBackfillTarget`。`unbindLibrary` 清同样这些表时也 bump，理由相同——outbox 没了，活下来的东西必须重新发布。不做的话症状要到 N5 才出现，且表现为「同步正常但从不发送已有的东西」
+- **步骤 ⑪ 的 boot drain 是注释占位不是空调用**：执行器归 N2d，塞一个 no-op 占位会让顺序看起来已经落实
+- **剩下的**：决策 o 的验收注入通道（entrypoint 分叉 / 两个 artifact / 夹具导入 / 崩溃钩子 / 守卫）· 判据 16a 的 `bmgr` 审计 · 判据 17 / 18 / 19③④⑤⑥ ——**这几条都要先有注入通道**（`Paths.document` 推不进去）
+
+**范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
+
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
 
 **v1 的三条 P0 都不是「写漏了」，是「按它实施会红」**（逐条已代码复核）：

@@ -238,5 +238,6 @@
 - **Gradle 的 bundle 任务看不见 `packages/core/dist` 的变化**（N0b-5b）：`build-core` 做了、APK 里还是旧 core——core 的 dist 经 workspace 符号链接落在任务声明的输入之外，Gradle 判 up-to-date。症状是「桌面已修好的用例在手机上继续红，**面板里连断言文案都是旧的**」。`spike-mobile-android-release` 因此先 `rm -rf` 生成的 bundle 再构建。比 M2/N0b-2 的「先 build」更隐蔽：build 做了，只是没人用
 - **一个 `Uint8Array` 既是值也是对象**（N0b-5a，N0b-5b 复现于第二个适配器）：shim 的「单参数是不是命名参数表」只看 `typeof === 'object'`，于是 `run(chunk)` 报 `bound key '0' does not appear as a named parameter`——一句关于错误东西的话。core 今天不绑 blob 所以契约没问过，但 doc 明写值形态含 bytes，**这个歧义对任何「看长相定形态」的宿主都在**。已修 + 契约补一条 lone-bytes 用例（better-sqlite3 回 Buffer、expo 回 Uint8Array，只断言往返）
 - **`openLibrary` 停在步骤 ⑦，不产 `device_uuid`**（N2b 真机实测）：这是 §2.2 的分工——⑨ 归 D16 身份门，把它折进打开路径「顺手做掉」会让一个有主的步骤变成没主的。第一版真机面板正好断言反了（「开完就该有」），**面板的第一条红是它自己的断言**，而这恰好证明面板不是白跑的。修法是让用例断言真正的不变量：开完**没有**身份 → 调 `ensureDeviceUuid` → **重开还在** → 再问幂等；桌面 `open-library.test.ts` 同时加了「`prepareLibrary` 不 mint」一条守着同一件事
+- **`am force-stop` 紧跟 `am start` 会赛跑**（N2c 实测）：进程起来了，activity 却被压到后台，前台是桌面。`pidof` 说「在」，`dumpsys activity activities` 说「不在」——**这正是 `drive.mjs` 的前台守卫存在的理由**，否则接下来 dump 到的是桌面而结论会写成「应用崩了」。做法是 start 之后先 `top` 确认，必要时再 start 一次（第二次会答 "current task has been brought to the front"）
 - **文本到没到看屏幕，文本对不对看回读**（N0b-4c）：屏幕证不出末尾少一个换行或空格变成 `%20`，所以 `drive.mjs share` 发完就去 `.runtime/` 读设备 POST 回来的那份**逐字符比对**。驱动用户自己的应用要**一步一 dump**：分享面板第一屏没有「更多」（要横滑），而收藏夹那条路上的盲点按钮是**会真的发动态**的
 

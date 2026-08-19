@@ -280,7 +280,7 @@ export function nowPlayingTitle(input: {
 |---|---|---|
 | **N2a** | `apps/mobile` 立项：Expo 57 + CNG 脚手架、依赖与 spike 逐字节同版、`app.config.ts`（D14 的 applicationId、**minSdk 26**）、`just` recipes、**守卫扩面**（现有两条守卫的作用域从 spike 扩到 spike + mobile，**不新增编号**）、驱动脚本参数化 package/app root | 判据 1–4；桌面零回归 |
 | **N2b** | 数据层原语：shim + `portableDbOf` 毕业、drizzle patch 接线、**完整打开分派（§2.4）**、bootstrap、**`ensureDeviceUuid` 下沉进 portable + 桌面改调下沉版** | 判据 5–8（**判据 8 是 gate**）；桌面 `db/index.test.ts` 原样绿 |
-| **N2c** | **D16 身份门**：SecureStore 两个 key、§2.2.1 状态机、copy-then-open、fresh 身份声明、收敛（§2.2.2）、启动序列 §2.2 全条接线 + **验收注入通道**（决策 o） | 判据 16a、16b、17、18、19（**五组全是 gate**） |
+| **N2c** | **D16 身份门**：SecureStore 两个 key、§2.2.1 状态机、copy-then-open、fresh 身份声明、收敛（§2.2.2）、启动序列 §2.2 全条接线 + **验收注入通道**（决策 o） | 判据 16a、17、18、19（**四组全是 gate**；**16b 已搁置**，见判据 16b 与 §8.2） |
 | **N2d** | 端口实现：FileSystem / Paths + logger + **file-op 执行器与 boot drain**；**决策 a 的产物**（原子替换）+ 它的反测 | 判据 9–12（**判据 10 是 gate**） |
 | **N2e** | 服务层接线 + **LibraryContract mobile hook**（18 例真机跑）+ 破一次确认会红 | 判据 13（**gate**） |
 | **N2f** | 四 tab 骨架 + 曲库/歌单读写 UI + 排序落点（决策 n）+ 真库副本 | 判据 14–15 |
@@ -328,9 +328,12 @@ export function nowPlayingTitle(input: {
 14. 一份**真实 v3 曲库副本**经决策 o 的注入通道进入设备后（导入通道同时把 DB 侧 `install_id` 写成本机 committed 值 → 启动判成 **normal**，不触发收敛）：四 tab 可切、按决策 n 定下的每个排序字段各出一次、搜索命中、歌单详情可拖柄重排；重排后杀进程重开顺序仍在。
 15. 写路径各一条：改歌名 / 改歌手 / 固定 / **删歌（journal 已消费且 `songs/<id>/` 已删除）** / 建歌单 / 改名 / 删歌单 / 加歌 / 移除。
 
-**D16（五组，全是 gate；v3 把 v2 的判据 16 拆成 16a/16b）**
+**D16（v3 把 v2 的判据 16 拆成 16a/16b；16b 于 2026-08-19 搁置，其余四组全是 gate）**
 16a. **【gate】合规 cloud backup restore**：`bmgr backupnow` + restore 官方流程，四类数据（DB / files / sharedprefs / SecureStore keychain）**均未恢复**。
-16b. **【gate】D2D device-transfer restore**：**`bmgr` 证明不了这条**（二轮评审属实）——Android 12+ 的设备迁移走 `dataExtractionRules` 的 `<device-transfer>`，是另一条通路。判据要写明供体/接收、包与签名、迁移步骤。**载体已确认在手**：N0b-5a 记过这台设备 `LocalTransport` 与 **`D2dTransport` 都在**，「D16 的完整 D2D restore 验收不必再找第二台设备」（N0 §9）。
+16b. ~~**【gate】D2D device-transfer restore**~~ —— **搁置（2026-08-19 用户决定：不是第一版要保证的）**。原文见 §8.2。
+    - **仍然做的**：`plugins/with-backup-rules.js` 照旧写 `<device-transfer>` 的九个 domain（它和 `<cloud-backup>` 是同一份文件里的两段，删掉反而是额外动作），判据 16a 仍验这份文件的内容。
+    - **不做的**：走一遍系统「手机搬家」再断言四类数据没过来。于是 **`<device-transfer>` 这一半是「声明了但没验过」**，如实记着。
+    - **为什么代价可控**：D16 的兜底不在排除规则上，在**收敛**上。判据 17 注入的正是「OEM 无视排除、DB 真的被恢复了」那个夹具，而它**没有搁置**——库过来了也会被判成 converge 并清掉 binding / 凭证 / `device_uuid`。排除规则是第二道，收敛是第一道，搁置的是第二道。
 17. **【gate】强制半恢复夹具**：只注入旧 DB（模拟 OEM 无视排除）、SecureStore 缺失 → **converge（fail-closed）**，不是「当成 fresh 继续用」。
 18. **【gate】install_id 不一致**：DB 里的与 SecureStore 里的不同 → converge。
 19. **【gate】fresh 首启的身份声明 + 收敛的崩溃重入**（v3 扩，二轮评审：v2 根本没有 fresh 声明这一步）：
@@ -367,7 +370,7 @@ export function nowPlayingTitle(input: {
 | **l** | **D16 的状态与清理面**——正文在 §2.2.1 / §2.2.2 | **按 §2.2.1/§2.2.2 全条通过**，含：两个 SecureStore key（`lark.install_id` = committed / `lark.install_intent` = 在途意图）· 状态转移表以**库文件在不在**为判别式 · **写序 SecureStore 先、DB 后**（先 SecureStore 崩只值一次覆盖，先 DB 崩会把刚建的空库当恢复库清一遍）· 收敛清单 · **不清 `sync_file_ops`** · 不复用 `unbindLibrary` · CredentialStore 进 N2 但只做 SecureStore 读写 |
 | **m** | v1/v2 库在首个移动版本里：拒绝 / 迁移 / 特殊恢复 | **拒绝并给一句人话**。移动端不存在自然产生的 v1/v2 库（只可能来自异常恢复），而迁移路径没有桌面那套备份与探活；拒绝是唯一不会悄悄毁数据的选项 |
 | **n** | 排序落点（§1.11） | **只提取 `lib/song-sort.ts` 那一层**（`SortState` / 常量 / `isValidSort` / `toggleOrder` / `withField` / `sortSongs` 比较器）进 `@lark/shared`——它整个是纯的。**`stores/view-prefs.ts` 不动**：它依赖 zustand 与 localStorage，持久化各端各留一个适配器。v2 写「视图偏好整体抽进 shared」是错的（二轮评审） |
-| **o** | **验收注入通道**（§1.9）：真机怎么塞夹具库、怎么打崩溃点，且**不进生产 APK** | **七条全取**（v3 按二轮评审落地——`acceptance/` 目录本身不构成构建变体）：<br>① **entrypoint 分叉**：`app.config.ts` 读 `LARK_ACCEPTANCE=1`，该值决定入口模块（生产入口不 import `acceptance/`）；<br>② **两个 artifact**：**「release 模式的 acceptance artifact」**（跑判据 13/14/17/18/19 与 file-op 各条）与**「生产 release artifact」**（跑判据 1/16a/16b）——不是「release + acceptance」两个 flag 叠加；<br>③ **applicationId 相同**、同一 keystore 签名，否则 D16 的 backup 判据测的是另一个包（代价：两者不能同时装，验收脚本要显式换装）；<br>④ **夹具经 `adb push` 到外部目录 + acceptance 入口的一次导入**（`Paths.document` 推不进去，§1.9）；<br>⑤ **崩溃点是 acceptance 入口里的显式钩子**，不是 `am force-stop` 猜时机——判据 19 的五个点要能精确打中；<br>⑥ **守卫**：生产 release bundle 的 Metro 图里**不许出现 `acceptance/`**（与判据 4 同一把尺子）；<br>⑦ 驱动脚本参数化 package/app root（`drive.mjs:32` / `backup-audit.mjs:28` 现在写死 `…lark.spike`）。<br>**本次定死**：判据 14 的真实 v3 副本走 **normal**——acceptance 入口的导入通道在落库的同时把 DB 侧 `install_id` 写成本机 committed 值（**导入通道本身是身份感知的**，不是「先推文件再祈祷」）。理由：判据 14 是曲库/UI 判据，而 converge 会清 binding/sync 状态并重建 `device_uuid`——那正是 14 不关心、却足以把它的失败和 D16 的失败搅在一起的东西；converge 路径由判据 17/18 专测，它们注入的是**故意不配身份**的库 |
+| **o** | **验收注入通道**（§1.9）：真机怎么塞夹具库、怎么打崩溃点，且**不进生产 APK** | **七条全取**（v3 按二轮评审落地——`acceptance/` 目录本身不构成构建变体）：<br>① **entrypoint 分叉**：`app.config.ts` 读 `LARK_ACCEPTANCE=1`，该值决定入口模块（生产入口不 import `acceptance/`）；<br>② **两个 artifact**：**「release 模式的 acceptance artifact」**（跑判据 13/14/17/18/19 与 file-op 各条）与**「生产 release artifact」**（跑判据 1/16a；16b 已搁置）——不是「release + acceptance」两个 flag 叠加；<br>③ **applicationId 相同**、同一 keystore 签名，否则 D16 的 backup 判据测的是另一个包（代价：两者不能同时装，验收脚本要显式换装）；<br>④ **夹具经 `adb push` 到外部目录 + acceptance 入口的一次导入**（`Paths.document` 推不进去，§1.9）；<br>⑤ **崩溃点是 acceptance 入口里的显式钩子**，不是 `am force-stop` 猜时机——判据 19 的五个点要能精确打中；<br>⑥ **守卫**：生产 release bundle 的 Metro 图里**不许出现 `acceptance/`**（与判据 4 同一把尺子）；<br>⑦ 驱动脚本参数化 package/app root（`drive.mjs:32` / `backup-audit.mjs:28` 现在写死 `…lark.spike`）。<br>**本次定死**：判据 14 的真实 v3 副本走 **normal**——acceptance 入口的导入通道在落库的同时把 DB 侧 `install_id` 写成本机 committed 值（**导入通道本身是身份感知的**，不是「先推文件再祈祷」）。理由：判据 14 是曲库/UI 判据，而 converge 会清 binding/sync 状态并重建 `device_uuid`——那正是 14 不关心、却足以把它的失败和 D16 的失败搅在一起的东西；converge 路径由判据 17/18 专测，它们注入的是**故意不配身份**的库 |
 
 ---
 
@@ -377,12 +380,12 @@ export function nowPlayingTitle(input: {
 |---|---|
 | **原子替换无解** | 决策 a；判据 10 的反测是唯一能证明它真做到了的东西。**若三条路都不通，这是要停下来的事，不是降级实现的事** |
 | **判据 10 假绿** | §1.5 已写明同线程轮询恒为真；判据 10① 明确要求反测**报出它看见了窗口** |
-| D16 顺序被实现悄悄改回去 | §2.2 冻结启动序列；判据 16a/16b/17/18/19 是对**序列**的验收，不是对函数的 |
+| D16 顺序被实现悄悄改回去 | §2.2 冻结启动序列；判据 16a/17/18/19 是对**序列**的验收，不是对函数的 |
 | 两份 shim 漂移（决策 d 的代价） | DatabaseContract 两边都跑；shim 有任何改动，两边同改是提交前的检查项 |
 | Gradle 看不见 `packages/core/dist` 的变化 | N0b-5b 实测：release recipe 先 `rm -rf` 生成的 bundle 再构建 |
 | 验收钩子漏进生产 APK | 决策 o 的构建变体 + 一条守卫：release 变体的 Metro 图里不许出现 `acceptance/` |
 | 真库副本上手把真库改坏 | 只用 `just backup-nest` 的副本；push 前对副本查 `user_version` 与 schema signature |
-| D16 五组测不出真东西 | N0b-5a 的教训：**证据要取在能观测到的那一刻**。判据 16a–19 每条都要先想清楚「它什么时候会红」；判据 19② 的「不触发任何清理」尤其要按字段断言，不是看应用没崩 |
+| D16 各组测不出真东西 | N0b-5a 的教训：**证据要取在能观测到的那一刻**。判据 16a / 17 / 18 / 19 每条都要先想清楚「它什么时候会红」；判据 19② 的「不触发任何清理」尤其要按字段断言，不是看应用没崩 |
 | 蓝牙歌词被 2 秒 queue 陷阱吃掉 | §1.10；N3 用 `dumpsys media_session` 验。**N2 不承诺任何延迟数字** |
 | 无带屏蓝牙设备 | 用户已决定：不实测、先开发、后续再修。真出问题时可能要给 expo-audio 打补丁或加 config plugin，**这会超出「小功能」的预算** |
 | `pnpm install` 扰动桌面 | 常驻判据：每次变动复跑桌面 `just check` + `just test` |
@@ -440,3 +443,24 @@ export function nowPlayingTitle(input: {
 | 小-3 | 风险表两处仍写「判据 15–18」 | 属实 | 已改成 16a–19 |
 | 小-4 | `timeSec` 与 `offset` 单位不对称 | 属实 | 改成 `timeSeconds` / `offsetSeconds`，并注明与 `lyrics_offset` / `currentLrcIndex` 同为秒 |
 | 小-5 | N2b 若在 N2c 前，须限定它只产出可测试的 factory | 属实 | §3「顺序理由」改写：N2b **不许把没带 D16 的持久化启动入口接进 app** |
+
+### §8.2 范围修订：判据 16b 搁置（2026-08-19，用户决定）
+
+**决定**：D2D device-transfer restore 的验收**不做**，理由是「这不是第一版软件需要保证的」。
+
+**判据 16b 的原文**（保留在此以便日后接回）：
+
+> **【gate】D2D device-transfer restore**：**`bmgr` 证明不了这条**（二轮评审属实）——Android 12+ 的设备迁移走 `dataExtractionRules` 的 `<device-transfer>`，是另一条通路。判据要写明供体/接收、包与签名、迁移步骤。**载体已确认在手**：N0b-5a 记过这台设备 `LocalTransport` 与 **`D2dTransport` 都在**，「D16 的完整 D2D restore 验收不必再找第二台设备」（N0 §9）。
+
+**边界要说准**——搁置的是**验收**，不是**实现**：
+
+| | 状态 |
+|---|---|
+| `<device-transfer>` 的九个 domain 排除 | **照写**（与 `<cloud-backup>` 同一份 xml 的两段，删掉反而是额外动作）；判据 16a 仍逐 domain 验这份文件的内容 |
+| `allowBackup=false` + 云备份排除 | **不变**，判据 16a 是 gate |
+| 走一遍系统「手机搬家」并断言四类数据没过来 | **不做** |
+| 结论 | `<device-transfer>` 这一半 = **声明了但没验过**。如实记着，别当成验过的 |
+
+**为什么这个代价可控**：D16 的兜底从来不在排除规则上，在**收敛**上。判据 17 注入的正是「OEM 无视排除、DB 真的被恢复了」那个夹具——排除规则失效恰恰是它的前提，而它**没有搁置**。库过来了也会被判成 converge，binding / 凭证 / `device_uuid` 一并清掉。排除规则是第二道防线，收敛是第一道；搁置的是第二道，且第二道失效时第一道恰好是为它写的。
+
+**接回时要做的**：把上面那段原文改回判据、按它写明供体/接收与迁移步骤、在冻结设备上跑一遍（`D2dTransport` 在手，不必找第二台机器）。

@@ -4,7 +4,8 @@
   "private": true,
   "description": "lark for Android (Phase B). Expo SDK 57 + CNG; links @lark/core/portable and nothing else of core.",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@lark/core": "workspace:*",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@types/react": "19.2.18",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.4"
   }
 }
