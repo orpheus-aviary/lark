@@ -390,6 +390,22 @@ R1–R5 全绿时**冻结**：端口切面清单与位置（全部）· fetch �
 
 此口径 N1i 写回主计划 §4.3 N1 行（Stage 式修订），并在 N0 子计划 §3.4 加 superseded 指针，避免双事实源。
 
+### 8.1 冻结结果（2026-08-19，N1i 执行）
+
+R1–R5 全绿（同一轮 release 构建 · 冻结设备 vivo V2408A · 结果经 probe-host 回传；逐条数字在 `PROCESS.md` 的 N1i 段）。据此**冻结**：
+
+| 子项 | 冻结内容 |
+|---|---|
+| 端口切面清单与位置 | `portable/ports/` 六件（fs / paths / credentials / events / device / audio-landing）+ `runtime/` 四件（random / digest / text / base64）。桌面之外只剩 `db/` 的打开与锁、ffmpeg 与落盘协议、file-op 执行器、config、logger、paths 根解析 |
+| fetch 注入的充分性 | **不需要注入**：`globalThis.fetch` 就是 `expo/fetch`（N0b-3），R1/R3 用它跑完了签名请求、短链 manual redirect 与流式读取 |
+| Crypto / Base64 / TextEncoding | 同步 noble（md5 + 短 sha256）· 异步整文件 digest 为 fail-loud provider · `decodeUtf8` / `base64Lenient` 端口语义。**Random 必须由宿主安装**，未装即抛——N1i 真机上第一次由它拦下一个忘记 bootstrap 的面板 |
+| 卡顿阈值与移动分批 | `SYNC_PULL_LIMIT_MOBILE = 200`，实测 p95 **90.79ms**（预算 100ms，applied 2000 / skipped 0）；500/批 p95 **226.05ms** 是它被拒绝的证据。**这是空载下界**——N5 真接同步时须在有渲染与播放竞争的条件下复测，超预算就降到 100（改一个常量，无协议含义） |
+| PortableDb 形态 | `{ drizzle, sqlite }`，唯一构造点，双侧编译证据 + DatabaseContract |
+
+**明确仍不冻结**：AudioLanding 的跨宿主字段签名（N4，加法扩展；N1h 已冻结切面位置与桌面不变量）· mobile service hook（N2）· FileSystem/Paths 的移动适配语义（N2）。
+
+**R1 的一处口径差**：本轮只跑了移动网络一遍，Wi-Fi 未复跑（N1d 预跑时双网络各 9/9）。按用户决定不再重复。
+
 ---
 
 ## §9 决策记录（a–q 全部关闭，2026-08-18 三轮评审）

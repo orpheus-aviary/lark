@@ -386,7 +386,7 @@
 
 **N0b-5a 已完成（2026-08-18）——判据 26 绿，D16 机制落定**。**零写打开取候选 ①（copy-then-open）**：50.2MB 库 copy+open+读 install_id **max 75.36ms**，带 4.0MB 热 WAL 时 **max 149.51ms**（预算 500ms），两组的**原件 size+mtime 五轮前后逐字节不变**，而恢复确实落在副本上（副本的 `-wal` 4,128,272 → 0 字节）；racing-writer 反测 → `FailClosedError`。**no-backup 侧取 SecureStore**（`requireAuthentication: false`），**卸载重装后读不出**，判定落到「fresh」。**backup 排除三层客观判据 10/10**（`just spike-mobile-backup-audit`）：APK 的 merged manifest（`allowBackup=false` + 两个属性经资源表翻回名字确认指向我们那两份）· 两份规则文件各 9 个 domain（`<cloud-backup>` 与 `<device-transfer>` 都有）· `bmgr backupnow` 答 **`Backup is not allowed`** 而同一轮控制组答 `Success`、`dumpsys backup` 里没有我们、restore 回 `0 packages`。**四条实测**：① `allowBackup=false` 只关云备份、关不掉 D2D（那要 `<device-transfer>`）；② **expo-secure-store 默认会抢那两个 manifest 属性**，必须 `configureAndroidBackup: false`，我们的 plugin 见到被占用直接抛错；③ **证据要取在能观测到的那一刻**——第一版查「副本旁边有没有 `-wal`/`-shm`」恒为假，因为关闭连接本身会 checkpoint 并删掉它们；④ **一个 `Uint8Array` 既是值也是对象**，shim 把它当成命名参数表（`bound key '0' …`），已修并在契约补一条 lone-bytes 用例（core 1046 → **1047**，全仓 **2481**）。缺口如实记：设备 API 35，`fullBackupContent` 那条老路只能静态检查；完整 D2D restore 与 fail-closed 分支仍归 **N2 gate 的四组**。**N0b-5b 已完成（2026-08-18）——判据 25 绿，N0b = GO，Stage-2 已落**。**D14 落定**：applicationId `com.orpheusaviary.lark` · APK 0.1.0 / versionCode 1 · keystore `lark-release.jks`（PKCS12 / alias `lark` / RSA 4096 / 有效期至 **2054-01-03** / 证书 SHA-256 `38:54:4C:9F:…:F6:3D`）· **决策 g 由用户拍板**：keystore 与密码**同放** `orpheus-aviary/android-keystore/`（git 仓之外，0700/0600，**不进钥匙串**，每次构建现读，备份由用户拷 U 盘）· **恢复演练过**（整个目录拷走，只用副本签 APK，`apksigner verify` 的指纹逐字符相同）。**政策快照**（查官方页与 FAQ）：2026-09-30 只覆盖巴西/印尼/新加坡/泰国的参与商店，**adb 安装明确豁免**，测量设备在中国不在首发之列，**2027 全球扩大**才相关；真要注册时 **limited distribution account**（免费、无政府 ID、上限 20 台）匹配，注册对象是包名 + 证书 SHA-256。**判据 14/16 因契约扩了一条用例而复跑**：expo **57/0/0** · 漏版反测 55/2 · op-sqlite **51/0/6**。**两条实测**：① **Gradle 的 bundle 任务看不见 `packages/core/dist` 的变化**（core 重建了，APK 里还是旧的，面板上连断言文案都是旧的），release recipe 因此先删生成的 bundle 再构建；② **同一个「Uint8Array 既是值也是对象」的歧义把两个适配器都咬了**，op-sqlite 那边更安静（blob 什么也没绑上、列读回 NULL）——正说明这条该由契约说一次。**GO/NO-GO：GO**（判据 11–26 全完成、gate 全绿、三条 NO-GO 线一条没碰）。
 
-**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1h 已完成**，桌面测试 **2481 → 2532 → 2571 → 2576**；Metro 图 36 → 51 → 80 → 90 → 94 → **97 个 portable 模块**。**N1h 之后，一台手机能解析的 core 包含 sync 全图、library 全图、SyncCoordinator、LibraryService 与整条下载编排**——`@lark/core/portable` 之外只剩真正属于这台机器的东西：`db/` 的打开与锁、ffmpeg 与落盘协议（`download/{audio-landing,ffmpeg,resolve,import}.ts`）、file-op 执行器、config、logger、paths 根解析，加上 daemon 的定时器/SSE 壳与 wire 层。**只剩 N1i**（守卫收编 + R1–R5 + D5 分段冻结）。
+**N1 进行中（2026-08-18 开工）**——子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`（v4，决策 a–q 全关，九批 N1a–N1i）。**N1a–N1i 已完成**（判据 22 的「对新构建产物复跑 accept 全系列」尚未做），桌面测试 **2481 → 2532 → 2571 → 2576 → 2578**；Metro 图 36 → 51 → 80 → 90 → 94 → **97 个 portable 模块**，且 bundle smoke 自 N1i 起就在 `just check` 里（整条 ~9s）。**N1h 之后，一台手机能解析的 core 包含 sync 全图、library 全图、SyncCoordinator、LibraryService 与整条下载编排**——`@lark/core/portable` 之外只剩真正属于这台机器的东西：`db/` 的打开与锁、ffmpeg 与落盘协议（`download/{audio-landing,ffmpeg,resolve,import}.ts`）、file-op 执行器、config、logger、paths 根解析，加上 daemon 的定时器/SSE 壳与 wire 层。**只剩 N1i**（守卫收编 + R1–R5 + D5 分段冻结）。
 
 **N1a 的六条实测**：
 
@@ -419,7 +419,7 @@
 | N1f | SyncCoordinator 提取（八文件 + triggers 对半拆 + `CoordinatorContext`；daemon 只剩组装与定时器/SSE 壳） | 全测试 + 守卫 + smoke（80 → 90 模块）+ e2e 19 + **`accept-sync` 34/34** | ✅ 2026-08-18 |
 | N1g | LibraryService + daemon 路由与 CLI direct 同时消费（两个 commit：服务层 / LibraryContract 18 例 × 两 hook） | 全测试 **2571** + smoke（90 → 94 模块）+ **`accept-cli` 27/27** + **contract 两 hook 全绿、mobile hook 显式 skip** | ✅ 2026-08-19 |
 | N1h | AudioLanding 切面 + download 编排进 portable（两个 commit：切面与 commit 协议测试 / engine·batches·pipeline 搬迁） | 全测试 **2576** + smoke（94 → 97 模块）+ **`accept-m5` 22/22**（真 bilibili） | ✅ 2026-08-19 |
-| N1i | 守卫收编 + R1–R5 + 分段冻结 | 见子计划 §4 | ⏳ |
+| N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
 | N1–N6 | 端口化 / 数据层 / 播放 / 下载 / 同步 / 收尾（框架见子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
@@ -431,6 +431,26 @@
 - **release APK 仍然会以 dev-client 的 URL 启动**（`expo run:android --variant release` 的最后一行就是它），但面板自报 `dev: false`：判断跑的是哪份 bundle 只能信 `__DEV__`，不能信启动方式（N0b-3 同一条）
 
 正式的 R1–R5 判据仍按计划在 **N1i** 用当轮 release 构建复跑；这次预跑的价值是：**core 的业务图在真机上能跑，这件事现在就知道了，而不是等到九批之后。**
+
+**N1i 的 R4/R5 实测（2026-08-19，release bundle · Hermes · 冻结设备 vivo V2408A · 结果经 probe-host 回传）**——这是 N0b-3 那个 statement-shape proxy 第一次被**真函数**替掉：`runFullBackfillInTx` 与 `applyChangesInTx` 直接从 `@lark/core/portable` import，不是复刻。
+
+| 判据 | 结果 | 数 |
+|---|---|---|
+| **R4** `runFullBackfillInTx`，2000 首欠着 | ✅ | **605.41ms**；`songs === 2000`（5 歌单 / 1000 membership）；**第二次跑回 0**——证明第一次不是空转 |
+| **R5①** `SYNC_PULL_LIMIT_MOBILE` | ✅ | 200 |
+| **R5③** `applyChangesInTx`，200/批 | ✅ | p50 83.52 / **p95 90.79ms**（预算 100ms）；**applied 2000、skipped 0、dead-lettered 0** |
+| R5③ 500/批（参照，不判） | 记录 | p50 205.92 / p95 **226.05ms**；**applied 5000 of 5000、skipped 0**——延续 round 计数之后才干净（第一版跑在 200 已盖过戳的夹具上，只 applied 2400，一半是廉价拒绝） |
+
+**R1–R3 复跑（同一轮 release 构建，2026-08-19）**——`R1 9/9`（**移动网络**；Wi-Fi 这轮未复跑，N1d 预跑时双网络都绿，按用户决定不再跑一遍）· `R2 8/8` · `R3` 绿。逐条：WBI `w_rid` = `ebe73d7a091cca142e72c9b4c3ff1c19` 与桌面**逐字节相同**且整条 query 相同 · buvid3/buvid4 经**安装的 Random 端口**成形 · search 20 条 · `view`/`pagelist`/`audioStream` 全过 · **`openAudio()` 流式读到 268,531B / 40 chunk，abort 之后再读抛 `AbortError`** · b23 短链一跳展开与桌面同 bvid · 歌词 qq 中选（1057 字 / 48 时间戳，候选平台集与桌面一致）。**N0b-4a 的节点差异第三次复现**：手机拿到 `xy220x202x9x147xy.mcdn.bilivideo.cn:8082`（mcdn），桌面同时刻拿到 `cn-bj-cc-03-01.bilivideo.com`——playurl 按调用方 IP 派节点这条，现在有三轮独立证据。
+
+**R5② 的证据在桌面而不在手机**：`portable/coordinator/pull-limit.test.ts` 用捕获型 client 断言 `pullChanges(…, 200)` 真经 `engine.ts` 的 `options.pullLimit ?? SYNC_PULL_LIMIT` 缝传下去；把那句改成写死 `SYNC_PULL_LIMIT` 反测立刻红。
+
+**R5 的四条实测**：
+
+- **proxy 是乐观的，而这正是 R5 存在的理由**：N0b-3 的 statement-shape proxy 给 200/批报 72.98ms，**真 `applyChangesInTx` 是 90.79ms——慢 24%**；500/批 proxy 报 164ms(p50)，真函数 **p50 205.92 / p95 226.05ms**。**200 过了但余量只剩 ~10%**，且这是**空载下界**（空闲手机、2000 首库、没有渲染与播放竞争）。N5 真接同步时要在有竞争的条件下复测；超了就降到 100。**用户体验口径写明**：这段只在「离线很久回来追进度」时出现，表现为 10 次 ~90ms 的顿挫（中间隔着网络往返），滑列表看得见、不操作看不见；**音频走原生 media3，不受影响**；数据与协议完全不受影响
+- **「快」本身是可疑信号，除非同时断言干了活**：第一次真机跑 R5③ 是 14ms/批的漂亮数字，而 `applied 0, skipped 2000`——payload 少了 `created_at_ms`，2000 条全被 dead-letter，dead-letter 也计进 skipped。抓住它的是「applied 数也算判据」那一条断言。**同一个形态第二次出现在参照行**：500 那轮跑在已被盖戳的夹具上，一半是廉价拒绝
+- **fail-loud 的端口在真机上第一次证明了自己**：面板忘了 `installPortableRuntime()`，`runFullBackfillInTx` 一 mint uuid 就抛 `no RandomSource: this host has no crypto.randomUUID`。RN 没有 `getRandomValues`（N0b-3 量过），N1a 选的是**未装即抛**而不是静默兜底——所以这里得到的是一句准确的话，而不是 2000 个坏 uuid
+- **release 面板的失败只写在屏幕最底下**：`console.log` 到不了 logcat，`uiautomator dump` 只列当前屏，所以「点了没反应」既可能是还在算、也可能是早就抛了。分辨方法是**量 app 的 CPU**（0.0% + 累计 16s = 没在干活；146% = 在干活），再慢速上滑到底读 `runner threw:` 那一行
 
 **N1h 的三条实测**：
 

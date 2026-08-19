@@ -73,12 +73,12 @@ export interface WorkloadRow {
 // ─── Fixture ────────────────────────────────────────────
 
 /** Deterministic uuid-shaped ids: same length and index behaviour as real ones. */
-function fakeUuid(n: number): string {
+export function fakeUuid(n: number): string {
   const hex = n.toString(16).padStart(12, '0');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4000-8000-${hex.padStart(12, '0')}`;
 }
 
-const LOCAL_DEVICE_UUID = fakeUuid(999_999);
+export const LOCAL_DEVICE_UUID = fakeUuid(999_999);
 /** The cursor is keyed by (server, workspace), never by URL (0002's comment). */
 const SERVER_ID = fakeUuid(888_888);
 const WORKSPACE_ID = fakeUuid(777_777);
@@ -178,7 +178,7 @@ function buildLibrary(sqlite: SqliteLike): void {
   })();
 }
 
-interface Fixture {
+export interface Fixture {
   sqlite: SqliteLike;
   db: SQLiteDatabase;
   name: string;
@@ -213,7 +213,7 @@ function applyOpenPragmas(sqlite: SqliteLike): void {
   enableWal(sqlite);
 }
 
-function openFixture(name: string, build: boolean): Fixture {
+export function openFixture(name: string, build: boolean): Fixture {
   try {
     deleteDatabaseSync(name);
   } catch {

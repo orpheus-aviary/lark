@@ -40,6 +40,7 @@ import {
   runPlayerPanel,
   runPlaylistPanel,
 } from './panels/playback';
+import { runRealSyncPanel } from './panels/real-sync';
 import { useShareIntentProbe } from './panels/share-intent';
 import { type SyncProbeRow, runSkybridgePanel } from './panels/skybridge';
 import {
@@ -341,6 +342,11 @@ export function App() {
         </Pressable>
         <Pressable style={styles.button} onPress={run(workloadRun('apply', measureApply))}>
           <Text style={styles.buttonText}>Foreground sync round (apply batches)</Text>
+        </Pressable>
+        {/* N1i: the same two stalls, through core's REAL functions rather than
+            through the statement-shape proxy above. These are R4 and R5. */}
+        <Pressable style={styles.button} onPress={run(workloadRun('real-sync', runRealSyncPanel))}>
+          <Text style={styles.buttonText}>R4 + R5 — the REAL backfill and apply</Text>
         </Pressable>
         {workload?.map((r) => (
           <View key={r.timing.label} style={styles.row}>

@@ -144,9 +144,17 @@ v0.2.0 发版时测试 **2098**（shared 79 / core 813 / cli 395 / daemon 433 / 
 lark/
 ├── packages/
 │   ├── shared/     # @lark/shared — Node-free 线协议（类型、HTTP client、SSE、api-paths）
-│   ├── core/       # @lark/core — 业务逻辑（db、songs/playlists、下载、歌词、缓存、migration、config、logger）
-│   │   └── src/portable/  # @lark/core/portable — 宿主无关切面（schema / migrations / migrate /
-│   │                      #   schema-signature / pending / 三个迁移 errors / SqliteLike）
+│   ├── core/       # @lark/core — 业务逻辑。N1 之后**桌面专有的只剩**：db/ 的打开与锁、
+│   │               #   ffmpeg 与落盘协议（download/{audio-landing,ffmpeg,resolve,import}）、
+│   │               #   file-op 执行器、config、logger、paths 根解析、media-tools、migration
+│   │   └── src/portable/  # @lark/core/portable — 一台手机能解析的**整个业务图**（N1 出口）：
+│   │                      #   schema / migrations / migrate / schema-signature / pending /
+│   │                      #   errors 45 类 / logger 型 / SqliteLike / PortableDb /
+│   │                      #   ports/（fs·paths·credentials·events·device·audio-landing）/
+│   │                      #   runtime/（random·digest·text·base64）/ sync 全图 /
+│   │                      #   library 全图 / coordinator/（SyncCoordinator）/
+│   │                      #   services/（LibraryService + LibraryContract）/
+│   │                      #   download/（client 层 + engine·batches·pipeline 编排）
 │   ├── daemon/     # @lark/daemon — Fastify server + `lark daemon` 入口
 │   └── gui/        # @lark/gui — Electron main/preload/renderer
 ├── apps/
@@ -157,7 +165,7 @@ lark/
 └── docs/
 ```
 
-依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。**`core/portable` 是 core 内部的一层**：core 的 `db/` 与 `library/` 反向 import 它，它不许 import 任何 core（Phase B N0a 起，移动端只链这一块——`@lark/core/portable`，**CLI 不需要它，守卫的放行清单里也不加**）。**六条守卫**进 `just check`：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · **按深度计数**的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**、**spike 只许 import portable/shared/skybridge SDK**（`check-spike-mobile-imports.sh`，只约束 `@lark/*` 与 `@orpheus-aviary/*`）。
+依赖方向：`shared ← core ← daemon ← gui`；`cli → shared` + `core`（静态只碰零原生子路径 `paths` / `config` / `daemon-control` / `native-probe`，barrel 只在 `--direct` 分支 dynamic import）。**`core/portable` 是 core 内部的一层**：桌面专有的那半（`db/` · `download/{audio-landing,ffmpeg,resolve,import}` · `sync/file-ops-runtime` · `config/` · `logger/` · `paths.ts` · `media-tools/` · `migration/`）反向 import 它，它不许 import 任何 core（Phase B N0a 起，移动端只链这一块——`@lark/core/portable`，**CLI 不需要它，守卫的放行清单里也不加**）。**七条守卫**进 `just check`（N1i 起 Metro bundle smoke 也在里面，整条 check ~9s）：core 禁 daemon/gui/electron、**core/portable 禁一切宿主**（Node builtin 裸名与 `node:` 前缀 · better-sqlite3 含 type import · `drizzle-orm/better-sqlite3`（`sqlite-core` 放行）· pino/smol-toml/electron · `@lark/core` 自引含子路径 · **按深度计数**的 `../` 越界）、daemon 禁 gui/electron、shared 禁一切 Node builtin、cli 禁 daemon/gui/electron **且禁静态 import core barrel**、**spike 只许 import portable/shared/skybridge SDK**（`check-spike-mobile-imports.sh`，只约束 `@lark/*` 与 `@orpheus-aviary/*`）、**Metro bundle smoke**（`scripts/check-portable-bundles.mjs`——读 Metro 真建出来的模块图，答 rg 守卫答不了的三件事；**探针必须放在 barrel 够得到的文件里**，孤立文件不在图里、塞什么都是绿的）。
 
 **已决定**（主计划 §1）：不抽 `@orpheus-aviary/daemon-kit`，v0.1 直接复制 owl 模式，出现明显重复再重构。
 

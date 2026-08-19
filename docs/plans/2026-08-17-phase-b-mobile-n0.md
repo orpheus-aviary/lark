@@ -252,6 +252,7 @@ justfile 加 `core-portable` recipe 进 `check:` 依赖列表。
 
 - **N0b 冻结（有真机证据的子项）**：SQLite 选型 + statement 生命周期出口 + 分批暂定值 → N2；crypto 形态（或其转向分支）+ polyfill/端口三栏清单 → N1；raw 直存判定 → N4；D14 三件套 → N6；D16 机制 → N2。
 - **N1 出口补冻结（业务图子项，凭 R1–R5）**：fetch 注入在真链路的充分性、端口切面完整性、卡顿阈值定稿。R 系列过完之前，D5 不做「全部冻结」的宣称。
+  > **SUPERSEDED（2026-08-19，N1i）**：R1–R5 已全绿，这一段的执行与结果以 **N1 子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md` §8** 为单一事实源，实测数字见 `PROCESS.md` 的 N1i 段。本条保留只为说明当初的分段意图。
 
 ### 3.5 N1 出口「真机业务图复验」判据组 R1–R5
 

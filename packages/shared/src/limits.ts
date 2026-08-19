@@ -85,6 +85,20 @@ export const SYNC_PUSH_BYTES_MAX = 3.5 * 1024 * 1024;
 export const SYNC_PULL_LIMIT = 500;
 
 /**
+ * The same, for a phone (N0b-3, frozen by R5).
+ *
+ * Not a guess and not a safety margin: 500 changes per apply measured a p50 of
+ * 164ms on the frozen device — past the frame budget, and visible as a stall
+ * while a round runs. 200 measured 72.98ms. The desktop keeps 500 because
+ * nothing there was ever close to dropping a frame.
+ *
+ * A pull page size is a LATENCY decision rather than a protocol one, which is
+ * why the two hosts may differ at all: the server caps it at 1000 and does not
+ * care which side of that a client picks.
+ */
+export const SYNC_PULL_LIMIT_MOBILE = 200;
+
+/**
  * Memberships a playlist may hold and still express a normalization as one
  * `reorder` (§3.5). Past it the emit degrades to per-row `set_rank` — the
  * reorder payload is a full id list, and 4000 uuids is already ~150KB.

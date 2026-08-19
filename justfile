@@ -78,7 +78,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free spike-mobile-imports log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free spike-mobile-imports spike-mobile-bundle-smoke log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
