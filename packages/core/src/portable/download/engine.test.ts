@@ -32,6 +32,7 @@ import {
   listPlaylists,
 } from '../library/playlists.js';
 import { getSong, listSongs } from '../library/songs.js';
+import type { AudioLandingPort, AudioStreamExpectation } from '../ports/audio-landing.js';
 import { songs } from '../schema.js';
 import { createBilibiliClient } from './bilibili.js';
 import { DownloadEngine, describeTaskError, downloadDedupeKey } from './engine.js';
@@ -90,6 +91,8 @@ interface BuildOptions {
   llm?: LlmConfig;
   capacity?: number;
   callbacks?: ConstructorParameters<typeof DownloadEngine>[0]['callbacks'];
+  /** Replace the landing port — e.g. a spy that captures the `expect` it is handed. */
+  audio?: AudioLandingPort;
 }
 
 function build(options: BuildOptions = {}): DownloadEngine {
@@ -102,7 +105,8 @@ function build(options: BuildOptions = {}): DownloadEngine {
     // The real desktop landing, exactly as boot builds it: these tests are
     // about the engine's decisions AROUND the bytes, and a fake here would
     // stop asserting that the six-step protocol still runs under them.
-    audio: nodeAudioLanding({ store, mediaTools: tools, timeouts: DEFAULT_TIMEOUTS }),
+    audio:
+      options.audio ?? nodeAudioLanding({ store, mediaTools: tools, timeouts: DEFAULT_TIMEOUTS }),
     bilibili: createBilibiliClient({ apiBase: upstream.baseUrl, timeouts: DEFAULT_TIMEOUTS }),
     lyricsOrigins: upstream.lyricsOrigins(),
     ...(options.capacity === undefined ? {} : { capacity: options.capacity }),
@@ -958,7 +962,44 @@ describe('redownload', () => {
   }, 60_000);
 });
 
-// ─── Claims ────────────────────────────────────────────
+// ─── expectedDurationSeconds (N4a, §1.4) ───────────────
+//
+// A REFERENCE the landing may cross-check, filled from the page list both
+// paths already fetched — the desktop still ignores it, so this asserts the
+// engine QUOTES it, not that anything trusts it. The fake video's one part is
+// 223s (`defaultState`), so both a new song and a redownload must see 223.
+
+/** A landing spy that records the `expect` it is handed and commits at once. */
+function capturingAudio(seen: AudioStreamExpectation[]): AudioLandingPort {
+  return {
+    hasAudio: () => false,
+    discardUncommitted: () => {},
+    async land(input) {
+      seen.push(input.expect);
+      input.commit({ duration: 1 });
+      return { warnings: [] };
+    },
+  };
+}
+
+describe('expectedDurationSeconds', () => {
+  it('quotes the selected part duration for a new song and a redownload', async () => {
+    const seen: AudioStreamExpectation[] = [];
+    const e = build({ audio: capturingAudio(seen) });
+
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    const songId = taskOf(e, first.id).result?.song_id as string;
+    // New song: resolveTarget → normalizeSourceOnline → the page's duration.
+    expect(seen[0]?.expectedDurationSeconds).toBe(223);
+
+    const again = e.enqueueRedownload(songId);
+    await settle(e, again.id);
+    // Redownload: probeSourceKey resolves the SAME NormalizedSource, so the
+    // page is there to quote — the field is not forced to null (§1.4 fix).
+    expect(seen[1]?.expectedDurationSeconds).toBe(223);
+  }, 30_000);
+});
 
 describe('claims', () => {
   it('blocks a delete while a download holds the song', async () => {

@@ -96,6 +96,22 @@ export interface BiliCollectionPage {
   total: number;
 }
 
+/**
+ * Everything a host that downloads the audio itself needs (N4, §2.2).
+ *
+ * The alternative to `openAudio` for a host that streams to disk natively
+ * rather than reading the body in JS. `timeoutMs` is the WHOLE transfer's
+ * deadline, from the client's `timeouts.audioStream` — the host composes it
+ * with the task's own signal rather than inventing a number. The headers are
+ * the SAME set `openAudio` sends (`headers()`), so a per-node header
+ * requirement is satisfied identically whichever path a host takes.
+ */
+export interface AudioRequestDescriptor {
+  url: string;
+  headers: Record<string, string>;
+  timeoutMs: number;
+}
+
 export interface BilibiliClientOptions {
   /** Test seam. Production leaves this alone and uses the global fetch. */
   fetchImpl?: typeof fetch;
@@ -130,6 +146,11 @@ export interface BilibiliClient {
   expandShortLink(url: string, options?: BiliRequestOptions): Promise<string>;
   /** Open the audio stream for download. The caller owns the body. */
   openAudio(url: string, options?: BiliRequestOptions): Promise<Response>;
+  /**
+   * Describe the same authenticated audio request without opening it, for a
+   * host that downloads natively (N4). Shares `openAudio`'s headers.
+   */
+  describeAudioRequest(url: string, options?: BiliRequestOptions): Promise<AudioRequestDescriptor>;
 }
 
 export function createBilibiliClient(options: BilibiliClientOptions = {}): BilibiliClient {
@@ -339,6 +360,18 @@ export function createBilibiliClient(options: BilibiliClientOptions = {}): Bilib
         throw new BilibiliApiError(`audio stream returned HTTP ${response.status}`);
       }
       return response;
+    },
+
+    async describeAudioRequest(url, opts) {
+      // The same headers `openAudio` would send (resolving the buvid once, from
+      // cache in the normal flow), and the client's own transfer deadline — not
+      // a number the host made up. The host composes `timeoutMs` with the
+      // task's signal itself (§2.2).
+      return {
+        url,
+        headers: await headers(metaSignal(opts)),
+        timeoutMs: timeouts.audioStream,
+      };
     },
   };
 }

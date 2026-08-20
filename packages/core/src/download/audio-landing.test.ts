@@ -93,6 +93,9 @@ function land(options: LandOptions): Promise<{ warnings: string[] }> {
     songId: options.songId,
     mode: options.mode,
     openStream,
+    // The desktop lands through `openStream`; `request` is the native-host
+    // description of the same call and goes unread here.
+    request: { url: 'https://example.test/audio', headers: {}, timeoutMs: 60_000 },
     expect: { codecs: 'mp4a.40.2', isAac: true, expectedDurationSeconds: null },
     reportStage: () => {},
     onProgress: () => {},

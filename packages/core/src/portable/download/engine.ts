@@ -888,20 +888,31 @@ export class DownloadEngine {
       const stream = await this.#bilibili.audioStream(resolved.source.bvid, resolved.source.cid, {
         signal: ctx.signal,
       });
+      // Two descriptions of the same authenticated request: `openStream` for a
+      // host that reads the body in JS (desktop), `request` for one that hands
+      // the URL, headers and deadline to a native downloader (the phone, N4).
+      // The client owns both, so its error normalisation and its transfer
+      // deadline are not re-invented per host (§2.2).
+      const audioRequest = await this.#bilibili.describeAudioRequest(stream.url, {
+        signal: ctx.signal,
+      });
+      // The selected part's duration, from the page list `resolveTarget` /
+      // `probeSourceKey` already fetched — a REFERENCE the landing may
+      // cross-check, never the value written to the row (§1.4). Both a new
+      // song and a redownload resolve a full NormalizedSource, so both have a
+      // page to quote; the field is no longer always null.
+      const expectedDurationSeconds =
+        resolved.source.pages[resolved.source.page - 1]?.duration ?? null;
       const result = await this.#options.audio.land({
         taskId: task.id,
         songId,
         mode: existing === null ? 'new' : 'replace',
         openStream: (signal: AbortSignal) => this.#bilibili.openAudio(stream.url, { signal }),
+        request: audioRequest,
         expect: {
           codecs: stream.codecs,
           isAac: stream.isAac,
-          // `null` until a host actually reads it (N4). Quoting a length here
-          // would cost a second `pagelist` round-trip on every download to
-          // fill a field the desktop deliberately ignores — it probes the
-          // bytes that arrived instead — and a redownload, which resolves from
-          // a stored key, has no page to quote at all.
-          expectedDurationSeconds: null,
+          expectedDurationSeconds,
         },
         reportStage: (stage: DownloadStage) => this.#setStage(task, stage),
         onProgress: (received: number, totalBytes: number | null) =>

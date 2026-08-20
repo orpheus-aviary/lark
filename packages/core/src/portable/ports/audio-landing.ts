@@ -40,9 +40,11 @@ export interface AudioStreamExpectation {
    * announces `mp4a.40.2` and delivers something else would otherwise be
    * copied into a canonical file that cannot be played.
    *
-   * Nullable because a redownload resolves from a stored source key rather
-   * than from a page, so there is no page duration to quote (N1h). The
-   * cross-host signature is not frozen until N4 (§8), and this stays additive.
+   * Filled from N4: both a new song (`resolveTarget`) and a redownload
+   * (`probeSourceKey`) resolve a full `NormalizedSource`, so both have a page
+   * duration to quote. Still nullable — an upstream that omits it is not a
+   * failure, because nothing here trusts the number. The cross-host signature
+   * is frozen at N4 (§2.2).
    */
   expectedDurationSeconds: number | null;
 }
@@ -60,8 +62,28 @@ export interface AudioLandingInput {
   taskId: string;
   songId: string;
   mode: 'new' | 'replace';
-  /** Open the authenticated audio stream; headers, cookies and timeouts stay in the client. */
+  /**
+   * Open the authenticated audio stream; headers, cookies and timeouts stay in
+   * the client. For a host that reads the body in JS (desktop).
+   */
   openStream(signal: AbortSignal): Promise<Response>;
+  /**
+   * The SAME request as `openStream`, described rather than opened, for a host
+   * that downloads natively (the phone, N4). `timeoutMs` is the whole
+   * transfer's deadline, from the client — the host composes it with `signal`
+   * rather than inventing one. Two descriptions of one request; a host uses
+   * exactly one.
+   *
+   * A native transfer OWES the same error normalisation `openStream` gets for
+   * free from the client (§2.2), and the AudioLandingContract holds every host
+   * to it:
+   *
+   *   - HTTP non-2xx  → `BilibiliApiError` (message carries the status)
+   *   - transfer deadline → an abort (the task settles `failed`)
+   *   - the caller aborts `signal` → the abort propagates unchanged (the task
+   *     settles `cancelled`, not `failed`, and never a `BilibiliApiError`)
+   */
+  request: { url: string; headers: Readonly<Record<string, string>>; timeoutMs: number };
   expect: AudioStreamExpectation;
   /** downloading → converting → saving; the event order is part of the contract. */
   reportStage(stage: DownloadStage): void;
