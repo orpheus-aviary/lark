@@ -44,8 +44,3 @@ export function ensureAudioSession(): Promise<AudioSessionState> {
   configured ??= configure();
   return configured;
 }
-
-/** Tests only — the module-level promise is per process, like the session. */
-export function resetAudioSessionForTesting(): void {
-  configured = null;
-}

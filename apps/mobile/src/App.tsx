@@ -13,8 +13,11 @@
 
 import {
   type LibraryService,
+  type QueueSource,
+  readLastPlayback,
   readNowPlayingMode,
   readPlayMode,
+  writeLastPlayback,
   writeNowPlayingMode,
   writePlayMode,
 } from '@lark/core/portable';
@@ -23,7 +26,7 @@ import { useEffect, useState } from 'react';
 import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { type BootResult, bootOnce } from './boot/sequence';
 import { bindPlayer } from './player';
-import { resolveQueue } from './player/queue';
+import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
 import { LibraryProvider } from './ui/library-context';
 import { Shell } from './ui/shell';
@@ -51,19 +54,38 @@ export function App() {
         // The player is built at import time (one process, one player) but
         // half its dependencies need the library that just opened. This is
         // where they arrive, next to the service they belong to.
+        const songsOf = (source: QueueSource) =>
+          source.kind === 'all'
+            ? library.listSongs({}).songs
+            : library.listPlaylistSongs(source.id);
         bindPlayer({
-          resolveQueue: (queue) =>
-            resolveQueue(
-              queue,
-              queue.source.kind === 'all'
-                ? library.listSongs({}).songs
-                : library.listPlaylistSongs(queue.source.id),
-            ),
+          resolveQueue: (queue) => resolveQueue(queue, songsOf(queue.source)),
           readLyrics: (songId) => library.readLyrics(songId),
           readMode: () => readPlayMode(result.db.sqlite),
           persistMode: (mode) => writePlayMode(result.db.sqlite, mode),
           readNowPlayingMode: () => readNowPlayingMode(result.db.sqlite),
           persistNowPlayingMode: (mode) => writeNowPlayingMode(result.db.sqlite, mode),
+          // The library decides whether a remembered position is still true —
+          // `has_file` is a disk probe, so the check is handed in rather than
+          // guessed at. A `null` here is every stale case at once, and the
+          // player simply starts with nothing.
+          restore: () => {
+            const memory = readLastPlayback(result.db.sqlite, {
+              hasFile: (songId) => library.getSong(songId).has_file === true,
+            });
+            if (memory === null) return null;
+            const songs = songsOf(memory.queue);
+            const song = songs.find((candidate) => candidate.id === memory.songId);
+            // Present in the library but not in its own queue: the queue is
+            // rebuilt from a source, and a song can have left it since.
+            if (song === undefined) return null;
+            return {
+              song,
+              queue: queueFrom(memory.queue, songs),
+              positionSeconds: memory.positionSeconds,
+            };
+          },
+          rememberPlayback: (value) => writeLastPlayback(result.db.sqlite, value),
         });
         setBoot({ status: 'ready', result, library });
       })

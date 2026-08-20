@@ -154,14 +154,20 @@ player/
 ├── session.ts       # setAudioModeAsync + 通知权限 + setActiveForLockScreen
 ├── store.ts         # 播放状态 + 串行/generation（决策 b、p）
 ├── queue.ts         # 队列快照的持有者（§2.6；decideNext 在 shared）
-├── memory.ts        # 进度记忆的宿主侧（读写在 portable，§2.7）
+├── index.ts         # 进程级单例 + 绑定 + becoming-noisy / AppState 订阅
 └── now-playing.ts   # 蓝牙歌词接线：订阅 → 去重节流 → updateLockScreenMetadata
+
+（**`memory.ts` 没有出现**：进度记忆的宿主侧只有「什么时候写」，而那三个转折点
+ 全在 store 已有的方法里——一个只为放三行代码而存在的文件，读的人要多跳一次。
+ 恢复的入口在 `index.ts` 的 `bindPlayer`，写在 `store.remember()`。）
 ui/
 ├── minibar.tsx      # 歌名 + 当前歌词行 + ⏯ ⏭ + 队列按钮
 ├── queue-sheet.tsx  # 队列面板（复用 ui/sheet.tsx 的 Modal，决策 d）
 └── player-screen.tsx # 全屏：大歌词 + 进度 + 四控制 + 模式 + offset ±
 modules/
 └── lark-audio/      # ACTION_AUDIO_BECOMING_NOISY（决策 e）
+acceptance/
+└── playback.ts      # 判据 4 + 3③ 的动作那半（生产版造不出坏音频文件）
 ```
 
 新增到 `@lark/shared`：`decideNext` + `QueueDecision`（决策 a）· `createOperationQueue`（决策 p，从 `gui/src/renderer/src/player/queue.ts` 原样搬）。
@@ -445,5 +451,8 @@ local_metadata.last_playback = {"song_id": "...", "position_seconds": 123.4,
 | 12 | 判据 19 想先干跑一遍再上耳机 | `ACTION_AUDIO_BECOMING_NOISY` 是**受保护广播**，`adb shell am broadcast` 抛 SecurityException | 没有模拟的办法，只有真断开一次；这条判据因此由用户手测 |
 | 13 | 判据 20（音频焦点行为表）| 用户 2026-08-20 决定**搁置**：「比较少见情况，之后实际使用过程中测」 | 照判据 16b 的先例记；**这一条连实现都不是我们的**（焦点整个由 expo-audio 提供），判据 21 已把当前请求参数记下来备查 |
 | 14 | 判据 21「20 全过则照原样留着」 | 20 不测了，条件句的前件没有真值 | 结论仍是**原样留着**——没有行为证据就改焦点请求，是拿更难查的病换还没出现的病。不一致本身已记录（请求 `USAGE_UNKNOWN`/`GAIN_TRANSIENT` vs 播放 `USAGE_MEDIA`）|
+| 15 | §2.1 画了 `player/memory.ts` | 宿主侧只有「什么时候写」，三个转折点全在 store 已有的方法里 | 不建这个文件；`store.remember()` + `index.ts` 的 `bindPlayer`。§2.1 已改 |
+| 16 | 判据 3② 的「显式停止」 | **生产版没有停止按钮**，`store.stop()` 当时零调用方 | 「退出应用」那半实测（划掉后台任务 → 进程消失、活跃播放器 0）；**顺手把「删掉正在播的那首」改成调用 `stop()`**——它本来就是 `stop` 的近似复制，只差没清 queue，而那是一个属于已经不存在的歌的 queue |
+| 17 | 判据 22 的反测「去掉 60 秒节拍 → ① 必须红」| 单测上已验（变异后「每分钟写一次」红）。真机上还有一个更硬的证据 | **恢复出来的位置正好是 180.0 秒**——只有整分钟节拍写得出这个数，暂停与进 background 都写不出 |
 
 **另外三件与判据无关但值得记**（细节在 `docs/LESSONS.md`）：`locationX` 是相对被触摸的**子视图**的（点击跳回开头 + 拖动跟位移，两次咬人）· 走着的秒数让 `uiautomator dump` 直接失败 · 百分比布局挂在没有高度的父节点上会静静地画错（队列面板 6 首只画 2 行）。

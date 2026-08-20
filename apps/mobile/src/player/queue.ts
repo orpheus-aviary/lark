@@ -11,9 +11,13 @@
 // library through these ids; a deleted song simply stops being in the answer,
 // instead of sitting in the queue as a line that plays nothing.
 
+import type { QueueSource } from '@lark/core/portable';
 import type { SongData } from '@lark/shared';
 
-export type QueueSource = { kind: 'all' } | { kind: 'playlist'; id: string };
+// `QueueSource` is defined next to the thing that PERSISTS it
+// (`portable/last-playback.ts`), not here. Two structurally identical
+// definitions would drift the day one of them grew a third kind.
+export type { QueueSource };
 
 export interface PlayQueue {
   source: QueueSource;

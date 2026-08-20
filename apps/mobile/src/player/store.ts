@@ -24,6 +24,7 @@
 // 毁新 player". It cannot happen here, because an operation only ever destroys
 // the driver it built.
 
+import type { LastPlayback } from '@lark/core/portable';
 import type { LrcLine, PlayMode, QueueDecision, QueueTrigger, SongData } from '@lark/shared';
 import { createOperationQueue, decideNext, parseLrc } from '@lark/shared';
 import type { AudioMetadata } from 'expo-audio';
@@ -72,6 +73,8 @@ export interface PlayerDeps {
   readLyrics: (songId: string) => Promise<string | null>;
   /** `local_metadata.play_mode` (decision g). */
   persistMode: (mode: PlayMode) => void;
+  /** `local_metadata.last_playback` (N3f, decision i). */
+  rememberPlayback: (value: LastPlayback) => void;
   /** Fires whenever the library changed under us (§2.8). */
   onLibraryChanged: (listener: () => void) => () => void;
 }
@@ -81,8 +84,27 @@ export interface PlayerStore {
   getState(): PlaybackState;
   /** Adopt the persisted mode once the library is open. Does not write back. */
   hydrate(mode: PlayMode): void;
+  /**
+   * Adopt a remembered position without creating anything (N3f, criterion 22).
+   *
+   * The whole point is what it does NOT do: no player, no audio session, no
+   * focus request, no media notification. The launch path already carries the
+   * identity gate and the migration, and a feature this convenient does not
+   * get to add a decode to it. The first tap is what loads the source, and it
+   * resumes from here because `currentTime` IS the remembered position.
+   */
+  restore(song: SongData, queue: PlayQueue, positionSeconds: number): void;
+  /**
+   * Write down where we are, if there is anywhere to write down.
+   *
+   * Called at the three turning points — pausing, changing songs, going to the
+   * background — plus a coarse beat riding on the status stream. There is no
+   * timer of its own anywhere in this: waking the CPU to record a position is
+   * not something this feature has earned.
+   */
+  remember(): void;
   /** Start this song, playing out of this queue. Supersedes anything in flight. */
-  play(song: SongData, queue: PlayQueue): Promise<void>;
+  play(song: SongData, queue: PlayQueue, startAtSeconds?: number): Promise<void>;
   /** Pause if playing, resume if paused, start over if the source is gone. */
   toggle(): Promise<void>;
   /**
@@ -110,7 +132,14 @@ export interface PlayerStore {
    * destroys anything, so this either reaches the live source or nothing.
    */
   publishNowPlaying(meta: AudioMetadata): void;
-  /** Stop and release. Also what unmounting the app does. */
+  /**
+   * Give up the song, the queue and the source.
+   *
+   * One caller: the song being played was deleted from the library. It is NOT
+   * what leaving the app does — nothing unmounts, and the process going away
+   * is what ends playback there (measured: swiping lark out of recents leaves
+   * zero active players).
+   */
   stop(): Promise<void>;
 }
 
@@ -164,6 +193,41 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
    */
   let finished: string | null = null;
 
+  /** §2.7's coarse beat: which whole minute the last write belonged to. */
+  const REMEMBER_EVERY_SECONDS = 60;
+  let rememberedMinute: number | null = null;
+
+  const remember = (): void => {
+    const song = state.song;
+    const queue = state.queue;
+    if (song === null || queue === null) return;
+    rememberedMinute = Math.floor(state.currentTime / REMEMBER_EVERY_SECONDS);
+    deps.rememberPlayback({
+      songId: song.id,
+      positionSeconds: state.currentTime,
+      queue: queue.source,
+    });
+  };
+
+  /**
+   * Lyrics for a song, fetched without anyone waiting.
+   *
+   * Fire and forget: they are decoration for playback, and a song whose lyrics
+   * file is unreadable still plays. The song guard is what keeps a slow read
+   * from painting the previous song's words.
+   */
+  const loadLyrics = (song: SongData): void => {
+    void deps
+      .readLyrics(song.id)
+      .then((text) => {
+        if (state.song?.id !== song.id) return;
+        set({ lyrics: text === null ? [] : parseLrc(text) });
+      })
+      .catch(() => {
+        if (state.song?.id === song.id) set({ lyrics: [] });
+      });
+  };
+
   const onSnapshot = (snapshot: PlaybackSnapshot): void => {
     if (snapshot.error !== null) {
       // M4-6: a media error stops playback dead. No retry, ever.
@@ -180,6 +244,10 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       // rather than blinking through zero.
       duration: snapshot.duration > 0 ? snapshot.duration : state.duration,
     });
+    // The coarse beat, riding on a tick that was going to happen anyway. With
+    // the screen off these arrive as rarely as the system lets them, which is
+    // exactly why §2.7 promises "where JS last looked" and not a number.
+    if (Math.floor(state.currentTime / REMEMBER_EVERY_SECONDS) !== rememberedMinute) remember();
     const song = state.song;
     if (snapshot.didJustFinish && song !== null && finished !== song.id) {
       finished = song.id;
@@ -192,6 +260,7 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     await lane.run(() => {
       driver?.pause();
       set({ playing: false });
+      remember();
     });
   };
 
@@ -241,18 +310,11 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     if (fresh === undefined) {
       // The song being played was deleted. Stopping is the honest answer;
       // sliding to a neighbour would be this app deciding what to play next
-      // on the strength of somebody deleting something.
-      void lane.run(async () => {
-        await release();
-        set({
-          song: null,
-          lyrics: [],
-          loading: false,
-          playing: false,
-          currentTime: 0,
-          error: null,
-        });
-      });
+      // on the strength of somebody deleting something. `stop` and not a
+      // hand-rolled teardown: this used to be a near-copy of it, differing
+      // only in leaving `queue` behind — a queue belonging to a song that no
+      // longer exists.
+      void store.stop();
       return;
     }
     // A rename or a pin: the row on screen should say what the library says.
@@ -273,10 +335,34 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       set({ mode });
     },
 
-    async play(song, queue) {
+    restore(song, queue, positionSeconds) {
+      set({
+        song,
+        queue,
+        lyrics: [],
+        loading: false,
+        playing: false,
+        currentTime: positionSeconds,
+        duration: song.duration,
+        error: null,
+      });
+      rememberedMinute = Math.floor(positionSeconds / REMEMBER_EVERY_SECONDS);
+      // Worth the file read: the mini bar shows the line for the position it
+      // is displaying, and an empty lyric row over a progress bar sitting at
+      // 2:03 reads as broken rather than as paused.
+      loadLyrics(song);
+    },
+
+    remember,
+
+    async play(song, queue, startAtSeconds = 0) {
       const mine = claim();
       await lane.run(async () => {
         if (mine !== intent) return; // superseded while it waited its turn
+        // The song being left behind, written down before it is let go. Its
+        // position is where the user stopped hearing it, which is the only
+        // moment that number exists.
+        remember();
         await release();
         if (mine !== intent) return;
 
@@ -286,22 +372,12 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
           lyrics: [],
           loading: true,
           playing: false,
-          currentTime: 0,
+          currentTime: startAtSeconds,
           duration: song.duration,
           error: null,
         });
-        // Fire and forget: lyrics are decoration for playback, and a song
-        // whose lyrics file is unreadable still plays. The song guard is what
-        // keeps a slow read from painting the previous song's words.
-        void deps
-          .readLyrics(song.id)
-          .then((text) => {
-            if (state.song?.id !== song.id) return;
-            set({ lyrics: text === null ? [] : parseLrc(text) });
-          })
-          .catch(() => {
-            if (state.song?.id === song.id) set({ lyrics: [] });
-          });
+        rememberedMinute = Math.floor(startAtSeconds / REMEMBER_EVERY_SECONDS);
+        loadLyrics(song);
         await deps.ensureSession();
         if (mine !== intent) return;
 
@@ -325,6 +401,10 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
 
         driver = built;
         unsubscribeDriver = built.subscribe(onSnapshot);
+        // Seek BEFORE play, so a restored position never plays a second of the
+        // beginning first. Both go to the same native player and ExoPlayer
+        // orders them itself.
+        if (startAtSeconds > 0) built.seek(startAtSeconds);
         built.play();
         set({ loading: false, playing: true });
       });
@@ -367,7 +447,12 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
           set({ playing: true });
         }
       });
-      if (reload !== null && state.queue !== null) await this.play(reload, state.queue);
+      // `currentTime` IS the remembered position when nothing has loaded yet
+      // (`restore`), and the position a failed load left behind otherwise.
+      // Either way, resuming means resuming from there.
+      if (reload !== null && state.queue !== null) {
+        await this.play(reload, state.queue, state.currentTime);
+      }
     },
 
     async seek(seconds) {

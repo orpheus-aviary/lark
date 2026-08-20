@@ -17,6 +17,7 @@ import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops
 import { runFixtureImportScenarios } from './fixture-import';
 import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
+import { runPlaybackScenarios } from './playback';
 import { runSortScenarios } from './sort';
 
 export function Root() {
@@ -48,7 +49,7 @@ export function Root() {
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>lark · acceptance</Text>
         <Text style={styles.line}>
-          D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13
+          D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③
         </Text>
 
         <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
@@ -96,6 +97,21 @@ export function Root() {
 
         <Pressable style={styles.button} onPress={run(runSortScenarios)} accessibilityRole="button">
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sort scenarios'}</Text>
+        </Pressable>
+
+        {/*
+          Criterion 4, and the acts half of 3③. The product cannot hold a
+          broken audio file — nothing can push one into `Paths.document` and no
+          screen can make one — so this is the only artifact where "what does
+          the player do with a file that is not audio" can be asked at all.
+          The host counts active players afterwards.
+        */}
+        <Pressable
+          style={styles.button}
+          onPress={run(runPlaybackScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run playback scenarios'}</Text>
         </Pressable>
 
         {/*

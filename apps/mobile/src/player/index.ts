@@ -11,8 +11,10 @@
 // The factory stays exported from `./store` with every dependency injected, so
 // the race model is tested on a laptop against a fake driver.
 
+import type { LastPlayback } from '@lark/core/portable';
 import type { NowPlayingMode, PlayMode, SongData } from '@lark/shared';
 import { useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 import LarkAudio from '../../modules/lark-audio';
 import { onLibraryChanged } from '../library-signal';
 import { createPaths } from '../ports/paths';
@@ -40,6 +42,14 @@ export interface PlayerBinding {
   /** `local_metadata.now_playing_mode` — the Bluetooth lyrics switch (N3d). */
   readNowPlayingMode: () => NowPlayingMode;
   persistNowPlayingMode: (mode: NowPlayingMode) => void;
+  /**
+   * What to put back on screen at launch, already checked against the library
+   * (N3f). `null` means "remember nothing", which includes every way the
+   * remembered position could have gone stale.
+   */
+  restore: () => { song: SongData; queue: PlayQueue; positionSeconds: number } | null;
+  /** `local_metadata.last_playback`. */
+  rememberPlayback: (value: LastPlayback) => void;
 }
 
 let binding: PlayerBinding | null = null;
@@ -56,6 +66,7 @@ export const player = createPlayerStore({
   resolveQueue: (queue) => required().resolveQueue(queue),
   readLyrics: (songId) => required().readLyrics(songId),
   persistMode: (mode) => required().persistMode(mode),
+  rememberPlayback: (value) => required().rememberPlayback(value),
   onLibraryChanged,
 });
 
@@ -92,10 +103,38 @@ LarkAudio.addListener('onBecomingNoisy', () => {
   void player.pause();
 });
 
+/**
+ * One of §2.7's three turning points: the app going away (N3f).
+ *
+ * `background` only. `inactive` is an iOS state, and on Android the one thing
+ * that reliably precedes "this process may not get another word in" is this.
+ * It saves the position at THAT moment and nothing later — a screen-off
+ * background run keeps playing while JS is throttled, which is why the
+ * promise is "where JS last looked".
+ */
+AppState.addEventListener('change', (next) => {
+  if (next === 'background') player.remember();
+});
+
+/**
+ * Whether this process has already put a remembered position back.
+ *
+ * `bindPlayer` runs from an effect in `App`, and an Activity that Android
+ * destroyed and rebuilt remounts it — `bootOnce` makes the second call cheap
+ * but not absent. Restoring twice would take a player that is happily playing
+ * and overwrite it with wherever it was when the app launched. Same shape as
+ * `bootOnce`, same reason, third place (N2f).
+ */
+let restored = false;
+
 /** Called once, by the boot path, with the library it just opened. */
 export function bindPlayer(next: PlayerBinding): void {
   binding = next;
   player.hydrate(next.readMode());
+  if (restored) return;
+  restored = true;
+  const memory = next.restore();
+  if (memory !== null) player.restore(memory.song, memory.queue, memory.positionSeconds);
 }
 
 /**

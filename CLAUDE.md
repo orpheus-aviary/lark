@@ -18,7 +18,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 - **N1 已全部完成**（2026-08-19，子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`，九批 N1a–N1i）：core 的**整个业务图**进了 `@lark/core/portable`——sync 全图、library 全图、SyncCoordinator、LibraryService（+ 跨前端 LibraryContract）、download client 层与编排。Metro 图 **97 个 portable 模块**，bundle smoke 已进 `just check`。**R1–R5 真机全绿 → D5 分段冻结，冻结文本见 N1 子计划 §8.1（单一事实源）**。桌面测试 **2578**。
   - **唯一未做的是判据 22**：对新构建的 dmg/tgz 复跑 accept 全系列——按用户决定并入下个桌面版本的发版流程。
 - **N2 已全部完成**（2026-08-20，七批 N2a–N2g，判据 1–21 全过；**判据 14 的「拖柄重排」已按用户决定不做**，见子计划 §8.3；**判据 16b = D2D 手机搬家已搁置**，见子计划 §8.2；**§8.4 记了判据 20 的 ②③ 落地成同一个守卫**）——子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（**v3，两轮评审收敛**，七批 N2a–N2g / 判据 22 条 / **决策 a–o 已于 2026-08-19 全部关闭，§5 是定案**，§8 有修订对照）。四条要点：**决策 a = 原子替换**（expo-file-system 57 在 Android 上两条路都堵着）· **`ensureDeviceUuid` 要下沉进 portable**（今天是桌面专有的，缺它移动端一切业务写入抛错）· **删除的文件半推不掉**（`deleteSong` 无条件 drain）→ file-op 执行器提前进 N2 且控制面从桌面提取 · **§2.2 冻结了启动序列**：零写预检（含兼容性）→ 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent → boot drain → 服务。
-- **N3 进行中**（子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md`，**v4 可开工定稿**，六批 N3a–N3f / 判据 25 条 / **决策 a–p 全关**）：**N3a–N3e 已完成**（判据 1–19 + 21，**20 已按用户决定搁置**），手机上已经是一个能放歌的播放器——minibar + 全屏歌词页（含 offset ±）+ 队列面板 + 四种播放模式 + 蓝牙歌词 + 拔耳机暂停。桌面测试 **2701**。**下一步 N3f**（进度记忆 + 收尾，判据 22–25）。三条要点：**锁屏/车机的「上一首/下一首」在 expo-audio 57.0.3 上不存在**（`AudioMediaSessionCallback` 显式 remove 掉四个曲目导航命令，两个 session 注册点同一个 callback，换 `AudioPlaylist` 也救不了）→ **v1 收窄成播放/暂停/seek**，逃生口定价在 §1.9 · **队列是起播那一刻的快照**（决策 o，与桌面「队列 = 当前视图」分叉，如实记着）· **耐久留给打包后的真实使用**（决策 k，N3 只到 ≥5 分钟后台）。
+- **N3 已完成**（2026-08-20，子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md`，六批 N3a–N3f / 判据 25 条 / 决策 a–p 全关，§8.1 有 17 条实施修订）：**判据 1–19 + 21–25 全过**（**18 与 21 只记录不判定**、**20 已按用户决定搁置**）。手机上已经是一个完整的播放器——minibar + 全屏歌词页（含 offset ±）+ 队列面板 + 四种播放模式 + 蓝牙歌词 + 拔耳机暂停 + 进度记忆。桌面测试 **2729**。**下一步 N4 下载**。三条要点：**锁屏/车机的「上一首/下一首」在 expo-audio 57.0.3 上不存在**（`AudioMediaSessionCallback` 显式 remove 掉四个曲目导航命令，两个 session 注册点同一个 callback，换 `AudioPlaylist` 也救不了）→ **v1 收窄成播放/暂停/seek**，逃生口定价在 §1.9 · **队列是起播那一刻的快照**（决策 o，与桌面「队列 = 当前视图」分叉，如实记着）· **耐久留给打包后的真实使用**（决策 k，N3 只到 ≥5 分钟后台）。
 - **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定）：复用 AVRCP 的 TITLE 字段；**判定函数与 config 字段已随 N2g 落地**——`nowPlayingTitle`（`@lark/shared/now-playing.ts`，纯函数，四种输入回歌名 + 64 code point 上限）与 `local_metadata.now_playing_mode`（`@lark/core/portable/now-playing-mode.ts`，缺行或非法值一律读 `'title'` 且**读路径不写库**）；**接线、开关与节流已随 N3d 落地**（`apps/mobile/src/player/now-playing.ts`：去重看返回值 + 节流 500ms + `mode` 每首重读一次；关开关**绕过节流**强发一次，因为暂停的播放器没有 tick），**桌面整个不做**。见主计划 §4.5 的修订段。**判据 18 的 queue 陷阱前提条件实测成立**（`queueTitle=null, size=1` + `MediaItem.fromUri` 不带 title → queue item 的 title 永远对不上我们写的歌词），**有没有真的延迟 2 秒没有接收端测不了**。
 - 数值判据一律 **release 构建** + 冻结设备 vivo V2408A。逐批状态见 `PROCESS.md` 的 Phase B 段。
 
@@ -58,6 +58,7 @@ lark/
 │   │                      #   schema / migrations / migrate / schema-signature / pending /
 │   │                      #   db-identity（ensureDeviceUuid，N2b 下沉）/
 │   │                      #   now-playing-mode（蓝牙歌词开关，N2g）/ play-mode（N3b）/
+│   │                      #   last-playback（进度记忆，N3f）/
 │   │                      #   open-library（移动端打开分派 classifyLibrary+prepareLibrary）/
 │   │                      #   errors / logger 型 / SqliteLike / PortableDb /
 │   │                      #   ports/（fs·paths·song-files·credentials·events·device·audio-landing）/
@@ -70,7 +71,7 @@ lark/
 ├── apps/
 │   ├── cli/        # @lark/cli — 对外 CLI（发布为 @orpheus-aviary/lark-cli，bin `lark` / `lark-cli`）
 │   └── mobile/     # @lark/mobile — Android（N2 起）：boot/ 冻结启动序列 · identity/ D16 ·
-│                    #   db/ · ports/ · services/ · player/（driver·store·queue·session，N3a–c）·
+│                    #   db/ · ports/ · services/ · player/（driver·store·queue·session·now-playing，N3a–f）·
 │                    #   ui/ 四 tab + minibar/全屏页/队列面板 · acceptance/（仅验收 bundle 可达）
 │                    #   modules/lark-fs 自建原生模块（原子替换 + 外部夹具目录）
 │                    #   modules/lark-audio 自建原生模块（ACTION_AUDIO_BECOMING_NOISY，N3e）

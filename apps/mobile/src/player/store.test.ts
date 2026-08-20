@@ -4,6 +4,7 @@
 // Every case here is a device bug that shows up once in twenty runs and reads
 // like "sometimes the wrong song plays".
 
+import type { LastPlayback } from '@lark/core/portable';
 import type { PlayMode, SongData } from '@lark/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlaybackSnapshot, PlayerDriver } from './driver';
@@ -96,6 +97,9 @@ let libraryListeners: Array<() => void>;
 /** Every case plays out of the whole library unless it says otherwise. */
 const ALL: PlayQueue = { source: { kind: 'all' }, songIds: ['a', 'b', 'c'] };
 
+/** Every `last_playback` write, in order (N3f). */
+let remembered: LastPlayback[] = [];
+
 const libraryChanged = (): void => {
   for (const listener of libraryListeners) listener();
 };
@@ -106,6 +110,7 @@ beforeEach(() => {
   library = [song('a'), song('b'), song('c')];
   lyrics = {};
   persisted = [];
+  remembered = [];
   libraryListeners = [];
   store = createPlayerStore({
     createDriver: createFakeDriver,
@@ -116,6 +121,7 @@ beforeEach(() => {
     resolveQueue: (queue) => resolveQueue(queue, library),
     readLyrics: async (id) => lyrics[id] ?? null,
     persistMode: (mode) => persisted.push(mode),
+    rememberPlayback: (value) => remembered.push(value),
     onLibraryChanged: (listener) => {
       libraryListeners.push(listener);
       return () => {
@@ -439,6 +445,8 @@ describe('the queue, and what the library does to it', () => {
 
     expect(store.getState().song).toBeNull();
     expect(store.getState().playing).toBe(false);
+    // And the queue with it: what is left would belong to a song that is gone.
+    expect(store.getState().queue).toBeNull();
     expect(built[0]?.log).toContain('destroy');
     // Nothing else started: a deletion is not an instruction about what to play.
     expect(built).toHaveLength(1);
@@ -546,5 +554,83 @@ describe('pause', () => {
     await store.pause();
     expect(store.getState().playing).toBe(false);
     expect(built).toHaveLength(0);
+  });
+});
+
+describe('the remembered position', () => {
+  it('restores without building anything (criterion 22②)', () => {
+    store.restore(song('b'), ALL, 123.4);
+
+    expect(built).toHaveLength(0); // no driver, and therefore no audio session
+    expect(sessions).toBe(0);
+    const state = store.getState();
+    expect(state.song?.id).toBe('b');
+    expect(state.playing).toBe(false);
+    expect(state.loading).toBe(false);
+    expect(state.currentTime).toBe(123.4);
+  });
+
+  it('the first tap resumes from there rather than from the beginning', async () => {
+    store.restore(song('b'), ALL, 123.4);
+    const done = store.toggle();
+    await settle();
+    built[0]?.finishLoad();
+    await done;
+
+    expect(built).toHaveLength(1);
+    expect(store.getState().playing).toBe(true);
+    // Seek first: a restored position must never play a second of the start.
+    expect(built[0]?.log).toEqual(['load', 'seek:123.4', 'play']);
+  });
+
+  it('writes on pause', async () => {
+    const done = store.play(song('a'), ALL);
+    await settle();
+    built[0]?.finishLoad();
+    await done;
+    built[0]?.emit({ currentTime: 42 });
+
+    expect(remembered).toEqual([]);
+    await store.pause();
+    expect(remembered).toEqual([{ songId: 'a', positionSeconds: 42, queue: { kind: 'all' } }]);
+  });
+
+  it('writes once per minute crossed, not once per tick', async () => {
+    const done = store.play(song('a'), ALL);
+    await settle();
+    built[0]?.finishLoad();
+    await done;
+
+    for (const currentTime of [10, 30, 59.5]) built[0]?.emit({ currentTime });
+    expect(remembered).toEqual([]);
+
+    built[0]?.emit({ currentTime: 60 });
+    built[0]?.emit({ currentTime: 61 });
+    built[0]?.emit({ currentTime: 119 });
+    expect(remembered).toEqual([{ songId: 'a', positionSeconds: 60, queue: { kind: 'all' } }]);
+
+    built[0]?.emit({ currentTime: 120 });
+    expect(remembered).toHaveLength(2);
+    expect(remembered.at(-1)?.positionSeconds).toBe(120);
+  });
+
+  it('writes where the OUTGOING song was when another one starts', async () => {
+    const first = store.play(song('a'), ALL);
+    await settle();
+    built[0]?.finishLoad();
+    await first;
+    built[0]?.emit({ currentTime: 17 });
+
+    const second = store.play(song('b'), ALL);
+    await settle();
+    built[1]?.finishLoad();
+    await second;
+
+    expect(remembered).toEqual([{ songId: 'a', positionSeconds: 17, queue: { kind: 'all' } }]);
+  });
+
+  it('has nothing to write when nothing has played', () => {
+    store.remember();
+    expect(remembered).toEqual([]);
   });
 });
