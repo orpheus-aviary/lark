@@ -1,18 +1,12 @@
-// The commit protocol, asserted against the desktop landing (N1h, judgement 16).
+// The AudioLandingContract, driven against the desktop's ffmpeg landing (N4a).
 //
-// These are PORT properties, not desktop details: every host that lands audio
-// owes the same three answers, and the reason they are written here rather
-// than in a hooks-and-runner harness is that there is exactly one
-// implementation to run them against today. The cross-host signature is not
-// frozen until N4 (§8); when the mobile implementation lands, these become its
-// entry exam and the file grows a hook.
-//
-// What is under test is the CONTRACT the port declares:
-//
-//   `commit` runs exactly once, inside the implementation's own transaction,
-//   at its point of no return. Throwing from it rolls the landing back —
-//   including restoring the file that was there — and returning from it means
-//   the song is committed and cannot be un-succeeded.
+// Its five commit / lifecycle cases were this file's own hand-written tests
+// before N4; they now live in `portable/services/contract/audio-landing`, so
+// the phone's native landing (N4b) is held to the SAME eight, through its own
+// hook. What is desktop here is only the hook: a real `nodeAudioLanding`, a
+// real bilibili client, and a tiny HTTP server the client actually fetches — so
+// the three transfer cases exercise `openAudio`'s real error normalisation
+// rather than a hand-thrown stand-in (§2.2).
 
 import {
   existsSync,
@@ -23,183 +17,236 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { createDatabase } from '../db/index.js';
 import { MediaToolsRegistry } from '../media-tools/registry.js';
 import { resolveMediaTools } from '../media-tools/resolve.js';
 import { songAudioPath, songDirPath } from '../paths.js';
-import type { PortableDb } from '../portable/db.js';
+import type { ContractReport } from '../portable/contract/types.js';
+import { createBilibiliClient } from '../portable/download/bilibili.js';
 import { DEFAULT_TIMEOUTS } from '../portable/download/timeouts.js';
+import { BilibiliApiError } from '../portable/errors.js';
 import { createFileBackedSongInTx } from '../portable/library/songs.js';
-import type { AudioLandingPort } from '../portable/ports/audio-landing.js';
 import { uuid } from '../portable/runtime/random.js';
+import {
+  type AudioLandingAttempt,
+  type AudioLandingContractHooks,
+  type AudioLandingOutcome,
+  type AudioLandingSubject,
+  runAudioLandingContract,
+} from '../portable/services/contract/audio-landing/index.js';
 import { toneWav } from '../testing/tone-wav.js';
 import { nodeAudioLanding } from './audio-landing.js';
 
-let audioFixture: Buffer;
-let nest: string;
-let sqlite: BetterSqlite3.Database;
-let store!: PortableDb;
-let mediaTools: MediaToolsRegistry;
-let landing: AudioLandingPort;
+const nests: string[] = [];
+const dbs: BetterSqlite3.Database[] = [];
 
-beforeAll(async () => {
-  // Real audio, so ffmpeg has something it can genuinely transcode. Written by
-  // hand rather than synthesised: the vendored build has neither the lavfi
-  // demuxer nor a way to make its own input (M7 T0).
-  audioFixture = toneWav(1);
-  const outcome = resolveMediaTools();
-  if (!outcome.ok) throw new Error(`no usable ffmpeg for the test run: ${outcome.detail}`);
-  mediaTools = new MediaToolsRegistry();
-  const probe = await mediaTools.refresh();
-  if (probe.state !== 'ready') {
-    throw new Error(`no usable ffmpeg for the test run (${probe.state}): ${probe.detail}`);
+// ─── Setup (top-level await, like the LibraryContract hook) ──
+
+// Real audio, so ffmpeg has something it can genuinely transcode (M7 T0).
+const audioFixture = toneWav(1);
+
+const mediaOutcome = resolveMediaTools();
+if (!mediaOutcome.ok) throw new Error(`no usable ffmpeg for the test run: ${mediaOutcome.detail}`);
+const mediaTools = new MediaToolsRegistry();
+const probe = await mediaTools.refresh();
+if (probe.state !== 'ready') {
+  throw new Error(`no usable ffmpeg for the test run (${probe.state}): ${probe.detail}`);
+}
+
+// A server the real client fetches: the buvid endpoint `openAudio` warms, a
+// good track, a 5xx, and one that sends headers then hangs.
+const server = createServer((req, res) => {
+  const path = new URL(req.url ?? '/', 'http://x').pathname;
+  if (path === '/x/frontend/finger/spi') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ code: 0, data: { b_3: 'B3', b_4: 'B4' } }));
+    return;
   }
-}, 60_000);
-
-beforeEach(() => {
-  nest = mkdtempSync(join(tmpdir(), 'lark-landing-'));
-  vi.stubEnv('LARK_NEST_DIR', nest);
-  ({ sqlite, portable: store } = createDatabase({ dbPath: ':memory:' }));
-  landing = nodeAudioLanding({ store, mediaTools, timeouts: DEFAULT_TIMEOUTS });
-});
-
-afterEach(() => {
-  sqlite.close();
-  vi.unstubAllEnvs();
-  rmSync(nest, { recursive: true, force: true });
-});
-
-/** A stream of the fixture, as the client would hand one over. */
-const openStream = (): Promise<Response> =>
-  Promise.resolve(
-    new Response(new Uint8Array(audioFixture), {
-      headers: { 'content-length': String(audioFixture.byteLength) },
-    }),
-  );
-
-interface LandOptions {
-  songId: string;
-  mode: 'new' | 'replace';
-  commit: (result: { duration: number }) => void;
-}
-
-function land(options: LandOptions): Promise<{ warnings: string[] }> {
-  return landing.land({
-    taskId: uuid(),
-    songId: options.songId,
-    mode: options.mode,
-    openStream,
-    // The desktop lands through `openStream`; `request` is the native-host
-    // description of the same call and goes unread here.
-    request: { url: 'https://example.test/audio', headers: {}, timeoutMs: 60_000 },
-    expect: { codecs: 'mp4a.40.2', isAac: true, expectedDurationSeconds: null },
-    reportStage: () => {},
-    onProgress: () => {},
-    commit: options.commit,
-    signal: new AbortController().signal,
-  });
-}
-
-describe('the landing commit protocol', () => {
-  it('calls commit exactly once, and hands it the duration that actually landed', async () => {
-    const songId = uuid();
-    const durations: number[] = [];
-    await land({
-      songId,
-      mode: 'new',
-      commit: ({ duration }) => {
-        durations.push(duration);
-        // Writing the row is what a commit IS, and the landing's transaction
-        // touches `last_accessed_at` on it in the same breath (M5-7) — so a
-        // commit that wrote nothing is not a lighter version of this test, it
-        // is a different protocol.
-        createFileBackedSongInTx(store, {
-          id: songId,
-          name: '一',
-          artist: '',
-          duration,
-          file_origin: 'downloaded',
-          source_url: null,
-          source_provider: null,
-          source_key: null,
-        });
-      },
+  if (path === '/ok') {
+    res.writeHead(200, {
+      'content-type': 'audio/mp4',
+      'content-length': String(audioFixture.length),
     });
+    res.end(audioFixture);
+    return;
+  }
+  if (path === '/500') {
+    res.writeHead(500);
+    res.end('nope');
+    return;
+  }
+  if (path === '/hang') {
+    // Headers, then one chunk, then nothing — a transfer that stalls mid-body,
+    // ended only by its deadline or the caller's abort.
+    res.writeHead(200, { 'content-type': 'audio/mp4' });
+    res.write(audioFixture.subarray(0, 8));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-    expect(durations).toHaveLength(1);
-    // The fixture is one second, and the row is written from what was probed
-    // out of the OUTPUT — never from what any caller promised.
-    expect(durations[0]).toBeGreaterThan(0);
-    expect(durations[0]).toBeLessThan(3);
-    expect(existsSync(songAudioPath(songId))).toBe(true);
-  });
-
-  it('rolls the whole landing back when commit throws, restoring the old file', async () => {
-    const songId = uuid();
-    mkdirSync(songDirPath(songId), { recursive: true });
-    writeFileSync(songAudioPath(songId), 'the file that was already there');
-
-    let calls = 0;
-    await expect(
-      land({
-        songId,
-        mode: 'replace',
-        commit: () => {
-          calls += 1;
-          throw new Error('the row could not be written');
-        },
-      }),
-    ).rejects.toThrow();
-
-    expect(calls).toBe(1);
-    // The point of the manifest: the file that was there is the file that is
-    // there. A landing that half-succeeded would be worse than one that failed.
-    expect(readFileSync(songAudioPath(songId), 'utf-8')).toBe('the file that was already there');
-    // And nothing of the attempt is left to confuse the next recovery pass.
-    const residue = readdirSync(songDirPath(songId)).filter((name) => name.startsWith('.'));
-    expect(residue).toEqual([]);
-  });
-
-  it('leaves nothing behind at all when a NEW song fails to commit', async () => {
-    const songId = uuid();
-    await expect(
-      land({
-        songId,
-        mode: 'new',
-        commit: () => {
-          throw new Error('no');
-        },
-      }),
-    ).rejects.toThrow();
-    // A brand-new song owns nothing else in that directory, so the whole thing
-    // goes — leaving it would look like an orphan to recovery.
-    expect(existsSync(songDirPath(songId))).toBe(false);
-  });
+const client = createBilibiliClient({ apiBase: base, timeouts: DEFAULT_TIMEOUTS });
+// A short whole-transfer deadline, so the timeout case ends in well under a
+// second rather than the default five minutes.
+const fastClient = createBilibiliClient({
+  apiBase: base,
+  timeouts: { ...DEFAULT_TIMEOUTS, audioStream: 500 },
 });
 
-describe('the two lifecycle answers', () => {
-  it('hasAudio reports the canonical file, not the directory', () => {
-    const songId = uuid();
-    expect(landing.hasAudio(songId)).toBe(false);
-    mkdirSync(songDirPath(songId), { recursive: true });
-    // A directory with no audio in it is not a song with a file — that is the
-    // state a cancelled download leaves behind.
-    expect(landing.hasAudio(songId)).toBe(false);
-    writeFileSync(songAudioPath(songId), 'x');
-    expect(landing.hasAudio(songId)).toBe(true);
+afterAll(async () => {
+  await new Promise<void>((resolve) => {
+    server.closeAllConnections();
+    server.close(() => resolve());
+  });
+  for (const db of dbs) db.close();
+  for (const nest of nests) rmSync(nest, { recursive: true, force: true });
+});
+
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+}
+
+/** Map the host's own exception onto the contract's vocabulary (§2.2). */
+function classify(err: unknown, attempt: AudioLandingAttempt): AudioLandingOutcome {
+  if (attempt.commitThrows === true) return 'commit-threw';
+  if (err instanceof BilibiliApiError) return 'api-error';
+  // The subject KNOWS whether it aborted the caller signal, which is what tells
+  // a cancel apart from a deadline — both arrive here as an abort.
+  if (attempt.scenario === 'cancel') return 'cancelled';
+  if (isAbort(err)) return 'timed-out';
+  return 'other';
+}
+
+function makeSubject(): AudioLandingSubject {
+  const nest = mkdtempSync(join(tmpdir(), 'lark-landing-contract-'));
+  nests.push(nest);
+  process.env.LARK_NEST_DIR = nest;
+  const { sqlite, portable: store } = createDatabase({ dbPath: ':memory:' });
+  dbs.push(sqlite);
+  const landing = nodeAudioLanding({ store, mediaTools, timeouts: DEFAULT_TIMEOUTS });
+
+  return {
+    newSongId: () => uuid(),
+    hasAudio: (id) => landing.hasAudio(id),
+    discardUncommitted: (id) => landing.discardUncommitted(id),
+    placeExistingAudio: (id, marker) => {
+      mkdirSync(songDirPath(id), { recursive: true });
+      writeFileSync(songAudioPath(id), marker);
+    },
+    makeEmptyDir: (id) => {
+      mkdirSync(songDirPath(id), { recursive: true });
+    },
+    readAudio: (id) => {
+      try {
+        return readFileSync(songAudioPath(id), 'utf-8');
+      } catch {
+        return null;
+      }
+    },
+    dirExists: (id) => existsSync(songDirPath(id)),
+    residue: (id) => {
+      try {
+        return readdirSync(songDirPath(id)).filter((name) => name.startsWith('.'));
+      } catch {
+        return [];
+      }
+    },
+
+    async land(attempt) {
+      let commitCalls = 0;
+      let committedDuration: number | null = null;
+      const controller = new AbortController();
+      const c = attempt.scenario === 'timeout' ? fastClient : client;
+      const url =
+        attempt.scenario === 'http-error'
+          ? `${base}/500`
+          : attempt.scenario === 'timeout' || attempt.scenario === 'cancel'
+            ? `${base}/hang`
+            : `${base}/ok`;
+      if (attempt.scenario === 'cancel') {
+        setTimeout(() => controller.abort(new Error('user cancelled')), 60);
+      }
+      try {
+        await landing.land({
+          taskId: uuid(),
+          songId: attempt.songId,
+          mode: attempt.mode,
+          openStream: (signal) => c.openAudio(url, { signal }),
+          request: { url, headers: {}, timeoutMs: 60_000 },
+          expect: { codecs: 'mp4a.40.2', isAac: true, expectedDurationSeconds: null },
+          reportStage: () => {},
+          onProgress: () => {},
+          commit: ({ duration }) => {
+            commitCalls += 1;
+            committedDuration = duration;
+            if (attempt.commitThrows === true) throw new Error('commit refused');
+            // A real commit writes the row, so the transaction the landing
+            // wraps is a real one (the row's `last_accessed_at` rides with it).
+            createFileBackedSongInTx(store, {
+              id: attempt.songId,
+              name: 'x',
+              artist: '',
+              duration,
+              file_origin: 'downloaded',
+              source_url: null,
+              source_provider: null,
+              source_key: null,
+            });
+          },
+          signal: controller.signal,
+        });
+        return { outcome: 'landed', commitCalls, committedDuration };
+      } catch (err) {
+        return { outcome: classify(err, attempt), commitCalls, committedDuration };
+      }
+    },
+  };
+}
+
+const HOOKS: AudioLandingContractHooks = {
+  open: () => Promise.resolve(makeSubject()),
+  close: () => Promise.resolve(),
+};
+
+interface Result {
+  group: string;
+  name: string;
+  status: 'pass' | 'fail' | 'skip';
+  detail?: string;
+}
+
+const results: Result[] = [];
+const report: ContractReport = {
+  pass: (group, name) => results.push({ group, name, status: 'pass' }),
+  fail: (group, name, error) =>
+    results.push({
+      group,
+      name,
+      status: 'fail',
+      detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+    }),
+  skip: (group, name, reason) => results.push({ group, name, status: 'skip', detail: reason }),
+};
+
+await runAudioLandingContract(HOOKS, report);
+
+describe('audio landing contract (desktop hook)', () => {
+  it('ran every case', () => {
+    expect(results.length).toBe(8);
   });
 
-  it('discardUncommitted removes the directory, and is quiet about one that is gone', () => {
-    const songId = uuid();
-    mkdirSync(songDirPath(songId), { recursive: true });
-    writeFileSync(songAudioPath(songId), 'x');
-    landing.discardUncommitted(songId);
-    expect(existsSync(songDirPath(songId))).toBe(false);
-    // Idempotent: boot recovery and a cancelled task can both reach it.
-    expect(() => landing.discardUncommitted(songId)).not.toThrow();
+  // A skip reads as a failure: this host has no exemptions, so a case that did
+  // not run is a case nobody is watching.
+  it.each(results.map((r) => [`${r.group} · ${r.name}`, r] as const))('%s', (_name, result) => {
+    expect(result.status === 'pass' ? 'pass' : (result.detail ?? result.status)).toBe('pass');
   });
 });

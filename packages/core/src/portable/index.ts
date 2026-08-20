@@ -62,6 +62,7 @@ export * from './play-mode.js';
 export * from './ports/index.js';
 export * from './runtime/index.js';
 export * from './services/contract/index.js';
+export * from './services/contract/audio-landing/index.js';
 export * from './services/library.js';
 export * as schema from './schema.js';
 export * from './schema-signature.js';
