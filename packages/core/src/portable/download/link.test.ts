@@ -4,7 +4,7 @@
 // of its rows on the shapes that LOOK like bilibili and are not.
 
 import { describe, expect, it, vi } from 'vitest';
-import { InvalidSourceError, NormalizeFailedError } from '../errors.js';
+import { InvalidSourceError } from '../errors.js';
 import type { BilibiliClient } from './bilibili.js';
 import { buildVideoUrl, normalizeSourceOnline, parseSongInput, resolveInput } from './link.js';
 
@@ -187,11 +187,12 @@ describe('resolveInput — b23.tv expansion', () => {
     await expect(resolveInput(client, 'https://b23.tv/abc123')).rejects.toThrow(/不是 B 站链接/);
   });
 
+  // A target that is still a short link is a bad input (InvalidSourceError →
+  // 400), not a normalize failure (502): the daemon route has always answered
+  // 400 here, and the extracted preflight keeps that (§1.2).
   it('follows exactly one hop', async () => {
     const client = clientWith(async () => 'https://b23.tv/second');
-    await expect(resolveInput(client, 'https://b23.tv/first')).rejects.toThrow(
-      NormalizeFailedError,
-    );
+    await expect(resolveInput(client, 'https://b23.tv/first')).rejects.toThrow(InvalidSourceError);
   });
 
   it('leaves non-short-link input untouched (no network)', async () => {

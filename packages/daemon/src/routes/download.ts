@@ -1,4 +1,4 @@
-// The download surface (M3-11).
+// The download surface (M3-11), a thin shell over the portable preflight (N4a).
 //
 // The division of labour with the engine is strict and worth stating: NETWORK
 // WORK HAPPENS HERE, SCHEDULING HAPPENS THERE. Everything a request needs to
@@ -8,21 +8,26 @@
 // enqueue. That is what lets the engine promise "no await between a check and
 // the write it justifies".
 //
+// The JUDGEMENTS behind those look-ups (which failures are synchronous, when
+// the LLM is required, what a list link gets refused with) moved to
+// `@lark/core`'s `preflight` in N4a, so the phone reaches the same verdicts
+// through the same code. What stays here is REQUEST SHAPE: reading the body,
+// the two `naming_mode` rules that describe the request rather than the
+// download, and composing the preflight deadline with shutdown (§2.4).
+//
 // The preflight also decides WHEN the user hears about a problem. For a single
 // pasted input we can afford one page-list call, so a multi-part video with no
 // `?p=` and no LLM is a 400 with a fix in it. Batch items skip it — 300 page
-// lists is not a request budget — and fail asynchronously instead. That
-// trade-off is deliberate and written down in the plan (fourth review ②):
-// synchronous answers, a bounded preflight, and working without an LLM are
-// three promises, and only two of them fit at once.
+// lists is not a request budget — and fail asynchronously instead.
 
 import {
-  type DownloadTarget,
-  type ParsedInput,
-  PreflightTimeoutError,
+  fetchList,
   isLlmConfigured,
   parseSongInput,
+  preflightBatch,
+  preflightSingle,
   resolveLlmConfig,
+  resolveOne,
 } from '@lark/core';
 import {
   API_PATHS,
@@ -38,9 +43,7 @@ import {
   type DownloadCancelAllData,
   type DownloadNamingMode,
   type DownloadTaskAcceptedData,
-  FETCH_LIST_ITEMS_MAX,
-  FETCH_LIST_PAGES_MAX,
-  type FetchListData,
+  type FetchListRequest,
   type ParsedItem,
   apiPath,
 } from '@lark/shared';
@@ -83,77 +86,31 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
 
   const llm = () => resolveLlmConfig(ctx.config);
   const hasLlm = () => isLlmConfigured(llm());
-
-  /** Expand a short link if there is one, and reject anything not bilibili. */
-  const resolveOne = async (input: string): Promise<ParsedItem> => {
-    const parsed: ParsedInput = parseSongInput(input);
-    if (parsed.kind !== 'short_link') return parsed;
-    const target = await bilibili.expandShortLink(parsed.url, { signal: preflightSignal() });
-    const expanded = parseSongInput(target);
-    if (expanded.kind === 'short_link') {
-      throw new InvalidRequestError('INVALID_SOURCE', `短链 ${parsed.url} 展开后仍是短链`);
-    }
-    return expanded;
-  };
+  const deps = () => ({ client: bilibili, hasLlm: hasLlm() });
 
   /**
-   * The single-input preflight: everything that can be answered before the
-   * queue, answered before the queue.
+   * The two `naming_mode` rules that are about REQUEST SHAPE, not feasibility
+   * (§2.4). A keyword has no title to keep, so a caller that names one is wrong
+   * about what it is asking for; a video has a title, so a mode is required to
+   * say whether to keep it. Both are INVALID_BODY, and both stay here because
+   * the phone never sends either shape — only a hand-formed HTTP request can.
    */
-  const preflightSingle = async (
+  const assertNamingShape = (
     item: ParsedItem,
     namingMode: DownloadNamingMode | undefined,
-  ): Promise<DownloadTarget> => {
-    if (item.kind === 'keyword') {
-      // A keyword has no title to keep, so it has always been named by the
-      // model — asking for a mode here means the caller thinks it is choosing
-      // something, and answering 200 would agree with them (§3.6-1).
-      if (namingMode !== undefined) {
-        throw new InvalidRequestError(
-          'INVALID_BODY',
-          'naming_mode 只用于视频链接：关键词搜索的命名一直由 LLM 决定',
-        );
-      }
-      if (!hasLlm()) {
-        throw new InvalidRequestError(
-          'LLM_NOT_CONFIGURED',
-          '关键词搜索需要配置 LLM；或者直接粘贴 B 站视频链接',
-        );
-      }
-      return { kind: 'keyword', query: item.query };
-    }
-    if (item.kind !== 'video') {
+  ): void => {
+    if (item.kind === 'keyword' && namingMode !== undefined) {
       throw new InvalidRequestError(
-        'INVALID_SOURCE',
-        '收藏夹和合集链接请先用 /download/fetch-list 展开，再用 /download/batch 下载',
+        'INVALID_BODY',
+        'naming_mode 只用于视频链接：关键词搜索的命名一直由 LLM 决定',
       );
     }
-    if (namingMode === undefined) {
+    if (item.kind === 'video' && namingMode === undefined) {
       throw new InvalidRequestError(
         'INVALID_BODY',
         'naming_mode 必填（original = 原标题，clean = 让 LLM 提取歌名和歌手）',
       );
     }
-    if (namingMode === 'clean' && !hasLlm()) {
-      throw new InvalidRequestError(
-        'LLM_NOT_CONFIGURED',
-        '清洗命名需要配置 LLM；或者用 naming_mode=original 保留原标题',
-      );
-    }
-    // The page list is needed for p → cid anyway, so asking it here is free —
-    // and it is the only way to know whether the LLM will be required.
-    if (item.page === null) {
-      const pages = await withPreflightBudget(() =>
-        bilibili.pagelist(item.bvid, { signal: preflightSignal() }),
-      );
-      if (pages.length > 1 && !hasLlm()) {
-        throw new InvalidRequestError(
-          'LLM_NOT_CONFIGURED',
-          `这个视频有 ${pages.length} 个分P：在链接后加 ?p=<编号>，或配置 LLM 让它自动选集`,
-        );
-      }
-    }
-    return { kind: 'video', bvid: item.bvid, page: item.page, title: null, naming: namingMode };
   };
 
   // ─── POST /download/song ───────────────────────────────
@@ -164,8 +121,9 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     const playlistId = optionalUuid(body, 'playlist_id');
     const namingMode = optionalEnum(body, 'naming_mode', DOWNLOAD_NAMING_MODES);
 
-    const item = await resolveOne(input);
-    const target = await preflightSingle(item, namingMode);
+    const item = await resolveOne(bilibili, input, { signal: preflightSignal() });
+    assertNamingShape(item, namingMode);
+    const target = await preflightSingle(deps(), item, namingMode, { signal: preflightSignal() });
     const task = ctx.downloads.enqueueDownload({
       target,
       ...(playlistId === undefined ? {} : { playlistIds: [playlistId] }),
@@ -189,7 +147,8 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
     }
 
     const items: ParsedItem[] = [];
-    for (const line of lines) items.push(await resolveOne(line));
+    for (const line of lines)
+      items.push(await resolveOne(bilibili, line, { signal: preflightSignal() }));
     ok(reply, { items });
   });
 
@@ -197,23 +156,9 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.post(API_PATHS.downloadBatch, async (req, reply) => {
     const groups = readBatchGroups(req.body);
-    // Keyword items need the LLM, and that is knowable with no network at all
-    // — so it is still a synchronous 400 even in a batch.
-    const needsLlm = groups.some((g) => g.items.some((i) => i.kind === 'keyword'));
-    if (needsLlm && !hasLlm()) {
-      throw new InvalidRequestError('LLM_NOT_CONFIGURED', '批量里包含关键词条目，需要先配置 LLM');
-    }
-    // Same shape, same reason: `clean` is an LLM call per item, and a 200 here
-    // would turn into 50 tasks failing one by one for a knowable reason.
-    const needsLlmForNaming = groups.some((g) =>
-      g.items.some((i) => i.kind === 'video' && i.naming === 'clean'),
-    );
-    if (needsLlmForNaming && !hasLlm()) {
-      throw new InvalidRequestError(
-        'LLM_NOT_CONFIGURED',
-        '批量里有条目要清洗命名，需要先配置 LLM（或者改用原标题）',
-      );
-    }
+    // Keyword and `clean` items need the LLM, and that is knowable with no
+    // network at all — so it stays a synchronous 400 even in a batch.
+    preflightBatch(deps(), groups);
 
     const batches = ctx.downloads.enqueueBatches(groups);
     // A `{kind:'new'}` group created a playlist, and the route is the only
@@ -227,74 +172,14 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
   // ─── POST /download/fetch-list ─────────────────────────
 
   /**
-   * Expand a favourites folder or a collection into videos.
-   *
-   * Partial success is the contract: a 300-video collection whose page 7 fails
-   * still yields six usable pages, so what was fetched comes back with an
-   * `error` explaining why it stopped.
+   * Expand a favourites folder or a collection into videos. The walk, the
+   * caps and the partial-success semantics are in `@lark/core`'s `fetchList`;
+   * the route reads the body into the discriminated request it takes.
    */
   app.post(API_PATHS.downloadFetchList, async (req, reply) => {
-    const body = objectBody(req.body, ['type', 'media_id', 'mid', 'season_id']);
-    const type = requiredString(body, 'type', { maxLength: 32 });
-    const signal = preflightSignal();
-
-    const videos: FetchListData['videos'][number][] = [];
-    let title = '';
-    let error: string | null = null;
-    /** True when a guardrail stopped the walk, not the list running out. */
-    let truncated = false;
-
-    try {
-      if (type === 'favorites') {
-        const mediaId = requiredNumericString(body, 'media_id');
-        let page = 1;
-        for (; page <= FETCH_LIST_PAGES_MAX; page++) {
-          const result = await bilibili.favoritesPage(mediaId, page, { signal });
-          if (title === '') title = result.title;
-          videos.push(...result.videos);
-          if (!result.hasMore) break;
-          if (videos.length >= FETCH_LIST_ITEMS_MAX) {
-            truncated = true;
-            break;
-          }
-        }
-        if (page > FETCH_LIST_PAGES_MAX) truncated = true;
-      } else if (type === 'collection') {
-        const mid = requiredNumericString(body, 'mid');
-        const seasonId = requiredNumericString(body, 'season_id');
-        let page = 1;
-        for (; page <= FETCH_LIST_PAGES_MAX; page++) {
-          const result = await bilibili.collectionPage(mid, seasonId, page, { signal });
-          if (title === '') title = result.title;
-          videos.push(...result.videos);
-          if (videos.length >= result.total || result.videos.length === 0) break;
-          if (videos.length >= FETCH_LIST_ITEMS_MAX) {
-            truncated = true;
-            break;
-          }
-        }
-        if (page > FETCH_LIST_PAGES_MAX) truncated = true;
-      } else {
-        throw new InvalidRequestError('INVALID_BODY', "type must be 'favorites' or 'collection'");
-      }
-    } catch (err) {
-      if (err instanceof InvalidRequestError) throw err;
-      // Whatever came back before the failure is still worth having.
-      if (videos.length === 0) throw err;
-      error = err instanceof Error ? err.message : String(err);
-    }
-
-    // A guardrail stopping the walk IS partial success, and `error: null` would
-    // claim the opposite — the caller would show 903 of 953 as the whole list.
-    if (error === null && truncated) {
-      error = `列表过长，只取回了前 ${videos.length} 条（上限 ${FETCH_LIST_PAGES_MAX} 页 / ${FETCH_LIST_ITEMS_MAX} 条）`;
-    }
-
-    ok(reply, {
-      title,
-      videos: videos.slice(0, FETCH_LIST_ITEMS_MAX),
-      error,
-    } satisfies FetchListData);
+    const request = readFetchListRequest(req.body);
+    const data = await fetchList(bilibili, request, { signal: preflightSignal() });
+    ok(reply, data);
   });
 
   // ─── POST /download/cancel ─────────────────────────────
@@ -361,6 +246,28 @@ function requiredNumericString(body: Record<string, unknown>, key: string): stri
     throw new InvalidRequestError('INVALID_BODY', `${key} must be a numeric id string`);
   }
   return value;
+}
+
+/**
+ * Read the fetch-list body into the discriminated request `fetchList` takes.
+ *
+ * The union is the contract (fifth review ⑦): each kind carries its own ids,
+ * and a missing one is a 400 here rather than a confusing upstream error.
+ */
+function readFetchListRequest(raw: unknown): FetchListRequest {
+  const body = objectBody(raw, ['type', 'media_id', 'mid', 'season_id']);
+  const type = requiredString(body, 'type', { maxLength: 32 });
+  if (type === 'favorites') {
+    return { type: 'favorites', media_id: requiredNumericString(body, 'media_id') };
+  }
+  if (type === 'collection') {
+    return {
+      type: 'collection',
+      mid: requiredNumericString(body, 'mid'),
+      season_id: requiredNumericString(body, 'season_id'),
+    };
+  }
+  throw new InvalidRequestError('INVALID_BODY', "type must be 'favorites' or 'collection'");
 }
 
 function readBatchGroups(raw: unknown): DownloadBatchGroupInput[] {
@@ -437,16 +344,4 @@ function readItem(raw: unknown): DownloadBatchItemInput {
     title: typeof title === 'string' && title.trim() !== '' ? title.trim() : null,
     naming,
   };
-}
-
-/** Turn the preflight budget's abort into the documented 504 (M3-11). */
-async function withPreflightBudget<T>(step: () => Promise<T>): Promise<T> {
-  try {
-    return await step();
-  } catch (err) {
-    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-      throw new PreflightTimeoutError();
-    }
-    throw err;
-  }
 }

@@ -14,7 +14,7 @@
 // are the two functions that do.
 
 import type { ParsedItem } from '@lark/shared';
-import { BilibiliApiError, InvalidSourceError, NormalizeFailedError } from '../errors.js';
+import { BilibiliApiError, InvalidSourceError } from '../errors.js';
 import type { BiliPage, BiliRequestOptions, BilibiliClient } from './bilibili.js';
 
 /**
@@ -109,6 +109,12 @@ export function parseSongInput(raw: string): ParsedInput {
  * `parseSongInput` plus at most ONE short-link expansion. The expanded target
  * is re-validated from scratch — b23.tv can redirect anywhere, and a link that
  * lands off bilibili must be refused exactly as if it had been pasted directly.
+ *
+ * A target that is STILL a short link is an `InvalidSourceError` (400-shaped),
+ * not a `NormalizeFailedError` (502): from the caller's point of view a link
+ * that will not resolve to a video is a bad input, the same verdict pasting a
+ * bangumi URL gets. This is the daemon route's long-standing behaviour, made
+ * true of the one shared implementation the preflight now extracts (§1.2).
  */
 export async function resolveInput(
   client: BilibiliClient,
@@ -121,7 +127,7 @@ export async function resolveInput(
   const target = await client.expandShortLink(parsed.url, options);
   const expanded = parseSongInput(target);
   if (expanded.kind === 'short_link') {
-    throw new NormalizeFailedError(`短链 ${parsed.url} 展开后仍是短链，拒绝继续跟随`);
+    throw new InvalidSourceError(`短链 ${parsed.url} 展开后仍是短链，拒绝继续跟随`);
   }
   return expanded;
 }

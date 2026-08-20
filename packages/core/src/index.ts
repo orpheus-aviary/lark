@@ -100,6 +100,7 @@ export * from './download/audio-landing.js';
 export * from './download/resolve.js';
 export * from './download/import.js';
 export * from './portable/download/pipeline.js';
+export * from './portable/download/preflight.js';
 export * from './portable/download/target.js';
 export * from './portable/download/task-data.js';
 export * from './portable/download/batches.js';

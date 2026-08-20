@@ -137,6 +137,44 @@ describe('POST /download/song', () => {
     expect(bodyOf(res).message).toContain('fetch-list');
   });
 
+  // ── short links (§1.2) ──
+  //
+  // No production test exercised the short-link path: the client fetches the
+  // literal b23.tv URL, which would hit the real host, so the one hop is driven
+  // by hand here. These CHARACTERIZE the 400 the daemon has always answered, so
+  // the preflight extraction (which routed this through portable's resolveInput
+  // — a function that used to answer 502 NORMALIZE_FAILED) cannot quietly
+  // change it.
+  it('queues a short link that expands to a video', async () => {
+    ctx.bilibili.expandShortLink = async () => `${VIDEO_URL}?p=1`;
+    const res = await post(API_PATHS.downloadSong, {
+      input: 'https://b23.tv/abc123',
+      naming_mode: 'original',
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('refuses a short link that expands to another short link (400 INVALID_SOURCE)', async () => {
+    ctx.bilibili.expandShortLink = async () => 'https://b23.tv/again';
+    const res = await post(API_PATHS.downloadSong, {
+      input: 'https://b23.tv/abc123',
+      naming_mode: 'original',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('INVALID_SOURCE');
+    expect(ctx.downloads.snapshot().tasks).toEqual([]);
+  });
+
+  it('refuses a short link that lands off bilibili (400 INVALID_SOURCE)', async () => {
+    ctx.bilibili.expandShortLink = async () => 'https://youtube.com/watch?v=x';
+    const res = await post(API_PATHS.downloadSong, {
+      input: 'https://b23.tv/abc123',
+      naming_mode: 'original',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('INVALID_SOURCE');
+  });
+
   it('rejects an unknown body field', async () => {
     const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, playlist: 'x' });
     expect(res.statusCode).toBe(400);

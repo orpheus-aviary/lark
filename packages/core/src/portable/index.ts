@@ -37,6 +37,7 @@ export * from './download/lyrics/qq.js';
 export * from './download/lyrics/select.js';
 export * from './download/lyrics/shared.js';
 export * from './download/pipeline.js';
+export * from './download/preflight.js';
 export * from './download/prompts.js';
 export * from './download/target.js';
 export * from './download/task-data.js';
