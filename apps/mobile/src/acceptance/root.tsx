@@ -19,6 +19,7 @@ import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
 import { runPlaybackScenarios } from './playback';
 import { runSortScenarios } from './sort';
+import { runSweepScenarios } from './sweep';
 
 export function Root() {
   const [rows, setRows] = useState<ScenarioRow[] | null>(null);
@@ -49,7 +50,8 @@ export function Root() {
       <ScrollView contentContainerStyle={styles.body}>
         <Text style={styles.title}>lark · acceptance</Text>
         <Text style={styles.line}>
-          D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③
+          D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③ ·
+          sweep — 11, 12, 13
         </Text>
 
         <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
@@ -97,6 +99,19 @@ export function Root() {
 
         <Pressable style={styles.button} onPress={run(runSortScenarios)} accessibilityRole="button">
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sort scenarios'}</Text>
+        </Pressable>
+
+        {/*
+          N4 criteria 11–13. The counter-test for 13 is one of the scenarios
+          rather than a code edit: same fixture, no skip set, and the directory
+          has to be taken — otherwise the guard above it proves nothing.
+        */}
+        <Pressable
+          style={styles.button}
+          onPress={run(runSweepScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sweep scenarios'}</Text>
         </Pressable>
 
         {/*

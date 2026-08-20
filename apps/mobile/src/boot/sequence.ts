@@ -12,6 +12,7 @@
 //   ⑨ ensureDeviceUuid                  same position as the desktop's
 //   ⑩ commit the intent                 SecureStore: committed set, intent cleared
 //   ⑪ boot drain (file-op journal)      before anything looks at the song dirs
+//  ⑪b sweep songs/ against the library  after the drain, before the engine
 //   ⑫ hand back the library             services and UI are the caller's
 //
 // THREE ORDERINGS THAT MUST NOT MOVE, each with the failure it prevents:
@@ -21,8 +22,13 @@
 //   ⑤ before ⑥ — otherwise a crash mid-claim leaves a library with no
 //     identity, which is indistinguishable from a restored one, and the next
 //     launch wipes it. That was v2's bug.
-//   ⑪ before ⑫ — `sync/file-ops.ts`: "boot drains the journal before anything
-//     else looks at the song directories".
+//   ⑪ before ⑪b before ⑫ — the journal's rows are file halves of decisions the
+//     database already committed, and the sweep judges directories against the
+//     database: run the other way round it would read a half-finished op as
+//     crash residue. And the sweep has to be over before anything that could
+//     write a song directory exists. Same ordering as the desktop's
+//     (`daemon/src/boot.ts`: drain, recover, THEN the engine); N4 §1.6① is the
+//     amendment that inserted ⑪b into this frozen list.
 //
 // This is the only thing entitled to open the real library. `db/open.ts` does
 // ⑥⑦ and is called from here; nothing else should call it against
@@ -35,6 +41,7 @@ import {
   type PortableDb,
   type StructuredLogger,
   ensureDeviceUuid,
+  pendingFileOpSongIds,
   uuid,
 } from '@lark/core/portable';
 import type { SQLiteDatabase } from 'expo-sqlite';
@@ -48,6 +55,7 @@ import { createFileSystem } from '../ports/fs';
 import { createPaths } from '../ports/paths';
 import { createSongFiles } from '../ports/song-files';
 import { installPortableRuntime } from './runtime';
+import { type SweepReport, sweepSongsStore } from './sweep';
 
 export interface BootResult {
   handle: SQLiteDatabase;
@@ -73,6 +81,8 @@ export interface BootResult {
   fileOps: FileEffectRuntime;
   /** What step ⑪ found waiting. */
   drained: DrainResult;
+  /** What step ⑪b found on disk that the library could not account for. */
+  swept: SweepReport;
   /**
    * Files, as one capability, built once here and handed on.
    *
@@ -228,8 +238,27 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
       logger?.info({ ...drained }, 'sync file journal drained');
     }
 
+    // ⑪b the sweep, skipping every directory the journal still owns. What the
+    // drain just left behind is an op that failed or is backing off, and such a
+    // directory looks exactly like a crash orphan — files, no row (§1.6②).
+    const swept = await sweepSongsStore(db, {
+      skipSongIds: pendingFileOpSongIds(db.sqlite),
+      logger,
+    });
+
     // ⑫
-    return { handle, db, installId, decision, converged, deviceUuid, fileOps, drained, files };
+    return {
+      handle,
+      db,
+      installId,
+      decision,
+      converged,
+      deviceUuid,
+      fileOps,
+      drained,
+      swept,
+      files,
+    };
   } catch (err) {
     handle.closeSync();
     throw err;

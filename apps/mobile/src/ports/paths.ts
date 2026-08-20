@@ -68,6 +68,42 @@ const SONGS_DIRECTORY = 'songs';
  */
 const RECOVERED_DIRECTORY = 'recovered-songs';
 
+/**
+ * Where boot parks a song directory it cannot explain: `trash/`.
+ *
+ * Deliberately NOT `recovered-songs/`. The two look alike and are not: that one
+ * belongs to sync — a remote delete moves what it cannot re-fetch into it, and
+ * `/sync/status` counts what is in it as quarantined. A crash orphan has
+ * nothing to do with sync, and landing it there would pollute that count the
+ * day sync ships (N4 §1.6③).
+ */
+const TRASH_DIRECTORY = 'trash';
+
+/**
+ * `songs/` itself — the one place that enumerates song directories.
+ *
+ * Only the boot sweep needs this. Everything else names ONE song's directory,
+ * which is what keeps the uuid gate in front of every path.
+ */
+export function songsRoot(): Directory {
+  return new Directory(nestDirectory(), SONGS_DIRECTORY);
+}
+
+/** `trash/` itself. */
+export function trashRoot(): Directory {
+  return new Directory(nestDirectory(), TRASH_DIRECTORY);
+}
+
+/**
+ * `trash/recovery-<stamp>/` — one directory per sweep that found something.
+ *
+ * The stamp is the caller's, so that everything one boot quarantines lands
+ * together and a later boot cannot collide with it.
+ */
+export function trashRecoveryDirectory(stamp: string): Directory {
+  return new Directory(trashRoot(), `recovery-${stamp}`);
+}
+
 /** `songs/<id>/` — R10 runs before the id becomes a path. Not after. */
 export function songDirectory(id: string): Directory {
   assertSongId(id);
