@@ -29,7 +29,7 @@ import type { AudioMetadata } from 'expo-audio';
 import type { PlaybackState } from './store';
 
 /** §2.5. Also the status interval, so in practice this rarely bites. */
-export const NOW_PLAYING_MIN_INTERVAL_MS = 500;
+const NOW_PLAYING_MIN_INTERVAL_MS = 500;
 
 export interface NowPlayingDeps {
   subscribe(listener: () => void): () => void;

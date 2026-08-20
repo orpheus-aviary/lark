@@ -27,9 +27,9 @@ export const C = {
    * `--state-active` amber). Neither is an accent: lark has none, `--primary`
    * is the body colour, so nothing decorative may reach for these.
    *
-   * `active` has no user yet. It is here because the player lands in N3 and
-   * the row that plays must be the SAME amber the desktop paints, not a
-   * second amber somebody picks then.
+   * `active` is the row that is playing (N3c). It was defined here before
+   * there was a player, so that the row would be the SAME amber the desktop
+   * paints rather than a second amber somebody picked later.
    */
   pinned: '#59a6ff',
   active: '#efb146',

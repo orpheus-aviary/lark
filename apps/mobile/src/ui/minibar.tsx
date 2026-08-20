@@ -5,7 +5,7 @@
 // (decision d). No gesture stack in this app, still.
 //
 // The lyric line under the title is the same computation the Bluetooth title
-// will be in N3d — `currentLrcIndex` over the song's own offset — so the two
+// makes (N3d) — `currentLrcIndex` over the song's own offset — so the two
 // cannot drift into showing different lines of the same song.
 
 import { currentLrcIndex } from '@lark/shared';
@@ -109,7 +109,7 @@ export async function skip(): Promise<void> {
   }
 }
 
-export function currentLine(state: {
+function currentLine(state: {
   lyrics: readonly { time: number; text: string }[];
   currentTime: number;
   song: { lyrics_offset: number } | null;
