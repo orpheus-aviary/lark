@@ -23,12 +23,35 @@ const config: ExpoConfig = {
     // the spike's data directory, half-finished SecureStore entries included.
     package: 'com.orpheusaviary.lark',
     versionCode: 1,
+    // N3a. POST_NOTIFICATIONS is what makes the media notification VISIBLE on
+    // Android 13+ — and on Android 13+ that notification IS the lock screen
+    // controls. The foreground service runs either way, so a denied permission
+    // does not stop playback; it just leaves the lock screen empty, which is
+    // exactly how N0b-4b's first soak failed. Declaring it here is half the
+    // job: `requestNotificationPermissionsAsync()` still has to ask at run
+    // time (`player/session.ts`).
+    permissions: ['android.permission.POST_NOTIFICATIONS'],
     // D16 (criteria 16a/16b). This turns off cloud backup; it does NOT turn
     // off device-to-device transfer on Android 12+, which is what the rule
     // files in `plugins/with-backup-rules.js` are for.
     allowBackup: false,
   },
   plugins: [
+    [
+      // N3a. `enableBackgroundPlayback` is what adds FOREGROUND_SERVICE +
+      // FOREGROUND_SERVICE_MEDIA_PLAYBACK and registers media3's
+      // MediaSessionService; without it Android stops background playback
+      // after about three minutes.
+      //
+      // `recordAudioAndroid: false` is not a preference. The plugin's default
+      // asks for RECORD_AUDIO, and a music player that wants the microphone is
+      // a permission dialog nobody understands. Criterion 3b asserts both
+      // halves against the BUILT apk's merged manifest rather than against
+      // this file, because this is the kind of line an SDK upgrade changes
+      // quietly.
+      'expo-audio',
+      { recordAudioAndroid: false, enableBackgroundPlayback: true },
+    ],
     [
       // D16: expo-secure-store installs its own backup rules by default,
       // pointing the two manifest attributes at ITS xml files. Ours have to be

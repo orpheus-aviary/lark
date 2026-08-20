@@ -21,7 +21,10 @@ import type {
 import {
   API_PATHS,
   ApiError,
+  DISCARDED,
+  type OperationContext,
   apiPath,
+  createOperationQueue,
   parseLrc,
   request,
   requestText,
@@ -39,7 +42,6 @@ import {
   requestPendingPlay,
   setPendingPlayHandler,
 } from '../player/pending.js';
-import { DISCARDED, type OperationContext, createOperationQueue } from '../player/queue.js';
 import { runRecovery } from '../player/recovery.js';
 import { createReporter } from '../player/reporter.js';
 import { useLibrary } from './library.js';

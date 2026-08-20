@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DISCARDED, createOperationQueue } from './queue.js';
+import { DISCARDED, createOperationQueue } from './operation-queue.js';
 
 const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 

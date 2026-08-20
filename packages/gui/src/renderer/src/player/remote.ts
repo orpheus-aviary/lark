@@ -11,11 +11,10 @@
 // writing stale state.
 
 import type { AckRequest, PlayerCommandEvent, SongData } from '@lark/shared';
-import { API_PATHS, apiPath, request } from '@lark/shared';
+import { API_PATHS, DISCARDED, type OperationContext, apiPath, request } from '@lark/shared';
 import { useLibrary } from '../stores/library.js';
 import { type CommandResult, playerQueue, usePlayer } from '../stores/player.js';
 import { invalidatePending } from './pending.js';
-import { DISCARDED, type OperationContext } from './queue.js';
 
 /** Daemon waits 3s; the rest is ack transit (M4-10). */
 export const COMMAND_DEADLINE_MS = 2500;

@@ -642,6 +642,14 @@ mobile-drive *ARGS:
 mobile-accept-library NEST:
     node spikes/mobile-foundation/scripts/accept-library.mjs {{NEST}}
 
+# Criterion 3b (N3a): the audio half of the merged manifest. Reads the BUILT
+# apk for the same reason the backup audit does — `app.config.ts` is what we
+# meant, the manifest is what Android will read, and a plugin default that
+# comes back on an SDK upgrade only shows up in the second one.
+[group('mobile')]
+mobile-audio-audit *ARGS:
+    LARK_APP_ROOT="{{_mobile}}" node {{_mobile}}/scripts/audio-manifest-audit.mjs {{ARGS}}
+
 [group('mobile')]
 mobile-backup-audit *ARGS:
     LARK_PACKAGE=com.orpheusaviary.lark LARK_APP_ROOT="{{_mobile}}" node spikes/mobile-foundation/scripts/backup-audit.mjs {{ARGS}}

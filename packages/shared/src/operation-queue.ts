@@ -15,6 +15,17 @@
 //     continuations carries its generation. Waking up to find a newer
 //     operation has started means the result is stale: report it, never write
 //     player state with it.
+//
+// HERE RATHER THAN IN THE RENDERER (N3a, decision p). The phone has the same
+// problem with none of the same parts: two taps on two rows, a load for B
+// starting while A is still loading, an old load timing out and tearing down
+// the player the new one just built. Every line below is pure — one injected
+// `now` and no import at all — so the second host gets the rule that was
+// already written rather than a second rule that agrees for a while.
+//
+// `deadlineAt` stays because it costs nothing and belongs to the same idea; it
+// is the desktop's remote-command path that uses it, and mobile simply never
+// passes one.
 
 /** A remote command that missed its window: no execution, no ack. */
 export const DISCARDED = Symbol('discarded');

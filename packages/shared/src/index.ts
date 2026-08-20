@@ -18,3 +18,4 @@ export * from './events.js';
 export * from './lrc.js';
 export * from './song-sort.js';
 export * from './now-playing.js';
+export * from './operation-queue.js';

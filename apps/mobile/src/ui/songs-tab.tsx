@@ -32,6 +32,7 @@ import {
 import { EllipsisVertical, Pin } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
+import { player, usePlayback } from '../player';
 import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
@@ -177,15 +178,33 @@ export function SongsTab() {
 }
 
 function SongRow({ song, onMenu }: { song: SongData; onMenu: () => void }) {
+  // Two subscriptions, both primitives (see `usePlayback`): a row re-renders
+  // when it becomes the current song and when that song starts or stops, and
+  // for nothing else. `currentTime` deliberately does NOT reach here — it
+  // changes twice a second and no row shows it.
+  const isCurrent = usePlayback((state) => state.song?.id === song.id);
+  const playing = usePlayback((state) => state.playing);
+
+  const start = (): void => {
+    // Decision j: the tap is never swallowed. A row that does nothing reads as
+    // broken, and this one has a real answer — the file is not here yet.
+    if (song.has_file === false) {
+      ToastAndroid.show('这首还没有文件，下载在 N4 开放', ToastAndroid.SHORT);
+      return;
+    }
+    void (isCurrent ? player.toggle() : player.play(song));
+  };
+
   return (
     <View style={styles.row}>
       <Pressable
         style={styles.rowBody}
-        onPress={() => ToastAndroid.show('播放在 N3 开放', ToastAndroid.SHORT)}
+        onPress={start}
         accessibilityRole="button"
         accessibilityLabel={`播放 ${song.name}`}
       >
-        <Text style={styles.rowName} numberOfLines={1}>
+        <Text style={[styles.rowName, isCurrent && styles.rowNamePlaying]} numberOfLines={1}>
+          {isCurrent && playing ? '▶ ' : ''}
           {song.name}
         </Text>
         <View style={styles.rowMetaLine}>
@@ -250,6 +269,11 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, paddingVertical: 10, paddingLeft: S.pad },
   rowMenu: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   rowName: { color: C.text, fontSize: 16 },
+  // The amber the desktop's dark theme uses for the playing row
+  // (`--state-active`, converted in `theme.ts`). Not a colour picked here:
+  // N2f put it in the theme with no user precisely so that N3 would not choose
+  // a second one.
+  rowNamePlaying: { color: C.active },
   rowMetaLine: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   rowMeta: { color: C.faint, fontSize: 12 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
