@@ -22,8 +22,6 @@ import { type LrcLine, currentLrcIndex } from './lrc.js';
 /** `title` = the song name, always. `lyrics` = the current line. */
 export type NowPlayingMode = 'title' | 'lyrics';
 
-export const NOW_PLAYING_MODES: readonly NowPlayingMode[] = ['title', 'lyrics'];
-
 export function isNowPlayingMode(value: unknown): value is NowPlayingMode {
   return value === 'title' || value === 'lyrics';
 }
