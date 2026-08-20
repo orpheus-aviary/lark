@@ -201,6 +201,8 @@ v2 的序列有**三处实施不了**（二轮评审，全部属实）：fresh �
 
 **三条不许动的顺序**：③ 在任何写之前（零写拒绝）· ⑤ 在 ⑥ 之前（崩溃可重入）· ⑪ 在 ⑫ 之前（journal 不变量）。
 
+> **2026-08-20 修订（N4）**：⑪ 与 ⑫ 之间插入 **⑪b 启动清扫**（songs 目录与库的对账，桌面 `recoverSongsStore` 的移动等价物）。位置理由与桌面逐字相同（`boot.ts:391-406`：drain → 对账 → **之后**才建引擎，「引擎还不存在，所以没有任务能和它赛跑」），三条不许动的顺序全部保持。⑪b 的三条规则（**先取 `skipSongIds: pendingFileOpSongIds(...)`** · 删 `.tmp` 残留 · 孤儿移进 **`trash/recovery-*`** 而非 `recovered-songs/`）在 N4 子计划 §2.3，**那里是单一事实源**：`docs/plans/2026-08-20-phase-b-mobile-n4.md`。
+
 #### 2.2.1 身份状态表（决策 l 的正文）
 
 SecureStore 两个 key（沿用 spike 的前缀，由 N2 正式定义）：`lark.install_id` = **committed**，`lark.install_intent` = **在途意图** `{ id, purpose: 'fresh' | 'converge' }`。

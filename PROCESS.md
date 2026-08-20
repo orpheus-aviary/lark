@@ -564,6 +564,18 @@
 - 🔴 **失败加载会漏一个 media session**：acceptance 三次失败之后留下三个 `ExpoAudioBasicMediaSession_<hash>`，`remove()` 收不掉；而生产版连切 30 次一个都没多。差别是生产版走 `setActiveForLockScreen` 用共享 session，没激活过的 player 拿的是自己那个 basic session。**只在错误路径上漏，而错误路径停死播放且不重试**，量级封顶——如实记着，不修
 - 🔴 **`dumpsys notification` 里的 `orpheusaviary` 命中大多是 channel 定义不是通知**：断言「没有媒体通知」时按包名 grep 会得到 5 条命中然后误判。要看的是有没有 posted 的条目
 
+**N4 子计划已出（2026-08-20，v1 → v2，一轮反例评审收敛）**——`docs/plans/2026-08-20-phase-b-mobile-n4.md`，七批 N4a–N4g / 判据 40 条 / **决策 a–p 待关闭**，修订对照在 §8。**用户同日拍板四条范围**：TLS 移出（见下）· LLM 设置页进 N4 · 收藏夹/合集批量进 N4 · 加 dataSync 前台服务。开工基线实测双绿：`just check` exit 0（含 `spike-media-test` 全段）、`just test` exit 0 / **2729 passed**。
+
+- 🔴 **明文流是本批的头号未知**：N0b-4a 与 R1 在移动网络上拉到的 `*.mcdn.bilivideo.cn:8082`，两轮都跑在 **spike 的构建**上，而 spike 显式开了 `usesCleartextTraffic: true`（`spikes/mobile-foundation/app.config.ts:87`）；`apps/mobile` 没有这一行。如果那是 http URL，产品 release 会在 **4G 下每首歌都失败而 Wi-Fi 全绿**。判据 5 排在写任何 UI 之前，三条出路已定价（优先改选流规则去用 `backupUrl`，而不是放开明文）
+- 🔴 **v1 把孤儿写去了 `recovered-songs/`，错的**：桌面崩溃孤儿进 `trashDir()/recovery-*`（`resolve.ts:456`），而 `recovered-songs/` 是远端删除抢救不可重建资产的地方、**会被 `/sync/status` 的 `quarantined_count` 数**（`paths.ts:106-115`）。照 v1 实现会在 N5 上线那天把同步隔离统计污染掉。同段还漏了 `skipSongIds: pendingFileOpSongIds(...)`——桌面 `boot.ts:399` 有，漏了它会让一次待重试的远端删除被清扫先搬走
+- 🔴 **preflight 提取会静默改协议**：daemon 对「短链展开后仍是短链」答 **400 INVALID_SOURCE**（`routes/download.ts:87`），而 portable 的等价物 `resolveInput` 抛 `NormalizeFailedError` → **502**；`routes/download.test.ts` 里**短链用例一条都没有**，所以「路由测试原样绿」在这条上是空的。修法便宜：`resolveInput` **生产零调用方**，先补 characterization 钉住 400，再让它迁就
+- **时长方案改成阶梯**：`MediaMetadataRetriever`（不碰音频焦点）→ 不达标退瞬时 player → **上游 `page.duration` 永远只做诊断**，用它兜底正好破坏端口「行按落地写」的不变量。顺带更正 `engine.ts:904` 的注释：重下**有** page 可引用（`probeSourceKey` 回的是完整 `NormalizedSource`）
+- **前台服务起在用户手势那一刻**，不是任务入队那一刻——入队前还有一段网络预检，用户在这期间切后台就撞上 Android 12+ 的后台启动限制；`onTimeout` 要**停 queued + running 全部**；「被系统暂停」只在应用内可见（没有 `expo-notifications`）；**通知权限今天只在首播申请**（`player/session.ts:14`），先下载的用户看不到下载通知
+- **进程级 download hub 必须和引擎同批出生**：`EngineCallbacks` 只在构造时给（`engine.ts:122-128`），没有动态订阅面
+- **分享 intent 的消费点在根层**：`ui/shell.tsx:52` 是条件挂载而默认 tab 是「歌曲」，挂在添加页上冷启动**永远收不到**，而 payload 又是易失的
+
+**范围修订：TLS（D15）移出 N4**（2026-08-20 用户决定，主计划 §4.3 已加 **Stage-3 修订**）。准确口径：**不阻塞 N4 的任何子批**（下载链路不碰 skybridge），**硬阻塞 N5**——server 今天仍是 `http://<公网IP>:8443`，移动端 v1 是 https-only。N5 开工前必须补完 TLS（域名 + 证书 + 自动续期 + 反代 + 两端 `server_url` 迁移 + 真机连通），或单独决定移动端的明文口径。**不算被 N4 消掉**，见「后续」段的待办。
+
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
@@ -618,7 +630,8 @@ v1 那条读源码读出来的发现原样保留：
 | N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
 | N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | ✅ **2026-08-20 全部完成**（判据 1–21 全过；**16b 与 14 的拖柄重排已按用户决定不做**，见 §8.2/§8.3）；全测试 **2628** |
 | N3 | 播放：PlayerDriver + 队列与四模式 + minibar / 全屏页 / 队列面板 + 后台锁屏 + 蓝牙歌词接线（六批 N3a–N3f） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md` 判据 25 条 | ✅ **2026-08-20 全部完成**（六批 N3a–N3f，判据 1–19 + 21–25 全过；**18 与 21 只记录不判定**、**20 已按用户决定搁置**、15 的「无文件的歌」夹具里没有）；全测试 **2729** |
-| N4–N6 | 下载 / 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
+| N4 | 下载：移动 AudioLanding + 落盘协议 + 启动清扫 + 添加页 + 分享 intent + **LLM 设置页** + **收藏夹/合集批量** + **dataSync 前台服务** + ensure-file + 缓存管理 + 歌单导出（七批 N4a–N4g） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` 判据 40 条 / 决策 a–p | ⏳ **子计划 v2 已出，待开工** |
+| N5–N6 | 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
 
@@ -692,6 +705,7 @@ v1 那条读源码读出来的发现原样保留：
 ## 后续
 - [x] **跨仓文档跟进 0.3.0**（2026-08-17）：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md`
 - [x] **Phase B 移动版子计划**（2026-08-17，`aa63eac`）：N0 详案 + 全期框架 → 上面的 Phase B 段
+- [ ] 🔴 **TLS（D15）—— N5 的开工前置**（2026-08-20 从 N4 移出，主计划 §4.3 Stage-3 修订）：skybridge server 现为 `http://<公网IP>:8443`，移动端 v1 是 https-only。N5 开工前二选一：补完 TLS（域名 + DNS · 证书 + 自动续期告警与演练 · 反代 · 两端 `server_url` 迁移 · 真机连通），或单独决定移动端的明文口径。负责人 = 用户，AI 协助
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
 - [ ] **跨仓文档跟进 Phase B 起步**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md` 里 lark 的一行状态还停在「0.3.0 已发」，没有 N0b GO 与「下一步 N1」——发下个版本时一并跟进即可，不必单独开一轮

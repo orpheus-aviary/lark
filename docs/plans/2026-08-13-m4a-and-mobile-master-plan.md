@@ -215,6 +215,10 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 >
 > 另：**D14 落定**（applicationId `com.orpheusaviary.lark`、APK 0.1.0 / versionCode 1、keystore 已生成并做过恢复演练，位置与指纹见子计划 §9）；**分享 intent（D13）平台侧成立**，但分享文本只有 b23.tv 短链、没有 bvid，且**收藏夹分享不到系统面板**——N4 的添加页据此设计。
 
+> **2026-08-20 Stage-3 修订**（用户决定，N4 开工前）：**TLS（D15）移出 N4**。下表 N4 行原本写着「TLS 完成死线」——作废。准确口径是：**TLS 不阻塞 N4 的任何子批**（下载链路完全不碰 skybridge），但**硬阻塞 N5**——server 今天仍是 `http://<公网IP>:8443`，而移动端 v1 是 https-only（D15）。N5 开工前必须二选一：补完 TLS（域名 + 证书 + 自动续期 + 反代 + 两端 `server_url` 迁移 + 真机连通），或者单独决定「移动端要不要一个明文开关」。这条同时进 `PROCESS.md` 的待办，**不算被 N4 消掉**。
+>
+> 同段落另记 N4 的三处范围扩张（同一次用户决定）：**LLM 设置页进 N4**（关键词搜索 / clean 命名 / 多 P 自动选集 / 重新识别四条能力，配置落 `local_metadata` + SecureStore）· **收藏夹 / 合集批量下载进 N4**（不再等 N6 的多选批量）· **加 dataSync 前台服务**（下载在应用不可见时继续）。详见子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md`。
+
 | 批 | 内容 | gate |
 |---|---|---|
 | **N0a** | 最小可移植边界（桌面仓内）：migration SQL registry + schema 切面（+ errors 三类 + `migration/pending.ts`）进 `@lark/core/portable` + DatabaseContract harness（prepare/get/all/run · `transaction().immediate()` · **单层事务 rollback** · FK · `PRAGMA user_version` · JSON1 含 CAST · 返回值字段差异 · **statement 生命周期计数组** · **drizzle/raw 共享连接组**）。**修订①（决策 c2）：harness 覆盖面按实测使用面收窄——嵌套 transaction / savepoint 不进契约保证面**（core 零使用；better-sqlite3 与 drizzle Expo driver 双方原生都支持，「嵌套即抛」的旧表述作废）：契约不测试、不禁止、不人为禁用，实现自带能力原样保留，将来要用先扩契约 | 桌面全测试 + 守卫绿 |
@@ -222,8 +226,8 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 | N1 | core 端口化 + 应用服务层 + SyncCoordinator 提取（冻结不变量原样保留；daemon 改消费提取物、**CLI direct 改薄壳消费服务层，daemon/direct/mobile 三方 contract tests**；桌面行为零变化）。gate 另加三守卫：portable 面 Node builtin/原生依赖 rg 守卫 + Expo/Metro bundle smoke（进 `just check`）+ **pnpm install + `expo prebuild`/原生构建 smoke（独立必跑 recipe，不进默认 `just check`——太重）**。**修订③：新增出口判据组 R1–R5「真机业务图复验」**——端口化后用**真实 core 代码**在真机复跑 bilibili 全链（含真实 WBI 算法）/ `link.ts` 解析 / 歌词三平台 / `runFullBackfillInTx` 满工作量 / `applyChangesInTx` 生产批次与卡顿阈值定稿 | 桌面全测试 + 三守卫绿 + **R1–R5 全绿 → D5 剩余子项冻结**（R 系列过完之前不做「D5 全部冻结」的宣称）。**2026-08-19 完成：R1–R5 全绿，冻结文本见 N1 子计划 §8.1（单一事实源）** |
 | N2 | **D16 身份门（顺序在打开原库之前）** + 移动数据层（完整打开分派 + `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 曲库/歌单读写 + 四 tab 骨架 + **蓝牙歌词的判定函数**（`@lark/shared` 纯函数 + config 字段，接线在 N3）。**子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（v3，两轮评审收敛，决策 a–o 待关闭）**；头号决策 a = **原子替换**（expo-file-system 57 在 Android 上两条路都堵着，见子计划 §1.5）。**相对主计划本行的三处范围修订**：① **file-op 执行器与 boot drain 从 N4 提前到 N2，且控制面从桌面 `FileEffectRuntime` 提取进 portable**（`deleteSong` 无条件 drain、契约断言目录已删，三者无法同时成立；两套 scheduler 到 N5 必然漂移——子计划 §1.8）；② **`ensureDeviceUuid` 下沉进 portable**（它今天是桌面专有的，缺它则一切业务写入抛错——子计划 §1.7）；③ **D16 的完整 D2D restore 拆成独立 gate**（`bmgr` 证明不了 device-transfer 那条路，子计划判据 16b） | 真库副本可读写 + LibraryContract 18 例三 hook 全绿 + D16 四组 |
 | N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点 + **蓝牙歌词接线**（订阅行号变化 → `updateLockScreenMetadata`，节流按行不按时间；开关 UI）。**耳机断开自动暂停等写成行为验收判据，不锁定回调接口**（expo-audio 由库层自动停止，官方无 becoming-noisy 事件 API） | 真机整晚播放不掉 + 行为判据 |
-| N4 | 下载：AAC 选流 + RN 落盘 + 添加页 + 分享 intent + ensure-file + 缓存管理。TLS 完成死线 | 真实 bilibili 闭环 |
-| N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI。前置：TLS 验收全过 | 与桌面双端真机 soak |
+| N4 | 下载：AAC 选流 + RN 落盘 + 添加页 + 分享 intent + ensure-file + 缓存管理。**~~TLS 完成死线~~（2026-08-20 Stage-3 修订：移出，见上）**；**同次修订加进本批**：LLM 设置页与四条能力 · 收藏夹/合集批量 · dataSync 前台服务。子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md`（**v2，一轮反例评审收敛**，七批 N4a–N4g / 判据 40 条 / 决策 a–p）。**桌面侧三处提取**（preflight / EvictionScheduler+SongLeaseRegistry+canRedownload / AudioLanding 契约）一律零行为变化 | 真实 bilibili 闭环 |
+| N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI。**开工前置（Stage-3 修订后唯一的 TLS 关口）**：TLS 验收全过，或用户单独决定移动端的明文口径 | 与桌面双端真机 soak |
 | N6 | 多选批量 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go | 验收 harness |
 
 ### 4.4 风险清单
