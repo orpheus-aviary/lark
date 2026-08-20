@@ -487,6 +487,14 @@
 - **三个变异验红判据 21**：读路径顺手写回 → 六条「不改库」红 · 去掉 `isNowPlayingMode` → 八条红 · upsert 退回普通 INSERT → 「一行」那条红
 - **为什么 config 那半在 portable 而不在 shared**：它要 `SqliteLike`。落 `local_metadata` 跟 `device_uuid` 同表同域（per-install 本地偏好），**写它不产 `sync_changes`**（有一条用例守着）；**读路径永不写库**——一个看不懂的值是「另一个版本的这台设备写的」，不是「可以覆盖的」，一个会「修好」自己读不懂的东西的启动路径，就是降级会吃掉设置的那条路
 
+**N3 子计划已出（2026-08-20，v1 → v4，一轮反例评审收敛）**——`docs/plans/2026-08-20-phase-b-mobile-n3.md`，六批 N3a–N3f / 判据 25 条 / **决策 a–p 全部关闭**，修订对照在 §8。**评审逮到两条我的事实错误**：① `AudioStatus.error: string | null` 是存在的（`Audio.types.d.ts:243` + `AudioPlayer.kt:158` 的 `onPlayerError`）——v3 读到 `:215` 就停了，**从一个截断的阅读里断言了一个否定**，于是把「错误只能靠超时表达」写进了设计；② 桌面的 `player/queue.ts`（串行 + generation）是**零 import 的纯 TS**，v3 把它整条归进「不能共享」，等于让移动端没有竞态模型。
+
+- 🔴 **锁屏/车机的「上一首 / 下一首」在钉版上不存在**：`AudioMediaSessionCallback.kt:27-31` 在 `onConnect` 里显式 remove 掉四个曲目导航命令。我又往下查了一步——`AudioControlsService.kt:374` 与 `:455` **两个 MediaSession 注册点用的是同一个 callback**，所以**换 `AudioPlaylist` 也救不了**（评审给的三个选项里第二个不成立）。**用户决定 v1 收窄**：锁屏只承诺播放/暂停/seek，切歌回 app 里；代价是蓝牙歌词开着时「车机上看得见歌词、方向盘上却切不了歌」，逃生口（改 Kotlin + 拦命令 + 桥接 JS + 维护补丁）定价后记在 §1.9
+- **「抽五个纯函数」原本没有可抽的东西**：`next`/`prev`/`advanceAfterEnded` 调 `get()`、`ctx`、`ops.play`。v4 先定义 `QueueDecision`（`play`/`restart`/`stop`/`reject` + reason），**播放与提示归宿主**——这顺带解掉了 §2.4 说「静默拒绝」而决策 n 说「主动按键要出声」的两头话
+- **四条判据本来是概率题**：shuffle（注入 `random`）· 蓝牙歌词「调用次数 ≈ 歌词行数」（漏了去重，真值是**相邻不同输出的段数**，改成与主机算出的期望值对照）· 「内存无单调增长」（删掉，几十秒内受 GC 干扰）· 音频焦点「测的时候再写成判据」（三条行为开工前冻结）。另有一条规则自相矛盾：「每格一个变异且**不能连带红**」与共享 helper 冲突——共享行为被改坏本来就该多条一起红，改成「每格要有一个**只属于它的**变异」
+- **删歌之后队列收敛没有通道**：`library-context.tsx:62` 的 `changed()` 只 `setView`，React 之外没人收得到。取最小做法（`changed()` 顺带打一个可订阅信号，约 15 行），**不做通用 reconcile 协议**——N5 的同步删除到时候接同一个信号
+- **N3b 因此是一个零手机的纯桌面批**（真机四模式从 N3b 移到 N3c，那里才有可驱动的生产 UI）
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
