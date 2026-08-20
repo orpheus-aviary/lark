@@ -77,7 +77,11 @@ import { SyncRuntime } from '@lark/core';
 import { DEFAULT_DAEMON_PORT, type LarkConfig } from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import { AudioStreamRegistry } from './audio-streams.js';
-import { EvictionScheduler, SongLeaseRegistry, scheduleEvictionInBackground } from './cache.js';
+import {
+  SongLeaseRegistry,
+  createEvictionScheduler,
+  scheduleEvictionInBackground,
+} from './cache.js';
 import {
   type AcceptanceOptions,
   type AppContext,
@@ -546,7 +550,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         player: new PlayerRuntime(),
         audioStreams: new AudioStreamRegistry(),
         cacheLeases: new SongLeaseRegistry(),
-        cacheScheduler: new EvictionScheduler(active),
+        cacheScheduler: createEvictionScheduler(active),
         downloads,
         sync: new SyncRuntime(),
         // Shares the ENGINE's claim registry: a drain that removes a song's

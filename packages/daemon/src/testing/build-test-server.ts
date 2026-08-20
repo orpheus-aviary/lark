@@ -26,9 +26,9 @@ import {
 import type { LarkConfig } from '@lark/shared';
 import { AudioStreamRegistry } from '../audio-streams.js';
 import {
-  EvictionScheduler,
   type SongLeaseOptions,
   SongLeaseRegistry,
+  createEvictionScheduler,
   scheduleEvictionInBackground,
 } from '../cache.js';
 import {
@@ -246,7 +246,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     player: new PlayerRuntime(),
     audioStreams: new AudioStreamRegistry(),
     cacheLeases: new SongLeaseRegistry(options.cacheLeases),
-    cacheScheduler: new EvictionScheduler(ctx),
+    cacheScheduler: createEvictionScheduler(ctx),
     downloads,
     sync: new SyncRuntime({ triggers: options.syncTriggers === true }),
     fileOps: new FileEffectRuntime({

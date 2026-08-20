@@ -81,6 +81,7 @@ export * from './portable/library/songs.js';
 export * from './portable/library/playlists.js';
 export * from './portable/library/lyrics.js';
 export * from './portable/library/cache.js';
+export * from './portable/library/eviction-runtime.js';
 export * from './portable/library/transfer.js';
 export * from './media-tools/index.js';
 export * from './portable/download/timeouts.js';
