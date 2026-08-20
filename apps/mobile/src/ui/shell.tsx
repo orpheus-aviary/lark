@@ -6,16 +6,27 @@
 // adds a player route that has to survive tab changes, that is the moment to
 // ask whether this is still true.
 //
-// ONE HARD BOUNDARY THIS SCREEN HAS TO BE HONEST ABOUT: nothing here plays.
-// There is no player until N3 and no download link until N4, so a library row
-// opens actions rather than sound. The 添加 tab says so in as many words
-// (decision e) instead of showing half a paste box that would do nothing.
+// ONE HARD BOUNDARY THIS SCREEN STILL HAS TO BE HONEST ABOUT: nothing here
+// downloads. A row plays as of N3c, but there is no download link until N4, so
+// the 添加 tab says so in as many words (decision e) instead of showing half a
+// paste box that would do nothing.
 
 import { LATEST_KNOWN_VERSION } from '@lark/core/portable';
+import type { NowPlayingMode } from '@lark/shared';
 import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
 import { Directory } from 'expo-file-system';
 import { useState } from 'react';
-import { Dimensions, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Dimensions,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
+import { nowPlaying, usePlayback } from '../player';
 import { nestDirectory } from '../ports/paths';
 import { useLibrary } from './library-context';
 import { MiniBar } from './minibar';
@@ -91,13 +102,13 @@ function AddTab() {
 }
 
 /**
- * Settings is diagnostics for now.
+ * One setting, and the rest diagnostics.
  *
- * Everything a setting would control here belongs to a batch that has not
- * happened — playback to N3, sync and the cache limit to N4/N5 — and a screen
- * of switches that changed nothing would be worse than a screen that says so.
- * What IS here is what a person debugging this build would otherwise have to
- * ask a developer for.
+ * The setting is N3d's: Bluetooth lyrics. Everything else a switch could
+ * control still belongs to a batch that has not happened — downloads to N4,
+ * sync to N5 — and a screen of switches that changed nothing would be worse
+ * than a screen that says so. The diagnostics are what a person debugging this
+ * build would otherwise have to ask a developer for.
  */
 function SettingsTab() {
   const { boot, view } = useLibrary();
@@ -105,6 +116,8 @@ function SettingsTab() {
   const total = view.songs({ limit: 0 }).total;
   return (
     <ScrollView contentContainerStyle={styles.settings}>
+      <BluetoothLyrics />
+      <NowPlayingCount />
       <Field label="曲库" value={`${total} 首`} />
       {/*
         On DISK, not in the database, and that is the point: deleting a song
@@ -123,8 +136,59 @@ function SettingsTab() {
         label="启动时执行的文件操作"
         value={`${boot.drained.executed} 条 · ${boot.drained.failed} 失败 · ${boot.drained.skipped} 跳过`}
       />
-      <Text style={styles.note}>播放在 N3、下载在 N4、同步在 N5。这一版是曲库本身。</Text>
+      <Text style={styles.note}>下载在 N4、同步在 N5 开放。</Text>
     </ScrollView>
+  );
+}
+
+/**
+ * The Bluetooth lyrics switch (N3d, criterion 16).
+ *
+ * Off by default and stored per install (`local_metadata.now_playing_mode`),
+ * because a phone that lives in a car and a phone that never sees one want
+ * different answers. The bridge does the writing — this reads back what it
+ * stored rather than assuming the tap won, since a value the library refuses
+ * reads as the default.
+ */
+function BluetoothLyrics() {
+  const [mode, setMode] = useState<NowPlayingMode>(() => nowPlaying.mode());
+  return (
+    <View style={styles.switchRow}>
+      <View style={styles.switchText}>
+        <Text style={styles.fieldValue}>蓝牙歌词</Text>
+        <Text style={styles.note}>
+          把当前这句歌词写进「正在播放」的标题，车机和耳机屏上就能看见。关掉是歌名。
+        </Text>
+      </View>
+      <Switch
+        value={mode === 'lyrics'}
+        onValueChange={(on) => {
+          nowPlaying.setMode(on ? 'lyrics' : 'title');
+          setMode(nowPlaying.mode());
+        }}
+        accessibilityLabel="蓝牙歌词"
+      />
+    </View>
+  );
+}
+
+/**
+ * How many times we have handed the system a new title for this song, and how
+ * close together two of them ever came (criterion 17).
+ *
+ * Its own component ON PURPOSE: it subscribes to the playback tick so the
+ * number is live, and the tab around it must not — `songDirectories()` lists a
+ * directory on disk, and doing that twice a second would be a diagnostics
+ * screen that costs more than what it diagnoses.
+ */
+function NowPlayingCount() {
+  const time = usePlayback((state) => state.currentTime);
+  const { published, minGapMs } = nowPlaying.stats();
+  return (
+    <Field
+      label="蓝牙歌词发送（本首）"
+      value={`${published} 次 · 最短间隔 ${minGapMs ?? '—'} ms · 播放到 ${time.toFixed(1)}s`}
+    />
   );
 }
 
@@ -154,6 +218,8 @@ const styles = StyleSheet.create({
   headline: { color: C.text, fontSize: 18 },
   note: { color: C.faint, fontSize: 13, textAlign: 'center', lineHeight: 20 },
   settings: { padding: S.pad, gap: S.pad },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: S.pad },
+  switchText: { flex: 1, gap: 2 },
   field: { gap: 2 },
   fieldLabel: { color: C.faint, fontSize: 12 },
   fieldValue: { color: C.text, fontSize: 14 },

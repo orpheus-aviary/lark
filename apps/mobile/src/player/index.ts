@@ -11,11 +11,12 @@
 // The factory stays exported from `./store` with every dependency injected, so
 // the race model is tested on a laptop against a fake driver.
 
-import type { PlayMode, SongData } from '@lark/shared';
+import type { NowPlayingMode, PlayMode, SongData } from '@lark/shared';
 import { useSyncExternalStore } from 'react';
 import { onLibraryChanged } from '../library-signal';
 import { createPaths } from '../ports/paths';
 import { createPlayerDriver } from './driver';
+import { createNowPlayingBridge } from './now-playing';
 import type { PlayQueue } from './queue';
 import { ensureAudioSession } from './session';
 import { type PlaybackState, createPlayerStore } from './store';
@@ -35,6 +36,9 @@ export interface PlayerBinding {
   readLyrics: (songId: string) => Promise<string | null>;
   readMode: () => PlayMode;
   persistMode: (mode: PlayMode) => void;
+  /** `local_metadata.now_playing_mode` — the Bluetooth lyrics switch (N3d). */
+  readNowPlayingMode: () => NowPlayingMode;
+  persistNowPlayingMode: (mode: NowPlayingMode) => void;
 }
 
 let binding: PlayerBinding | null = null;
@@ -52,6 +56,23 @@ export const player = createPlayerStore({
   readLyrics: (songId) => required().readLyrics(songId),
   persistMode: (mode) => required().persistMode(mode),
   onLibraryChanged,
+});
+
+/**
+ * The Bluetooth lyrics bridge (N3d).
+ *
+ * A singleton for the same reason the store is one: it holds ONE subscription
+ * to the status stream, and a second one would publish every line twice — at
+ * which point the throttle it exists to enforce is being enforced by two
+ * bookkeepers who cannot see each other.
+ */
+export const nowPlaying = createNowPlayingBridge({
+  subscribe: player.subscribe,
+  getState: player.getState,
+  publish: (meta) => player.publishNowPlaying(meta),
+  readMode: () => required().readNowPlayingMode(),
+  writeMode: (mode) => required().persistNowPlayingMode(mode),
+  now: () => Date.now(),
 });
 
 /** Called once, by the boot path, with the library it just opened. */

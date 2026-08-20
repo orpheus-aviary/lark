@@ -1,10 +1,10 @@
 // Playback state, and the rule that decides who wins when two taps race
 // (N3a; decisions b and p).
 //
-// NOT A REACT THING. Every dependency is injected and nothing here imports
-// expo-audio, so the whole race model is testable on a laptop with a fake
-// driver — which matters, because races are exactly the part that a device
-// test finds once in twenty runs. `ui/player-context.tsx` is the React glue.
+// NOT A REACT THING. Every dependency is injected and the only expo-audio
+// import is a type, which the compiler erases — so the whole race model is
+// testable on a laptop with a fake driver, which matters, because races are
+// exactly the part that a device test finds once in twenty runs.
 //
 // TWO MECHANISMS, AND THEY ARE NOT THE SAME ONE:
 //
@@ -26,6 +26,7 @@
 
 import type { LrcLine, PlayMode, QueueDecision, QueueTrigger, SongData } from '@lark/shared';
 import { createOperationQueue, decideNext, parseLrc } from '@lark/shared';
+import type { AudioMetadata } from 'expo-audio';
 import type { PlaybackSnapshot, PlayerDriver } from './driver';
 import type { PlayQueue } from './queue';
 
@@ -89,6 +90,17 @@ export interface PlayerStore {
   next(): Promise<QueueDecision | null>;
   prev(): Promise<QueueDecision | null>;
   setMode(mode: PlayMode): Promise<void>;
+  /**
+   * Replace the lock screen metadata of whatever is loaded (N3d).
+   *
+   * Synchronous and OUTSIDE the lane, unlike everything else here. It is not
+   * an operation — it changes no playback state and takes no decision — and
+   * queueing it behind a fifteen-second load would mean the stereo showing a
+   * lyric from the previous song for as long as that load takes. Reading
+   * `driver` is safe from anywhere because `release()` nulls it before it
+   * destroys anything, so this either reaches the live source or nothing.
+   */
+  publishNowPlaying(meta: AudioMetadata): void;
   /** Stop and release. Also what unmounting the app does. */
   stop(): Promise<void>;
 }
@@ -367,6 +379,10 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     async setMode(mode) {
       set({ mode });
       deps.persistMode(mode);
+    },
+
+    publishNowPlaying(meta) {
+      driver?.updateNowPlaying(meta);
     },
 
     async stop() {

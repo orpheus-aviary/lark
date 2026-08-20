@@ -642,6 +642,18 @@ mobile-drive *ARGS:
 mobile-accept-library NEST:
     node spikes/mobile-foundation/scripts/accept-library.mjs {{NEST}}
 
+# Criterion 17 (N3d): how many times ONE song's lyrics should reach the system.
+#
+# Computed here, out of the same library and the same `lyrics.lrc` that were
+# pushed to the phone, with the same `nowPlayingTitle` the app calls — so the
+# device is only asked to reproduce a number, never to grade itself. Play the
+# song through without touching anything and read 设置 → 蓝牙歌词发送（本首）.
+#
+#     just mobile-now-playing-expect /tmp/lark-fixture <歌名的一部分>
+[group('mobile')]
+mobile-now-playing-expect NEST SONG:
+    node spikes/mobile-foundation/scripts/now-playing-expect.mjs {{NEST}} {{SONG}}
+
 # Criterion 3b (N3a): the audio half of the merged manifest. Reads the BUILT
 # apk for the same reason the backup audit does — `app.config.ts` is what we
 # meant, the manifest is what Android will read, and a plugin default that

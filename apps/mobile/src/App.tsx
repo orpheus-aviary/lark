@@ -11,7 +11,13 @@
 // it is still readable off the device (a release build has no logcat, N0b-3)
 // without being the first thing a person sees.
 
-import { type LibraryService, readPlayMode, writePlayMode } from '@lark/core/portable';
+import {
+  type LibraryService,
+  readNowPlayingMode,
+  readPlayMode,
+  writeNowPlayingMode,
+  writePlayMode,
+} from '@lark/core/portable';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from 'react-native';
@@ -43,7 +49,7 @@ export function App() {
         if (cancelled) return;
         const library = createLibrary(result);
         // The player is built at import time (one process, one player) but
-        // three of its dependencies need the library that just opened. This is
+        // half its dependencies need the library that just opened. This is
         // where they arrive, next to the service they belong to.
         bindPlayer({
           resolveQueue: (queue) =>
@@ -56,6 +62,8 @@ export function App() {
           readLyrics: (songId) => library.readLyrics(songId),
           readMode: () => readPlayMode(result.db.sqlite),
           persistMode: (mode) => writePlayMode(result.db.sqlite, mode),
+          readNowPlayingMode: () => readNowPlayingMode(result.db.sqlite),
+          persistNowPlayingMode: (mode) => writeNowPlayingMode(result.db.sqlite, mode),
         });
         setBoot({ status: 'ready', result, library });
       })

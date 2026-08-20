@@ -16,11 +16,20 @@
 // wins, an operation only ever destroys the driver it built. Races are the
 // part a device finds once in twenty runs, which makes them the part worth
 // testing where a run costs a second.
+//
+// `player/now-playing.ts` joined in N3d for a third reason: criterion 17 is an
+// arithmetic claim about how many times a song's lyrics get published, and the
+// device is only asked to reproduce a number. This is where the number is
+// worked out.
 
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/identity/state.test.ts', 'src/player/store.test.ts'],
+    include: [
+      'src/identity/state.test.ts',
+      'src/player/store.test.ts',
+      'src/player/now-playing.test.ts',
+    ],
   },
 });
