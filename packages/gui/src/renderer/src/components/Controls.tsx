@@ -1,7 +1,7 @@
 // Transport controls, plus the local-import button that shares this row in
 // the Go version (D20).
 
-import type { PlayMode } from '@lark/shared';
+import { PLAY_MODE_LABELS, type PlayMode } from '@lark/shared';
 import {
   ArrowRight,
   FolderOpen,
@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { getPlatform } from '../platform/index.js';
 import { useDownloads } from '../stores/download.js';
-import { PLAY_MODE_LABELS, usePlayer } from '../stores/player.js';
+import { usePlayer } from '../stores/player.js';
 import { Button } from './ui/button.js';
 
 const MODE_ICONS: Record<PlayMode, typeof Repeat> = {

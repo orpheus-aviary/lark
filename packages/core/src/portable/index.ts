@@ -56,6 +56,7 @@ export * from './open-library.js';
 export * from './migrations/index.js';
 export * from './now-playing-mode.js';
 export * from './pending.js';
+export * from './play-mode.js';
 export * from './ports/index.js';
 export * from './runtime/index.js';
 export * from './services/contract/index.js';

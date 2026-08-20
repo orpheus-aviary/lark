@@ -282,10 +282,12 @@ local_metadata.last_playback = {"song_id": "...", "position_seconds": 123.4,
 |---|---|---|---|
 | **N3a** | expo-audio 进 `apps/mobile`（**与 spike 逐字节同版 57.0.3**）· **原生配置**（§1.8）· `session.ts` · `PlayerDriver`（§2.2 面 + §2.3 三条序列 + `status.error`）· **串行/generation**（决策 p，含 `createOperationQueue` 搬进 shared）· 播放状态容器（决策 b） | 是 | 判据 1（播放/暂停那半）· 2 · **3①④**· **3b** · 5（**3 与 3b 是 gate**）；判据 3②③ 与 4 的设备那半随 N3c 的 acceptance 一起 |
 | **N3b** | `decideNext` + `QueueDecision` 进 `@lark/shared`（决策 a）· 四模式 + 持久化（决策 g）· 单测矩阵 · 桌面改吃 | **否（纯桌面批）** | 判据 6–7（**6 是 gate**）；桌面 `player.test.ts` / `queue.test.ts` / `Controls.test.tsx` 原样绿 |
-| **N3c** | minibar + 全屏页（决策 c）+ **队列面板**（决策 d/o）+ 库变更信号（§2.8）+ 琥珀播放态 + 歌词读取（决策 h）+ **真机四模式**（判据 8 从 N3b 移来） | 是 | 判据 8–15 |
+| **N3c** | **移动端 store 接上队列快照与模式**（见下）+ minibar + 全屏页（决策 c）+ **队列面板**（决策 d/o）+ 库变更信号（§2.8）+ 琥珀播放态 + 歌词读取（决策 h）+ **真机四模式**（判据 8 从 N3b 移来） | 是 | 判据 8–15 |
 | **N3d** | 蓝牙歌词接线（§2.5）+ 设置页开关 + `dumpsys media_session` 观测 | 是 | 判据 16–18 |
 | **N3e** | 中断与外设：**冻结的焦点行为表** · **蓝牙断连不转外放**（决策 e）· 焦点属性复核（决策 f） | 是（**要蓝牙音频设备 + 一通来电**） | 判据 19–21（**19 是 gate**） |
 | **N3f** | **进度记忆**（§2.7）+ 后台/锁屏复跑 + 句柄短测 + 文档跟进 | 是 | 判据 22–25（**22 是 gate**） |
+
+**移动端 store 的队列与模式为什么在 N3c 而不在 N3b**（v4 实施时修订）：它要三样只有 boot 之后才存在的东西——按 id 现读库（§2.6 的快照口径）、`readPlayMode` / `writePlayMode` 的 `sqlite`、以及库变更信号（§2.8）。而 `player/index.ts` 是**进程级单例、在 import 时就建好**（N3a 的理由：Activity 重建不能长出第二个播放器）。在没有任何消费者的批次里先发明一套「boot 之后把这些绑上去」的接口，就是给一个还看不见形状的问题做设计。**N3b 因此只出宿主无关的那两块**——`decideNext` 与 `local_metadata.play_mode`——两块都在桌面 test runner 上被完整验过。
 
 **顺序理由**：N3a 的 driver 必须在任何 UI 之前就位，否则 minibar 会长出自己的一份 expo-audio 调用；N3b 排在 UI 之前，是因为队列语义一旦被 UI 就地实现，两端就再也对不齐——**而它整批不需要手机**（真机四模式因此移到 N3c，那里才有可驱动的生产 UI；v3 把它留在 N3b 是错的，那时没有 UI 也没规划 harness）；N3e 虽靠后但**不是打磨**，它是本批唯一「用户会立刻撞上」的 bug；N3f 的进度记忆排最后，因为它要一个已经存在的 minibar 才有地方显示。
 

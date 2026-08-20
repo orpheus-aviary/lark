@@ -3,10 +3,11 @@
 
 import type { PlayerStatusData, SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import { UI_PLAY_MODE_CYCLE } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MediaElement } from '../player/media.js';
 import { useLibrary } from './library.js';
-import { UI_PLAY_MODE_CYCLE, usePlayer } from './player.js';
+import { usePlayer } from './player.js';
 import { useViewPrefs } from './view-prefs.js';
 
 interface FakeMedia extends MediaElement {

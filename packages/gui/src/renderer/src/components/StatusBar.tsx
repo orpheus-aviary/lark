@@ -1,8 +1,9 @@
 // Bottom strip (D24): Go's "playing · mode · total" plus a connection dot,
 // since a lark GUI can now be online or offline against its daemon.
 
+import { PLAY_MODE_LABELS } from '@lark/shared';
 import { useLibrary } from '../stores/library.js';
-import { PLAY_MODE_LABELS, usePlayer } from '../stores/player.js';
+import { usePlayer } from '../stores/player.js';
 import { useSession } from '../stores/session.js';
 import { SyncBadge } from './SyncBadge.js';
 

@@ -23,8 +23,13 @@ import {
   ApiError,
   DISCARDED,
   type OperationContext,
+  type QueueDecision,
+  type QueueTrigger,
+  UI_PLAY_MODE_CYCLE,
   apiPath,
   createOperationQueue,
+  decideNext,
+  nextPlayMode,
   parseLrc,
   request,
   requestText,
@@ -47,25 +52,6 @@ import { createReporter } from '../player/reporter.js';
 import { useLibrary } from './library.js';
 import { useSession } from './session.js';
 import { useViewPrefs } from './view-prefs.js';
-
-/**
- * The Go cycle order, deliberately its own constant: shared's `PLAY_MODES`
- * lists `repeat-one` second because that is the wire order, and iterating it
- * as a UI cycle would quietly reorder the button (M4-10).
- */
-export const UI_PLAY_MODE_CYCLE = [
-  'sequential',
-  'repeat-all',
-  'repeat-one',
-  'shuffle',
-] as const satisfies readonly PlayMode[];
-
-export const PLAY_MODE_LABELS: Record<PlayMode, string> = {
-  sequential: '顺序播放',
-  'repeat-all': '列表循环',
-  'repeat-one': '单曲循环',
-  shuffle: '随机播放',
-};
 
 export const SEEK_STEP_SECONDS = 5;
 const MODE_PREF_KEY = 'player.mode';
@@ -182,12 +168,6 @@ export const usePlayer = create<PlayerState>((set, get) => {
     return result === DISCARDED ? SUPERSEDED : result;
   };
 
-  const indexOfCurrent = (): number => {
-    const song = get().currentSong;
-    if (!song) return -1;
-    return orderedSongs().findIndex((s) => s.id === song.id);
-  };
-
   const stopAndClear = (): void => {
     element?.pause();
     // State is cleared BEFORE the src, which is what makes the media error
@@ -283,26 +263,9 @@ export const usePlayer = create<PlayerState>((set, get) => {
       return { ok: true };
     },
 
-    next: async (ctx) => {
-      const songs = orderedSongs();
-      const index = indexOfCurrent();
-      // D11: after switching lists, the song still playing may not be in the
-      // new one — next/prev go quiet rather than jumping somewhere random.
-      if (index < 0 || songs.length === 0) return { ok: false, message: '当前歌曲不在这个列表里' };
-      if (get().playMode === 'shuffle') {
-        const pick = randomOther(songs, index);
-        if (!pick) return { ok: false, message: '没有其它可播放的歌曲' };
-        return await ops.play(pick, ctx);
-      }
-      return await playAt(songs, (index + 1) % songs.length, ctx);
-    },
+    next: async (ctx) => await advance('next', ctx),
 
-    prev: async (ctx) => {
-      const songs = orderedSongs();
-      const index = indexOfCurrent();
-      if (index < 0 || songs.length === 0) return { ok: false, message: '当前歌曲不在这个列表里' };
-      return await playAt(songs, (index - 1 + songs.length) % songs.length, ctx);
-    },
+    prev: async (ctx) => await advance('prev', ctx),
 
     setMode: async (mode) => {
       writePref(MODE_PREF_KEY, PREF_VERSION, mode);
@@ -312,20 +275,43 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
   };
 
-  /** Go parity: a neighbour with no file stops the sequence, it is not skipped. */
-  const playAt = async (
-    songs: readonly SongData[],
-    index: number,
-    ctx: OperationContext,
-  ): Promise<CommandResult> => {
-    const song = songs[index];
-    if (!song || song.has_file === false) return { ok: false, message: '这一首没有文件' };
-    return await ops.play(song, ctx);
+  /**
+   * WHAT plays next is `decideNext`, shared with the phone (N3b, decision a).
+   * This is the half that is the desktop's: play it, restart it, or stop.
+   *
+   * The four Go-parity rules used to live in four functions here, and the
+   * reason they moved is that they are the same four rules on both ends — a
+   * library that advanced one way on a laptop and another way in a pocket
+   * would be two libraries.
+   */
+  const REJECTIONS: Record<Extract<QueueDecision, { kind: 'reject' }>['reason'], string> = {
+    'not-in-queue': '当前歌曲不在这个列表里',
+    'no-file': '这一首没有文件',
+    'no-other-playable': '没有其它可播放的歌曲',
   };
 
-  const randomOther = (songs: readonly SongData[], index: number): SongData | undefined => {
-    const pool = songs.filter((song, i) => i !== index && song.has_file !== false);
-    return pool[Math.floor(Math.random() * pool.length)];
+  const advance = async (trigger: QueueTrigger, ctx: OperationContext): Promise<CommandResult> => {
+    const songs = orderedSongs();
+    const decision = decideNext({
+      songs,
+      currentId: get().currentSong?.id ?? null,
+      mode: get().playMode,
+      trigger,
+    });
+    switch (decision.kind) {
+      case 'play': {
+        const song = songs.find((s) => s.id === decision.songId);
+        if (!song) return { ok: false, message: '这一首没有文件' };
+        return await ops.play(song, ctx);
+      }
+      case 'restart':
+        return await restartCurrent();
+      case 'stop':
+        stopPlayback();
+        return { ok: true };
+      case 'reject':
+        return { ok: false, message: REJECTIONS[decision.reason] };
+    }
   };
 
   const stopPlayback = (): void => {
@@ -343,36 +329,6 @@ export const usePlayer = create<PlayerState>((set, get) => {
       return { ok: false, message: errorMessage(err) };
     }
     return { ok: true };
-  };
-
-  /** What a finished song leads to, per play mode (Go parity). */
-  const advanceAfterEnded = async (ctx: OperationContext): Promise<CommandResult> => {
-    const { playMode } = get();
-    if (playMode === 'repeat-one') return await restartCurrent();
-
-    const songs = orderedSongs();
-    const index = indexOfCurrent();
-    if (index < 0 || songs.length === 0) {
-      stopPlayback();
-      return { ok: true };
-    }
-    if (playMode === 'sequential') {
-      // The end of the list is the end of playback — no wrap.
-      if (index >= songs.length - 1) {
-        stopPlayback();
-        return { ok: true };
-      }
-      return await playAt(songs, index + 1, ctx);
-    }
-    if (playMode === 'shuffle') {
-      const pick = randomOther(songs, index);
-      if (!pick) {
-        stopPlayback();
-        return { ok: true };
-      }
-      return await ops.play(pick, ctx);
-    }
-    return await playAt(songs, (index + 1) % songs.length, ctx);
   };
 
   return {
@@ -429,16 +385,13 @@ export const usePlayer = create<PlayerState>((set, get) => {
     },
     setMode: (mode) => runLocal(() => ops.setMode(mode)),
 
-    cycleMode: () => {
-      const index = UI_PLAY_MODE_CYCLE.indexOf(get().playMode);
-      return get().setMode(UI_PLAY_MODE_CYCLE[(index + 1) % UI_PLAY_MODE_CYCLE.length] as PlayMode);
-    },
+    cycleMode: () => get().setMode(nextPlayMode(get().playMode)),
 
     handleEnded: () => {
       // Recovery remounts the element and reloads the source; an `ended` that
       // falls out of that is not the song finishing (M4-8 suppression).
       if (get().recovering) return;
-      void runLocal((ctx) => advanceAfterEnded(ctx));
+      void runLocal((ctx) => advance('ended', ctx));
     },
 
     handleMediaError: () => {

@@ -506,6 +506,16 @@
 - **已知不做**：没有进度条、展开态按钮行居左（2026-08-20 用户决定）。居左是系统模板的排法不是我们的 bug——bilibili 的按钮起点与间距完全相同，只是数量填满了整行；要居中得给通知换自建 `RemoteViews`，代价见子计划 §1.9
 - **判据 5 = 用户手测通过**（连续播放远超 5 分钟，含后台与锁屏）。**如实记口径差异**：没有按 §1.7 的协议做两侧采样，机器侧的证据只有「BACK 之后前台是 launcher、`dumpsys audio` 仍是 1」那一次
 
+**N3b 已完成（2026-08-20，判据 6 gate / 7）——队列语义只写一遍**。`decideNext` + `QueueDecision` + UI 循环序进 `@lark/shared/play-queue.ts`；`local_metadata.play_mode` 进 `portable/play-mode.ts`（决策 g，照 `now-playing-mode.ts` 的形状）；桌面改吃。全仓 2642 → **2665**（shared 106 → 129、core 1192 → 1196）。**整批不需要手机。**
+
+- **「抽五个纯函数」原本没有可抽的东西**（评审属实）：`next`/`prev`/`playAt`/`randomOther`/`advanceAfterEnded` 调 `get()`、`ctx`、`ops.play`。先定义**返回值**（`play` / `restart` / `stop` / `reject` + reason），桌面那五个函数体才塌成一个 20 行的翻译器 —— **`indexOfCurrent` 与 `playAt`、`randomOther` 被编译器报成没人用**，又是 N1h 那个「切面画对了的信号是一整段代码变成死代码」
+- **这个返回值顺带解掉了计划里的两头话**：§2.4 写「静默拒绝」而决策 n 写「主动按键要出声」。纯函数只产出 `reject + reason`，**出不出声是宿主的事**——桌面照旧把 message 递给远程 ack 通道不显示，移动端 N3c 会 toast
+- **两个 trigger 在两处分道扬镳，而这是照抄桌面而不是新设计**：① 当前歌不在队列里，`ended` → `stop`（桌面 `advanceAfterEnded` 调 `stopPlayback` 返回 ok:true），`next`/`prev` → `reject`（桌面返回 ok:false 带话）；② 邻居没有文件，同样分。**「手动 next 在 sequential 下 wrap 而自然放完不 wrap」也不是笔误**——`ops.next` 用 `%`，`advanceAfterEnded` 显式判末尾：按键是意图，放完不是
+- **八个变异逐条验红，各有各的签名**（判据 6 的「每格要有一个只属于它的变异」）：sequential 末尾停 → 1 红 · repeat-one 提前返回 → 1 红 · shuffle 不排除当前 → 3 红 · shuffle 不过滤有无文件 → 1 红 · not-in-queue 不分 trigger → 3 红（全是 ended 那三条）· prev 也往前走 → 2 红 · `has_file !== false` 改成 `=== true` → 8 红 · shuffle 接管 prev → 1 红
+- **shuffle 的 `random` 是注入的**（评审属实：概率测试会被反复重跑到绿为止）。两个确定性实现（永远取第一个 / 永远取最后一个）就把「随机另一首」和「恒定挑同一首」分开了
+- **判据 7 绿**：gui **427 不变**，`player.test.ts` / `Controls.test.tsx` / `StatusBar.tsx` 只改 import 来源
+- **范围修订：移动端 store 的队列与模式挪到 N3c**。它要三样 boot 之后才存在的东西（按 id 现读库、`sqlite`、库变更信号），而 `player/index.ts` 是 import 时就建好的进程级单例。在没有消费者的批次里先发明「boot 之后绑上去」的接口，是给一个还看不见形状的问题做设计
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
