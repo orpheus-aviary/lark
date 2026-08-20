@@ -17,8 +17,8 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 - **N0b = GO**（2026-08-18）：D4 / D14 / D16 / D17 全部落定，冻结文本在主计划 §4.3 的 Stage-2 修订段。
 - **N1 已全部完成**（2026-08-19，子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`，九批 N1a–N1i）：core 的**整个业务图**进了 `@lark/core/portable`——sync 全图、library 全图、SyncCoordinator、LibraryService（+ 跨前端 LibraryContract）、download client 层与编排。Metro 图 **97 个 portable 模块**，bundle smoke 已进 `just check`。**R1–R5 真机全绿 → D5 分段冻结，冻结文本见 N1 子计划 §8.1（单一事实源）**。桌面测试 **2578**。
   - **唯一未做的是判据 22**：对新构建的 dmg/tgz 复跑 accept 全系列——按用户决定并入下个桌面版本的发版流程。
-- **N2 开发中**（N2a–N2f 已完成，只剩 **N2g 蓝牙歌词判定函数 + config 字段**；**判据 14 的「拖柄重排」已按用户决定不做**，见子计划 §8.3；**判据 16b = D2D 手机搬家已搁置**，见子计划 §8.2）——子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（**v3，两轮评审收敛**，七批 N2a–N2g / 判据 22 条 / **决策 a–o 已于 2026-08-19 全部关闭，§5 是定案**，§8 有修订对照）。四条要点：**决策 a = 原子替换**（expo-file-system 57 在 Android 上两条路都堵着）· **`ensureDeviceUuid` 要下沉进 portable**（今天是桌面专有的，缺它移动端一切业务写入抛错）· **删除的文件半推不掉**（`deleteSong` 无条件 drain）→ file-op 执行器提前进 N2 且控制面从桌面提取 · **§2.2 冻结了启动序列**：零写预检（含兼容性）→ 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent → boot drain → 服务。
-- **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定）：复用 AVRCP 的 TITLE 字段；判定函数（`@lark/shared` 纯函数）+ config 字段归 N2，接线与开关归 N3；**桌面整个不做**。见主计划 §4.5 的修订段。
+- **N2 已全部完成**（2026-08-20，七批 N2a–N2g，判据 1–21 全过，桌面测试 **2628** / portable Metro 图 **102 个模块**；**判据 14 的「拖柄重排」已按用户决定不做**，见子计划 §8.3；**判据 16b = D2D 手机搬家已搁置**，见子计划 §8.2；**§8.4 记了判据 20 的 ②③ 落地成同一个守卫**）——子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（**v3，两轮评审收敛**，七批 N2a–N2g / 判据 22 条 / **决策 a–o 已于 2026-08-19 全部关闭，§5 是定案**，§8 有修订对照）。四条要点：**决策 a = 原子替换**（expo-file-system 57 在 Android 上两条路都堵着）· **`ensureDeviceUuid` 要下沉进 portable**（今天是桌面专有的，缺它移动端一切业务写入抛错）· **删除的文件半推不掉**（`deleteSong` 无条件 drain）→ file-op 执行器提前进 N2 且控制面从桌面提取 · **§2.2 冻结了启动序列**：零写预检（含兼容性）→ 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent → boot drain → 服务。
+- **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定）：复用 AVRCP 的 TITLE 字段；**判定函数与 config 字段已随 N2g 落地**——`nowPlayingTitle`（`@lark/shared/now-playing.ts`，纯函数，四种输入回歌名 + 64 code point 上限）与 `local_metadata.now_playing_mode`（`@lark/core/portable/now-playing-mode.ts`，缺行或非法值一律读 `'title'` 且**读路径不写库**）；**接线、开关与节流归 N3**，**桌面整个不做**。见主计划 §4.5 的修订段。
 - 数值判据一律 **release 构建** + 冻结设备 vivo V2408A。逐批状态见 `PROCESS.md` 的 Phase B 段。
 
 **mobile / spike 的三条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-mobile-imports.sh` + Metro bundle smoke，两者的作用域自 N2a 起是 spike + `apps/mobile` 两处），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。③ **真机测试默认由用户跑**（2026-08-19 定）：我只负责 `just mobile-android-release`（adb 直接装到机器上），然后把「看什么」讲清楚——用户手测比脚本驱动快得多。**我自己驱动手机只在两种情况**：需要抓内容（logcat / dumpsys / 截屏比对），或者判据要求一段精确的流程（崩溃点、force-stop 时机、成组的顺序断言）。真要长跑，**开跑前说一声、跑完说一声**——用户以为跑完了就去动手机，症状会长得像应用 bug（`not in front` / 找不到屏幕上明明有的标签）。
@@ -47,14 +47,16 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 ```
 lark/
 ├── packages/
-│   ├── shared/     # @lark/shared — Node-free 线协议（类型、HTTP client、SSE、api-paths、lrc）
+│   ├── shared/     # @lark/shared — Node-free 线协议（类型、HTTP client、SSE、api-paths、lrc、
+│   │               #   song-sort 比较器、now-playing 判定函数）
 │   ├── core/       # @lark/core — 业务逻辑。N1 之后**桌面专有的只剩**：db/ 的打开与锁、
 │   │               #   ffmpeg 与落盘协议（download/{audio-landing,ffmpeg,resolve,import}）、
 │   │               #   file-op 执行器、config、logger、paths 根解析、media-tools、migration
 │   │   └── src/portable/  # @lark/core/portable — 一台手机能解析的**整个业务图**（N1 出口）：
 │   │                      #   schema / migrations / migrate / schema-signature / pending /
-│   │                      #   db-identity（ensureDeviceUuid，N2b 下沉）/ open-library（移动端
-│   │                      #     打开分派 classifyLibrary+prepareLibrary）/
+│   │                      #   db-identity（ensureDeviceUuid，N2b 下沉）/
+│   │                      #   now-playing-mode（蓝牙歌词开关，N2g）/
+│   │                      #   open-library（移动端打开分派 classifyLibrary+prepareLibrary）/
 │   │                      #   errors / logger 型 / SqliteLike / PortableDb /
 │   │                      #   ports/（fs·paths·song-files·credentials·events·device·audio-landing）/
 │   │                      #   runtime/（random·digest·text·base64）/ sync 全图 /

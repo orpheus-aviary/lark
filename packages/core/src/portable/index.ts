@@ -54,6 +54,7 @@ export * from './logger.js';
 export * from './migrate.js';
 export * from './open-library.js';
 export * from './migrations/index.js';
+export * from './now-playing-mode.js';
 export * from './pending.js';
 export * from './ports/index.js';
 export * from './runtime/index.js';

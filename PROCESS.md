@@ -479,6 +479,14 @@
 - **验收脚本跟着改了一处**：歌单页的标记从「全部歌曲」换成「新建歌单」，否则它会因为这次改动误报
 - **清理**：删掉 `db/self-check.ts`（N2b 的数据层自检面板，N2f 之后没有任何调用者；它那六条判断已由桌面 `open-library.test.ts` 与 PROCESS 的 N2b 段留存）
 
+**N2g 已完成（2026-08-20）——判据 20 / 21 绿，N2 全部完成**。两个模块 + 两份单测：`packages/shared/src/now-playing.ts`（`nowPlayingTitle` + `NowPlayingMode` + `isNowPlayingMode` + 64 code point 上限）与 `packages/core/src/portable/now-playing-mode.ts`（`local_metadata.now_playing_mode` 的读写，决策 c）。全仓 2604 → **2628**（shared 90 → 101、core 1179 → 1192）；portable 的 Metro 图 101 → **102 个模块**。**这批不需要手机**：判据 20 是纯函数、判据 21 是 `SqliteLike` 上的断言，而 **N2 本来就不断言任何蓝牙行为**（没有播放器、没有带屏接收端）。接线与开关归 N3。
+
+- 🔴 **计划的「回落四条」落地成三个分支**：② `lyrics.length === 0` 与 ③ `currentLrcIndex === -1` **不是两个能各自杀死的判断**——空数组进 `currentLrcIndex` 只能回 -1（`lrc.ts:75` 的二分在 `high = -1` 时不进循环），写成两个 `if` 的话第二个是死代码，而判据 20 要求「删掉该分支那条必须红」对死代码不成立。实现因此收成一句 `const line: LrcLine | undefined = lyrics[currentLrcIndex(...)]`：**②③ 共用一个守卫、各留一条用例**（删掉守卫两条一起红）。这是子计划 §8 那条 P1-4 的同一个形状再走一格——**v1 五条 → v2 四条 → 落地三个分支**，每次都是「这两件事函数分不开」
+- **五个变异逐条验红**（判据 20 的「每条都要有反测」）：① 删 `mode === 'title'` → 4 红 · ② 删 `line === undefined` 那半 → ②③ 两条红（`Cannot read properties of undefined (reading 'text')`）· ③ 删 `line.text === ''` 那半 → 间奏那条红（`expected '' to be '晴天'`）· ④ `[...text]` 换成 `text.split('')` → emoji 那条红 · ⑤ 上限整个拿掉 → 3 红
+- **emoji 用例的那一个前缀是承重的**：`'🎵'.repeat(70)` 按 UTF-16 切在 64 上**正好落在代理对边界**，naive 实现照样绿。加一个 `あ` 把 naive 的切点顶到奇数单元，孤代理才出得来。断言顺序也跟着改——**孤代理那条排在长度之前**，否则长度先红，真正要证的那条永远不执行（同一个形状 N2f 的排序用例里也遇过：先红的断言会盖住后面的）
+- **三个变异验红判据 21**：读路径顺手写回 → 六条「不改库」红 · 去掉 `isNowPlayingMode` → 八条红 · upsert 退回普通 INSERT → 「一行」那条红
+- **为什么 config 那半在 portable 而不在 shared**：它要 `SqliteLike`。落 `local_metadata` 跟 `device_uuid` 同表同域（per-install 本地偏好），**写它不产 `sync_changes`**（有一条用例守着）；**读路径永不写库**——一个看不懂的值是「另一个版本的这台设备写的」，不是「可以覆盖的」，一个会「修好」自己读不懂的东西的启动路径，就是降级会吃掉设置的那条路
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
@@ -530,7 +538,7 @@ v1 那条读源码读出来的发现原样保留：
 | N1g | LibraryService + daemon 路由与 CLI direct 同时消费（两个 commit：服务层 / LibraryContract 18 例 × 两 hook） | 全测试 **2571** + smoke（90 → 94 模块）+ **`accept-cli` 27/27** + **contract 两 hook 全绿、mobile hook 显式 skip** | ✅ 2026-08-19 |
 | N1h | AudioLanding 切面 + download 编排进 portable（两个 commit：切面与 commit 协议测试 / engine·batches·pipeline 搬迁） | 全测试 **2576** + smoke（94 → 97 模块）+ **`accept-m5` 22/22**（真 bilibili） | ✅ 2026-08-19 |
 | N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
-| N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | 🔄 **N2a–N2f 完成**（判据 1–19 全过，**16b 与 14 的拖柄重排已按用户决定不做**，见 §8.2/§8.3）；只剩 **N2g** |
+| N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | ✅ **2026-08-20 全部完成**（判据 1–21 全过；**16b 与 14 的拖柄重排已按用户决定不做**，见 §8.2/§8.3）；全测试 **2628** |
 | N3–N6 | 播放 / 下载 / 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
