@@ -576,6 +576,15 @@
 
 **范围修订：TLS（D15）移出 N4**（2026-08-20 用户决定，主计划 §4.3 已加 **Stage-3 修订**）。准确口径：**不阻塞 N4 的任何子批**（下载链路不碰 skybridge），**硬阻塞 N5**——server 今天仍是 `http://<公网IP>:8443`，移动端 v1 是 https-only。N5 开工前必须补完 TLS（域名 + 证书 + 自动续期 + 反代 + 两端 `server_url` 迁移 + 真机连通），或单独决定移动端的明文口径。**不算被 N4 消掉**，见「后续」段的待办。
 
+**决策 a–p 全部关闭**（2026-08-20 用户逐条过目「全部确认」，子计划 §5 是定案）。
+
+**N4a 已完成（2026-08-20，纯桌面批，四个 commit）——判据 1–4 全过（1·3 是 gate）。桌面零行为变化，移动实现照冻结的端口写。** 全测试 2729 → **2736**（core 1221 → 1226、daemon 465 → 468；新增短链 characterization ×3、expectedDuration ×1、契约多出的 transfer ×3）。
+- **preflight 提取**（`refactor(download)`）：`resolveOne`/`preflightSingle`/`preflightBatch`/`fetchList` 进 `portable/download/preflight.ts`，daemon 路由变薄壳（只剩请求体形状 + `naming_mode` 两条 INVALID_BODY + fetch-list 体读）。顺序照 §2.4 固定：**先补短链 characterization 钉住 400**（`routes/download.test.ts` 原来一条短链用例都没有，靠 `ctx.bilibili.expandShortLink` 打桩）→ 改 `resolveInput` 从 `NormalizeFailedError`(502) 改抛 `InvalidSourceError`(400)（生产零调用方，只动 `link.test.ts` 一条）→ 提取。错误码对照表逐条在路由测试里。
+- **AudioLanding 签名冻结 + expectedDuration**（`feat(download)`）：端口加 `request: {url, headers, timeoutMs}`（原生下载用，与 `openStream` 二选一）+ 错误归一契约写进端口注释；client 加 `describeAudioRequest`（共用 `openAudio` 的 `headers()`）。`expectedDurationSeconds` 从 `resolved.source.pages[page-1].duration` 接线，新歌与重下**两条路都有值**（改掉 `engine.ts` 那条「重下没 page」的错注释）。
+- **AudioLandingContract 八条 + 桌面 hook**（`test(download)`）：桌面原来手写的 5 条（commit 协议 + 两条 lifecycle）→ `portable/services/contract/audio-landing/`（纯 case + runner + hooks），加 3 条 transfer（非2xx→BilibiliApiError / 超时→中止failed / 取消→cancelled）。桌面 hook 用**真 client + 本地小 HTTP server**（`/ok` `/500` `/hang`）驱动，so `openAudio` 的真实归一在测。`audio-landing.test.ts` 整个换成跑契约。**N4b 加移动 hook，不碰 case**。
+- **缓存运行时提取**（`refactor(cache)`，决策 g）：`EvictionScheduler` + `SongLeaseRegistry` + `canRedownload` 进 `portable/library/eviction-runtime.ts`，scheduler 改吃注入的 `EvictionRuntimeDeps`（不再吃 `AppContext`）。**关键是 `defer`**：桌面注入 `setImmediate`（延后宏任务的那条不变量，判据 4 的反测），手机将注入 `setTimeout(fn,0)`。daemon 留 `createEvictionScheduler(ctx)` 装配 + `isExcluded`/`readCacheStatus`/`canRedownload`(BaseContext 壳)，并 re-export 运行时（`new EvictionScheduler(ctx)` → `createEvictionScheduler(ctx)`，其余 import 路径不动）。Metro portable 模块 109。
+
+
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
@@ -630,7 +639,7 @@ v1 那条读源码读出来的发现原样保留：
 | N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
 | N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | ✅ **2026-08-20 全部完成**（判据 1–21 全过；**16b 与 14 的拖柄重排已按用户决定不做**，见 §8.2/§8.3）；全测试 **2628** |
 | N3 | 播放：PlayerDriver + 队列与四模式 + minibar / 全屏页 / 队列面板 + 后台锁屏 + 蓝牙歌词接线（六批 N3a–N3f） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md` 判据 25 条 | ✅ **2026-08-20 全部完成**（六批 N3a–N3f，判据 1–19 + 21–25 全过；**18 与 21 只记录不判定**、**20 已按用户决定搁置**、15 的「无文件的歌」夹具里没有）；全测试 **2729** |
-| N4 | 下载：移动 AudioLanding + 落盘协议 + 启动清扫 + 添加页 + 分享 intent + **LLM 设置页** + **收藏夹/合集批量** + **dataSync 前台服务** + ensure-file + 缓存管理 + 歌单导出（七批 N4a–N4g） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` 判据 40 条 / 决策 a–p | ⏳ **子计划 v2 已出，待开工** |
+| N4 | 下载：移动 AudioLanding + 落盘协议 + 启动清扫 + 添加页 + 分享 intent + **LLM 设置页** + **收藏夹/合集批量** + **dataSync 前台服务** + ensure-file + 缓存管理 + 歌单导出（七批 N4a–N4g） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` 判据 40 条 / 决策 a–p | 🛠 **开发中**：**N4a 完成**（2026-08-20，纯桌面批，判据 1–4；preflight 提取 + AudioLanding 签名冻结 + 契约八条 + 缓存运行时提取；测试 2736）。下一步 **N4b**（需真机：判据 5·6·10·11） |
 | N5–N6 | 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。
