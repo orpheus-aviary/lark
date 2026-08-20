@@ -584,6 +584,12 @@
 - **AudioLandingContract 八条 + 桌面 hook**（`test(download)`）：桌面原来手写的 5 条（commit 协议 + 两条 lifecycle）→ `portable/services/contract/audio-landing/`（纯 case + runner + hooks），加 3 条 transfer（非2xx→BilibiliApiError / 超时→中止failed / 取消→cancelled）。桌面 hook 用**真 client + 本地小 HTTP server**（`/ok` `/500` `/hang`）驱动，so `openAudio` 的真实归一在测。`audio-landing.test.ts` 整个换成跑契约。**N4b 加移动 hook，不碰 case**。
 - **缓存运行时提取**（`refactor(cache)`，决策 g）：`EvictionScheduler` + `SongLeaseRegistry` + `canRedownload` 进 `portable/library/eviction-runtime.ts`，scheduler 改吃注入的 `EvictionRuntimeDeps`（不再吃 `AppContext`）。**关键是 `defer`**：桌面注入 `setImmediate`（延后宏任务的那条不变量，判据 4 的反测），手机将注入 `setTimeout(fn,0)`。daemon 留 `createEvictionScheduler(ctx)` 装配 + `isExcluded`/`readCacheStatus`/`canRedownload`(BaseContext 壳)，并 re-export 运行时（`new EvictionScheduler(ctx)` → `createEvictionScheduler(ctx)`，其余 import 路径不动）。Metro portable 模块 109。
 
+**N4b 进行中（2026-08-20，用户定「集中开发集中测」——先把 N4b 代码写到能编译，再一次跑完真机判据 5–14；设备已连）。离线可写的先写，逐个给用户看 commit；Kotlin 与判据 5–14 攒到设备 session 一起。**
+- **N4b-1 ✅ `3fb15ec`**：`apps/mobile/modules/lark-media`——MMR 时长探测（一个 `AsyncFunction readDurationSeconds`，照 lark-fs 模板）。TS 过、imports/biome 过；**Kotlin 只能真机 build 验**（judge 8）。
+- **N4b-2 ✅ `9f3fc6c`**：`apps/mobile/src/ports/audio-landing.ts`（`createMobileAudioLanding`）。**落盘反桌面序（decision c）：② 非 AAC 拒绝 → ③ 原生下载到 `.download.<taskId>.tmp` → ④ MMR 读时长 → ⑤ commit 行 + touchLastAccessed 一个事务 → ⑥ 原子替换**，不做 manifest（崩在 ⑤⑥ 之间自愈）。非 AAC 拒绝 = **`AudioNotAacError` → 任务码 `AUDIO_NOT_AAC`**（非 CodedError，`describeTaskError` 映射，只进 `TASK_ERROR_CODES`——daemon 转码永不产它，**首个纯 task-only 码**）。transfer 是缝（默认 `File.downloadFileAsync`：非 2xx→reject、abort→AbortError、Android 直接流进目标文件失败留半个）；错误归一在 land（abort 原样传、其余非 abort→BilibiliApiError）。shared 129 / core 1226 / cli 9 / errors 66 全绿。
+- **还剩**：N4b-3 启动清扫 ⑪b（skip set + trash 命名空间）· N4b-4 引擎装配 + 进程级 hub 同批出生 + 长命 FileEffectRuntime 重建共享引擎 claims · N4b-5 契约移动 hook（acceptance）+ transfer 缝 + `app.config.ts` 补 INTERNET（明文配置先留白，judge 5 量出再定）。写完 `just mobile-android-release` 装设备，集中跑判据 5–14。
+
+
 
 
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
