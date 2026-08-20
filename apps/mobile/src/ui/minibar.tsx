@@ -12,6 +12,7 @@ import { currentLrcIndex } from '@lark/shared';
 import { ListMusic, Pause, Play, SkipForward } from 'lucide-react-native';
 import { Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { player, usePlayback } from '../player';
+import { Progress } from './progress';
 import { C, S } from './theme';
 
 const REFUSALS: Record<string, string> = {
@@ -24,53 +25,75 @@ export function MiniBar({ onOpen, onQueue }: { onOpen: () => void; onQueue: () =
   const name = usePlayback((state) => state.song?.name ?? null);
   const playing = usePlayback((state) => state.playing);
   const line = usePlayback(currentLine);
-  const [queued, total] = [usePlayback(positionInQueue), usePlayback(queueLength)];
+  const time = usePlayback((state) => state.currentTime);
+  const duration = usePlayback((state) => state.duration);
 
   if (name === null) return null;
 
   return (
     <View style={styles.bar}>
+      {/* Three rows, because the one row it started as had to hold a title, a
+          lyric and three controls, and the lyric is the line that gets long. */}
+      <View style={styles.top}>
+        <Pressable
+          style={styles.body}
+          onPress={onOpen}
+          accessibilityRole="button"
+          accessibilityLabel={`正在播放 ${name}`}
+        >
+          <Text style={styles.name} numberOfLines={1}>
+            {name}
+          </Text>
+        </Pressable>
+        <Pressable
+          style={styles.control}
+          onPress={() => void player.toggle()}
+          accessibilityRole="button"
+          accessibilityLabel={playing ? '暂停' : '播放'}
+        >
+          {playing ? (
+            <Pause size={22} color={C.text} fill={C.text} />
+          ) : (
+            <Play size={22} color={C.text} fill={C.text} />
+          )}
+        </Pressable>
+        <Pressable
+          style={styles.control}
+          onPress={() => void skip()}
+          accessibilityRole="button"
+          accessibilityLabel="下一首"
+        >
+          <SkipForward size={22} color={C.text} fill={C.text} />
+        </Pressable>
+        <Pressable
+          style={styles.control}
+          onPress={onQueue}
+          accessibilityRole="button"
+          accessibilityLabel="播放队列"
+        >
+          <ListMusic size={22} color={C.text} />
+        </Pressable>
+      </View>
+
+      {/* The row STAYS when there is no line — an empty one, holding its own
+          height. A bar that grew and shrank as songs with and without lyrics
+          followed each other moved the tab bar under the thumb. What is gone
+          is the old fallback text: "第 3 / 7 首" was answering a question
+          nobody asks of this row, and the queue panel answers it better. */}
       <Pressable
-        style={styles.body}
+        style={styles.lineRow}
         onPress={onOpen}
         accessibilityRole="button"
-        accessibilityLabel={`正在播放 ${name}`}
+        accessibilityLabel="展开播放页"
       >
-        <Text style={styles.name} numberOfLines={1}>
-          {name}
-        </Text>
         <Text style={styles.line} numberOfLines={1}>
-          {line ?? `第 ${queued} / ${total} 首`}
+          {line ?? ''}
         </Text>
       </Pressable>
-      <Pressable
-        style={styles.control}
-        onPress={() => void player.toggle()}
-        accessibilityRole="button"
-        accessibilityLabel={playing ? '暂停' : '播放'}
-      >
-        {playing ? (
-          <Pause size={22} color={C.text} fill={C.text} />
-        ) : (
-          <Play size={22} color={C.text} fill={C.text} />
-        )}
-      </Pressable>
-      <Pressable
-        style={styles.control}
-        onPress={() => void skip()}
-        accessibilityRole="button"
-        accessibilityLabel="下一首"
-      >
-        <SkipForward size={22} color={C.text} fill={C.text} />
-      </Pressable>
-      <Pressable
-        style={styles.control}
-        onPress={onQueue}
-        accessibilityRole="button"
-        accessibilityLabel="播放队列"
-      >
-        <ListMusic size={22} color={C.text} />
-      </Pressable>
+
+      <View style={styles.progressRow}>
+        <Progress duration={duration} time={time} compact />
+      </View>
     </View>
   );
 }
@@ -99,29 +122,27 @@ export function currentLine(state: {
   return text === '' ? null : text;
 }
 
-const positionInQueue = (state: {
-  queue: { songIds: readonly string[] } | null;
-  song: { id: string } | null;
-}): number => {
-  if (state.queue === null || state.song === null) return 0;
-  return state.queue.songIds.indexOf(state.song.id) + 1;
-};
-
-const queueLength = (state: { queue: { songIds: readonly string[] } | null }): number =>
-  state.queue?.songIds.length ?? 0;
+/** Tightened twice by hand: the lyric sat further from its title than the
+ *  three rows are tall. */
+const ROW_GAP = 3;
+const LINE_HEIGHT = 16;
 
 const styles = StyleSheet.create({
   bar: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingHorizontal: S.pad,
-    paddingVertical: 8,
+    paddingTop: 6,
+    paddingBottom: 4,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: C.border,
     backgroundColor: C.surface,
   },
+  top: { flexDirection: 'row', alignItems: 'center' },
   body: { flex: 1, marginRight: 8 },
-  name: { color: C.active, fontSize: 14 },
-  line: { color: C.faint, fontSize: 12, marginTop: 2 },
+  name: { color: C.active, fontSize: 16 },
+  // The three rows sit ROW_GAP apart, top to bottom. The lyric used to hug the
+  // progress bar because its own padding was smaller than the bar's margin.
+  lineRow: { marginTop: ROW_GAP, height: LINE_HEIGHT },
+  line: { color: C.faint, fontSize: 12, lineHeight: LINE_HEIGHT, textAlign: 'center' },
   control: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  progressRow: { marginTop: ROW_GAP },
 });

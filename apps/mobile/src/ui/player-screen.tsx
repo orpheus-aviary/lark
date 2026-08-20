@@ -24,19 +24,10 @@ import {
   SkipForward,
 } from 'lucide-react-native';
 import { useEffect, useRef, useState } from 'react';
-import {
-  Modal,
-  type NativeTouchEvent,
-  PanResponder,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  ToastAndroid,
-  View,
-} from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { player, usePlayback } from '../player';
 import { skip } from './minibar';
+import { Progress } from './progress';
 import { C, S } from './theme';
 
 const MODE_ICONS: Record<PlayMode, typeof Repeat> = {
@@ -44,11 +35,6 @@ const MODE_ICONS: Record<PlayMode, typeof Repeat> = {
   'repeat-all': Repeat,
   'repeat-one': Repeat1,
   shuffle: Shuffle,
-};
-
-const clock = (seconds: number): string => {
-  const whole = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 };
 
 export function PlayerScreen({ onClose, onQueue }: { onClose: () => void; onQueue: () => void }) {
@@ -178,6 +164,10 @@ function Lyrics({
       ref={scroller}
       style={styles.lyrics}
       contentContainerStyle={styles.lyricsBody}
+      // Android-only, and the point of it: the bar is a POSITION indicator on
+      // a screen whose text is scrolling itself. One that appears only while a
+      // finger is down tells you where you are exactly when you already know.
+      persistentScrollbar
       onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
     >
       {lines.map((line, i) => (
@@ -195,56 +185,6 @@ function Lyrics({
   );
 }
 
-/** Tap or drag to seek. The player's position is ignored while a finger is down. */
-function Progress({ duration, time }: { duration: number; time: number }) {
-  const [width, setWidth] = useState(0);
-  const [dragging, setDragging] = useState<number | null>(null);
-  const box = useRef({ width: 0, duration: 0 });
-  box.current = { width, duration };
-
-  const at = (touch: NativeTouchEvent): number => {
-    const { width: w, duration: d } = box.current;
-    if (w <= 0 || d <= 0) return 0;
-    return Math.min(Math.max(touch.locationX / w, 0), 1) * d;
-  };
-
-  const responder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (event) => setDragging(at(event.nativeEvent)),
-      onPanResponderMove: (event) => setDragging(at(event.nativeEvent)),
-      onPanResponderRelease: (event) => {
-        const seconds = at(event.nativeEvent);
-        setDragging(null);
-        void player.seek(seconds);
-      },
-      onPanResponderTerminate: () => setDragging(null),
-    }),
-  ).current;
-
-  const shown = dragging ?? time;
-  const fraction = duration > 0 ? Math.min(shown / duration, 1) : 0;
-
-  return (
-    <View style={styles.progress}>
-      <View
-        style={styles.track}
-        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-        accessibilityRole="adjustable"
-        accessibilityLabel="播放进度"
-        {...responder.panHandlers}
-      >
-        <View style={[styles.fill, { width: `${fraction * 100}%` }]} />
-      </View>
-      <View style={styles.times}>
-        <Text style={styles.time}>{clock(shown)}</Text>
-        <Text style={styles.time}>{clock(duration)}</Text>
-      </View>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg, padding: S.pad, paddingTop: 24 },
   header: { alignSelf: 'flex-start', paddingVertical: 8, paddingRight: 16 },
@@ -256,11 +196,6 @@ const styles = StyleSheet.create({
   lyricLine: { color: C.faint, fontSize: 15, lineHeight: 30, textAlign: 'center' },
   lyricCurrent: { color: C.active, fontSize: 17 },
   noLyrics: { color: C.faint, fontSize: 14, textAlign: 'center', paddingVertical: 24 },
-  progress: { marginTop: 8 },
-  track: { height: 28, justifyContent: 'center' },
-  fill: { height: 3, backgroundColor: C.active, borderRadius: 2 },
-  times: { flexDirection: 'row', justifyContent: 'space-between' },
-  time: { color: C.faint, fontSize: 11 },
   transport: {
     flexDirection: 'row',
     alignItems: 'center',

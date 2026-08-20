@@ -69,6 +69,32 @@ function requireForeground() {
 }
 
 /**
+ * The view tree, or a diagnosis.
+ *
+ * `uiautomator dump` waits for the window to go IDLE and gives up if it never
+ * does — and a screen with a running clock on it never does. lark's mini bar
+ * grew a progress bar and a seconds readout in N3c, so from that batch on
+ * every dump taken while something is playing fails, writes no file, and
+ * leaves the caller to conclude "the label is not on screen".
+ *
+ * That wrong conclusion is the reason this exists. Retry a few times, because
+ * a transient dialog animation also trips it; then say what actually happened.
+ */
+function dumpHierarchy() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    adb('shell', 'uiautomator', 'dump', '/sdcard/lark-ui-dump.xml');
+    const xml = adb('shell', 'cat', '/sdcard/lark-ui-dump.xml');
+    if (xml.includes('<hierarchy')) return xml;
+    adb('shell', 'sleep', '1');
+  }
+  console.error('✗ uiautomator could not dump the view tree after 3 tries.');
+  console.error('  The usual cause is a screen that never goes idle — lark shows a');
+  console.error('  running clock while it plays. Pause playback first, or drive by');
+  console.error('  coordinates (`adb shell input tap X Y`).');
+  process.exit(3);
+}
+
+/**
  * Every labelled node with its centre, in draw order.
  *
  * BOTH `text` and `content-desc`, and the second one arrived in N3c. Until
@@ -83,8 +109,7 @@ function requireForeground() {
  * reading the screen would name.
  */
 function visibleNodes() {
-  adb('shell', 'uiautomator', 'dump', '/sdcard/lark-ui-dump.xml');
-  const xml = adb('shell', 'cat', '/sdcard/lark-ui-dump.xml');
+  const xml = dumpHierarchy();
   const nodes = [];
   const pattern =
     /text="([^"]*)"[^>]*content-desc="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g;
