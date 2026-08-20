@@ -1,0 +1,26 @@
+diff --git a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+index 196a5d57f887c2667a88543bd2f6a80044a044f2..692936ec7847580fcf1789c8f87d2efdbad1aeb9 100644
+--- a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
++++ b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
+@@ -187,8 +187,19 @@ class AudioControlsService : MediaSessionService() {
+ 
+     val style = MediaStyleNotificationHelper.MediaStyle(session)
+ 
+-    // Older Android system UI expects explicit notification actions for transport controls.
+-    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
++    // lark patch (N3a, criterion 2). UPSTREAM GATES THIS ON `SDK <= S_V2`, on
++    // the assumption that Android 13+ always renders media controls from the
++    // MediaSession. Not every system UI does. On the frozen measurement device
++    // (vivo OriginOS, API 35) the media notification is drawn as an ORDINARY
++    // notification, so the only controls it can show are this Notification's
++    // own actions — and with none added, lark's lock screen showed a title and
++    // an artist and nothing else, while bilibili's notification two rows below
++    // it in the same screenshot had five buttons.
++    //
++    // Adding the actions on every API level costs nothing where the session is
++    // used instead: MediaStyle still points at the session, and a system UI
++    // that renders from it ignores the actions it does not need.
++    if (true) {
+       val compactViewIndices = mutableListOf<Int>()
+       var currentIndex = 0
+ 

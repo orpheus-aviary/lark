@@ -33,5 +33,10 @@
     "@types/react": "19.2.18",
     "typescript": "5.9.3",
     "vitest": "4.1.4"
+  },
+  "expo": {
+    "autolinking": {
+      "buildFromSource": ["expo-audio"]
+    }
   }
 }

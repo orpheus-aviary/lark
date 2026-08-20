@@ -170,7 +170,15 @@ export function createPlayerDriver(): PlayerDriver {
       // Background playback needs this, not just `shouldPlayInBackground`
       // (session.ts). Setting it after the load keeps a failed source out of
       // the lock screen entirely.
-      created.setActiveForLockScreen(true, meta);
+      //
+      // The two seek buttons are on because ±10s is the only seeking the lock
+      // screen offers here: skip-to-next/previous do not exist in this version
+      // at all (§1.9), and a scrub bar belongs to the system-UI media widget,
+      // which the frozen device does not draw (see `patches/expo-audio`).
+      created.setActiveForLockScreen(true, meta, {
+        showSeekBackward: true,
+        showSeekForward: true,
+      });
       // From here the status stream belongs to subscribers rather than to the
       // load, so re-attach it for the lifetime of the player.
       created.addListener('playbackStatusUpdate', emit);

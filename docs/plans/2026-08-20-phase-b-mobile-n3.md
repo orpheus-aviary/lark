@@ -134,6 +134,11 @@ plugins: [ … ['expo-audio', { recordAudioAndroid: false, enableBackgroundPlayb
 
 **v1 收窄（2026-08-20 用户决定）**：锁屏与车机只承诺**播放 / 暂停 / seek**，**切歌只能回到 app 里**。
 
+**实施时又长出两条，都记在这里**（N3a 实测）：
+
+- **通知上的控件不是白来的**。expo-audio 只在 `SDK <= S_V2`（API 32）时给通知 `addAction`，API 33+ 交给 AOSP System UI 从 MediaSession 渲染；而冻结设备（vivo OriginOS，API 35）**把媒体通知当普通通知画**，于是一个 action 都没有的通知就只剩歌名和歌手。修法是 `patches/expo-audio@57.0.3.patch` 去掉那个 API 门限 + `expo.autolinking.buildFromSource`（否则补丁对预编译 AAR 无效，见 `docs/LESSONS.md`），并在 `setActiveForLockScreen` 打开 `showSeekBackward` / `showSeekForward`。**结果是三个按钮：后退 10s ｜ 播放/暂停 ｜ 前进 10s。**
+- **没有进度条，展开态的按钮行居左** —— **已知，v1 不做**（2026-08-20 用户决定）。进度条属于 System UI 的媒体组件，这台机器不画；而「居左」是系统 MediaStyle 模板的排法，**不是我们的 bug**：同一张下拉截图里 bilibili 的五个按钮起点与间距和我们完全相同（x = 147 / 257 / …），它只是按钮多、把整行填满了才像居中。要居中只能给通知换自建 `RemoteViews`（`setCustomBigContentView`），那等于接管一块本该由系统画的 UI、和 OEM 主题打架，还要塞进一个已经证明很脆的补丁里。**代价大于收益，先记着。**
+
 - **如实记的代价**：蓝牙歌词是 v1 功能，所以会出现「车机上看得见歌词、方向盘上却切不了歌」。
 - **逃生口已定价，留给后续**：要加回来不是一句 `pnpm patch`——既要改 Kotlin 让命令不被 remove，还要拦下命令再桥接到 JS（单曲目 timeline 上 `seekToNext` 本身是空操作），JS 面也要加一个事件，然后维护一份跨 SDK 升级会静默失效的补丁。**真在车上用着难受时再单独修这个小功能。**
 

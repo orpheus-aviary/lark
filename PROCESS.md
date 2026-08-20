@@ -495,6 +495,17 @@
 - **删歌之后队列收敛没有通道**：`library-context.tsx:62` 的 `changed()` 只 `setView`，React 之外没人收得到。取最小做法（`changed()` 顺带打一个可订阅信号，约 15 行），**不做通用 reconcile 协议**——N5 的同步删除到时候接同一个信号
 - **N3b 因此是一个零手机的纯桌面批**（真机四模式从 N3b 移到 N3c，那里才有可驱动的生产 UI）
 
+**N3a 已完成（2026-08-20，判据 1/2/3①④/3b/5）——播放内核**。`apps/mobile` 加 expo-audio **57.0.3**（与 spike 逐字节同版，hoist 之后全仓一份）+ 原生配置；`player/` 四个文件（session / driver / store / index）；`createOperationQueue` 从 gui 搬进 `@lark/shared`（决策 p）。全仓 2628 → **2642**（shared 101 → 106 与 gui 432 → 427 是搬迁的账，mobile 10 → 24 是新的竞态单测）。
+
+- **判据 3b（gate）4/4，两个否定断言各自验红**：合并 manifest 里 `POST_NOTIFICATIONS` 在、`RECORD_AUDIO` 不在、播放前台服务已注册、录音服务未注册。写反测时发现第 4 条守的其实是**另一个选项**——`recordAudioAndroid` 管权限，录音服务由 `enableBackgroundRecording` 管（`withAudio.js:71`），两个各打开一次才各自点着。**「这是 recordAudioAndroid 的另一半」是一句读起来很顺的假话**
+- **判据 3（gate）的原文和后台播放矛盾，跑的时候才撞上**：v4 初稿写「每条路径之后都看不到活跃播放器」，可开了后台播放，按 home、按 BACK 本来就该继续响。改成对**我们名下的活跃播放器数**断言：切歌恰好一个 · 显式停止零个 · BACK 继续播且仍是一个。**①④ 已绿**（连切三首每次都是 1；BACK 之后前台是 launcher 而播放继续，回前台 UI 上 `▶` 还在那一首——进程级单例扛住了 Activity 重建，`bootOnce` 同一条理由）；②③ 与判据 4 的设备那半需要 acceptance 夹具，随 N3c
+- 🔴 **反测把 #47569 在我们自己的应用里复现了**：去掉 `destroy()` 里的 `pause()` → 切歌之后**两条 `state:started` 的 AudioTrack 同时在响**。所以 driver 的面**没有 `remove()` 可调**，只有一个 `destroy()`（pause → 300ms → clearLockScreenControls → remove），这不是纪律是结构
+- **`AudioStatus.error` 存在，v3 计划里「错误只能靠超时」是错的**（评审逮到）：`Audio.types.d.ts:243` + `AudioPlayer.kt:158` 的 `onPlayerError`。load 因此是三个终态赛跑（loaded / error / watchdog），watchdog 只管「什么终态都没来」，坏文件不必白等 15 秒
+- **竞态模型是两个机制，不是一个**：lane（串行，桌面搬来的 `createOperationQueue`）+ intent 计数（最后一次点击胜出）。**只有 `play` / `stop` claim intent**——让 `seek` 也 claim 会变成「拖进度条取消加载」，那是防竞态的机制自己造出来的竞态。五个变异里四个验红（去 lane · 去放弃机制 · 放弃时销毁「当前的」而不是「自己建的」· 让 seek claim），**第五个没红**：`toggle` 里的 `state.loading` 守卫在 lane 之下根本轮不到，是死代码，删了——**和 N2g 的回落 ②③ 同一个形状，一个批次之后又来一次**
+- 🔴 **锁屏一开始只有歌名歌手，没有任何按钮**（用户手测报的）。一张下拉截图定案：**同屏正下方 bilibili 的通知有五个按钮**。根因两层——① expo-audio 只在 API ≤ 32 给通知 `addAction`，33+ 指望 System UI 从 MediaSession 画，而 OriginOS 把它当普通通知画；② **`pnpm patch` 改它的 Kotlin 默认无效**，SDK 57 的模块消费的是包内预编译 AAR，要 `expo.autolinking.buildFromSource` 才走源码。两条都进 `docs/LESSONS.md`。修完是**后退 10s ｜ 播放/暂停 ｜ 前进 10s** 三个按钮，用户手测可用
+- **已知不做**：没有进度条、展开态按钮行居左（2026-08-20 用户决定）。居左是系统模板的排法不是我们的 bug——bilibili 的按钮起点与间距完全相同，只是数量填满了整行；要居中得给通知换自建 `RemoteViews`，代价见子计划 §1.9
+- **判据 5 = 用户手测通过**（连续播放远超 5 分钟，含后台与锁屏）。**如实记口径差异**：没有按 §1.7 的协议做两侧采样，机器侧的证据只有「BACK 之后前台是 launcher、`dumpsys audio` 仍是 1」那一次
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
