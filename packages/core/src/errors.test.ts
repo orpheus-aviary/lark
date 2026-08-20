@@ -14,7 +14,13 @@ import {
 } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
 import * as errors from './errors.js';
-import { CodedError, InvalidSourceError, NotFoundError, SourceKeyConflictError } from './errors.js';
+import {
+  AudioNotAacError,
+  CodedError,
+  InvalidSourceError,
+  NotFoundError,
+  SourceKeyConflictError,
+} from './errors.js';
 import { describeTaskError } from './portable/download/task-data.js';
 import * as portableErrors from './portable/errors.js';
 
@@ -88,12 +94,14 @@ describe('coded error registries', () => {
   it('registers every code describeTaskError can produce for a non-coded error', () => {
     const produced = [
       describeTaskError(new InvalidSourceError('bad source')).code,
+      describeTaskError(new AudioNotAacError()).code,
       describeTaskError(new SourceKeyConflictError('song-id', 'bilibili', 'BV1:2')).code,
       describeTaskError(new NotFoundError('song', 'song-id')).code,
       describeTaskError(new Error('something nobody classified')).code,
     ];
     expect(produced).toEqual([
       'INVALID_SOURCE',
+      'AUDIO_NOT_AAC',
       'SOURCE_KEY_CONFLICT',
       'NOT_FOUND',
       'INTERNAL_ERROR',

@@ -14,6 +14,7 @@ import type {
   TaskState,
 } from '@lark/shared';
 import {
+  AudioNotAacError,
   CodedError,
   InvalidSourceError,
   NotFoundError,
@@ -130,6 +131,9 @@ export function downloadDedupeKey(target: DownloadTarget): string {
 export function describeTaskError(err: unknown): { code: string; message: string } {
   if (err instanceof CodedError) return { code: err.code, message: err.message };
   if (err instanceof InvalidSourceError) return { code: 'INVALID_SOURCE', message: err.message };
+  // Task-only (mobile): the daemon transcodes, so it never raises this — but a
+  // phone download refuses a non-AAC stream and needs the message to survive.
+  if (err instanceof AudioNotAacError) return { code: 'AUDIO_NOT_AAC', message: err.message };
   if (err instanceof SourceKeyConflictError) {
     return { code: 'SOURCE_KEY_CONFLICT', message: err.message };
   }

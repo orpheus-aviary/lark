@@ -134,6 +134,10 @@ export const TASK_ERROR_CODES = [
   // Reachable from a download that reuses a song by key, once a duplicate key
   // can exist at all (D8).
   'AMBIGUOUS_SOURCE_KEY',
+  // Task-only: a phone download refuses a non-AAC stream (D17), and the daemon
+  // never raises it because it transcodes — so this rides inside the task's
+  // `error_code` and never on an envelope. The first genuinely task-only code.
+  'AUDIO_NOT_AAC',
   'BILIBILI_FAILED',
   'BILIBILI_RISK_CONTROL',
   // Raised when a conflict is answered against a record that moved on, or one

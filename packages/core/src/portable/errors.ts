@@ -277,6 +277,24 @@ export class InvalidSourceError extends Error {
   }
 }
 
+/**
+ * A stream that is not AAC reached a host that cannot transcode (D17, N4b).
+ *
+ * The desktop transcodes anything ffmpeg can read; the phone stores bilibili's
+ * fMP4 as it arrives and has no encoder, so a non-AAC stream is refused BEFORE
+ * a byte is downloaded (§1.7). Deliberately NOT a `CodedError`: the daemon
+ * never raises it (it transcodes), so the condition is task-only — it lands on
+ * a download task's `error_code` as `AUDIO_NOT_AAC` via `describeTaskError`, and
+ * never on a response envelope. Mobile-only, and the only place D17's
+ * refuse-half was ever going to live.
+ */
+export class AudioNotAacError extends Error {
+  constructor(message = '这个来源没有 AAC 音频流，而这台设备只能保存 AAC（手机上不做转码）。') {
+    super(message);
+    this.name = 'AudioNotAacError';
+  }
+}
+
 /** (source_provider, source_key) already belongs to another song (R12/R23). */
 export class SourceKeyConflictError extends Error {
   readonly conflictingSongId: string;
