@@ -539,6 +539,19 @@
 - 🔴 **`dumpsys media_session` 的 `PlaybackState.position` 只在状态变化时更新**，不是当前播放位置。采样脚本一开始拿它对时间轴，看起来「设备比主机快 3 秒」——其实读的是陈旧值。**标题的顺序可信，那个 position 不可信**；判据 17 的时间因此取自 app 自己的诊断行（计数与播放位置在同一帧里）
 - **`mode` 每首歌重读一次库**（§2.5 原文），不是「读一次缓存到底」：今天只有开关会写它，但一次 prepared read 的代价换掉「万一别处写了呢」这个问题，是划算的
 
+**N3e 已完成（2026-08-20）——蓝牙断连不转外放，判据 19（gate）/ 21；判据 20 按用户决定搁置**。新增 `apps/mobile/modules/lark-audio`（本仓第二个自建 Expo 原生模块）+ store 的显式 `pause()` + 在 `player/index.ts` import 时订阅。全仓 2699 → **2701**。
+
+- **判据 19 绿（用户手测）**：耳机断开 → 音乐**暂停**、扬声器一声不出；耳机连回来 → **仍然停着**，不自动续播（恢复是用户的决定，与接完电话同一条原则）
+- **反测不需要再装一个坏包**：N0b-4b 就是在这台机器、这个 expo-audio 版本上量到坏掉的形态的（旧 AudioTrack 转 `paused`、同时新起一个 `deviceId:3` = speaker 的 `started`），而那次测量发生在修法存在**之前**。**一个在修复前取得的失败测量，就是这条判据的反测**
+- **暂停不在原生做**：模块收到广播只 `sendEvent` 就结束，暂停走 store。原生抄近路会多出一条「能停下播放而 store 不知道」的路径。JS 那一跳是微秒级，对上一次音频路由切换不构成风险
+- **新加的是 `pause()` 不是复用 `toggle()`**：调用方是「耳机被拔出来了」，它**必须不能启动播放**——`toggle` 在暂停态会续播，也就是拔耳机把音乐**打开**。单测把 `pause` 换成 `toggle` 立刻红
+- 🔴 **`ACTION_AUDIO_BECOMING_NOISY` 是受保护广播，模拟不了**：`adb shell am broadcast -a android.media.AUDIO_BECOMING_NOISY` 抛 SecurityException（shell 不是 system uid）。**这条判据没有干跑的办法，只有真的断开一次**
+- **判据 21 记录完毕，结论是「原样留着」**：焦点请求是 `gain: GAIN_TRANSIENT`（`req=2`）· `flags: DELAY_OK` · `attr: usage=USAGE_UNKNOWN content=CONTENT_TYPE_MUSIC`，而实际播放的 AudioTrack 是 `usage=USAGE_MEDIA content=CONTENT_TYPE_UNKNOWN`——**两组属性确实不一致，N0b-4b 那条怀疑属实**；都由 expo-audio 自己发出（`AudioModule$$ExternalSyntheticLambda1`），我们没有插手的地方。决策 f 是「判据 20 全过就不动」，而 20 不测了，所以**没有行为证据支持去改它**：改焦点请求是拿一个更难查的病换一个还没出现的病
+- **`GAIN_TRANSIENT` 有一个用户会感觉到的后果，写在这里等实际使用验证**：lark 抢焦点时是在告诉别的应用「我只是临时的」，所以别的播放器被打断后，**等 lark 停下来可能会自己接着放**。一个音乐播放器通常该请求完整的 `GAIN`
+- **`EventsMap` 要 `type` 不能 `interface`**：`NativeModule<TEventsMap>` 的约束是 `Record<string, (...args:any[])=>void>`，而 interface 没有隐式索引签名——`error TS2344: Type 'LarkAudioEvents' does not satisfy the constraint 'EventsMap'`
+
+**范围修订：判据 20（音频焦点行为表）搁置**（2026-08-20 用户决定，「属于是比较少见情况，之后实际使用过程中测」）。照判据 16b 的先例：**搁置的是验收，而这一条连实现都不是我们的**——焦点行为整个由 expo-audio 提供，lark 一行代码都没写，所以不存在「声明了但没验过」的实现面。不做的是那张三条行为表的逐条断言：来电 → 暂停且通话结束**不自动恢复** · 另一个应用开始播放 → 暂停不恢复 · 导航语音 → 压低音量后恢复。**代价一句话**：「来电时会不会暂停、通话完会不会自作主张续播」在 N3 没有证据，推给实际使用；判据 21 已经把当前的请求参数记下来，真撞上问题时从那里改起。
+
 **范围修订：判据 16b（D2D device-transfer restore）搁置**（2026-08-19 用户决定，「这不是第一版软件需要保证的」）——子计划 §8.2 存了原文与接回步骤。**搁置的是验收不是实现**：`<device-transfer>` 的九个 domain 照写（与 `<cloud-backup>` 同一份 xml 的两段），判据 16a 仍逐 domain 验文件内容；不做的是走一遍系统「手机搬家」再断言四类数据没过来，于是**这一半是「声明了但没验过」**。代价可控的理由：D16 的兜底不在排除规则上而在收敛上，**判据 17 注入的正是「OEM 无视排除、DB 真被恢复了」那个夹具且没有搁置**——排除规则失效恰恰是它的前提。N2c 的 gate 因此是 16a / 17 / 18 / 19 四组。
 
 **决策 a–o 已于 2026-08-19 全部关闭**（用户「照建议关」），子计划 §5 是定案。建议里留白的三处由这一轮一并定死：**决策 a** 取自建 Expo native module + **minSdk 升 26**（判据 10⑤ 因此从「API 24/25 模拟器复跑」改成「断言合并 manifest 的 minSdkVersion = 26」，判据 10① 一律走 instrumentation 两线程 + barrier，`AsyncFunction` 只是「别卡 JS 线程」的理由不是验证机制）· **决策 c** 的 config 字段定为 `local_metadata` 的 `now_playing_mode`（值域 `'title' | 'lyrics'`，缺行或非法值一律读成 `'title'` 且不写回，无版本字段——语义变了就换 key）· **决策 o** 的判据 14 走 **normal**（acceptance 导入通道同时写 DB 侧 `install_id` = 本机 committed 值），理由是 converge 会清 binding/sync 并重建 `device_uuid`，把曲库判据的失败和 D16 的失败搅在一起；converge 由判据 17/18 专测。
@@ -591,7 +604,7 @@ v1 那条读源码读出来的发现原样保留：
 | N1h | AudioLanding 切面 + download 编排进 portable（两个 commit：切面与 commit 协议测试 / engine·batches·pipeline 搬迁） | 全测试 **2576** + smoke（94 → 97 模块）+ **`accept-m5` 22/22**（真 bilibili） | ✅ 2026-08-19 |
 | N1i | 守卫收编（Metro smoke 进 `just check`）+ `SYNC_PULL_LIMIT_MOBILE` + R5② 接线测试 + **R1–R5 真机全绿** + D5 分段冻结 + 文档 | 全测试 **2578** + 七守卫 + **R1 9/9 · R2 8/8 · R3 绿 · R4 绿 · R5 绿** | ✅ 2026-08-19（判据 22 的发布物复跑待定） |
 | N2 | `apps/mobile` 本体 + **D16 身份门** + 数据层（含 `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 四 tab 骨架 + 蓝牙歌词判定函数（七批 N2a–N2g） | 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md` 判据 22 条 | ✅ **2026-08-20 全部完成**（判据 1–21 全过；**16b 与 14 的拖柄重排已按用户决定不做**，见 §8.2/§8.3）；全测试 **2628** |
-| N3 | 播放：PlayerDriver + 队列与四模式 + minibar / 全屏页 / 队列面板 + 后台锁屏 + 蓝牙歌词接线（六批 N3a–N3f） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md` 判据 25 条 | 🔄 **N3a–N3d 完成**（判据 1–18，其中 3②③ / 4 的设备那半随 acceptance、15 的「无文件的歌」夹具里没有、18 只记录不判定）；下一步 **N3e 中断与外设**（要蓝牙音频设备 + 一通来电） |
+| N3 | 播放：PlayerDriver + 队列与四模式 + minibar / 全屏页 / 队列面板 + 后台锁屏 + 蓝牙歌词接线（六批 N3a–N3f） | 子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md` 判据 25 条 | 🔄 **N3a–N3e 完成**（判据 1–19 + 21，其中 3②③ / 4 的设备那半随 acceptance、15 的「无文件的歌」夹具里没有、18 与 21 只记录不判定、**20 已按用户决定搁置**）；下一步 **N3f 进度记忆 + 收尾**（判据 22–25） |
 | N4–N6 | 下载 / 同步 / 收尾（框架见 N0 子计划 §5） | 各自子计划 | ⏳ |
 
 **R1–R3 真机预跑（2026-08-18，release 构建 · 冻结设备 vivo V2408A · 移动网络与 Wi-Fi 各一遍）**——N1d 刚把 client 层搬进 portable，趁热验「**core 自己的代码**在手机上跑出同样的答案」。跟判据 23 的区别是根本性的：那次是桌面做完 core 的活、设备复现，这次设备上跑的每一行都是 `@lark/core/portable` 的 import，桌面只出**输入**与**它自己算出的参照**（`make-network-fixtures.mjs` 的 `references`，同一份 core）。

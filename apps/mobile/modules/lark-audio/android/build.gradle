@@ -1,0 +1,31 @@
+// Decision e's native half. One broadcast, and the reason it exists is that
+// nothing above it can hear that broadcast: media3's
+// `setHandleAudioBecomingNoisy(true)` is off by default, expo-audio does not
+// expose it, and React Native has no becoming-noisy event of its own. So when
+// the Bluetooth headphones disconnect, ExoPlayer re-routes to the SPEAKER and
+// keeps playing — measured on the frozen device in N0b-4b, where the old
+// AudioTrack went `paused` while a new one on `deviceId:3` went `started`.
+//
+// Patching expo-audio's Kotlin was the alternative and is the more fragile
+// one: it survives only until the next SDK bump, and it fails SILENTLY when it
+// stops applying (see `docs/LESSONS.md` on `buildFromSource`). This is the
+// same call N2 made for `lark-fs`.
+
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.larkaudio'
+version = '0.1.0'
+
+android {
+  // Both spelled out for the same reasons as `lark-fs`: AGP 8 requires the
+  // namespace, and expo-autolinking reads `versionName` while configuring
+  // every linked project.
+  namespace "expo.modules.larkaudio"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

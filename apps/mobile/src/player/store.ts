@@ -85,6 +85,15 @@ export interface PlayerStore {
   play(song: SongData, queue: PlayQueue): Promise<void>;
   /** Pause if playing, resume if paused, start over if the source is gone. */
   toggle(): Promise<void>;
+  /**
+   * Stop where we are, and only ever that (N3e, criterion 19).
+   *
+   * Separate from `toggle` because the caller that needs it — the headphones
+   * coming out — must not be able to START playback. A `toggle` on a paused
+   * player resumes it, which for that caller would mean unplugging your
+   * headphones turns the music ON.
+   */
+  pause(): Promise<void>;
   seek(seconds: number): Promise<void>;
   /** The decision is returned so the caller can speak for a refusal (decision n). */
   next(): Promise<QueueDecision | null>;
@@ -372,6 +381,8 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
         set({ currentTime: clamped });
       });
     },
+
+    pause: pausePlayback,
 
     next: () => advance('next'),
     prev: () => advance('prev'),

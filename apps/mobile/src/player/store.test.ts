@@ -521,3 +521,30 @@ describe('lyrics', () => {
     expect(store.getState().lyrics).toEqual([]);
   });
 });
+
+describe('pause', () => {
+  it('never resumes, however often it is asked (criterion 19)', async () => {
+    const done = store.play(song('a'), ALL);
+    await settle();
+    built[0]?.finishLoad();
+    await done;
+    expect(store.getState().playing).toBe(true);
+
+    // The headphones come out — and then come out again, which is what a
+    // flapping Bluetooth link looks like.
+    await store.pause();
+    await store.pause();
+
+    expect(store.getState().playing).toBe(false);
+    expect(store.getState().song?.id).toBe('a');
+    // One `pause` on the driver per call, and no `play` after the first.
+    expect(built[0]?.log.filter((entry) => entry === 'play')).toHaveLength(1);
+    expect(built[0]?.log.at(-1)).toBe('pause');
+  });
+
+  it('is harmless with nothing loaded', async () => {
+    await store.pause();
+    expect(store.getState().playing).toBe(false);
+    expect(built).toHaveLength(0);
+  });
+});

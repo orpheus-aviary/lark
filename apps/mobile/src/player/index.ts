@@ -13,6 +13,7 @@
 
 import type { NowPlayingMode, PlayMode, SongData } from '@lark/shared';
 import { useSyncExternalStore } from 'react';
+import LarkAudio from '../../modules/lark-audio';
 import { onLibraryChanged } from '../library-signal';
 import { createPaths } from '../ports/paths';
 import { createPlayerDriver } from './driver';
@@ -73,6 +74,22 @@ export const nowPlaying = createNowPlayingBridge({
   readMode: () => required().readNowPlayingMode(),
   writeMode: (mode) => required().persistNowPlayingMode(mode),
   now: () => Date.now(),
+});
+
+/**
+ * The headphones coming out (N3e, decision e, criterion 19).
+ *
+ * Subscribed here, at import, for the same reason the player is a singleton:
+ * the broadcast arrives whether or not any screen is mounted, and a listener
+ * that lives on a component is a listener that is missing exactly when the
+ * Activity has been destroyed and playback is still going.
+ *
+ * `pause` and not `toggle`: unplugging must never be able to start the music.
+ * There is no matching resume when the sink comes back — the user decides
+ * that, the same way they do after a phone call.
+ */
+LarkAudio.addListener('onBecomingNoisy', () => {
+  void player.pause();
 });
 
 /** Called once, by the boot path, with the library it just opened. */
