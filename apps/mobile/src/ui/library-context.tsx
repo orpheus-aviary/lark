@@ -18,6 +18,7 @@ import type { LibraryService, ListSongsResult } from '@lark/core/portable';
 import type { PlaylistData, SongData } from '@lark/shared';
 import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { BootResult } from '../boot/sequence';
+import { libraryChanged } from '../library-signal';
 
 /** The library as it is RIGHT NOW. A new one exists after every write. */
 export interface LibraryView {
@@ -59,7 +60,14 @@ export function LibraryProvider({
     [library],
   );
   const [view, setView] = useState<LibraryView>(() => reader());
-  const changed = useCallback(() => setView(reader()), [reader]);
+  const changed = useCallback(() => {
+    setView(reader());
+    // And once more for everything outside the tree — the player's queue is a
+    // list of ids, and a song deleted here has to leave it (§2.8). When sync
+    // starts deleting rows in N5 it emits the same signal and this keeps
+    // working without knowing about sync.
+    libraryChanged();
+  }, [reader]);
 
   const value = useMemo(() => ({ library, view, boot, changed }), [library, view, boot, changed]);
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;

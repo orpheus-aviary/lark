@@ -24,13 +24,19 @@
 // 毁新 player". It cannot happen here, because an operation only ever destroys
 // the driver it built.
 
-import type { SongData } from '@lark/shared';
-import { createOperationQueue } from '@lark/shared';
+import type { LrcLine, PlayMode, QueueDecision, QueueTrigger, SongData } from '@lark/shared';
+import { createOperationQueue, decideNext, parseLrc } from '@lark/shared';
 import type { PlaybackSnapshot, PlayerDriver } from './driver';
+import type { PlayQueue } from './queue';
 
 export interface PlaybackState {
   /** The song the UI is about, whether or not a native player exists for it. */
   song: SongData | null;
+  /** What it is playing out of (§2.6). Frozen when playback started. */
+  queue: PlayQueue | null;
+  mode: PlayMode;
+  /** The current song's lyrics, already parsed. Empty when it has none. */
+  lyrics: readonly LrcLine[];
   /** A source is being prepared. */
   loading: boolean;
   playing: boolean;
@@ -40,14 +46,18 @@ export interface PlaybackState {
   error: string | null;
 }
 
-const IDLE: PlaybackState = {
+const NOTHING = {
   song: null,
+  queue: null,
+  lyrics: [],
   loading: false,
   playing: false,
   currentTime: 0,
   duration: 0,
   error: null,
-};
+} as const;
+
+const IDLE: PlaybackState = { ...NOTHING, mode: 'sequential' };
 
 export interface PlayerDeps {
   createDriver: () => PlayerDriver;
@@ -55,16 +65,30 @@ export interface PlayerDeps {
   audioUri: (songId: string) => string;
   /** Configure the audio session and ask for the notification permission. */
   ensureSession: () => Promise<unknown>;
+  /** The queue's songs as the library has them now (§2.6). */
+  resolveQueue: (queue: PlayQueue) => readonly SongData[];
+  /** LRC text, or null. Empty and unreadable both mean "no lyrics". */
+  readLyrics: (songId: string) => Promise<string | null>;
+  /** `local_metadata.play_mode` (decision g). */
+  persistMode: (mode: PlayMode) => void;
+  /** Fires whenever the library changed under us (§2.8). */
+  onLibraryChanged: (listener: () => void) => () => void;
 }
 
 export interface PlayerStore {
   subscribe(listener: () => void): () => void;
   getState(): PlaybackState;
-  /** Start this song. Supersedes anything in flight. */
-  play(song: SongData): Promise<void>;
+  /** Adopt the persisted mode once the library is open. Does not write back. */
+  hydrate(mode: PlayMode): void;
+  /** Start this song, playing out of this queue. Supersedes anything in flight. */
+  play(song: SongData, queue: PlayQueue): Promise<void>;
   /** Pause if playing, resume if paused, start over if the source is gone. */
   toggle(): Promise<void>;
   seek(seconds: number): Promise<void>;
+  /** The decision is returned so the caller can speak for a refusal (decision n). */
+  next(): Promise<QueueDecision | null>;
+  prev(): Promise<QueueDecision | null>;
+  setMode(mode: PlayMode): Promise<void>;
   /** Stop and release. Also what unmounting the app does. */
   stop(): Promise<void>;
 }
@@ -110,6 +134,15 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     await live?.destroy();
   };
 
+  /**
+   * The song we have already advanced away from.
+   *
+   * `didJustFinish` is a flag on a status that arrives twice a second, not an
+   * edge — without this the end of a song would ask for the next one over and
+   * over until the new source replaced the old status.
+   */
+  let finished: string | null = null;
+
   const onSnapshot = (snapshot: PlaybackSnapshot): void => {
     if (snapshot.error !== null) {
       // M4-6: a media error stops playback dead. No retry, ever.
@@ -126,9 +159,86 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       // rather than blinking through zero.
       duration: snapshot.duration > 0 ? snapshot.duration : state.duration,
     });
+    const song = state.song;
+    if (snapshot.didJustFinish && song !== null && finished !== song.id) {
+      finished = song.id;
+      void advance('ended');
+    }
   };
 
-  return {
+  /** Stop where we are without giving up the song — what `stop` means in §2.4. */
+  const pausePlayback = async (): Promise<void> => {
+    await lane.run(() => {
+      driver?.pause();
+      set({ playing: false });
+    });
+  };
+
+  const advance = async (trigger: QueueTrigger): Promise<QueueDecision | null> => {
+    const queue = state.queue;
+    if (queue === null) return null;
+    const songs = deps.resolveQueue(queue);
+    const decision = decideNext({
+      songs,
+      currentId: state.song?.id ?? null,
+      mode: state.mode,
+      trigger,
+    });
+
+    switch (decision.kind) {
+      case 'play': {
+        const song = songs.find((candidate) => candidate.id === decision.songId);
+        if (song !== undefined) await store.play(song, queue);
+        break;
+      }
+      case 'restart': {
+        const song = state.song;
+        if (song !== null) await store.play(song, queue);
+        break;
+      }
+      case 'stop':
+        await pausePlayback();
+        break;
+      case 'reject':
+        // Nothing happens here on purpose. Whether a refusal is spoken is the
+        // caller's call, not the queue's (decision n) — so it is returned.
+        break;
+    }
+    return decision;
+  };
+
+  /**
+   * The library changed under us (§2.8): the queue is a list of ids, so this
+   * is where those ids meet what the library still has.
+   */
+  deps.onLibraryChanged(() => {
+    const queue = state.queue;
+    const song = state.song;
+    if (queue === null || song === null) return;
+    const songs = deps.resolveQueue(queue);
+    const fresh = songs.find((candidate) => candidate.id === song.id);
+    if (fresh === undefined) {
+      // The song being played was deleted. Stopping is the honest answer;
+      // sliding to a neighbour would be this app deciding what to play next
+      // on the strength of somebody deleting something.
+      void lane.run(async () => {
+        await release();
+        set({
+          song: null,
+          lyrics: [],
+          loading: false,
+          playing: false,
+          currentTime: 0,
+          error: null,
+        });
+      });
+      return;
+    }
+    // A rename or a pin: the row on screen should say what the library says.
+    if (fresh !== song) set({ song: fresh });
+  });
+
+  const store: PlayerStore = {
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -138,7 +248,11 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
 
     getState: () => state,
 
-    async play(song) {
+    hydrate(mode) {
+      set({ mode });
+    },
+
+    async play(song, queue) {
       const mine = claim();
       await lane.run(async () => {
         if (mine !== intent) return; // superseded while it waited its turn
@@ -147,12 +261,26 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
 
         set({
           song,
+          queue,
+          lyrics: [],
           loading: true,
           playing: false,
           currentTime: 0,
           duration: song.duration,
           error: null,
         });
+        // Fire and forget: lyrics are decoration for playback, and a song
+        // whose lyrics file is unreadable still plays. The song guard is what
+        // keeps a slow read from painting the previous song's words.
+        void deps
+          .readLyrics(song.id)
+          .then((text) => {
+            if (state.song?.id !== song.id) return;
+            set({ lyrics: text === null ? [] : parseLrc(text) });
+          })
+          .catch(() => {
+            if (state.song?.id === song.id) set({ lyrics: [] });
+          });
         await deps.ensureSession();
         if (mine !== intent) return;
 
@@ -218,7 +346,7 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
           set({ playing: true });
         }
       });
-      if (reload !== null) await this.play(reload);
+      if (reload !== null && state.queue !== null) await this.play(reload, state.queue);
     },
 
     async seek(seconds) {
@@ -233,15 +361,25 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       });
     },
 
+    next: () => advance('next'),
+    prev: () => advance('prev'),
+
+    async setMode(mode) {
+      set({ mode });
+      deps.persistMode(mode);
+    },
+
     async stop() {
       claim();
       await lane.run(async () => {
         await release();
-        state = IDLE;
+        state = { ...NOTHING, mode: state.mode };
         for (const listener of listeners) listener();
       });
     },
   };
+
+  return store;
 }
 
 function message(err: unknown): string {

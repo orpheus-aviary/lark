@@ -11,19 +11,54 @@
 // The factory stays exported from `./store` with every dependency injected, so
 // the race model is tested on a laptop against a fake driver.
 
+import type { PlayMode, SongData } from '@lark/shared';
 import { useSyncExternalStore } from 'react';
+import { onLibraryChanged } from '../library-signal';
 import { createPaths } from '../ports/paths';
 import { createPlayerDriver } from './driver';
+import type { PlayQueue } from './queue';
 import { ensureAudioSession } from './session';
 import { type PlaybackState, createPlayerStore } from './store';
 
 const paths = createPaths();
 
+/**
+ * The half of the player that only exists after the library is open.
+ *
+ * The store is built at import time — it has to be, so an Activity rebuild
+ * cannot produce a second one — but three of its dependencies need a database
+ * that the boot sequence has not opened yet. They arrive through here instead
+ * of being invented as constructor arguments nobody could supply.
+ */
+export interface PlayerBinding {
+  resolveQueue: (queue: PlayQueue) => readonly SongData[];
+  readLyrics: (songId: string) => Promise<string | null>;
+  readMode: () => PlayMode;
+  persistMode: (mode: PlayMode) => void;
+}
+
+let binding: PlayerBinding | null = null;
+
+const required = (): PlayerBinding => {
+  if (binding === null) throw new Error('the player was used before the library was open');
+  return binding;
+};
+
 export const player = createPlayerStore({
   createDriver: createPlayerDriver,
   audioUri: (songId) => paths.songAudio(songId),
   ensureSession: ensureAudioSession,
+  resolveQueue: (queue) => required().resolveQueue(queue),
+  readLyrics: (songId) => required().readLyrics(songId),
+  persistMode: (mode) => required().persistMode(mode),
+  onLibraryChanged,
 });
+
+/** Called once, by the boot path, with the library it just opened. */
+export function bindPlayer(next: PlayerBinding): void {
+  binding = next;
+  player.hydrate(next.readMode());
+}
 
 /**
  * Subscribe to one slice of playback state.

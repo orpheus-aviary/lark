@@ -45,7 +45,7 @@ import {
   cacheStatus,
   runEviction,
 } from '../library/cache.js';
-import { deleteLyrics } from '../library/lyrics.js';
+import { deleteLyrics, readLyrics } from '../library/lyrics.js';
 import {
   type ReorderAnchors,
   addSongsToPlaylist,
@@ -143,6 +143,15 @@ export interface LibraryService {
   reorderPlaylist(id: string, move: ReorderMove): void;
 
   // ── lyrics (a local file, written directly) ──
+  /**
+   * The song's LRC text, or `null` when it has none (N3c, decision h).
+   *
+   * The desktop reads lyrics through the daemon's `/lyrics` endpoint and so
+   * never needed this; a phone has no daemon, and giving it a back door
+   * straight to `readLyrics` would make "the service is the library's face"
+   * untrue for exactly one file.
+   */
+  readLyrics(id: string): Promise<string | null>;
   deleteLyrics(id: string): Promise<boolean>;
 
   // ── transfer ──
@@ -329,6 +338,13 @@ export function createLibraryService(deps: LibraryServiceDeps): LibraryService {
       if (move.before_song_id !== undefined) anchors.before_song_id = move.before_song_id;
       if (move.after_song_id !== undefined) anchors.after_song_id = move.after_song_id;
       reorderSong(store, writableId(id), assertLibraryId(move.song_id), anchors);
+    },
+
+    async readLyrics(id) {
+      // `async`, like `deleteSong` and unlike a bare `return`: a method typed
+      // `Promise<T>` that throws SYNCHRONOUSLY skips past a caller's `.catch`,
+      // and every front end reaches this one through an await.
+      return await readLyrics(files, assertLibraryId(id));
     },
 
     deleteLyrics(id) {

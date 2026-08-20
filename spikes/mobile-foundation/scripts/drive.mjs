@@ -68,16 +68,32 @@ function requireForeground() {
   }
 }
 
-/** Every labelled node with its centre, in draw order. */
+/**
+ * Every labelled node with its centre, in draw order.
+ *
+ * BOTH `text` and `content-desc`, and the second one arrived in N3c. Until
+ * then every control in this app carried its label as visible text, so
+ * matching `text` was enough — and `sheet.tsx` even wrote that constraint down
+ * as a rule. A transport row cannot follow it: play, pause, next and the queue
+ * are icons in every music player there is, and their label lives in
+ * `accessibilityLabel`, which Android exposes as `content-desc`. Reading only
+ * `text` made those buttons invisible to every run.
+ *
+ * A node can carry both; the visible text wins, because that is what a person
+ * reading the screen would name.
+ */
 function visibleNodes() {
   adb('shell', 'uiautomator', 'dump', '/sdcard/lark-ui-dump.xml');
   const xml = adb('shell', 'cat', '/sdcard/lark-ui-dump.xml');
   const nodes = [];
-  for (const m of xml.matchAll(/text="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g)) {
-    const [, text, x1, y1, x2, y2] = m;
-    if (text.trim() === '') continue;
+  const pattern =
+    /text="([^"]*)"[^>]*content-desc="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/g;
+  for (const m of xml.matchAll(pattern)) {
+    const [, text, description, x1, y1, x2, y2] = m;
+    const label = text.trim() === '' ? description : text;
+    if (label.trim() === '') continue;
     nodes.push({
-      text,
+      text: label,
       x: Math.round((Number(x1) + Number(x2)) / 2),
       y: Math.round((Number(y1) + Number(y2)) / 2),
       bottom: Number(y2),

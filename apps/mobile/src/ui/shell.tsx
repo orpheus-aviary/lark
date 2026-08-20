@@ -15,10 +15,13 @@ import { LATEST_KNOWN_VERSION } from '@lark/core/portable';
 import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
 import { Directory } from 'expo-file-system';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { nestDirectory } from '../ports/paths';
 import { useLibrary } from './library-context';
+import { MiniBar } from './minibar';
+import { PlayerScreen } from './player-screen';
 import { PlaylistsTab } from './playlists-tab';
+import { QueueSheet } from './queue-sheet';
 import { SongsTab } from './songs-tab';
 import { C, S } from './theme';
 
@@ -31,6 +34,10 @@ export function Shell() {
   // unmounts the tab, and a detail screen that forgot where it was every time
   // you glanced at 设置 is a screen you stop using.
   const [openPlaylist, setOpenPlaylist] = useState<string | null>(null);
+  // Two overlays over the same player. The queue panel is a sheet (decision
+  // d); the full screen is a Modal (decision c). Neither is a route — there is
+  // still no navigation stack in this app.
+  const [showing, setShowing] = useState<'none' | 'queue' | 'player'>('none');
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>
@@ -39,6 +46,23 @@ export function Shell() {
         {tab === '添加' && <AddTab />}
         {tab === '设置' && <SettingsTab />}
       </View>
+      <MiniBar onOpen={() => setShowing('player')} onQueue={() => setShowing('queue')} />
+      {showing === 'player' && (
+        <PlayerScreen onClose={() => setShowing('none')} onQueue={() => setShowing('queue')} />
+      )}
+      {showing === 'queue' && (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setShowing('none')}>
+          <Pressable style={styles.backdrop} onPress={() => setShowing('none')}>
+            {/* The height lives HERE, on the tap-swallowing wrapper. A
+                percentage maxHeight on the sheet itself resolved against a
+                parent with no height of its own, and the list inside it drew
+                two rows of four. */}
+            <Pressable style={styles.sheetHolder} onPress={() => undefined}>
+              <QueueSheet onClose={() => setShowing('none')} />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
       <View style={styles.tabBar}>
         {TABS.map((name) => (
           <Pressable
@@ -131,6 +155,8 @@ const styles = StyleSheet.create({
   field: { gap: 2 },
   fieldLabel: { color: C.faint, fontSize: 12 },
   fieldValue: { color: C.text, fontSize: 14 },
+  backdrop: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end', padding: S.pad },
+  sheetHolder: { maxHeight: '70%' },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,

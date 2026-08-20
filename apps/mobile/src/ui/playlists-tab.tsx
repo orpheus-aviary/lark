@@ -18,7 +18,17 @@
 import type { SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  ToastAndroid,
+  View,
+} from 'react-native';
+import { player } from '../player';
+import { queueFrom } from '../player/queue';
 import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
@@ -154,14 +164,38 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
         data={detail.songs}
         keyExtractor={(song) => song.id}
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => setActing(item)} accessibilityRole="button">
-            <Text style={styles.rowName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <Text style={styles.rowMeta} numberOfLines={1}>
-              {item.artist === '' ? '未知歌手' : item.artist}
-            </Text>
-          </Pressable>
+          // The row is a play target and the menu is its own button — the same
+          // shape as the 歌曲 tab, decided by hand-testing in N2f. What differs
+          // is the queue: playing from here plays THIS playlist.
+          <View style={styles.rowLine}>
+            <Pressable
+              style={styles.row}
+              onPress={() => {
+                if (item.has_file === false) {
+                  ToastAndroid.show('这首还没有文件，下载在 N4 开放', ToastAndroid.SHORT);
+                  return;
+                }
+                void player.play(item, queueFrom({ kind: 'playlist', id }, detail.songs));
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`播放 ${item.name}`}
+            >
+              <Text style={styles.rowName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={styles.rowMeta} numberOfLines={1}>
+                {item.artist === '' ? '未知歌手' : item.artist}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={styles.rowMenu}
+              onPress={() => setActing(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name} 的操作`}
+            >
+              <Text style={styles.rowMenuGlyph}>⋮</Text>
+            </Pressable>
+          </View>
         )}
         ListEmptyComponent={<Text style={styles.empty}>这个歌单还没有歌。</Text>}
       />
@@ -252,6 +286,9 @@ const styles = StyleSheet.create({
   back: { alignSelf: 'flex-start', paddingHorizontal: S.pad, paddingBottom: S.gap },
   detailTitle: { color: C.text, fontSize: 20, paddingHorizontal: S.pad, paddingBottom: S.gap },
   actions: { flexDirection: 'row', flexWrap: 'wrap' },
+  rowLine: { flexDirection: 'row', alignItems: 'center' },
+  rowMenu: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  rowMenuGlyph: { color: C.muted, fontSize: 20 },
   row: {
     paddingVertical: 10,
     paddingHorizontal: S.pad,

@@ -11,11 +11,13 @@
 // it is still readable off the device (a release build has no logcat, N0b-3)
 // without being the first thing a person sees.
 
-import type { LibraryService } from '@lark/core/portable';
+import { type LibraryService, readPlayMode, writePlayMode } from '@lark/core/portable';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { type BootResult, bootOnce } from './boot/sequence';
+import { bindPlayer } from './player';
+import { resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
 import { LibraryProvider } from './ui/library-context';
 import { Shell } from './ui/shell';
@@ -38,7 +40,24 @@ export function App() {
     // on expo-sqlite 57.0.1, fatal (see there).
     bootOnce()
       .then((result) => {
-        if (!cancelled) setBoot({ status: 'ready', result, library: createLibrary(result) });
+        if (cancelled) return;
+        const library = createLibrary(result);
+        // The player is built at import time (one process, one player) but
+        // three of its dependencies need the library that just opened. This is
+        // where they arrive, next to the service they belong to.
+        bindPlayer({
+          resolveQueue: (queue) =>
+            resolveQueue(
+              queue,
+              queue.source.kind === 'all'
+                ? library.listSongs({}).songs
+                : library.listPlaylistSongs(queue.source.id),
+            ),
+          readLyrics: (songId) => library.readLyrics(songId),
+          readMode: () => readPlayMode(result.db.sqlite),
+          persistMode: (mode) => writePlayMode(result.db.sqlite, mode),
+        });
+        setBoot({ status: 'ready', result, library });
       })
       .catch((err: unknown) => {
         if (cancelled) return;

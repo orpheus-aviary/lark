@@ -33,6 +33,7 @@ import { EllipsisVertical, Pin } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { player, usePlayback } from '../player';
+import { queueFrom } from '../player/queue';
 import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
@@ -103,7 +104,9 @@ export function SongsTab() {
       <FlatList
         data={songs}
         keyExtractor={(song) => song.id}
-        renderItem={({ item }) => <SongRow song={item} onMenu={() => setActing(item)} />}
+        renderItem={({ item }) => (
+          <SongRow song={item} songs={songs} onMenu={() => setActing(item)} />
+        )}
         ListEmptyComponent={
           <Text style={styles.empty}>{search === '' ? '曲库是空的。' : '没有匹配的歌。'}</Text>
         }
@@ -177,7 +180,11 @@ export function SongsTab() {
   );
 }
 
-function SongRow({ song, onMenu }: { song: SongData; onMenu: () => void }) {
+function SongRow({
+  song,
+  songs,
+  onMenu,
+}: { song: SongData; songs: readonly SongData[]; onMenu: () => void }) {
   // Two subscriptions, both primitives (see `usePlayback`): a row re-renders
   // when it becomes the current song and when that song starts or stops, and
   // for nothing else. `currentTime` deliberately does NOT reach here — it
@@ -192,7 +199,10 @@ function SongRow({ song, onMenu }: { song: SongData; onMenu: () => void }) {
       ToastAndroid.show('这首还没有文件，下载在 N4 开放', ToastAndroid.SHORT);
       return;
     }
-    void (isCurrent ? player.toggle() : player.play(song));
+    // The queue is FROZEN here (§2.6): whatever the list holds at the moment
+    // of the tap, sort and search and all. Switching tabs afterwards does not
+    // change what plays next.
+    void (isCurrent ? player.toggle() : player.play(song, queueFrom({ kind: 'all' }, songs)));
   };
 
   return (
