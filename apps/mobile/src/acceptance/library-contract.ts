@@ -134,7 +134,11 @@ const HOOKS: LibraryContractHooks = {
       if (stale.exists) stale.delete();
     }
     const boot = await runBootSequence();
-    const subject = subjectFor(boot, createLibrary(boot));
+    // The BOOT runtime, not the download one: this suite is about what the
+    // library service accepts, and giving it an engine would put a download
+    // queue behind every case for the sake of a claim registry no case
+    // contends for. Production shares the engine's (`downloads/engine.ts`).
+    const subject = subjectFor(boot, createLibrary(boot, boot.fileOps));
     openBoots.set(subject, boot);
     return subject;
   },

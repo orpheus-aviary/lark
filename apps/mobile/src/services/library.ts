@@ -7,19 +7,26 @@
 // when each of them wrote those rules out for itself (§7 F13, and the two M6
 // cases), and the LibraryContract is what catches it happening again.
 //
-// All four dependencies come from the boot sequence rather than being built
-// here. `fileOps` especially: `deleteSong` drains the journal unconditionally,
-// so a second runtime over the same rows would arbitrate song files against a
-// second claim registry — which is the race the registry exists to prevent.
+// The dependencies are handed in rather than built here. `fileOps` especially:
+// `deleteSong` drains the journal unconditionally, so a second runtime over the
+// same rows would arbitrate song files against a second claim registry — which
+// is the race the registry exists to prevent. Since N4b the one to pass is the
+// download runtime's, which shares the ENGINE's registry; the boot sequence's
+// own runtime has finished draining by then and arbitrates with nobody.
 
-import { type CacheOptions, type LibraryService, createLibraryService } from '@lark/core/portable';
+import {
+  type CacheOptions,
+  type FileEffectRuntime,
+  type LibraryService,
+  createLibraryService,
+} from '@lark/core/portable';
 import type { BootResult } from '../boot/sequence';
 
-export function createLibrary(boot: BootResult): LibraryService {
+export function createLibrary(boot: BootResult, fileOps: FileEffectRuntime): LibraryService {
   return createLibraryService({
     db: boot.db,
     files: boot.files,
-    fileOps: boot.fileOps,
+    fileOps,
     // Decision i. `audioMode` exists because a 0.2.x desktop library can still
     // hold `song.mp3` while its migration is pending; a phone has never had
     // one — schema v3 or the boot sequence refuses the library outright.

@@ -6,10 +6,11 @@
 // its own (§3). It goes through `runBootSequence` and nothing else — that
 // function is the only thing entitled to open `songs.db`.
 //
-// This file now does three things and stops: boot, hand the result to the
-// library service, render the tabs. The boot's verdict moved into 设置, where
-// it is still readable off the device (a release build has no logcat, N0b-3)
-// without being the first thing a person sees.
+// This file now does three things and stops: boot, assemble what the screens
+// are given — the download engine, then the library service that has to share
+// its claim registry — and render the tabs. The boot's verdict moved into 设置,
+// where it is still readable off the device (a release build has no logcat,
+// N0b-3) without being the first thing a person sees.
 
 import {
   type LibraryService,
@@ -25,6 +26,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { type BootResult, bootOnce } from './boot/sequence';
+import { downloadRuntimeOnce } from './downloads/engine';
 import { bindPlayer } from './player';
 import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
@@ -50,7 +52,11 @@ export function App() {
     bootOnce()
       .then((result) => {
         if (cancelled) return;
-        const library = createLibrary(result);
+        // Before the library, because the library has to be given the journal
+        // runtime that shares the engine's claims rather than the boot one
+        // (`downloads/engine.ts`).
+        const { fileOps } = downloadRuntimeOnce(result);
+        const library = createLibrary(result, fileOps);
         // The player is built at import time (one process, one player) but
         // half its dependencies need the library that just opened. This is
         // where they arrive, next to the service they belong to.
