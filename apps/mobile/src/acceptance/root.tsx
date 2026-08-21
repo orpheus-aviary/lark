@@ -12,6 +12,7 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { runAudioLandingScenarios } from './audio-landing';
 import { type ScenarioRow, runD16Scenarios } from './d16';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
 import { runFixtureImportScenarios } from './fixture-import';
@@ -51,7 +52,7 @@ export function Root() {
         <Text style={styles.title}>lark · acceptance</Text>
         <Text style={styles.line}>
           D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③ ·
-          sweep — 11, 12, 13
+          sweep — 11, 12, 13 · landing — 7, 8, 10
         </Text>
 
         <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
@@ -112,6 +113,20 @@ export function Root() {
           accessibilityRole="button"
         >
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sweep scenarios'}</Text>
+        </Pressable>
+
+        {/*
+          The AudioLandingContract's second hook, plus criteria 7 and 8. Needs
+          the two probe tracks and the ffprobe reading they are measured
+          against: `just mobile-push-audio-fixtures`, after this build has made
+          `lark-fixture/` once.
+        */}
+        <Pressable
+          style={styles.button}
+          onPress={run(runAudioLandingScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run landing scenarios'}</Text>
         </Pressable>
 
         {/*

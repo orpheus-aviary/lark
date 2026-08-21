@@ -21,6 +21,11 @@
 //   ⑤ commit the row + touch last_accessed, in one transaction — no going back
 //   ⑥ atomically replace song.m4a with the tmp file
 //
+// Everything before ⑤ undoes itself on the way out: the tmp goes, and a `new`
+// song's directory goes with it, because a brand-new song owns nothing else in
+// there and what is left would read as an orphan to the boot sweep. The old
+// file needs no restoring — it is never touched until ⑥.
+//
 // A crash between ⑤ and ⑥ leaves a committed row with no canonical file (new →
 // "needs download", one tap self-heals) or the old file (replace → plays on,
 // duration off by seconds until the next redownload). Both are written into the
@@ -32,6 +37,7 @@ import {
   AudioNotAacError,
   BilibiliApiError,
   CANONICAL_AUDIO_FILE,
+  DownloadCommitError,
   type PortableDb,
   touchLastAccessed,
   withTimeout,
@@ -85,6 +91,22 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
 }
 
+const reasonOf = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+/**
+ * The C cross-check (§1.4), and it is a REMARK, not a verdict.
+ *
+ * The upstream page duration cannot prove the file decodes, so it never
+ * decides anything and never reaches the row — but a landed file that is three
+ * seconds off what bilibili said it would be is worth a line in the log. Whole
+ * upstream seconds and multi-part videos make small gaps ordinary, which is
+ * where the three comes from.
+ */
+function quotedDurationWarnings(duration: number, expected: number | null): string[] {
+  if (expected === null || Math.abs(duration - expected) <= 3) return [];
+  return [`landed duration ${duration.toFixed(1)}s differs from upstream ${expected}s by over 3s`];
+}
+
 export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLandingPort {
   const transfer = deps.transfer ?? nativeTransfer;
   const readDuration = deps.readDuration ?? ((uri) => LarkMedia.readDurationSeconds(uri));
@@ -117,6 +139,18 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
       if (!directory.exists) directory.create({ intermediates: true });
 
       const tmp = new File(directory, downloadTmpName(input.taskId));
+      /**
+       * Undo everything up to ⑤, best-effort.
+       *
+       * `new` takes the directory too: nothing else of that song's is in there,
+       * and a directory with no row and no audio is what the boot sweep would
+       * otherwise have to reason about. A `replace` keeps its directory — the
+       * old file, the lyrics and the row are all still true.
+       */
+      const discard = (): void => {
+        if (tmp.exists) tmp.delete();
+        if (input.mode === 'new' && directory.exists) directory.delete();
+      };
       // The client's whole-transfer deadline composed with the task's own
       // cancellation — the host owns the composition, the number stays the
       // client's (§2.2).
@@ -134,7 +168,7 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
         });
       } catch (err) {
         // Android may leave a partial file behind; leave nothing.
-        if (tmp.exists) tmp.delete();
+        discard();
         // An abort — the transfer deadline OR a user cancel — propagates
         // UNCHANGED: the engine reads `cancelRequested` to tell them apart, and
         // wrapping it as a BilibiliApiError would report a cancel as a failure
@@ -142,9 +176,7 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
         // desktop for free: a non-2xx or a dropped connection becomes a
         // BilibiliApiError.
         if (signal.aborted || isAbortError(err)) throw err;
-        throw new BilibiliApiError(
-          `audio stream failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        throw new BilibiliApiError(`audio stream failed: ${reasonOf(err)}`);
       }
 
       // ④ The landed file's real duration (§1.4). Unreadable is exactly what a
@@ -153,30 +185,34 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
       try {
         duration = await readDuration(tmp.uri);
       } catch (err) {
-        if (tmp.exists) tmp.delete();
+        discard();
         throw err;
       }
 
-      // C, diagnostic only (§1.4): the upstream page duration decides nothing —
-      // it cannot prove the file decodes — but a large gap is worth surfacing.
-      const warnings: string[] = [];
-      const expected = input.expect.expectedDurationSeconds;
-      if (expected !== null && Math.abs(duration - expected) > 3) {
-        warnings.push(
-          `landed duration ${duration.toFixed(1)}s differs from upstream ${expected}s by over 3s`,
-        );
-      }
+      const warnings = quotedDurationWarnings(duration, input.expect.expectedDurationSeconds);
 
       // ⑤ The point of no return. The row and its fresh access land in ONE
       // transaction; `touchLastAccessed` cannot be skipped, or the LRU sorts a
       // just-downloaded song to the front of the eviction queue (§2.3, M5-7).
       input.reportStage('saving');
-      deps.store.sqlite
-        .transaction(() => {
-          input.commit({ duration });
-          touchLastAccessed(deps.store.drizzle, deps.store.sqlite, input.songId);
-        })
-        .immediate();
+      try {
+        deps.store.sqlite
+          .transaction(() => {
+            input.commit({ duration });
+            touchLastAccessed(deps.store.drizzle, deps.store.sqlite, input.songId);
+          })
+          .immediate();
+      } catch (err) {
+        // A landing that half-succeeded would be worse than one that failed, so
+        // this undoes itself and says which of the two happened. Same class the
+        // desktop raises, because a task that failed here failed the same way
+        // whichever host it was on.
+        discard();
+        throw new DownloadCommitError(
+          `could not commit the download of song ${input.songId}; nothing was changed`,
+          { cause: err },
+        );
+      }
 
       // ⑥ Atomic replace. A failure here is a warning, not a lost commit: the
       // row is already the truth, and the next redownload puts the file right.
@@ -184,9 +220,7 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
         await moveAtomic(tmp.uri, audioFile(input.songId).uri);
       } catch (err) {
         if (tmp.exists) tmp.delete();
-        warnings.push(
-          `could not put the audio in place: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        warnings.push(`could not put the audio in place: ${reasonOf(err)}`);
       }
 
       return { warnings };

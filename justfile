@@ -642,6 +642,22 @@ mobile-drive *ARGS:
 mobile-accept-library NEST:
     node spikes/mobile-foundation/scripts/accept-library.mjs {{NEST}}
 
+# The two probe tracks + the ffprobe reading criterion 8 measures against (N4b).
+#
+# The phone has no ffprobe, and a device that computed its own expectation would
+# be grading itself — so the number is produced here, by core's real
+# `probeAudio`, and travels with the bytes. The landing contract's `valid`
+# scenario needs the same files: only a file MMR can really decode produces a
+# duration greater than zero.
+#
+#     just mobile-acceptance-release
+#     acceptance artifact → "Import pushed fixture"   (makes lark-fixture/)
+#     just mobile-push-audio-fixtures
+#     acceptance artifact → "Run landing scenarios"
+[group('mobile')]
+mobile-push-audio-fixtures: build-shared build-core
+    node spikes/mobile-foundation/scripts/push-audio-fixtures.mjs
+
 # Criterion 17 (N3d): how many times ONE song's lyrics should reach the system.
 #
 # Computed here, out of the same library and the same `lyrics.lrc` that were
