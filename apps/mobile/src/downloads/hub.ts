@@ -19,19 +19,29 @@
 
 import type { DownloadEngine } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
+import { FOREGROUND_IDLE, type ForegroundStatus } from './foreground';
 
 export interface DownloadsState {
   /** Newest first, terminal tasks included — the engine's own ring (§4-f). */
   tasks: readonly DownloadTaskData[];
   batches: readonly DownloadBatchData[];
+  /**
+   * Whether a foreground service is holding this process up (N4c, decision e).
+   *
+   * It lives here and not in a store of its own because the hub is already
+   * "the one thing you read to know about downloading", and a degraded
+   * download — one running with no service and therefore no protection from
+   * being killed — is a fact about downloading that a screen has to be able to
+   * show (N4d).
+   */
+  foreground: ForegroundStatus;
 }
-
-const NOTHING: DownloadsState = { tasks: [], batches: [] };
 
 const listeners = new Set<() => void>();
 
 let engine: DownloadEngine | null = null;
-let state: DownloadsState = NOTHING;
+let foreground: ForegroundStatus = FOREGROUND_IDLE;
+let state: DownloadsState = { tasks: [], batches: [], foreground };
 
 /**
  * Re-read the engine and tell everyone.
@@ -41,7 +51,8 @@ let state: DownloadsState = NOTHING;
  * snapshot is the same one the daemon builds for `GET /download/tasks`.
  */
 export function refreshDownloads(): void {
-  state = engine === null ? NOTHING : engine.snapshot();
+  state =
+    engine === null ? { tasks: [], batches: [], foreground } : { ...engine.snapshot(), foreground };
   for (const listener of listeners) listener();
 }
 
@@ -53,6 +64,12 @@ export function refreshDownloads(): void {
  */
 export function attachDownloadEngine(next: DownloadEngine): void {
   engine = next;
+  refreshDownloads();
+}
+
+/** The controller's one write face (`foreground.ts`). */
+export function setForegroundStatus(next: ForegroundStatus): void {
+  foreground = next;
   refreshDownloads();
 }
 

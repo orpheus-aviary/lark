@@ -21,6 +21,12 @@
 // arithmetic claim about how many times a song's lyrics get published, and the
 // device is only asked to reproduce a number. This is where the number is
 // worked out.
+//
+// `downloads/foreground.ts` joined in N4c-2 for the first reason again, at its
+// sharpest: the states it has to get right — the quota expiring, a preflight
+// that enqueues nothing, a service the system refused — are states a phone
+// reaches rarely, slowly, or only after six hours of downloading. It imports
+// one type from `@lark/shared` and nothing else.
 
 import { defineConfig } from 'vitest/config';
 
@@ -30,6 +36,7 @@ export default defineConfig({
       'src/identity/state.test.ts',
       'src/player/store.test.ts',
       'src/player/now-playing.test.ts',
+      'src/downloads/foreground.test.ts',
     ],
   },
 });

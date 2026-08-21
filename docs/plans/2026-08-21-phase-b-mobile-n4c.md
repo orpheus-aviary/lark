@@ -255,3 +255,66 @@ hub 的 `tasks` 里 `state` 为 `queued` 或 `running` 的条数。**lyrics 任�
 - **通知里的取消按钮**（N4d）。
 - **「被系统暂停」的通知提示**——我们没有 `expo-notifications`，停了 FGS 就没法用它的通知说话，所以这个状态**只在应用内可见**（N4 §1.9 原文）。
 - **Doze 深度休眠下的表现**：判据 15 的熄屏时长按一次下载算（分钟级），够不到 Doze 的门槛。
+
+---
+
+## §8 实施修订（N4c-2，2026-08-21）
+
+**§2.4 的状态机按 v1 原样落地会有两个洞，都是「没有触发源」类的**，逐条记在这里，图不改：
+
+1. **`arming → idle` 那条边没有触发源 → 加了 `settle()`。** 状态机订阅的是 hub，而 hub 只在引擎有动静时才响；「预检后什么也没入队」这件事**恰恰是没有动静**，于是 `arming` 会一直挂着、服务一直举着这个进程。控制面因此是两个调用而不是一个：`arm()` 在手势那一刻，`settle()` 在调用方的 `finally` 里（预检抛了也得撤）。给 `arming` 设超时是另一条路，被否掉——一次合集预检可以跑二十秒，超时值只能靠猜。
+2. **`paused-by-system` 没有出边 → `arm()` 允许从它再来一次。** 图冻结的是**自动**边，而再点一次下载是用户的决定，不是自动边。配额真没了系统会拒，那就落进 `degraded`（照常下载、可读），这正是它存在的意义；不给出边则等于「一次配额到期之后这个进程再也起不了服务」。
+3. **`degraded` 归零时照样调 `stop()`。** 按我们自己的记账服务从没起来，但 N4b 实测过反例：`start()` 抛了异常而服务其实已经起来（`ComponentName` 转不了，副作用先发生）。`stop()` 幂等，不调的代价是一个永远举着的服务。
+4. **降级态带 `reason`**（决策 e 只说「加一个字段」）：`ERR_LARK_FGS_NOT_ALLOWED`（系统拒绝，正常事）与「模块本身坏了」必须分得开——**自建模块静默不存在正是 N4b 丢掉一个下午的那条**（`docs/LESSONS.md`）。
+5. **`onTimeout` 里先置 phase、再取消。** 取消会逐条唤醒 `reconcile`，而 phase 还是 `running` 时的「活动归零」分支会排一个 2 秒后的停——它落地时把 `paused-by-system` 覆盖成 `idle`，应用就忘了自己是被系统停的。单测「does not let the emptied queue call itself idle」守着这条。
+6. **取消顺序是 queued → running**（§2.4 的「原子」在实现上的样子）：先取消 running 会放开 worker，被顶上来的 queued 任务就是「系统说停之后才开始的工作」。
+7. **通知的标题/正文分工定死**：title = `正在下载 N 首`，body = 当前这首的名字（N4c-1 的 acceptance 直调写的是 `('lark', '正在下载 1 首')`，那是临时的）。没名字时回落到用户输入的链接/关键词，**不编造**（`DownloadTaskData.title` 的合同原文）。
+8. **去重与节流是两条独立的守卫，测试必须分开写。** 第一版把它们并成一条断言，**在实现里完全没有去重的情况下照样绿**——节流自己把重复的丢掉了。两条测试各自的反测都点着之后才算数。
+
+**判据**：**18 全绿（单测）· 17 的逻辑半边全绿**（①手势那一刻就 `start`、②归零 2 秒后才停、③起不来照常下完且降级态可读）。判据 17 剩下的一半（`dumpsys` 里服务在不在、后台起不来能不能复现）与判据 19、20–22 留给 N4c-3 的真机 session。
+
+**八条反测逐条跑过**（列在 `foreground.test.ts` 的文件头）：只取消 running / 先停后取消 / phase 置晚 / 吞掉全部取消失败 / 去掉宽限 / 把 `start` 挪到入队时刻 / 去掉去重 / 去掉节流——每条都红在它该红的那个测试上。
+
+**顺带的一条真实变化**：`downloads/engine.ts` 现在 import `modules/lark-transfer`，于是**生产 bundle 启动时就会 `requireNativeModule('LarkTransfer')`**（在此之前只有 acceptance 构建碰它）。这是判据 20 后半句想要的性质，也意味着模块接线出问题会以「启动即闪退」的形式暴露——守卫 `check-mobile-native-modules.sh` 已在 `just check` 里。
+
+---
+
+## §9 N4c-3 实测（2026-08-21，冻结设备 vivo V2408A / release 构建）
+
+**判据 17 · 19 · 20 · 21 · 22 全关。** 每条都是「应用自述 + 主机独立核对」两侧，冲突时以主机为准。
+
+| 判据 | 应用侧 | 主机侧 |
+|---|---|---|
+| **17①** | `phase arming · service running true · 0 active tasks`，25 秒停泊期后仍 `arming` + 服务在 | `LarkTransferService` t+2s 起来，`isForeground=true` · `types=0x00000001` · 渠道 `lark.downloads` · `importance=2`（LOW），整个停泊期都在 |
+| **17②** | 归零 +1.0s 服务仍在、+3.5s 已停、`phase idle` | 服务在 t+30s 消失（每 1.5 秒采样） |
+| **17③** | 注入拒绝：`phase degraded · reason ERR_LARK_FGS_NOT_ALLOWED · real service running false`；下载照样 `succeeded`，服务只被告知 `start (refused), stop`（**没有对着不存在的服务说 update**） | 全程没有服务记录 |
+| **17 反测** | 见下 | **后台窗口 16 秒、0.4 秒一采，服务一次都没出现；一回前台立刻出现** |
+| **19** | —— | `pm clear` 后 `granted=false` → 点「下载」（全程未播放）→ 3 秒内 `granted=true`、服务在、通知在 `lark.downloads` |
+| **19 反测** | —— | `pm revoke` 后服务照样起来（t+3s、t+15s 都在），**通知一条都没有** |
+| **20** | —— | 守卫 `mobile-native-modules` 绿；**生产包装机后正常启动**（四个 tab + 歌曲列表），启动时的 `requireNativeModule('LarkTransfer')` 没抛 |
+| **21** | 2/2：`running after stop false · after a second stop false · second stop threw: no` | 服务 t+0 起、t+7 停；收尾时本包通知数 **0** |
+| **22** | `download service running false · still playing true · phase idle` | 两个服务共存 ~45 秒（`AudioControlsService` + `LarkTransferService`）· t+21s 两条通知都在（`expo_audio_channel` + `lark.downloads`）· 期间 `state:started` 的 AudioTrack 恒为 1 |
+
+### 9.1 🔴 反测答出来的是第三种行为，并且改了代码
+
+**后台的 `startForegroundService()` 在这台机器上既不抛异常也不起服务——它被延后到应用回前台。** 于是：
+
+- **对设计**：判据 17 的反测成立，而且比预想的更硬。「在入队时刻起服务」= 整个下载期间毫无保护（服务要等用户下次打开应用才出现），`arm()` 必须在手势那一刻。
+- **对代码**：`start()` resolve **只等于「系统收下了请求」**。状态机原本只认「抛异常」这一种拒绝，于是这一整类下应用会以为自己受保护——**判据 17③ 的「降级态可读」在这条路径上是假的**。修法是 start 成功之后 2 秒回头确认一次（`START_CONFIRM_MS`，不 await，只会降级不会升级），确认不了就 `degraded` / `ERR_LARK_FGS_NEVER_STARTED`，并带 generation 与 phase 两道守卫（分别防「已 dispose 的控制器写 hub」与「对着已经结束的下载报警」）。单测 5 条 + 反测 3 条。
+- **仍然做不到的**：后台窗口里 JS 是冻的，这个确认跑不了；等它能跑时服务已经真的在了。所以 `checkBackgroundArm` 的那一行是**记录不是判决**，判决属于主机的 `dumpsys` 采样。**产品线上够不到这条路径**——`arm()` 永远由手势触发，那一刻应用必定在前台。
+
+### 9.2 反测的第一版是错的，错法值得记住
+
+第一版用 `await wait(10_000)` 安排「后台 10 秒后 arm」——**后台的 JS 定时器是冻结的**（N3f / N0b-4a），那句 wait 直到应用回前台才到期，arm 于是发生在前台、服务正常起来、反测显示「Android 允许了」。**一个看起来成立的反面结论。** 改用 `AppState` 的 `change` 回调（切换那一瞬间到达，JS 最后能说话的机会）之后才测到真东西。
+
+### 9.3 三条采样陷阱（都进了 `docs/LESSONS.md`）
+
+- **前台服务的通知有约 10 秒延后**：`isForeground=true` 之后前 ~10 秒 `dumpsys notification` 里查不到它。断言「通知在」要等过这段，否则得到「服务在但通知没了」的错误结论。
+- **`pm revoke` 会杀掉应用进程**；**`pm clear` 连外部夹具目录一起清**（要重推 `mobile-push-audio-fixtures`，且得先让应用把目录建出来）。
+- **已经在库里的曲目会把「长下载」变成 4 秒**：判据 22 第一次跑只共存了 4 秒，因为长曲早被判据 15 下过了。验收要过程就先清库（`resetInstall()` + 删 `songs/`）。
+
+### 9.4 本批仍未证明的
+
+- **6 小时 dataSync 配额**：判据 18 只有单测，如实记「有代码路径、有单测、没有真机证据」。
+- **判据 22 的「取消下载」那一刻**：实际跑的时候长曲已经自己下完（~45 秒），所以量到的是「传输服务自己退场、媒体服务与播放不受影响」，不是「取消进行中的下载」。对判据的主张（两个服务互不干涉）等价，但记着差别。
+- **判据 19 的对话框本身**：`pm clear` 之后权限从 `granted=false` 变成 `granted=true` 是量到的，**但没有截到对话框**——这台 vivo 在三秒内就变成 granted 且带 `USER_SET`，是它自己代答还是弹了一下没抓到，没有证据。要证的那件事（**申请发生在下载路径上**）成立：全程没有播放，权限只可能是这条路要来的。

@@ -84,7 +84,7 @@ export function audioFixtures(): AudioFixture[] {
 }
 
 /** The short track (2:17) — big enough to be real audio, small enough to copy per case. */
-function shortFixture(): File {
+export function shortFixture(): File {
   const fixtures = audioFixtures();
   const short = fixtures.find((entry) => entry.key === 'short') ?? fixtures[0];
   if (short === undefined) throw new Error('the audio fixture manifest is empty');

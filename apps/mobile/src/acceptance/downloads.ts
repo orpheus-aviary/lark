@@ -77,7 +77,7 @@ async function freshBoot(): Promise<BootResult> {
  * callbacks the engine was constructed with. If a callback is not wired, this
  * hangs — which is the correct answer to "does the hub see downloads".
  */
-function awaitTask(taskId: string, timeoutMs = 180_000): Promise<DownloadTaskData> {
+export function awaitTask(taskId: string, timeoutMs = 180_000): Promise<DownloadTaskData> {
   return new Promise((resolve, reject) => {
     const find = (): DownloadTaskData | undefined =>
       downloads.getState().tasks.find((task) => task.id === taskId);

@@ -24,10 +24,17 @@ import { runDownloadScenarios } from './downloads';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
 import { runFixtureImportScenarios } from './fixture-import';
 import {
+  armDegradedInjected,
+  armForegroundParked,
+  armFromBackground,
   armLongDownloadWithService,
   armLongDownloadWithoutService,
+  armPlaybackAndDownload,
+  checkBackgroundArm,
   checkLongDownload,
   releaseLongDownload,
+  serviceStopsForReal,
+  stopPlaybackAndDownload,
 } from './foreground';
 import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
@@ -89,6 +96,40 @@ const SUITES: readonly { label: string; run: () => Promise<ScenarioRow[]>; note?
   },
   { label: 'Check long download', run: checkLongDownload, note: '15 — answered from disk too' },
   { label: 'Release long download', run: releaseLongDownload },
+  {
+    label: 'Arm foreground',
+    run: armForegroundParked,
+    // The park is the criterion: nothing is enqueued and the service has to be
+    // up anyway, which is the whole claim of `arming`.
+    note: '17①② — parks 25s with nothing enqueued, then downloads the short one; dumpsys during the park',
+  },
+  {
+    label: 'Arm degraded',
+    run: armDegradedInjected,
+    note: '17③ — the refusal is injected, so it happens every time; the download must finish anyway',
+  },
+  {
+    label: 'Arm from background',
+    run: armFromBackground,
+    // Android is the one answering here, which is why it is not an injection.
+    note: '17 counter-test — then press HOME; it arms from the AppState callback',
+  },
+  {
+    label: 'Check background arm',
+    run: checkBackgroundArm,
+    note: '17 counter-test — read after coming back; dumpsys during the window is the real answer',
+  },
+  {
+    label: 'Stop service twice',
+    run: serviceStopsForReal,
+    note: '21 — six seconds up for dumpsys and the shade, then stopped twice',
+  },
+  {
+    label: 'Arm two services',
+    run: armPlaybackAndDownload,
+    note: '22 — music plus the long download; count both services and both notifications',
+  },
+  { label: 'Stop two services', run: stopPlaybackAndDownload, note: '22 — the music must survive' },
   {
     label: 'Arm criterion 9',
     run: armDurationDuringPlayback,
