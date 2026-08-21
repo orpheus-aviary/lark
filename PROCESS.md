@@ -601,7 +601,7 @@
   - 🟢 **判据 9**：一边放 short 夹具、一边用 MMR 读 **long（37 分钟）**那条 —— `read 2226.646s in 22ms · 0.8s → 1.7s · never stopped`，主机在**同一刻**数到**恰好 1 个 `state:started` 的 AudioTrack**。**MMR 不碰音频焦点这条从「文档这么写」变成实测。** 场景是两个按钮（arm 停在还在放的状态 / stop 收），因为「系统握着几个 AudioTrack」不是 JS 看得见的事；arm **不开库**，不该为一个跟曲库无关的问题清掉别人的行。
   - 🟢 **判据 11 的真崩溃点**：`createMobileAudioLanding` 加 `crashPoint`（⑤ 与 ⑥ 之间，**park 而不是抛**——抛会展开栈，SIGKILL 不会），arm → `am force-stop` → 重启 → `row still says 136.836s · no canonical file（读作「需要下载」）· .tmp swept · directory kept`，逐字对上崩溃状态表「⑤ 之后 ⑥ 之前（new）」那一行。
   - **判据 11 的反测（不做启动清扫 → `.tmp` 必须还在）没有运行时开关**，如实记着：这条断言只有 ⑪b 跑过才可能成立，而 skip set 那条反测在 sweep 套件里是能跑的。
-- **N4b 判据 5–14 全部关闭。** 下一步 **N4c dataSync 前台服务**（判据 15–19）。
+- **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 
 
