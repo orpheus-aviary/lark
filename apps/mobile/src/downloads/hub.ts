@@ -11,14 +11,14 @@
 // built. A hub added later would have nowhere to attach — which is why this
 // file and the assembly are one batch (§1.1).
 //
-// Same selector contract as `usePlayback`: this is `useSyncExternalStore` with
-// no memo layer, so a selector must return a primitive or a stable reference.
-// `getState()` therefore hands back a CACHED object and rebuilds it only when
-// the engine says something changed.
+// `getState()` hands back a CACHED object and rebuilds it only when the engine
+// says something changed, because the screens that read it (N4d) will do so
+// through `useSyncExternalStore` — which compares with `Object.is` and would
+// re-render forever against a freshly built object. The hook itself arrives
+// with its first component; there is nothing to hang it on yet.
 
 import type { DownloadEngine } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
-import { useSyncExternalStore } from 'react';
 
 export interface DownloadsState {
   /** Newest first, terminal tasks included — the engine's own ring (§4-f). */
@@ -56,12 +56,6 @@ export function attachDownloadEngine(next: DownloadEngine): void {
   refreshDownloads();
 }
 
-/** The engine, for the screens that command it. */
-export function downloadEngine(): DownloadEngine {
-  if (engine === null) throw new Error('downloads were used before the library was open');
-  return engine;
-}
-
 export const downloads = {
   subscribe(listener: () => void): () => void {
     listeners.add(listener);
@@ -71,8 +65,3 @@ export const downloads = {
   },
   getState: (): DownloadsState => state,
 };
-
-/** Subscribe to one slice of download state. See the selector rule above. */
-export function useDownloads<T>(select: (state: DownloadsState) => T): T {
-  return useSyncExternalStore(downloads.subscribe, () => select(downloads.getState()));
-}

@@ -43,12 +43,12 @@ const client = createBilibiliClient();
 let run: { boot: BootResult; taskId: string; withService: boolean; expected: number } | null = null;
 
 /** The 37-minute track and the size it has to reach. */
-function longFixture(): { bvid: string; bytes: number; durationSec: number } {
+function longFixture(): { bvid: string; bytes: number } {
   const long = audioFixtures().find((entry) => entry.key === 'long');
   if (long?.bvid === undefined) {
     throw new Error('no `long` entry with a bvid — run `just mobile-push-audio-fixtures`');
   }
-  return { bvid: long.bvid, bytes: long.bytes, durationSec: long.durationSec };
+  return { bvid: long.bvid, bytes: long.bytes };
 }
 
 const landedBytes = (songId: string): number => new File(songDirectory(songId), 'song.m4a').size;
