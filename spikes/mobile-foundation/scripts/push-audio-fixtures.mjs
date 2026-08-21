@@ -73,11 +73,16 @@ for (const name of files) {
   const path = join(FIXTURE_DIR, name);
   const probe = await probeAudio(ffprobe, path);
   const { size } = await stat(path);
+  const [key, bvid] = name.replace(/\.m4a$/, '').split('-');
   entries.push({
     name,
     // The key the device looks the expectation up by. `short` / `long` are
     // N0b-4a's names for these two.
-    key: name.split('-')[0],
+    key,
+    // Which video these bytes came from. Criterion 6 downloads it AGAIN, on the
+    // phone, and compares what lands against `durationSec` below — so the
+    // expectation still comes from the desktop's ffprobe, over the same part.
+    bvid,
     bytes: size,
     durationSec: probe.duration,
     codec: probe.codec,

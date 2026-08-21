@@ -14,6 +14,7 @@ import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { runAudioLandingScenarios } from './audio-landing';
 import { type ScenarioRow, runD16Scenarios } from './d16';
+import { runDownloadScenarios } from './downloads';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
 import { runFixtureImportScenarios } from './fixture-import';
 import { runFileSystemScenarios } from './fs';
@@ -52,7 +53,7 @@ export function Root() {
         <Text style={styles.title}>lark · acceptance</Text>
         <Text style={styles.line}>
           D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③ ·
-          sweep — 11, 12, 13 · landing — 7, 8, 10
+          sweep — 11, 12, 13 · landing — 7, 8, 10 · downloads — 5, 6, 14
         </Text>
 
         <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
@@ -127,6 +128,21 @@ export function Root() {
           accessibilityRole="button"
         >
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run landing scenarios'}</Text>
+        </Pressable>
+
+        {/*
+          The only suite that needs a signal. Criterion 5 asks what scheme this
+          network hands us and whether the product build can read bytes from
+          it — RUN IT ON WI-FI AND ON MOBILE DATA, because playurl picks the CDN
+          node by the caller's IP. It leaves criterion 6's song in the library
+          on purpose: install the release build over this and play it.
+        */}
+        <Pressable
+          style={styles.button}
+          onPress={run(runDownloadScenarios)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run download scenarios'}</Text>
         </Pressable>
 
         {/*

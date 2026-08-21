@@ -48,9 +48,11 @@ import { fixtureDirectory } from './fixture-import';
 
 // ─── the pushed audio fixtures ──────────────────────────
 
-interface AudioFixture {
+export interface AudioFixture {
   name: string;
   key: string;
+  /** The video these bytes came from — criterion 6 downloads it again. */
+  bvid?: string;
   bytes: number;
   /** ffprobe's reading, from the host. The number criterion 8 measures against. */
   durationSec: number;
@@ -63,7 +65,7 @@ function audioFixtureDirectory(): Directory {
   return new Directory(fixtureDirectory(), 'audio');
 }
 
-function readFixtures(): AudioFixture[] {
+export function audioFixtures(): AudioFixture[] {
   const manifest = new File(audioFixtureDirectory(), 'manifest.json');
   if (!manifest.exists) {
     throw new Error('no audio fixtures pushed — run `just mobile-push-audio-fixtures`');
@@ -80,7 +82,7 @@ function readFixtures(): AudioFixture[] {
 
 /** The short track (2:17) — big enough to be real audio, small enough to copy per case. */
 function shortFixture(): File {
-  const fixtures = readFixtures();
+  const fixtures = audioFixtures();
   const short = fixtures.find((entry) => entry.key === 'short') ?? fixtures[0];
   if (short === undefined) throw new Error('the audio fixture manifest is empty');
   return new File(audioFixtureDirectory(), short.name);
@@ -361,7 +363,7 @@ async function refusesUnreadable(bytes: number | 'empty'): Promise<string> {
 
 async function durationsMatchFfprobe(): Promise<string> {
   const parts: string[] = [];
-  for (const fixture of readFixtures()) {
+  for (const fixture of audioFixtures()) {
     const uri = new File(audioFixtureDirectory(), fixture.name).uri;
     const read = await LarkMedia.readDurationSeconds(uri);
     const delta = Math.abs(read - fixture.durationSec);

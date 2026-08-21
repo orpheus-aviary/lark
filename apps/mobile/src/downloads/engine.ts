@@ -25,7 +25,7 @@ import {
 import type { LlmConfig } from '@lark/shared';
 import type { BootResult } from '../boot/sequence';
 import { libraryChanged } from '../library-signal';
-import { createMobileAudioLanding } from '../ports/audio-landing';
+import { type AudioTransfer, createMobileAudioLanding } from '../ports/audio-landing';
 import { createSongFiles } from '../ports/song-files';
 import { attachDownloadEngine, refreshDownloads } from './hub';
 
@@ -56,7 +56,7 @@ const MOBILE_TIMEOUTS: DownloadTimeouts = {
  */
 const NO_LLM_CONFIG: LlmConfig = { url: '', model: '', api_key: '', api_format: '' };
 
-interface DownloadRuntime {
+export interface DownloadRuntime {
   engine: DownloadEngine;
   /**
    * The journal runtime everything downstream must use — `LibraryService`
@@ -83,11 +83,30 @@ export function downloadRuntimeOnce(boot: BootResult): DownloadRuntime {
   return runtime;
 }
 
-function createDownloadRuntime(boot: BootResult): DownloadRuntime {
+export interface DownloadRuntimeDeps {
+  /**
+   * The audio transfer, for acceptance only (`ports/audio-landing.ts`).
+   *
+   * It is HERE rather than in a second assembly beside this one on purpose: a
+   * scenario that built its own engine would be verifying its own wiring, and
+   * the wiring — which claim registry the journal runtime got — is the thing
+   * criterion 14 is about. Same reason `ports/fs.ts` puts its one seam on the
+   * real factory.
+   */
+  transfer?: AudioTransfer;
+}
+
+export function createDownloadRuntime(
+  boot: BootResult,
+  deps: DownloadRuntimeDeps = {},
+): DownloadRuntime {
   const engine = new DownloadEngine({
     store: boot.db,
     files: boot.files,
-    audio: createMobileAudioLanding({ store: boot.db }),
+    audio: createMobileAudioLanding({
+      store: boot.db,
+      ...(deps.transfer === undefined ? {} : { transfer: deps.transfer }),
+    }),
     getLlmConfig: () => NO_LLM_CONFIG,
     timeouts: MOBILE_TIMEOUTS,
     // `fetchImpl` is deliberately absent: `globalThis.fetch` here is expo/fetch,
