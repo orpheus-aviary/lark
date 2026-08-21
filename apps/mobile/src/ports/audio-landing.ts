@@ -77,6 +77,18 @@ export interface MobileAudioLandingDeps {
   readDuration?: (uri: string) => Promise<number>;
   /** The atomic replace. Default: lark-fs (`Files.move` REPLACE + ATOMIC). */
   moveAtomic?: (from: string, to: string) => Promise<void>;
+  /**
+   * Acceptance builds only: called between ⑤ and ⑥, so criterion 11 can stop
+   * the process exactly where the crash table says the interesting state is —
+   * the row committed, the file not yet in place.
+   *
+   * A throw would not do. That state is the one thing this protocol trades the
+   * desktop's manifest for, and a throw unwinds where SIGKILL does not: the
+   * point is what the NEXT boot makes of a directory holding one `.tmp` and a
+   * row that already exists. Same shape as `boot/sequence.ts`'s crash points
+   * and the file-op journal's, third time (decision o⑤: chosen, not guessed).
+   */
+  crashPoint?: () => void | Promise<void>;
 }
 
 /** `.download.<taskId>.tmp`, a sibling of `song.m4a`, swept by boot if orphaned. */
@@ -246,6 +258,8 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
           { cause: err },
         );
       }
+
+      await deps.crashPoint?.();
 
       // ⑥ Atomic replace. A failure here is a warning, not a lost commit: the
       // row is already the truth, and the next redownload puts the file right.

@@ -12,7 +12,13 @@
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { runAudioLandingScenarios } from './audio-landing';
+import {
+  armDurationDuringPlayback,
+  armLandingKill,
+  resumeAfterLandingKill,
+  runAudioLandingScenarios,
+  stopDurationDuringPlayback,
+} from './audio-landing';
 import { type ScenarioRow, runD16Scenarios } from './d16';
 import { runDownloadScenarios } from './downloads';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
@@ -53,7 +59,7 @@ export function Root() {
         <Text style={styles.title}>lark · acceptance</Text>
         <Text style={styles.line}>
           D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③ ·
-          sweep — 11, 12, 13 · landing — 7, 8, 10 · downloads — 5, 6, 14
+          sweep — 11, 12, 13 · landing — 7, 8, 9, 10, 11 · downloads — 5, 6, 14
         </Text>
 
         <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
@@ -143,6 +149,46 @@ export function Root() {
           accessibilityRole="button"
         >
           <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run download scenarios'}</Text>
+        </Pressable>
+
+        {/*
+          Criterion 9 is two buttons because its important half is not JS's to
+          see: the first starts playback, reads a duration under it and PARKS
+          with the music going; the host counts AudioTracks; the second stops.
+        */}
+        <Pressable
+          style={styles.button}
+          onPress={run(armDurationDuringPlayback)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Arm criterion 9'}</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.button}
+          onPress={run(stopDurationDuringPlayback)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Stop criterion 9'}</Text>
+        </Pressable>
+
+        {/*
+          And criterion 11 is two buttons because it is two processes — the
+          same shape as the journal's kill, for the same reason: a throw
+          unwinds where SIGKILL does not.
+        */}
+        <Pressable style={styles.button} onPress={run(armLandingKill)} accessibilityRole="button">
+          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Arm landing kill'}</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.button}
+          onPress={run(resumeAfterLandingKill)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.buttonLabel}>
+            {running ? 'Running…' : 'Resume after landing kill'}
+          </Text>
         </Pressable>
 
         {/*

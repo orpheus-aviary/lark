@@ -42,6 +42,8 @@ import {
 import { Directory, File } from 'expo-file-system';
 import LarkMedia from '../../modules/lark-media';
 import { type BootResult, runBootSequence } from '../boot/sequence';
+import type { PlaybackSnapshot, PlayerDriver } from '../player/driver';
+import { createPlayerDriver } from '../player/driver';
 import { type AudioTransfer, createMobileAudioLanding } from '../ports/audio-landing';
 import { recoveredSongsRoot, songDirectory, songsRoot } from '../ports/paths';
 import { type ScenarioRow, resetInstall } from './d16';
@@ -433,6 +435,193 @@ async function durationsMatchFfprobe(): Promise<string> {
     parts.push(`${fixture.key} ${read.toFixed(3)}s (Δ${delta.toFixed(3)}s)`);
   }
   return parts.join(' · ');
+}
+
+// ─── criterion 9: reading a duration does not disturb playback ───
+//
+// MMR does not take audio focus and does not build a session — that is the
+// whole reason decision b chose it over a transient `createAudioPlayer`. This
+// is where that claim stops being a reading of the docs.
+//
+// TWO HALVES, because the important half is not JS's to see. JS can say the
+// player never reported a stop and that the playhead moved across the read;
+// only `dumpsys audio` can say how many AudioTracks the system is holding, and
+// a second one appearing for a moment is exactly the failure being ruled out.
+// So this PARKS with the music still going and the host counts.
+
+let parkedDriver: PlayerDriver | null = null;
+
+export async function armDurationDuringPlayback(): Promise<ScenarioRow[]> {
+  // No library, and deliberately: this scenario is about the audio session and
+  // the platform, and wiping somebody's rows to ask a question that has nothing
+  // to do with them is a side effect nobody asked for.
+  const rows: ScenarioRow[] = [];
+  try {
+    const source = shortFixture();
+    const driver = createPlayerDriver();
+    parkedDriver = driver;
+    await driver.load(source.uri, { title: 'criterion 9', artist: 'lark' });
+
+    let last: PlaybackSnapshot | null = null;
+    let everStopped = false;
+    const unsubscribe = driver.subscribe((snapshot) => {
+      last = snapshot;
+      if (!snapshot.playing) everStopped = true;
+    });
+    driver.play();
+    // Let it actually start before anything else happens, or "the playhead
+    // moved" would be measuring the load rather than the read.
+    await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+    everStopped = false;
+    const before = last === null ? 0 : (last as PlaybackSnapshot).currentTime;
+
+    // The read under test — the long fixture, because a 37-minute file is the
+    // most work MMR will ever be asked to do here.
+    const long = audioFixtures().find((entry) => entry.key === 'long');
+    const target = new File(audioFixtureDirectory(), (long ?? audioFixtures()[0]).name);
+    const started = Date.now();
+    const read = await LarkMedia.readDurationSeconds(target.uri);
+    const took = Date.now() - started;
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 1_000));
+    const after = last === null ? 0 : (last as PlaybackSnapshot).currentTime;
+    unsubscribe();
+
+    expect(!everStopped, 'the player reported a stop while the duration was read');
+    expect(after > before, `the playhead did not move: ${before}s → ${after}s`);
+    rows.push({
+      name: '9 · the playhead kept moving across the read',
+      ok: true,
+      detail: `read ${read.toFixed(3)}s in ${took}ms · ${before.toFixed(1)}s → ${after.toFixed(1)}s · never stopped`,
+    });
+    rows.push({
+      name: '9 · PARKED, still playing — count active players now',
+      ok: true,
+      detail: 'host: `just mobile-drive audio` must say exactly 1, then tap "Stop criterion 9"',
+    });
+  } catch (err) {
+    rows.push({
+      name: '9 · the playhead kept moving across the read',
+      ok: false,
+      detail: describe(err),
+    });
+  }
+  return rows;
+}
+
+export async function stopDurationDuringPlayback(): Promise<ScenarioRow[]> {
+  if (parkedDriver === null) {
+    return [{ name: '9 · stop', ok: false, detail: 'nothing was parked' }];
+  }
+  // `destroy` is the only teardown: pause, settle, clear the lock screen,
+  // remove (`player/driver.ts`). Dropping the reference would leave the track
+  // running and the next `dumpsys audio` counting it.
+  await parkedDriver.destroy();
+  parkedDriver = null;
+  return [{ name: '9 · stopped', ok: true, detail: 'the parked player is gone' }];
+}
+
+// ─── criterion 11: the crash between ⑤ and ⑥ ────────────
+//
+// The state this protocol trades the desktop's manifest for: a row that is
+// already true and a file that never moved. It has to be reached with a REAL
+// kill, because a throw unwinds and SIGKILL does not — what is being asked is
+// what the next boot makes of a directory holding one `.tmp` and a row.
+
+const LANDING_KILL_KEY = 'acceptance_landing_kill';
+
+export async function armLandingKill(): Promise<ScenarioRow[]> {
+  const boot = await freshBoot();
+  const songId = uuid();
+  // Committed BEFORE the park, because after it there is no chance to write
+  // anything: the process is about to stop existing.
+  boot.db.sqlite
+    .prepare('INSERT OR REPLACE INTO local_metadata (key, value) VALUES (?, ?)')
+    .run(LANDING_KILL_KEY, songId);
+
+  const source = shortFixture();
+  let reached: () => void = () => undefined;
+  const atThePoint = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+
+  const landing = createMobileAudioLanding({
+    store: boot.db,
+    transfer: async ({ destinationUri }) => {
+      source.copySync(new File(destinationUri));
+    },
+    crashPoint: () => {
+      reached();
+      // Never resolves. The driver force-stops the process here.
+      return new Promise<void>(() => undefined);
+    },
+  });
+
+  void driveLanding(
+    boot.db,
+    landing,
+    { scenario: 'valid', songId, mode: 'new' },
+    {
+      timeoutMs: 60_000,
+      isAac: true,
+    },
+  );
+  await atThePoint;
+
+  const residue = songDirectory(songId)
+    .list()
+    .map((entry) => entry.name);
+  return [
+    {
+      name: '11 · PARKED between the commit and the replace',
+      ok: residue.length === 1 && residue[0].startsWith('.download.'),
+      detail: `row committed · directory holds ${residue.join(', ')} · force-stop now, then relaunch and tap "Resume after landing kill"`,
+    },
+  ];
+}
+
+export async function resumeAfterLandingKill(): Promise<ScenarioRow[]> {
+  const boot = await runBootSequence();
+  try {
+    const songId = (
+      boot.db.sqlite
+        .prepare('SELECT value FROM local_metadata WHERE key = ?')
+        .get(LANDING_KILL_KEY) as { value: string } | undefined
+    )?.value;
+    if (songId === undefined) {
+      throw new Error('no fixture — arm the kill, force-stop, relaunch, then run this');
+    }
+
+    const row = boot.db.sqlite.prepare('SELECT id, duration FROM songs WHERE id = ?').get(songId) as
+      | { id: string; duration: number }
+      | undefined;
+    expect(row !== undefined, 'the committed row did not survive — ⑤ is not a point of no return');
+    expect(
+      !new File(songDirectory(songId), CANONICAL_AUDIO_FILE).exists,
+      'the canonical file is there, so the kill did not land where it was supposed to',
+    );
+    expect(songDirectory(songId).exists, 'boot took the directory of a song that has a row');
+    const left = songDirectory(songId)
+      .list()
+      .map((entry) => entry.name);
+    expect(left.length === 0, `the sweep left ${JSON.stringify(left)} behind`);
+    expect(
+      boot.swept.tempFilesRemoved === 1,
+      `⑪b reported ${boot.swept.tempFilesRemoved} tmp files removed, wanted 1`,
+    );
+
+    return [
+      {
+        name: '11 · the next boot self-heals it',
+        ok: true,
+        detail: `row still says ${(row as { duration: number }).duration}s · no canonical file (reads as "needs download") · .tmp swept · directory kept`,
+      },
+    ];
+  } catch (err) {
+    return [{ name: '11 · the next boot self-heals it', ok: false, detail: describe(err) }];
+  } finally {
+    boot.handle.closeSync();
+  }
 }
 
 // ─── the suite ──────────────────────────────────────────
