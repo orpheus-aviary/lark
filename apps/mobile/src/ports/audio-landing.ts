@@ -17,9 +17,17 @@
 //   ① songs/<id>/ mkdir (new song)
 //   ② refuse a non-AAC stream, before a byte moves (§1.7)
 //   ③ download natively → .download.<taskId>.tmp
+//  ③b every byte the source promised actually arrived
 //   ④ read the landed duration (MMR); unreadable = do not commit
 //   ⑤ commit the row + touch last_accessed, in one transaction — no going back
 //   ⑥ atomically replace song.m4a with the tmp file
+//
+// ③b IS NOT REDUNDANT WITH ④, and criterion 7② is why it exists. The plan
+// assumed an incomplete download would have no readable duration. It does:
+// bilibili's fragmented MP4 carries its `moov` at the FRONT, so 64KB of a
+// 3.7MB track reads back the full 136.8 seconds (measured on the frozen
+// device). "Decodable" and "complete" are different questions, and a transfer
+// that stopped early is only ever about the second one.
 //
 // Everything before ⑤ undoes itself on the way out: the tmp goes, and a `new`
 // song's directory goes with it, because a brand-new song owns nothing else in
@@ -74,7 +82,16 @@ export interface MobileAudioLandingDeps {
 /** `.download.<taskId>.tmp`, a sibling of `song.m4a`, swept by boot if orphaned. */
 const downloadTmpName = (taskId: string): string => `.download.${taskId}.tmp`;
 
-const nativeTransfer: AudioTransfer = async ({ request, destinationUri, onProgress, signal }) => {
+/**
+ * The real thing, exported so acceptance can wrap it rather than replace it
+ * (criterion 6 counts what it reports without changing what it does).
+ */
+export const nativeAudioTransfer: AudioTransfer = async ({
+  request,
+  destinationUri,
+  onProgress,
+  signal,
+}) => {
   await File.downloadFileAsync(request.url, new File(destinationUri), {
     // A mutable copy: the port's headers are readonly, and the download API
     // takes a plain index signature.
@@ -108,7 +125,7 @@ function quotedDurationWarnings(duration: number, expected: number | null): stri
 }
 
 export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLandingPort {
-  const transfer = deps.transfer ?? nativeTransfer;
+  const transfer = deps.transfer ?? nativeAudioTransfer;
   const readDuration = deps.readDuration ?? ((uri) => LarkMedia.readDurationSeconds(uri));
   const moveAtomic = deps.moveAtomic ?? ((from, to) => LarkFs.moveAtomic(from, to));
 
@@ -159,11 +176,16 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
       // ③ Native download into the tmp file.
       input.reportStage('downloading');
       input.onProgress(0, null);
+      /** What the source said the whole transfer would be, if it said. */
+      let promised: number | null = null;
       try {
         await transfer({
           request: input.request,
           destinationUri: tmp.uri,
-          onProgress: (received, total) => input.onProgress(received, total),
+          onProgress: (received, total) => {
+            if (total !== null) promised = total;
+            input.onProgress(received, total);
+          },
           signal,
         });
       } catch (err) {
@@ -179,8 +201,19 @@ export function createMobileAudioLanding(deps: MobileAudioLandingDeps): AudioLan
         throw new BilibiliApiError(`audio stream failed: ${reasonOf(err)}`);
       }
 
-      // ④ The landed file's real duration (§1.4). Unreadable is exactly what a
-      // truncated or empty transfer looks like: do not commit, leave nothing.
+      // ③b Did all of it arrive? Only the source can say, and only when it said
+      // — a chunked response reports no total, and `null` here is "unknown",
+      // never "zero". A short file is a stream that ended early, which is a
+      // transport failure and reads as one.
+      const landed = tmp.size;
+      if (promised !== null && landed < promised) {
+        discard();
+        throw new BilibiliApiError(`audio stream ended early: ${landed} of ${promised} bytes`);
+      }
+
+      // ④ The landed file's real duration (§1.4). Unreadable is what an EMPTY
+      // or corrupt transfer looks like — not what a truncated one looks like,
+      // which is ③b's job.
       let duration: number;
       try {
         duration = await readDuration(tmp.uri);

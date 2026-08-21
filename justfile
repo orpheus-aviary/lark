@@ -62,6 +62,18 @@ core-portable:
 mobile-imports:
     bash scripts/check-mobile-imports.sh
 
+# Every self-built Expo module is wired for the native build (N4b-1's cost).
+#
+# `modules/lark-media` shipped without `android/build.gradle`; autolinking
+# skipped it in silence, the apk built and installed, and the first launch died
+# with `Cannot find native module 'LarkMedia'`. tsc, biome and the bundle smoke
+# all pass on that — the JS face of a native module is in Metro's graph whether
+# or not the native half was ever compiled.
+
+[group('lint')]
+mobile-native-modules:
+    bash scripts/check-mobile-native-modules.sh
+
 # The CLI's module graph (M6-21): no daemon / gui / electron, and no STATIC
 # import of the core barrel — that one would drag better-sqlite3 into commands
 # that never open a database.
@@ -79,7 +91,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

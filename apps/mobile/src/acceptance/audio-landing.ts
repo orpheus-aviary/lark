@@ -37,6 +37,7 @@ import {
   createFileBackedSongInTx,
   runAudioLandingContract,
   uuid,
+  withTimeout,
 } from '@lark/core/portable';
 import { Directory, File } from 'expo-file-system';
 import LarkMedia from '../../modules/lark-media';
@@ -94,9 +95,17 @@ function expect(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-function isAbortError(err: unknown): boolean {
-  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
-}
+/**
+ * The last error `classify` could not place, verbatim.
+ *
+ * `other` is a case failure by design, and the case can only say "expected
+ * timed-out, got other" — which names the symptom and hides the cause. This
+ * carries the cause out to the row, because the first time that case failed
+ * here the obvious explanation (this platform's abort is not named
+ * `AbortError`) turned out to be wrong, and passing the case by trusting the
+ * scenario instead of the error would have bought the green without looking.
+ */
+let lastUnclassified: string | null = null;
 
 /** Map this host's own exception onto the contract's vocabulary (§2.2). */
 function classify(err: unknown, attempt: AudioLandingAttempt): AudioLandingOutcome {
@@ -106,7 +115,18 @@ function classify(err: unknown, attempt: AudioLandingAttempt): AudioLandingOutco
   // thing that tells a cancel from a deadline: both arrive here as an abort.
   if (attempt.scenario === 'cancel') return 'cancelled';
   if (isAbortError(err)) return 'timed-out';
+  lastUnclassified = describe(err);
   return 'other';
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+}
+
+function abortError(): Error {
+  const err = new Error('The operation was aborted.');
+  err.name = 'AbortError';
+  return err;
 }
 
 /** What the seam does under each scenario. */
@@ -129,8 +149,16 @@ function transferFor(scenario: () => AudioLandingAttempt['scenario']): AudioTran
         // 'timeout' and 'cancel' are the same transfer — one that never
         // finishes. Which signal ended it is the difference, and the landing
         // composes both into the one it hands here.
+        //
+        // It rejects with an AbortError OF ITS OWN rather than with
+        // `signal.reason`, and that is not a shortcut: read synchronously
+        // inside the abort listener, a composed signal's `reason` is
+        // `undefined` on this runtime (the `abort shape` row measures it) — so
+        // rejecting with it would hand the landing a bare `undefined` that no
+        // real transfer produces. `File.downloadFileAsync` rejects with an
+        // AbortError; so does this.
         return new Promise<void>((_resolve, reject) => {
-          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          signal.addEventListener('abort', () => reject(abortError()), { once: true });
         });
     }
   };
@@ -331,10 +359,15 @@ async function refusesUnreadable(bytes: number | 'empty'): Promise<string> {
     const source = shortFixture();
     const landing = createMobileAudioLanding({
       store: boot.db,
-      transfer: async ({ destinationUri }) => {
+      transfer: async ({ destinationUri, onProgress }) => {
         const file = new File(destinationUri);
         file.create({ overwrite: true });
-        if (bytes !== 'empty') file.write(source.bytesSync().slice(0, bytes));
+        if (bytes === 'empty') return;
+        // A real truncated transfer announced a content-length and then stopped
+        // short, which is exactly what ③b compares against. Reporting nothing
+        // here would test a transfer no server performs.
+        onProgress(bytes, source.size);
+        file.write(source.bytesSync().slice(0, bytes));
       },
     });
     const report = await driveLanding(
@@ -359,6 +392,31 @@ async function refusesUnreadable(bytes: number | 'empty'): Promise<string> {
   }
 }
 
+/**
+ * When a composed signal's `reason` becomes readable on THIS runtime.
+ *
+ * Not a judgement, a measurement, and it exists because the contract's timeout
+ * case failed here for a reason nobody would have guessed: read SYNCHRONOUSLY
+ * inside the `abort` listener, `AbortSignal.any([caller, timeout])` has a
+ * `reason` of `undefined`; read one microtask later it is a proper AbortError.
+ * Node makes both readings the same, so the desktop hook never had to know.
+ *
+ * Any code on this platform that classifies an abort by reading `reason` from
+ * inside the listener gets `undefined`. Production does not — the native
+ * transfer rejects with an error of its own — but that is a fact worth keeping
+ * where the next person will find it.
+ */
+async function abortShape(): Promise<string> {
+  const signal = withTimeout(50, new AbortController().signal);
+  const inListener = await new Promise<unknown>((resolve) => {
+    signal.addEventListener('abort', () => resolve(signal.reason), { once: true });
+  });
+  const afterAwait: unknown = signal.reason;
+  const show = (value: unknown): string =>
+    value instanceof Error ? `${value.name}` : `${typeof value} (${String(value)})`;
+  return `inside the listener: ${show(inListener)} · a microtask later: ${show(afterAwait)}`;
+}
+
 // ─── criterion 8: MMR against ffprobe ───────────────────
 
 async function durationsMatchFfprobe(): Promise<string> {
@@ -380,6 +438,7 @@ async function durationsMatchFfprobe(): Promise<string> {
 // ─── the suite ──────────────────────────────────────────
 
 const SCENARIOS: { name: string; run: () => Promise<string> }[] = [
+  { name: 'abort shape on this runtime', run: abortShape },
   { name: '8 · MMR reads what ffprobe read', run: durationsMatchFfprobe },
   { name: '7① · a non-AAC stream is refused before a byte', run: refusesNonAac },
   { name: '7② · an empty transfer never commits', run: () => refusesUnreadable('empty') },
@@ -396,13 +455,16 @@ export async function runAudioLandingScenarios(): Promise<ScenarioRow[]> {
     }
   }
 
+  lastUnclassified = null;
   const report: ContractReport = {
     pass: (group, name) => rows.push({ name: `${group} · ${name}`, ok: true, detail: 'pass' }),
     fail: (group, name, error) =>
       rows.push({
         name: `${group} · ${name}`,
         ok: false,
-        detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+        detail:
+          describe(error) +
+          (lastUnclassified === null ? '' : ` · unclassified was: ${lastUnclassified}`),
       }),
     // A skip reads as a failure: this host has no exemptions either, so a case
     // that did not run is a case nobody is watching.

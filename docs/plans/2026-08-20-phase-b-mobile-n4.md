@@ -240,12 +240,15 @@ interface AudioLandingInput {
 ① songs/<id>/ 建目录（新歌）
 ② 判 isAac —— 非 AAC 在下载任何字节之前拒绝（§1.7）
 ③ 下载 → songs/<id>/.download.<taskId>.tmp   （原生，进度 / 取消 / timeoutMs）
+③b 完整性：落地字节数 < 源声明的 totalBytes → 传输失败，不提交（**2026-08-21 实测加的**）
 ④ 读时长：MediaMetadataRetriever（§1.4）——读不出 = landing 失败，不提交
 ⑤ sqlite.transaction(() => { commit({duration}); touchLastAccessed(...) }).immediate()
    —— 点无回头。touchLastAccessed 不能漏：漏了 LRU 会把刚下完的歌排到清理队首
 ⑥ LarkFs.moveAtomic(tmp → song.m4a)
    —— 失败：删 tmp，返回 warning（land 的返回值就是给这种事用的）
 ```
+
+🔴 **③b 是 2026-08-21 真机实测加的一步，本段原来没有**（判据 7② 抓到）。原文假设「④ 读不出时长」就能挡住截断的下载——**不成立**：bilibili 的 fMP4 把 `moov` 放在文件头，3.7MB 曲目的**前 64KB** 用 MMR 读回来是完整的 136.8 秒，于是一次中途断掉的传输会被提交成一首歌，正是端口那句「一个悄悄没带上音频的拷贝会被当成一首歌提交」的另一半。**「能解码」和「完整」是两个问题**，MMR 只答前一个。③b 只在源声明了 `totalBytes` 时才判（chunked 响应报 `null` = 不知道，不是 0）；真机实测一次真实下载的 `total_bytes` 有值，所以这条守卫在生产上是**上了膛的**。
 
 崩溃状态表（进程在任意点被 kill）：
 

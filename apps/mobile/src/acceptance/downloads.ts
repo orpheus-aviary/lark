@@ -163,9 +163,14 @@ async function streamIsReachable(): Promise<string> {
     `${probe.host} answered ${response.status}`,
   );
   expect(body.byteLength > 0, `${probe.host} answered ${response.status} with no bytes`);
+  // `content-range` on a 206 carries the WHOLE size (`bytes 0-1023/3690190`),
+  // which is the question behind ③b and behind any progress bar: does this node
+  // tell a client how big the file is, or does it not?
   return (
     `${probe.scheme}//${probe.host} → ${response.status} · ` +
-    `${response.headers.get('content-type') ?? 'no content-type'} · ${body.byteLength} bytes`
+    `${response.headers.get('content-type') ?? 'no content-type'} · ${body.byteLength} bytes · ` +
+    `content-range ${response.headers.get('content-range') ?? 'absent'} · ` +
+    `content-length ${response.headers.get('content-length') ?? 'absent'}`
   );
 }
 
@@ -179,7 +184,25 @@ async function downloadsARealSong(): Promise<string> {
   // installing the release build over this and pressing play. The handle still
   // closes — the rows and the file are on disk either way, and expo-sqlite
   // caches open databases by name (N2f).
-  const { engine, fileOps } = createDownloadRuntime(boot);
+  // What the NATIVE downloader reports while it works. `total_bytes` on the
+  // task turning out to be null is either "the node declares no size" or "this
+  // API never calls back at all", and ③b plus every progress bar N4d draws
+  // depend on which.
+  let progressCalls = 0;
+  let lastProgress = 'never called';
+  const { engine, fileOps } = createDownloadRuntime(boot, {
+    transfer: async (args) => {
+      const { nativeAudioTransfer } = await import('../ports/audio-landing');
+      return nativeAudioTransfer({
+        ...args,
+        onProgress: (received, total) => {
+          progressCalls += 1;
+          lastProgress = `${received}/${total ?? 'null'}`;
+          args.onProgress(received, total);
+        },
+      });
+    },
+  });
   const library = createLibrary(boot, fileOps);
 
   const item = await resolveOne(client, `https://www.bilibili.com/video/${bvid}`);
@@ -223,6 +246,15 @@ async function downloadsARealSong(): Promise<string> {
   boot.handle.closeSync();
   return (
     `${song.name} · ${song.duration}s (Δ${delta.toFixed(3)}s) · ${song.source_key} · ` +
+    // Whether the completeness gate (③b) is ARMED on a real transfer: it can
+    // only compare against a total the source declared, and `null` here would
+    // mean the guard that criterion 7② bought is inert in production.
+    // The task's own `total_bytes` is deliberately NOT quoted here: the engine
+    // zeroes progress on every stage change (`engine.ts` `#resetProgress`), and
+    // the landing enters `saving` after the transfer — so a terminal task
+    // always reports null and says nothing about whether ③b had a total to
+    // compare against. What the native downloader reported does say.
+    `native progress ×${progressCalls}, last ${lastProgress} · ` +
     `lyrics task ${lyrics ?? 'never queued'} · ${lrc === null ? 'no lrc' : `${lrc.length} chars of lrc`}`
   );
 }

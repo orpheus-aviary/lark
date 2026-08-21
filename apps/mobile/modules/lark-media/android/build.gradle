@@ -1,0 +1,27 @@
+// Decision b's native half. One function, and the reason it exists is that
+// nothing above it can read a file's duration without opening a player:
+// expo-audio's `duration` needs a `createAudioPlayer`, which takes audio focus
+// and would interrupt whatever is playing (criterion 9), and JS cannot parse a
+// fragmented MP4's real length — `mvhd.duration` is routinely 0 there.
+// `MediaMetadataRetriever` reads a path and nothing else.
+//
+// Same shape as `lark-fs` and `lark-audio`, third time.
+
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.larkmedia'
+version = '0.1.0'
+
+android {
+  // Both spelled out for the same reasons as `lark-fs`: AGP 8 requires the
+  // namespace, and expo-autolinking reads `versionName` while configuring
+  // every linked project.
+  namespace "expo.modules.larkmedia"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
