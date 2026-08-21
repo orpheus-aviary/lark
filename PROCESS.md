@@ -601,6 +601,15 @@
   - 🟢 **判据 9**：一边放 short 夹具、一边用 MMR 读 **long（37 分钟）**那条 —— `read 2226.646s in 22ms · 0.8s → 1.7s · never stopped`，主机在**同一刻**数到**恰好 1 个 `state:started` 的 AudioTrack**。**MMR 不碰音频焦点这条从「文档这么写」变成实测。** 场景是两个按钮（arm 停在还在放的状态 / stop 收），因为「系统握着几个 AudioTrack」不是 JS 看得见的事；arm **不开库**，不该为一个跟曲库无关的问题清掉别人的行。
   - 🟢 **判据 11 的真崩溃点**：`createMobileAudioLanding` 加 `crashPoint`（⑤ 与 ⑥ 之间，**park 而不是抛**——抛会展开栈，SIGKILL 不会），arm → `am force-stop` → 重启 → `row still says 136.836s · no canonical file（读作「需要下载」）· .tmp swept · directory kept`，逐字对上崩溃状态表「⑤ 之后 ⑥ 之前（new）」那一行。
   - **判据 11 的反测（不做启动清扫 → `.tmp` 必须还在）没有运行时开关**，如实记着：这条断言只有 ⑪b 跑过才可能成立，而 skip set 那条反测在 sweep 套件里是能跑的。
+**N4c 进行中（2026-08-21）。N4c-1 完成——判据 15（gate，改写后）· 16（gate）绿，决策 j 关闭。**
+- **N4c-1 = `modules/lark-transfer`**（dataSync 前台服务：Kotlin service + 通知渠道 + `onTimeout` + 模块自带 manifest）+ `acceptance/foreground.ts`（长曲下载入口与反测）+ **acceptance 面板改成数据驱动列表**（17 个手写 Pressable → `SUITES` 表，复杂度 23 → 过；顺带去掉「运行时把按钮标签改成 Running…」，`drive.mjs` 按标签找按钮，改名会让它第二次按不中）。
+- 🟢 **判据 16（merged manifest）**：`FOREGROUND_SERVICE` · **`FOREGROUND_SERVICE_DATA_SYNC`**（**模块自带 `AndroidManifest.xml` 合并进来了——§1.4 那条「不写第四个 config 插件」的路走通**）· `INTERNET` · `LarkTransferService` 的 `foregroundServiceType="dataSync"`，而 expo-audio 的 `AudioControlsService` 仍是 `mediaPlayback`。服务实测起得来：`isForeground=true` · `types=0x00000001` · 通知在 `lark.downloads` 渠道。
+- 🔴 **判据 15 当场改写（原文两侧都绿，什么也没证明）**：原判据是「熄屏 4 分半下完 54.3MB」——**带服务与不带服务都逐字节下完**（`landed 54273999 of 54273999` ×2）。4 分半、内存宽裕、刚离开前台时 Android 根本不回收这个进程，**熄屏时长不是区分变量**。改成 **应用切后台 + `adb shell am kill`**（只杀「可以安全杀掉的」进程，**豁免持有前台服务的**）：不带服务 `pidof` **为空**，带服务 **pid 11213 存活**并在熄屏 3 分钟后 `task succeeded · 54273999/54273999 · 2226.646s`。子计划 §4 判据 15 已改写并附原文。
+- ✅ **§1.6 答掉、决策 j 关闭**：熄屏下 `File.downloadFileAsync` 的传输照走（原生线程，chunk 不等 JS），**不加 wake lock**。
+- **路上两个真 bug**：① 🔴 **Expo `AsyncFunction` 的最后一个表达式就是返回值**——`startForegroundService` 回 `ComponentName`，桥转不了，JS 拿到 `has been rejected. → Unknown type: class android.content.ComponentName`，**而服务其实已经起来了**；副作用型的 AsyncFunction 末尾要显式 `Unit`。② 长曲 BV1LtgV6ZE2U **有 2 个分 P**，链接不带 `?p=1` 会撞多 P 的 LLM 门（`LlmNotConfiguredError`）——**这是 N4a 提取的那条判断在设备上正确生效**，顺带把判据 28 的一半提前验了。
+- **我自己的一条操作教训**：第一次 tap 完 arm 就直接看 `dumpsys`、看到服务在就熄屏等了四分半——服务在只是上面①的副作用，**下载根本没入队**。每一步的绿都要自己读过，不能靠旁证推断。
+- **还剩**：N4c-2（状态机 + 单测，判据 17 逻辑半边 · 18）· N4c-3（判据 17 · 19 · 20–22）。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

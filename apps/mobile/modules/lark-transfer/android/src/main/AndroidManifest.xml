@@ -1,0 +1,26 @@
+<!--
+  The service and the permission it needs, in the same directory as the service
+  itself (subplan §1.4).
+
+  `android/` is a CNG product and is not tracked, so the usual way to say
+  anything about the manifest is a config plugin — that is what
+  `plugins/with-backup-rules.js` is. It has to be one because it changes
+  ATTRIBUTES OF THE APPLICATION NODE, which belong to the app rather than to any
+  library. This adds new ELEMENTS, and a local Expo module is a standard AGP
+  library whose manifest takes part in the merge. So the declaration lives
+  beside the thing it declares.
+
+  FOREGROUND_SERVICE is not repeated here: expo-audio's plugin already puts it
+  in the merged result. Criterion 16 asserts the MERGED manifest, so a line
+  saved here changes nothing about what is verified.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+
+  <application>
+    <service
+      android:name=".LarkTransferService"
+      android:exported="false"
+      android:foregroundServiceType="dataSync"/>
+  </application>
+</manifest>

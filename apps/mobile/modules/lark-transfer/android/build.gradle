@@ -1,0 +1,30 @@
+// Decision e's native half: the dataSync foreground service (N4c).
+//
+// Downloads are minutes long and the interesting ones happen with the screen
+// off. Without a foreground service Android is entitled to stop the process
+// while a 50MB transfer is halfway through, and nothing above this can ask for
+// that exemption — expo-audio's service declares `mediaPlayback` and is media3's
+// besides, and there is no Expo module for a dataSync one.
+//
+// Same shape as `lark-fs`, `lark-audio` and `lark-media`, fourth time. The
+// `android/build.gradle` is not optional: without it autolinking walks past the
+// whole directory in SILENCE and the app dies on launch (N4b, measured).
+
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.larktransfer'
+version = '0.1.0'
+
+android {
+  // Both spelled out for the same reasons as `lark-fs`: AGP 8 requires the
+  // namespace, and expo-autolinking reads `versionName` while configuring
+  // every linked project.
+  namespace "expo.modules.larktransfer"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

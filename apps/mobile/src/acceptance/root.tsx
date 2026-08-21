@@ -23,11 +23,102 @@ import { type ScenarioRow, runD16Scenarios } from './d16';
 import { runDownloadScenarios } from './downloads';
 import { armMidDrainKill, resumeAfterKill, runFileOpScenarios } from './file-ops';
 import { runFixtureImportScenarios } from './fixture-import';
+import {
+  armLongDownloadWithService,
+  armLongDownloadWithoutService,
+  checkLongDownload,
+  releaseLongDownload,
+} from './foreground';
 import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
 import { runPlaybackScenarios } from './playback';
 import { runSortScenarios } from './sort';
 import { runSweepScenarios } from './sweep';
+
+/**
+ * Every suite the panel can run, in the order they appear.
+ *
+ * A LIST AND NOT SEVENTEEN `Pressable`s, since N4c. The hand-written version
+ * grew one block per criterion and had started to read as a wall — and the
+ * thing each block was really carrying, the note about how to run it, was
+ * buried in a JSX comment where nothing could show it to the person holding the
+ * phone. Here the note is data, and the panel prints it.
+ */
+const SUITES: readonly { label: string; run: () => Promise<ScenarioRow[]>; note?: string }[] = [
+  { label: 'Run D16 scenarios', run: runD16Scenarios },
+  { label: 'Run library contract', run: runLibraryContractScenarios },
+  { label: 'Run file system scenarios', run: runFileSystemScenarios },
+  { label: 'Run file op scenarios', run: runFileOpScenarios },
+  {
+    label: 'Import pushed fixture',
+    run: runFixtureImportScenarios,
+    // The one fixture that has to be pushed rather than synthesised: a library
+    // the DESKTOP wrote.
+    note: 'needs `just mobile-push-fixture`; tap once first to make the directory',
+  },
+  { label: 'Run sort scenarios', run: runSortScenarios },
+  {
+    label: 'Run sweep scenarios',
+    run: runSweepScenarios,
+    // Criterion 13's counter-test is one of the scenarios rather than a code
+    // edit: same fixture, no skip set, and the directory has to be taken.
+    note: '11 · 12 · 13, counter-tests included',
+  },
+  {
+    label: 'Run landing scenarios',
+    run: runAudioLandingScenarios,
+    note: '7 · 8 · 10 — needs `just mobile-push-audio-fixtures`',
+  },
+  {
+    label: 'Run download scenarios',
+    run: runDownloadScenarios,
+    // playurl picks the CDN node by the caller's IP, so one network says
+    // nothing about the other.
+    note: '5 · 6 · 14 — run on Wi-Fi AND on mobile data; leaves 6ʼs song behind on purpose',
+  },
+  {
+    label: 'Arm long download',
+    run: armLongDownloadWithService,
+    note: '15 — then screen off, wait, wake, and Check',
+  },
+  {
+    label: 'Arm long download no service',
+    run: armLongDownloadWithoutService,
+    // If this one finishes too, criterion 15 proved nothing about the service.
+    note: '15 counter-test — the same download with nothing holding the process up',
+  },
+  { label: 'Check long download', run: checkLongDownload, note: '15 — answered from disk too' },
+  { label: 'Release long download', run: releaseLongDownload },
+  {
+    label: 'Arm criterion 9',
+    run: armDurationDuringPlayback,
+    // The important half is not JS's to see: how many AudioTracks the system
+    // holds is a `dumpsys audio` fact.
+    note: '9 — parks with the music going; count active players from the host',
+  },
+  { label: 'Stop criterion 9', run: stopDurationDuringPlayback },
+  {
+    label: 'Arm landing kill',
+    run: armLandingKill,
+    // A throw unwinds where SIGKILL does not, so this parks and the driver
+    // force-stops it.
+    note: '11 — force-stop while it is parked, then relaunch and Resume',
+  },
+  { label: 'Resume after landing kill', run: resumeAfterLandingKill },
+  {
+    label: 'Run playback scenarios',
+    run: runPlaybackScenarios,
+    // The product cannot hold a broken audio file, so this is the only
+    // artifact where the question can be asked at all.
+    note: '4 · 3③ — the host counts active players afterwards',
+  },
+  {
+    label: 'Arm mid drain kill',
+    run: armMidDrainKill,
+    note: '12③ — force-stop while parked, then relaunch and Resume',
+  },
+  { label: 'Resume after kill', run: resumeAfterKill },
+];
 
 export function Root() {
   const [rows, setRows] = useState<ScenarioRow[] | null>(null);
@@ -59,165 +150,24 @@ export function Root() {
         <Text style={styles.title}>lark · acceptance</Text>
         <Text style={styles.line}>
           D16 — 17, 18, 19 · files — 9, 10②③ · journal — 12 · library — 13 · playback — 4, 3③ ·
-          sweep — 11, 12, 13 · landing — 7, 8, 9, 10, 11 · downloads — 5, 6, 14
+          sweep — 11, 12, 13 · landing — 7, 8, 9, 10, 11 · downloads — 5, 6, 14 · foreground — 15
         </Text>
 
-        <Pressable style={styles.button} onPress={run(runD16Scenarios)} accessibilityRole="button">
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run D16 scenarios'}</Text>
-        </Pressable>
+        {SUITES.map((suite) => (
+          <View key={suite.label}>
+            <Pressable style={styles.button} onPress={run(suite.run)} accessibilityRole="button">
+              {/*
+                The label NEVER becomes "Running…". `drive.mjs` finds buttons by
+                their label, and a panel that renames every one of them while a
+                suite runs is a panel the driver cannot press twice.
+              */}
+              <Text style={styles.buttonLabel}>{suite.label}</Text>
+            </Pressable>
+            {suite.note !== undefined && <Text style={styles.note}>{suite.note}</Text>}
+          </View>
+        ))}
 
-        <Pressable
-          style={styles.button}
-          onPress={run(runLibraryContractScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run library contract'}</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.button}
-          onPress={run(runFileSystemScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>
-            {running ? 'Running…' : 'Run file system scenarios'}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.button}
-          onPress={run(runFileOpScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run file op scenarios'}</Text>
-        </Pressable>
-
-        {/*
-          The one fixture that has to be pushed rather than synthesised: a
-          library the DESKTOP wrote. `just mobile-push-fixture` puts it where
-          this can reach it.
-        */}
-        <Pressable
-          style={styles.button}
-          onPress={run(runFixtureImportScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Import pushed fixture'}</Text>
-        </Pressable>
-
-        <Pressable style={styles.button} onPress={run(runSortScenarios)} accessibilityRole="button">
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sort scenarios'}</Text>
-        </Pressable>
-
-        {/*
-          N4 criteria 11–13. The counter-test for 13 is one of the scenarios
-          rather than a code edit: same fixture, no skip set, and the directory
-          has to be taken — otherwise the guard above it proves nothing.
-        */}
-        <Pressable
-          style={styles.button}
-          onPress={run(runSweepScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run sweep scenarios'}</Text>
-        </Pressable>
-
-        {/*
-          The AudioLandingContract's second hook, plus criteria 7 and 8. Needs
-          the two probe tracks and the ffprobe reading they are measured
-          against: `just mobile-push-audio-fixtures`, after this build has made
-          `lark-fixture/` once.
-        */}
-        <Pressable
-          style={styles.button}
-          onPress={run(runAudioLandingScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run landing scenarios'}</Text>
-        </Pressable>
-
-        {/*
-          The only suite that needs a signal. Criterion 5 asks what scheme this
-          network hands us and whether the product build can read bytes from
-          it — RUN IT ON WI-FI AND ON MOBILE DATA, because playurl picks the CDN
-          node by the caller's IP. It leaves criterion 6's song in the library
-          on purpose: install the release build over this and play it.
-        */}
-        <Pressable
-          style={styles.button}
-          onPress={run(runDownloadScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run download scenarios'}</Text>
-        </Pressable>
-
-        {/*
-          Criterion 9 is two buttons because its important half is not JS's to
-          see: the first starts playback, reads a duration under it and PARKS
-          with the music going; the host counts AudioTracks; the second stops.
-        */}
-        <Pressable
-          style={styles.button}
-          onPress={run(armDurationDuringPlayback)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Arm criterion 9'}</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.button}
-          onPress={run(stopDurationDuringPlayback)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Stop criterion 9'}</Text>
-        </Pressable>
-
-        {/*
-          And criterion 11 is two buttons because it is two processes — the
-          same shape as the journal's kill, for the same reason: a throw
-          unwinds where SIGKILL does not.
-        */}
-        <Pressable style={styles.button} onPress={run(armLandingKill)} accessibilityRole="button">
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Arm landing kill'}</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.button}
-          onPress={run(resumeAfterLandingKill)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>
-            {running ? 'Running…' : 'Resume after landing kill'}
-          </Text>
-        </Pressable>
-
-        {/*
-          Criterion 4, and the acts half of 3③. The product cannot hold a
-          broken audio file — nothing can push one into `Paths.document` and no
-          screen can make one — so this is the only artifact where "what does
-          the player do with a file that is not audio" can be asked at all.
-          The host counts active players afterwards.
-        */}
-        <Pressable
-          style={styles.button}
-          onPress={run(runPlaybackScenarios)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Run playback scenarios'}</Text>
-        </Pressable>
-
-        {/*
-          Criterion 12③ is two buttons because it is two processes. The first
-          stops the drain half-done and stays there; the driver force-stops the
-          app; the second asks the next boot what it made of the wreckage.
-        */}
-        <Pressable style={styles.button} onPress={run(armMidDrainKill)} accessibilityRole="button">
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Arm mid drain kill'}</Text>
-        </Pressable>
-
-        <Pressable style={styles.button} onPress={run(resumeAfterKill)} accessibilityRole="button">
-          <Text style={styles.buttonLabel}>{running ? 'Running…' : 'Resume after kill'}</Text>
-        </Pressable>
+        {running && <Text style={styles.line}>Running…</Text>}
 
         {rows !== null && (
           <Text style={[styles.verdict, failed === 0 ? styles.pass : styles.fail]}>
@@ -252,6 +202,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
   buttonLabel: { color: '#fafafa', fontSize: 15 },
+  note: { color: '#71717a', fontSize: 12, marginTop: 4 },
   verdict: { marginTop: 16, fontSize: 15, fontWeight: '600' },
   row: { marginTop: 10 },
   rowName: { fontSize: 14 },
