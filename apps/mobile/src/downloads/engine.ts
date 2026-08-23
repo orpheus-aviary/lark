@@ -186,8 +186,9 @@ export function createDownloadRuntime(
     // which is the only behaviour that can be explained.
     getLlmConfig: () => readLlmConfig(boot.db.sqlite),
     timeouts: MOBILE_TIMEOUTS,
-    // ⚠️ TEMPORARY (see `./log.ts`): without it the engine is NOOP_LOGGER and
-    // an INTERNAL_ERROR is unexplainable by construction.
+    // Without it the engine is NOOP_LOGGER, and "详情见日志" names a log this
+    // device does not have — a release build reaches no logcat either, so an
+    // INTERNAL_ERROR would be unexplainable by construction (`./log.ts`).
     logger: engineLogger,
     // `fetchImpl` is deliberately absent: `globalThis.fetch` here is expo/fetch,
     // which N0b-3 froze and N1i re-checked against the real bilibili endpoints.

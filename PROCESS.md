@@ -681,6 +681,26 @@
 - 🔴 **写它的时候发现 §8.3 有个洞并已补**：模型的三个字段在 `local_metadata`，也就是**在 `resetInstall()` 删掉的那个库文件里**，而验收套件里除这一个之外**每一个都以 `resetInstall()` 开场**。所以「配置填一次两个 build 都认」的前提是**验收那次装机上只跑 reidentify 这一个套件**。三处落地：这个套件**不重置**（在现有库上造自己的歌、跑完删掉）· ⓪ 条把「模型被谁清掉了」当场说清楚，而不是让 ③ 以「重新识别坏了」的样子失败 · 面板那一行的 note 写明顺序约束。
 - **基线**：`just check` exit 0 · `just test` exit 0 / **2862 passed**（无新增单测：`settings-tab.tsx` / `settings/llm.ts` / `acceptance/` 都进不了 Node 的 runner）· `mobile-typecheck` exit 0 · 生产 bundle smoke 111 portable · **验收 bundle smoke 111 portable + 13 acceptance**（+1，证明新套件真在验收图里）。
 
+#### N4e-2 / N4e-3 真机（2026-08-23）—— 判据 24 · 26 · 27 · 28 · 29 · 30①③ 全绿，**N4e 完成**
+
+**一次会话，6 次构建。抓到三个 bug，其中两个只有设备能抓。**
+
+- 🔴 **`AbortSignal.prototype.throwIfAborted` 在这个 RN 运行时不存在**，而 `AbortSignal.any` / `.timeout` 两个**静态方法存在**（手机自答：`any=function · timeout=function · proto.throwIfAborted=undefined · any()→undefined`）。它在 core 里唯一的调用点在**清洗命名的降级处理器**里 ⇒ 任何一次模型失败都把降级处理器自己炸成 `TypeError`，整个下载失败成 INTERNAL_ERROR。**一条为了「别让任务挂掉」而写的路，自己成了让任务挂掉的原因。** 修法：`portable/download/timeouts.ts` 加不依赖该 API 的 `throwIfAborted`（不用 `DOMException`——这个运行时大概率也没有；下游只读 `name === 'AbortError'`）。
+- 🔴 **两条静默降级**（`llmJson` 解析失败 · `inferSongInfo` 请求失败）原本一句话都不说，而「清洗降级了」和「你根本没切模式」**在屏幕上完全一样**——当场把两个人都绕进去了。两条现在都 `logger?.warn`。
+- 🔴 **关键词的提交路径在移动端根本没接**：配了模型之后 `preflightSingle` 不再抛错而是返回 target，`recognise` 把「没抛错」当成拒绝并回一句写死的旧文案。补 `Recognition` 的 keyword 分支 + 提交路径（关键词**不带命名模式、不带 url**，命名行隐藏——与桌面 `DownloadBar.tsx:90` 同一条规则）。**3 条回归单测，中间那条对旧代码就是红的。**
+- 🔴 **手机上 engine 拿的是 `NOOP_LOGGER`**，所以 `describeTaskError` 的「详情见日志」指向一个不存在的日志，而 release 构建也到不了 logcat ⇒ **INTERNAL_ERROR 在构造上就是不可解释的**。现在 `downloads/log.ts` 是那个日志（5 条内存环），设置页是读它的地方。**它带原始错误，也就带 §1.4 那条泄漏面**——脱敏已按用户决定不做，所以这是明知代价的选择，将来要改是加脱敏而不是把窗口拆掉。
+- 🟢 **判据 30①③**：设置页只显示「已配置」、字段不回显（16KB 全量 dump grep 不到 `sk-`）；logcat 全量无 `sk-`、无 `authorization`/`x-api-key`，**连 `deepseek` 这个词都没有**（网络层什么都没打）。**30② 按用户决定不跑**。
+- 🟢 **判据 27**：同一条链接 `BV1px411C7Me`，原标题 `【洛天依原创曲】红昭愿`/`音阙诗听` → 清洗 `红昭愿`/`音阙诗听`，与桌面真 core + 真模型的预测**逐字相同**；模型名改成不存在的 → 任务**成功**且落库是原标题（回落，不是失败）——这一条在修 `throwIfAborted` 之前正是那个 INTERNAL_ERROR。
+- 🟢 **判据 26**：`Yesterday Once More Carpenters` → 落库 `Yesterday Once More`/`Carpenters`。
+- 🟢 **判据 28 两半**：未配置 → 当场用 portable 原话拒绝（`这个视频有 2 个分P：…`）且**没有入队**；配了 → 自动选集并下成。
+- 🟢 **判据 24 两个方向**：记住 clean → 冷启动仍 clean；**记住 original → 冷启动仍 original**（压过「有模型时默认 clean」）。
+- 🟢 **判据 29（验收构建）5/5**：⓪ 模型在 → ① 真下一首再把 `source_key` 改成 `BV176M3zPEZu:999999999`（走 `updateSong`）→ ② 清空配置 `SOURCE_GONE` 且文案说得出怎么修 → ③ 还原配置**重新识别并下成**（`BV176M3zPEZu:30584670526`，同 bvid 的真 cid）→ ④ 删歌收尾。
+- **收尾基线**：`just check` exit 0 · `just test` exit 0 / **2875 passed**（shared 143 · **core 1271** · **mobile 138** · cli 428+9 skipped · daemon 468 · gui 427）· `mobile-typecheck` exit 0。
+
+**三条操作上的坑**：`keyevent 4` 收键盘的同时**把 tab 也退了**（设置页未保存的草稿跟着没），改用「滚动把保存按钮顶到键盘上方」· **`uiautomator` 的属性在值里含双引号时改用单引号**，`grep 'text="…"'` 会静默漏读 · `input text` 打不了中文（判据 26 因此用 ASCII 关键词）。
+
+🔑 **用户 2026-08-23 定下的测试规模（子计划 §8.5 是正文）**：**测试简化，优先功能开发**。默认落单测；**反测全部搬进单测**（设备上「改→建→验红→还原→再建」取消）；一个里程碑最多上机一次；不做预测性桌面探针；判据标注归属而不是默认都要真机证据。**当场兑现了一次**：多 P 门原本在任何地方都没有直接单测，补 `portable/download/preflight.test.ts`（10 例）之后删掉 `pages.length > 1` **一秒见红**，三条 narrowness 用例仍绿。代价如实记：失去设备侧「破了会红」的证据。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

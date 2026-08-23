@@ -35,7 +35,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { abortSignalSupport, engineErrors, subscribeEngineErrors } from '../downloads/log';
+import { engineErrors, subscribeEngineErrors } from '../downloads/log';
 import { nowPlaying, usePlayback } from '../player';
 import { nestDirectory } from '../ports/paths';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
@@ -73,7 +73,6 @@ export function SettingsTab() {
         label="启动时执行的文件操作"
         value={`${boot.drained.executed} 条 · ${boot.drained.failed} 失败 · ${boot.drained.skipped} 跳过`}
       />
-      <Field label="AbortSignal（临时诊断）" value={abortSignalSupport()} />
       <EngineErrors />
       <Text style={styles.note}>同步在 N5 开放。</Text>
     </ScrollView>
@@ -347,12 +346,12 @@ function NowPlayingCount() {
   );
 }
 
-/** ⚠️ TEMPORARY (`downloads/log.ts`): the raw side of "详情见日志". */
+/** The raw side of "详情见日志" — on a phone the log is a screen (`downloads/log.ts`). */
 function EngineErrors() {
   const lines = useSyncExternalStore(subscribeEngineErrors, engineErrors);
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>最近的引擎错误（临时诊断）</Text>
+      <Text style={styles.fieldLabel}>最近的下载错误</Text>
       {lines.length === 0 ? (
         <Text style={styles.fieldValue}>—</Text>
       ) : (
