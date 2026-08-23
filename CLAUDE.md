@@ -126,7 +126,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 - **计划文档**（`docs/plans/`）：
   - 主计划 `2026-07-16-ts-rewrite-master-plan.md`
   - Phase A/B 主计划 `2026-08-13-m4a-and-mobile-master-plan.md`（§3 迁移状态机 / §4 移动版 / §4.3 里程碑表与 Stage 修订 / §4.5 明确不做）
-  - Phase B：`2026-08-17-phase-b-mobile-n0.md`（N0 详案 + 全期框架 + §3.2a 测量协议 + §9 设备档案）· `2026-08-18-phase-b-mobile-n1.md`（**§8.1 D5 冻结 = 单一事实源**）· `2026-08-19-phase-b-mobile-n2.md`（**N2，v3 + §5 决策全关**）· `2026-08-20-phase-b-mobile-n3.md` · `2026-08-20-phase-b-mobile-n4.md`（**N4 全期**）· `2026-08-21-phase-b-mobile-n4c.md`（**N4c 已完成**，§8 实施修订 + §9 真机对照表；判据 15 已按实测改写，新增三条编号 41–43）· `2026-08-21-phase-b-mobile-n4d.md`（**N4d，决策 a–j 已于 2026-08-23 全关，§5 是定案**；§1.6 的 `singleTask` 风险已在主机上排除）
+  - Phase B：`2026-08-17-phase-b-mobile-n0.md`（N0 详案 + 全期框架 + §3.2a 测量协议 + §9 设备档案）· `2026-08-18-phase-b-mobile-n1.md`（**§8.1 D5 冻结 = 单一事实源**）· `2026-08-19-phase-b-mobile-n2.md`（**N2，v3 + §5 决策全关**）· `2026-08-20-phase-b-mobile-n3.md` · `2026-08-20-phase-b-mobile-n4.md`（**N4 全期**）· `2026-08-21-phase-b-mobile-n4c.md`（**N4c 已完成**，§8 实施修订 + §9 真机对照表；判据 15 已按实测改写，新增三条编号 41–43）· `2026-08-21-phase-b-mobile-n4d.md`（**N4d 已完成**，§5 定案 + §8 三段实施修订）· `2026-08-23-phase-b-mobile-n4e.md`（**N4e，v1 待评审**）
   - v0.3：`2026-08-13-m4a-unification.md`（判据 1–61 / 决策 a–n / **§9 附表 A 错误分型映射表**）
   - v0.2：`2026-08-11-v0.2-skybridge-sync.md`（§3 协议冻结 / §5 不变量 ㉑–㉚ / §8 决策 D1–D8）· soak 清单 `2026-08-12-v0.2-soak-checklist.md`
   - v0.1：`2026-07-31-m0-…` / `2026-07-31-m1-…` / `2026-08-04-m2-…` / `2026-08-04-m3-…` / `2026-08-05-m4-…` / `2026-08-06-m5-…`（+ followup）/ `2026-08-07-m6-cli.md` / `2026-08-08-m7-packaging.md`
