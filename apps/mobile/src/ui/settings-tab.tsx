@@ -24,7 +24,7 @@ import {
 import type { NowPlayingMode } from '@lark/shared';
 import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
 import { Directory } from 'expo-file-system';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -35,6 +35,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { abortSignalSupport, engineErrors, subscribeEngineErrors } from '../downloads/log';
 import { nowPlaying, usePlayback } from '../player';
 import { nestDirectory } from '../ports/paths';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
@@ -72,6 +73,8 @@ export function SettingsTab() {
         label="启动时执行的文件操作"
         value={`${boot.drained.executed} 条 · ${boot.drained.failed} 失败 · ${boot.drained.skipped} 跳过`}
       />
+      <Field label="AbortSignal（临时诊断）" value={abortSignalSupport()} />
+      <EngineErrors />
       <Text style={styles.note}>同步在 N5 开放。</Text>
     </ScrollView>
   );
@@ -341,6 +344,25 @@ function NowPlayingCount() {
       label="蓝牙歌词发送（本首）"
       value={`${published} 次 · 最短间隔 ${minGapMs ?? '—'} ms · 播放到 ${time.toFixed(1)}s`}
     />
+  );
+}
+
+/** ⚠️ TEMPORARY (`downloads/log.ts`): the raw side of "详情见日志". */
+function EngineErrors() {
+  const lines = useSyncExternalStore(subscribeEngineErrors, engineErrors);
+  return (
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>最近的引擎错误（临时诊断）</Text>
+      {lines.length === 0 ? (
+        <Text style={styles.fieldValue}>—</Text>
+      ) : (
+        lines.map((line) => (
+          <Text key={line} style={styles.note} selectable>
+            {line}
+          </Text>
+        ))
+      )}
+    </View>
   );
 }
 

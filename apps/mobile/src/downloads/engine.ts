@@ -37,6 +37,7 @@ import {
   createForegroundController,
 } from './foreground';
 import { attachDownloadEngine, downloads, refreshDownloads, setForegroundStatus } from './hub';
+import { engineLogger } from './log';
 
 /**
  * The transfer deadline this device gets: fifteen minutes, not the desktop's
@@ -185,6 +186,9 @@ export function createDownloadRuntime(
     // which is the only behaviour that can be explained.
     getLlmConfig: () => readLlmConfig(boot.db.sqlite),
     timeouts: MOBILE_TIMEOUTS,
+    // ⚠️ TEMPORARY (see `./log.ts`): without it the engine is NOOP_LOGGER and
+    // an INTERNAL_ERROR is unexplainable by construction.
+    logger: engineLogger,
     // `fetchImpl` is deliberately absent: `globalThis.fetch` here is expo/fetch,
     // which N0b-3 froze and N1i re-checked against the real bilibili endpoints.
     callbacks: {
