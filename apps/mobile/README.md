@@ -1,7 +1,10 @@
 # @lark/mobile
 
-lark for Android. Expo SDK 57 + CNG, Android only. Phase B, subplan
-`docs/plans/2026-08-19-phase-b-mobile-n2.md`.
+lark for Android. Expo SDK 57 + CNG, Android only. Phase B — the master plan
+is `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4 and every batch has
+its own subplan in `docs/plans/`; which batch this app is on is recorded in
+`PROCESS.md`, not here, because a README that tracks progress is a README that
+is wrong.
 
 ## What this links
 
@@ -28,8 +31,11 @@ react / react-native / expo-\* are byte-identical to
 comes from Expo's `bundledNativeModules.json`, never from npm latest. When a
 version moves, it moves in both.
 
-Not here yet, and each arrives with its batch: `expo-audio` (N3),
-`expo-share-intent` / `expo-linking` (N4).
+A dependency arrives with the batch that needs it and not before: `expo-audio`
+came with N3, the three self-built native modules with N3e / N4b / N4c, and
+`expo-share-intent` / `expo-linking` are N4d's. Every arrival re-runs the
+DESKTOP's `just check` and `just test` — a phone dependency that disturbs the
+workspace is a thing that has happened.
 
 ## Commands
 
@@ -42,6 +48,11 @@ just mobile-android-release    # the build every NUMERIC criterion is measured o
 just mobile-drive <args>       # press buttons on the device (spike's driver, retargeted)
 just mobile-backup-audit       # D16's backup-exclusion evidence, on the built apk
 ```
+
+The full set — the acceptance artifact, the fixture pushes, the driven library
+run, the instrumentation — is in the `justfile` under the `mobile` group. It
+grows every batch, so listing it twice would only teach you to trust the copy
+that rots.
 
 `android/` is generated and untracked. Anything that can only be expressed by
 hand-editing it belongs in `app.config.ts` or in `plugins/`.
