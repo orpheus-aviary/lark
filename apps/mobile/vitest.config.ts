@@ -32,6 +32,13 @@
 // person is TOLD when a sweep hits a task past the commit point, and a phone
 // can only be asked whether the file survived. The wording, the counts and the
 // sweep order are worked out here.
+//
+// `downloads/preflight.ts` joined in N4d-2 and is the first entry that reaches
+// `@lark/core/portable` for real values rather than types. That is fine and
+// deliberate: portable is Node-free by guard, so it loads here exactly as it
+// loads on the phone — and what these tests are about is which of ITS functions
+// get called, in what order, with what. The bilibili client is a fake with two
+// methods, because two is all the preflight can reach.
 
 import { defineConfig } from 'vitest/config';
 
@@ -43,6 +50,7 @@ export default defineConfig({
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/cancel.test.ts',
+      'src/downloads/preflight.test.ts',
     ],
   },
 });

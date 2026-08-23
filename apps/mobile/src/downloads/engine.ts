@@ -17,10 +17,13 @@
 // The boot runtime has finished draining and is not used again.
 
 import {
+  type BilibiliClient,
   DEFAULT_TIMEOUTS,
   DownloadEngine,
   type DownloadTimeouts,
   FileEffectRuntime,
+  createBilibiliClient,
+  isLlmConfigured,
 } from '@lark/core/portable';
 import type { LlmConfig } from '@lark/shared';
 import LarkTransfer from '../../modules/lark-transfer';
@@ -97,6 +100,25 @@ const nativeForegroundService: ForegroundService = {
 export interface DownloadRuntime {
   engine: DownloadEngine;
   /**
+   * The bilibili client, shared with the engine rather than made twice.
+   *
+   * The add page's preflight needs one too (`downloads/preflight.ts`), and a
+   * second client would be a second anonymous buvid and a second WBI key cache
+   * — two identities for one app, refetching the same keys. The daemon has had
+   * this shape since M3 (`ctx.bilibili` is the engine's client); until N4d the
+   * phone had nothing outside the engine that needed to ask bilibili anything,
+   * so the engine's own default was enough.
+   */
+  bilibili: BilibiliClient;
+  /**
+   * Whether the three LLM gates are open, for the screens that have to say so
+   * BEFORE a submission rather than after it (§1.1).
+   *
+   * A function and not a boolean because N4e's settings page will make it
+   * change inside one process; today it reads a constant.
+   */
+  hasLlm(): boolean;
+  /**
    * The right to keep working while the screen is off (N4c).
    *
    * Built here rather than beside the screens because it is the engine's other
@@ -158,9 +180,11 @@ export function createDownloadRuntime(
   boot: BootResult,
   deps: DownloadRuntimeDeps = {},
 ): DownloadRuntime {
+  const bilibili = createBilibiliClient({ timeouts: MOBILE_TIMEOUTS });
   const engine = new DownloadEngine({
     store: boot.db,
     files: boot.files,
+    bilibili,
     audio: createMobileAudioLanding({
       store: boot.db,
       ...(deps.transfer === undefined ? {} : { transfer: deps.transfer }),
@@ -209,6 +233,8 @@ export function createDownloadRuntime(
 
   return {
     engine,
+    bilibili,
+    hasLlm: () => isLlmConfigured(NO_LLM_CONFIG),
     foreground,
     fileOps: new FileEffectRuntime({
       sqlite: boot.db.sqlite,

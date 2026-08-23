@@ -634,6 +634,16 @@
 - **桌面基线**：`just check` exit 0（八条守卫 + 两个 bundle smoke）· `just test` exit 0 / **2812 passed**（shared 146 · core 1243 · mobile 100 · cli 428+9 skipped · daemon 468 · gui 427）· `just mobile-typecheck` exit 0。依赖变动（`expo-share-intent@8.0.1` + `expo-linking@57.0.6`）后的常驻规矩已复跑。
 - 🟢 **判据 44 全绿**（2026-08-23 真机，冻结设备 vivo V2408A，release 装机）：**冷启动**前台是 `.MainActivity`、pid 存活、logcat 无 FATAL · **按 BACK 退出再打开**——进程号不变（25875）而 ActivityRecord 与 task 都换了（`2ca8b91/t18922` → `401cd6e/t18923`），**即 Activity 真的被销毁重建了**，正是 N2 那个 expo-sqlite 陷阱的原地，`bootOnce` 顶住，无 `NullPointerException` / `prepareSync` · **去设置再切回来**同一个 ActivityRecord（`401cd6e`），`singleTask` 只有一个实例。装好的 APK 上另外两条也核过：**系统的 ACTION_SEND 解析器已经列出 `com.orpheusaviary.lark.MainActivity`**（判据 22 的前置成立），`FOREGROUND_SERVICE_DATA_SYNC` 仍在（N4c 的模块自带 manifest 没被新插件挤掉）。任务列表这块新屏幕在 release 下渲染正常（空态「还没有下载任务」；无活动任务时不出「全部取消」，`phase=idle` 时不出降级条）。
 
+#### N4d-2（2026-08-23）添加页 v1 —— 桌面全绿，五条判据等设备
+
+- **`ui/add-tab.tsx` 落地 §2.2 的状态机**：粘贴框（400ms 去抖，决策 g）→ 离线 parse → 命名 chip（`clean` 无模型时 disabled 并写明原因，决策 f）→ 目标（默认「仅曲库」+ `Sheet` 选已有歌单，决策 b）→ 提交 → 清空回任务列表。**shell 的占位 AddTab 删掉**，四个 tab 现在都真的做事。
+- **`downloads/preflight.ts` 是 portable 的薄壳**：`recognise`（离线 parse + 至多一次短链跳，`onResolving` 在跳之前同步触发 = 判据 21 的落点）+ `submitDownload`（`arm()` → `preflightSingle` → `enqueue` → `finally settle()`，N4c 决策 f 留下的最后一处接线）。
+- 🔴 **加了一层计划里没有、但判据 22 没有它就过不去的东西：`findSource`**。N0b-4c 实测的分享原文是**标题和短链在同一行**（`EXTRA_TITLE` 为空），整行读作自由文本 → keyword → 撞 LLM 门，于是**手机上最可能的那种输入会被拒绝，「正在解析」从一次真实分享里永远到不了**。只在整行读作 keyword 时启动，每个候选原样过 `parseSongInput`（结构检查一条不少），第一个可用的胜出；解析成 URL 却被拒的那个会被记下来，因为「youtube 不是 B 站链接」比「关键词搜索需要配置 LLM」说明得多。详见子计划 §8.2-1。
+- **三处顺带修正**：提交不再重复展开短链（`recognise` 交回的已经是展开后的 item）· **引擎与预检共享一个 `BilibiliClient`**（此前是两个匿名 buvid + 两份 WBI 缓存）· keyword 的拒绝语**由 portable 现说不抄**（真的调一次 `preflightSingle`，零网络），唯一自己写的句子是收藏夹/合集那条——portable 那句点名了手机上不存在的两个 HTTP 路由。
+- **18 条新单测**（判据 21 · 25 的逻辑半边 + arm/settle 的括号），**三条反测逐条跑过、都红在该红的那条**：`onResolving` 挪到 hop 之后 → 判据 21 那条红 · 拿掉 `findSource` → 分享文本三条红 · `settle` 移出 `finally` → 两条红。
+- **桌面基线**：`just check` exit 0 · `just test` exit 0 / **2830 passed**（mobile 118）· `mobile-typecheck` exit 0。
+- 🔴 **待跑，手机已断开**：判据 **20**（粘一条视频链接走通全程，Wi-Fi + 夹具短曲）· **21**（短链的「正在解析」）· **23**（取消不留残骸的设备半边）· **24**（命名模式跨冷启动仍记得）· **25**（说不出的输入不装懂）。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

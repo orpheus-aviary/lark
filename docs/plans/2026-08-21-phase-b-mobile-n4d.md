@@ -229,3 +229,27 @@ App/Shell 挂载 ──▶ useShareIntent（根层，永远挂着）
 - **ensure-file / 点没有文件的歌**（N4g）。
 - **失败任务的重试**（决策 i）。
 - **多条任务同时下载的表现**：引擎只有一个 worker（`engine.ts:688-690` 的 `#worker`，一次一个 running），本批不改，也不验并发。
+
+---
+
+## §8 实施修订（随批次追加）
+
+### 8.1 N4d-1
+
+1. **`readNamingMode` 回 `null` 而不是默认值**（§2.5 说「照 `play-mode.ts` 的形状一比一」，这里没有一比一）。理由是决策 f 自己：没有记录时的答案取决于**这台装机有没有模型**，portable 不知道也不该知道。于是读与默认拆成两个函数——`readNamingMode`（`DownloadNamingMode | null`）+ `resolveNamingMode({ remembered, hasLlm })`，本模块不导出任何 `DEFAULT_`。「记着 clean 但模型没了」**不改选择**：chip 会 disabled 并写明原因，替用户改比一个带理由的灰按钮更糟。
+2. **决策 d 的「同一个函数」落地成「同一个口径 + 同一个顺序」，不是同一段错误处理**。`isActive` 与 `activeInSweepOrder` 进 `downloads/cancel.ts`，`foreground.handleTimeout` 改成走它们；但**错误策略两边各留各的**——系统收权那条对无法解释的错误照旧向上抛（N4c 的断言原样保留、未改一行行为），用户点取消那条把 `TASK_NOT_FOUND` 读成「已经结束了」（id 来自刚渲染的列表，它消失只可能是终态后被 ring 滚掉）。
+3. **`ui/task-list.tsx` 当批就接进了占位 AddTab**（§3 表里 N4d-1 不含 shell 改动）。不接的话这一批的产出在设备上一个像素都看不见，而 N4d-1 本来就要装一次机。N4d-2 把整个 AddTab 换掉。
+4. **`progressLabel` 从 GUI 的私有函数改成 `@lark/shared` 的导出**。手机要同一条进度短语，而不是第二个「百分比还是 MB」的判断。
+5. 🟢 **§1.6 的 `singleTask` 风险在主机上排除**（做法与结论见 §1.6 的修订段）。
+
+### 8.2 N4d-2
+
+1. 🔴 **新增一层「从一行文字里把链接摘出来」（`findSource`），计划里没有，但判据 22 没有它就过不去。**
+
+   N0b-4c 实测的分享原文是 `莫愁乡--（OfficialMusicVideo）亚细亚旷世奇才 https://b23.tv/cfzPKZX`——**标题和短链在同一行**，`EXTRA_TITLE` 为空。整行交给 `parseSongInput` 就是自由文本 → keyword → 撞 LLM 门。于是**手机上最可能的那一种输入会被拒绝，而「正在解析」从一次真实分享里永远到不了**（判据 21 与 22 同时受影响）。粘贴同理：从 bilibili app 复制链接得到的也是这一串。桌面从来不用管，它的粘贴框是鼠标喂的，而且它有模型兜底。
+
+   **形状**：只在**整行读作 keyword 时**才启动，所以裸链接（不管是不是 B 站）仍然先拿到自己的判决；每个候选 token 原样过 `parseSongInput`，**结构检查（scheme / 凭证 / 端口 / host）一条不少**——它只决定「拿哪一串去问」，不决定任何事。第一个可用的 token 胜出（一行两个链接没有诚实的猜法，取先读到的那个）。**解析成 URL 但被拒绝的 token 会被记下来**，因为「youtube 不是 B 站链接」比「关键词搜索需要配置 LLM」说明得多。
+2. **提交时不再展开短链**。`recognise` 交回的已经是展开后的 `ParsedItem`，`submitDownload` 直接用它——§1.5 的示意里写了 `resolveOne`，那是合同的形状不是调用清单。`arm()` 仍然括住 `preflightSingle`，因为多 P 门要问 `pagelist`，那是真的网络。
+3. **共享一个 `BilibiliClient`**。此前引擎自己造一个（`DownloadEngine` 的默认），预检再造一个就是**两个匿名 buvid + 两份 WBI key 缓存**，一个应用两个身份。改成 `createDownloadRuntime` 建一个、传给引擎、挂在 `DownloadRuntime.bilibili` 上——与 daemon 的 `ctx.bilibili` 同一个形状。顺带 `hasLlm()` 也挂上去（N4e 会让它在一个进程里变）。
+4. **keyword 的拒绝语由 portable 现说，不抄**：`settle` 真的调一次 `preflightSingle`（keyword 分支零网络），把它抛的那句原样渲染。有模型时它不抛，那一天这条分支不用改，只差一条 keyword 的提交路径。**唯一自己写的句子是收藏夹/合集那条**，因为 portable 那句点名了两个手机上不存在的 HTTP 路由。
+5. **三条反测逐条跑过**（都红在该红的那条）：把 `onResolving` 挪到 hop 之后 → 判据 21 那条红 · 拿掉 `findSource` → 分享文本三条红 · `settle` 移出 `finally` → 「预检抛了也要 settle」两条红。
