@@ -12,11 +12,18 @@
 // song is not something this panel does at all.
 
 import type { DownloadTaskData } from '@lark/shared';
-import { KIND_LABELS, inputLabel, taskDescription, taskLabel, taskTitle } from '@lark/shared';
+import {
+  KIND_LABELS,
+  batchProgress,
+  inputLabel,
+  taskDescription,
+  taskLabel,
+  taskTitle,
+} from '@lark/shared';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
-import { batchProgress, useDownloads } from '../stores/download.js';
+import { useDownloads } from '../stores/download.js';
 import { usePlaylists } from '../stores/playlists.js';
 import { Button } from './ui/button.js';
 import {

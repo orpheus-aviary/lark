@@ -50,6 +50,13 @@
 // get called, in what order, with what. The bilibili client is a fake with two
 // methods, because two is all the preflight can reach.
 
+// `downloads/selection.ts` joined in N4f-1: a favourites folder can be five
+// thousand rows, and the whole reason the ticking lives in one `Set` at the top
+// of the page rather than in the rows is that a `FlatList` recycles them. That
+// makes "全选 ticked every row" unobservable on a device — the rows off screen
+// do not exist to look at — and trivial here. It imports one constant from
+// `@lark/shared`.
+//
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -62,6 +69,7 @@ export default defineConfig({
       'src/downloads/cancel.test.ts',
       'src/downloads/preflight.test.ts',
       'src/downloads/rows.test.ts',
+      'src/downloads/selection.test.ts',
       'src/share/draft.test.ts',
     ],
   },

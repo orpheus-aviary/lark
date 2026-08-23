@@ -269,18 +269,6 @@ export function activeTask(tasks: readonly DownloadTaskData[]): DownloadTaskData
   );
 }
 
-/** `n/total` for the batch a task belongs to, or null when it is a lone task. */
-export function batchProgress(
-  batches: readonly DownloadBatchData[],
-  taskId: string,
-): { batch: DownloadBatchData; done: number } | null {
-  const batch = batches.find((candidate) =>
-    candidate.items.some((item) => item.task_id === taskId),
-  );
-  if (!batch) return null;
-  return { batch, done: batch.items.filter((item) => item.final !== null).length };
-}
-
 // `requestPendingPlay` needs a snapshot right after it queues its task; the
 // lane that owns snapshots lives here.
 setPendingTaskRefresher(() => {

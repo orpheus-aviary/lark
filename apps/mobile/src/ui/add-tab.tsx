@@ -24,7 +24,7 @@ import type { DownloadNamingMode } from '@lark/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
-import { type Recognition, recognise, submitDownload } from '../downloads/preflight';
+import { type Recognition, listLabel, recognise, submitDownload } from '../downloads/preflight';
 import { subscribeShareDraft, takeShareDraft } from '../share/draft';
 import { Chip } from './chip';
 import { useLibrary } from './library-context';
@@ -273,6 +273,16 @@ function Preview({ seen, resolving }: { seen: Recognition; resolving: boolean })
     return (
       <View style={styles.preview}>
         <Text style={styles.refused}>{seen.message}</Text>
+      </View>
+    );
+  }
+  if (seen.kind === 'list') {
+    // Named, and nothing more: what is INSIDE it costs up to two hundred
+    // requests to find out, and that walk belongs to the picker (§2.2). The
+    // picker itself is N4f-2 — until then 下载 stays disabled for a list.
+    return (
+      <View style={styles.preview}>
+        <Text style={styles.previewText}>{listLabel(seen.item)}</Text>
       </View>
     );
   }

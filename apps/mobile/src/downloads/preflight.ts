@@ -9,10 +9,14 @@
 // IT DOES NOT REWRITE PORTABLE'S SENTENCES (§1.1). The three LLM gates already
 // say the right thing — 「关键词搜索需要配置 LLM；或者直接粘贴 B 站视频链接」,
 // 「这个视频有 N 个分P…」 — and a phone that paraphrased them would be a second
-// wording to keep in step with a gate it does not own. The ONE message this
-// file writes itself is the favourites/collection refusal, because portable's
-// names two HTTP routes (`/download/fetch-list`, `/download/batch`) that do not
-// exist on a phone.
+// wording to keep in step with a gate it does not own.
+//
+// THE ONE SENTENCE THIS FILE USED TO WRITE ITSELF IS GONE (N4f-1). 「收藏夹和
+// 合集要等下一批」 was a placeholder in front of a door that portable had
+// already opened — the same shape N4e-2 found in front of keyword search, where
+// the shell read "the gate did not throw" as a refusal and nothing was watching
+// that path (§1.2). A list link now recognises as a list, and `expandList` /
+// `submitListBatch` below are where it goes.
 //
 // RECOGNITION IS OFFLINE EXCEPT FOR SHORT LINKS (decision g). `parseSongInput`
 // is a pure function: a bvid, a video URL and a line of gibberish are all
@@ -25,16 +29,29 @@ import {
   type BilibiliClient,
   type DownloadTarget,
   type ParsedInput,
+  fetchList,
   parseSongInput,
+  preflightBatch,
   preflightSingle,
   resolveInput,
 } from '@lark/core/portable';
-import type { DownloadNamingMode, DownloadTaskData, ParsedItem } from '@lark/shared';
+import type {
+  DownloadBatchData,
+  DownloadBatchGroupInput,
+  DownloadNamingMode,
+  DownloadTaskData,
+  FetchListData,
+  FetchListRequest,
+  ParsedItem,
+} from '@lark/shared';
 import type { ForegroundController } from './foreground';
+import { type ListVideo, overItemLimit } from './selection';
 
-/** The two `ParsedItem` kinds a phone can submit. */
+/** The two `ParsedItem` kinds a phone can submit on its own. */
 export type VideoItem = Extract<ParsedItem, { kind: 'video' }>;
 export type KeywordItem = Extract<ParsedItem, { kind: 'keyword' }>;
+/** And the two it has to expand first (N4f). */
+export type ListItem = Extract<ParsedItem, { kind: 'favorites' | 'collection' }>;
 
 /**
  * What the page knows about what is in the box.
@@ -63,15 +80,27 @@ export type Recognition =
       kind: 'keyword';
       item: KeywordItem;
     }
+  | {
+      /**
+       * A favourites folder or a collection (N4f-1).
+       *
+       * RECOGNISED OFFLINE like everything else on this page: `parseSongInput`
+       * reads the ids straight out of the URL, and the expansion — up to 200
+       * sequential page requests — waits until the picker mounts (§2.2). The
+       * desktop draws the same line: its dialog fetches on mount and its paste
+       * box sends nothing while somebody types. Recognising and expanding in
+       * one step would put a bilibili request behind every keystroke, because
+       * this page re-recognises on every debounce (decision g).
+       */
+      kind: 'list';
+      item: ListItem;
+    }
   | { kind: 'refused'; message: string };
 
 export interface RecogniseDeps {
   client: BilibiliClient;
   hasLlm(): boolean;
 }
-
-/** What the phone says instead of portable's two-HTTP-route sentence. */
-const LIST_NOT_YET = '收藏夹和合集要等下一批。现在请粘贴单个视频的链接。';
 
 const messageOf = (err: unknown): string =>
   err instanceof Error ? err.message : `无法识别这段输入：${String(err)}`;
@@ -192,11 +221,12 @@ async function settle(
       return { kind: 'refused', message: messageOf(err) };
     }
   }
-  // favourites / collection / a short link that expanded into another one.
   if (item.kind === 'short_link') {
     return { kind: 'refused', message: `短链 ${item.url} 展开后仍是短链，拒绝继续跟随` };
   }
-  return { kind: 'refused', message: LIST_NOT_YET };
+  // A favourites folder or a collection. Nothing is fetched here — the picker
+  // does that when it mounts (§2.2).
+  return { kind: 'list', item };
 }
 
 export interface SubmitDeps extends RecogniseDeps {
@@ -255,6 +285,121 @@ export async function submitDownload(
       // which is what the person actually typed.
       ...(input.item.kind === 'video' ? { url: input.item.url } : {}),
     });
+  } finally {
+    deps.foreground.settle();
+  }
+}
+
+/** 收藏夹 / 合集 — what a page calls the thing it is about to expand. */
+export const listLabel = (item: ListItem): string =>
+  item.kind === 'favorites' ? '收藏夹' : '合集';
+
+const listRequest = (item: ListItem): FetchListRequest =>
+  item.kind === 'favorites'
+    ? { type: 'favorites', media_id: item.media_id }
+    : { type: 'collection', mid: item.mid, season_id: item.season_id };
+
+/**
+ * Walk a favourites folder or a collection into its videos (§1.3).
+ *
+ * A shell over `fetchList` and deliberately nothing more — in particular it
+ * DOES NOT TOUCH `error`. Partial success is the norm there: a folder whose
+ * page 7 failed still hands back six pages of videos plus the reason it
+ * stopped, and truncation at the 200-page / 5000-item guardrails comes through
+ * that same field with the limits named in it. Rewriting or swallowing that
+ * sentence is how a truncated list gets shown as the whole thing (criterion 32).
+ *
+ * IT THROWS ONLY WHEN NOTHING CAME BACK AT ALL. That is not partial success —
+ * it is "this link does not work", and the picker answers it by closing with
+ * portable's own words rather than showing an empty list with a warning on top.
+ *
+ * NOT ARMED (§1.7). Expanding is foreground work with somebody watching the
+ * screen; `arm()` buys the right to keep going once the screen is off, which is
+ * what a download needs and this does not. It can still take tens of seconds,
+ * so the caller passes a signal and aborts it on leaving the page.
+ */
+export function expandList(
+  deps: { client: BilibiliClient },
+  item: ListItem,
+  options: { signal?: AbortSignal } = {},
+): Promise<FetchListData> {
+  return fetchList(deps.client, listRequest(item), signalOf(options));
+}
+
+export interface SubmitBatchDeps extends RecogniseDeps {
+  foreground: ForegroundController;
+  engine: {
+    enqueueBatches(groups: readonly DownloadBatchGroupInput[]): readonly DownloadBatchData[];
+  };
+}
+
+/**
+ * The picker's 提交, as one group (§2.3, decision i).
+ *
+ * ONE LIST IS ONE GROUP IS ONE `enqueueBatches` CALL, and that call is
+ * all-or-nothing at ADMISSION: it validates every target, checks every item for
+ * a naming conflict, checks capacity, and only then creates the playlist and
+ * registers the tasks. So a refusal from here means no playlist exists and not
+ * one task was queued — which is the half of criterion 33 a screen must not
+ * blur into the other half. Items failing later, one at a time, are the task
+ * list's business and leave the batch's own count alone.
+ *
+ * THE ORDER DIFFERS FROM `submitDownload`, on purpose. There, `arm()` comes
+ * first because the preflight it brackets may go to the network for a page
+ * list, and the tap is the only moment Android reliably lets a service start
+ * (N4c-3). Here everything before the enqueue is synchronous and touches
+ * nothing: the item ceiling is arithmetic and `preflightBatch` is the LLM gate
+ * answered with no request at all. Refusing before arming means a submission
+ * that never happens also never starts a notification.
+ *
+ * The ceiling is checked HERE and not only on the button (decision d). The
+ * button being disabled is what a person sees; this is what makes it true —
+ * `enqueueBatches` has no item limit of its own, only a queue capacity that
+ * happens to sit at the same number today.
+ */
+export async function submitListBatch(
+  deps: SubmitBatchDeps,
+  input: {
+    /** The playlist to create. Blank is the engine's refusal to make, not ours. */
+    name: string;
+    videos: readonly ListVideo[];
+    /** One mode for the whole group (decision c). */
+    namingMode: DownloadNamingMode;
+  },
+): Promise<void> {
+  // The daemon route refuses an empty group too ('each group needs a non-empty
+  // items array'); on a phone the button is disabled instead, and this is what
+  // keeps that from being the only thing that is true. An empty submission
+  // would otherwise create an empty playlist and queue nothing.
+  if (input.videos.length === 0) throw new Error('还没有勾选任何视频');
+  const refusal = overItemLimit(input.videos.length);
+  if (refusal !== null) throw new Error(refusal);
+
+  const groups: readonly DownloadBatchGroupInput[] = [
+    {
+      // Always a new playlist, never an existing one: the desktop's dialog has
+      // no other option either (decision f). The name defaults to the list's
+      // own title and the picker lets it be edited.
+      target: { kind: 'new', name: input.name },
+      items: input.videos.map((video) => ({
+        kind: 'video',
+        bvid: video.bvid,
+        page: null,
+        // The list's title travels either way — `original` stores it as it
+        // stands, `clean` is what the model reads a song name OUT of. Sending
+        // null on the clean branch would hand the model the video's own title
+        // instead, which is what once made the desktop's checkbox a no-op.
+        title: video.title,
+        naming: input.namingMode,
+      })),
+    },
+  ];
+
+  preflightBatch({ client: deps.client, hasLlm: deps.hasLlm() }, groups);
+
+  await deps.foreground.arm();
+  try {
+    deps.engine.enqueueBatches(groups);
   } finally {
     deps.foreground.settle();
   }

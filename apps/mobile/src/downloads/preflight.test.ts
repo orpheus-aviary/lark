@@ -12,18 +12,28 @@
 // multi-part gate.
 
 import type { BilibiliClient } from '@lark/core/portable';
+import { DOWNLOAD_BATCH_ITEMS_MAX } from '@lark/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { ForegroundController } from './foreground';
-import { type VideoItem, recognise, submitDownload } from './preflight';
+import {
+  type VideoItem,
+  expandList,
+  listLabel,
+  recognise,
+  submitDownload,
+  submitListBatch,
+} from './preflight';
 
 const BVID = 'BV1LtgV6ZE2U';
 const VIDEO_URL = `https://www.bilibili.com/video/${BVID}`;
 
-/** Only the two methods the preflight can reach; the rest would be theatre. */
+/** Only the methods a shell in this file can reach; the rest would be theatre. */
 function client(
   overrides: {
     expandShortLink?: (url: string) => Promise<string>;
     pagelist?: (bvid: string) => Promise<{ cid: number; page: number; part: string }[]>;
+    favoritesPage?: BilibiliClient['favoritesPage'];
+    collectionPage?: BilibiliClient['collectionPage'];
   } = {},
 ): BilibiliClient {
   const unreachable = (name: string) => () => Promise.reject(new Error(`${name} is not reachable`));
@@ -33,8 +43,8 @@ function client(
     search: unreachable('search'),
     view: unreachable('view'),
     audioStream: unreachable('audioStream'),
-    favoritesPage: unreachable('favoritesPage'),
-    collectionPage: unreachable('collectionPage'),
+    favoritesPage: overrides.favoritesPage ?? unreachable('favoritesPage'),
+    collectionPage: overrides.collectionPage ?? unreachable('collectionPage'),
     openAudio: unreachable('openAudio'),
     describeAudioRequest: unreachable('describeAudioRequest'),
   } as unknown as BilibiliClient;
@@ -145,18 +155,6 @@ describe('what v1 says no to (criterion 25)', () => {
     // The exact sentence `preflightSingle` throws — never rewritten here.
     if (seen.kind === 'refused') {
       expect(seen.message).toBe('关键词搜索需要配置 LLM；或者直接粘贴 B 站视频链接');
-    }
-  });
-
-  it('refuses a favourites link in words that name a phone, not two HTTP routes', async () => {
-    const seen = await recognise(
-      noLlm(),
-      'https://space.bilibili.com/123/favlist?fid=456&ftype=create',
-    );
-    expect(seen).toMatchObject({ kind: 'refused' });
-    if (seen.kind === 'refused') {
-      expect(seen.message).toContain('收藏夹和合集');
-      expect(seen.message).not.toContain('/download/');
     }
   });
 
@@ -322,5 +320,252 @@ describe('a keyword, before and after there is a model', () => {
     // Not `url: undefined` — `exactOptionalPropertyTypes` aside, a task list
     // row showing an empty link is a row that looks broken.
     expect('url' in (enqueued[0] as object)).toBe(false);
+  });
+});
+
+// ─── N4f: a whole list, before you download it ─────────
+
+const FAV_URL = 'https://space.bilibili.com/123/favlist?fid=456&ftype=create';
+const COLLECTION_URL = 'https://space.bilibili.com/123/lists/789';
+
+const listVideo = (n: number) => ({ bvid: `BV${n}`, title: `第 ${n} 首`, duration: 100 });
+
+describe('recognising a list (the door N4f opens)', () => {
+  it('recognises a favourites link OFFLINE — nothing is fetched yet', async () => {
+    // The client refuses every list call, so reaching one here fails the test.
+    // That is the point: expanding on recognition would fire a request per
+    // debounce, because this page re-recognises on every keystroke (§2.2).
+    const seen = await recognise(noLlm(), FAV_URL);
+
+    expect(seen).toMatchObject({ kind: 'list' });
+    if (seen.kind === 'list') {
+      expect(seen.item).toMatchObject({ kind: 'favorites', media_id: '456' });
+      expect(listLabel(seen.item)).toBe('收藏夹');
+    }
+  });
+
+  it('recognises a collection link the same way', async () => {
+    const seen = await recognise(noLlm(), COLLECTION_URL);
+
+    expect(seen).toMatchObject({ kind: 'list' });
+    if (seen.kind === 'list') {
+      expect(seen.item).toMatchObject({ kind: 'collection', mid: '123', season_id: '789' });
+      expect(listLabel(seen.item)).toBe('合集');
+    }
+  });
+
+  // The regression this batch is named after (§1.2). Until N4f-1 a list link
+  // came back `refused` with a sentence about 「下一批」 — the same shape N4e-2
+  // found in front of keyword search, where the gate was open and the shell
+  // was still answering with a placeholder.
+  it('does not refuse a list, with or without a model', async () => {
+    for (const hasLlm of [false, true]) {
+      const seen = await recognise(noLlm({ hasLlm: () => hasLlm }), FAV_URL);
+      expect(seen.kind).toBe('list');
+    }
+  });
+
+  it('finds a list link inside a shared line, like any other link', async () => {
+    const seen = await recognise(noLlm(), `我的收藏夹 ${FAV_URL} 你看看`);
+    expect(seen).toMatchObject({ kind: 'list' });
+  });
+});
+
+describe('expanding a list (criterion 32: the shell does not edit the truth)', () => {
+  it('asks for the folder the link named, and hands back the videos', async () => {
+    const asked: { mediaId: string; page: number }[] = [];
+    const result = await expandList(
+      {
+        client: client({
+          favoritesPage: (mediaId, page) => {
+            asked.push({ mediaId, page });
+            return Promise.resolve({
+              title: '我的收藏',
+              videos: [listVideo(1), listVideo(2)],
+              hasMore: false,
+            });
+          },
+        }),
+      },
+      { kind: 'favorites', media_id: '456', url: FAV_URL },
+    );
+
+    expect(asked).toEqual([{ mediaId: '456', page: 1 }]);
+    expect(result.title).toBe('我的收藏');
+    expect(result.videos).toHaveLength(2);
+    expect(result.error).toBeNull();
+  });
+
+  it('asks for the collection by mid and season, not by media id', async () => {
+    const asked: { mid: string; seasonId: string }[] = [];
+    await expandList(
+      {
+        client: client({
+          collectionPage: (mid, seasonId) => {
+            asked.push({ mid, seasonId });
+            return Promise.resolve({ title: '合集', videos: [listVideo(1)], total: 1 });
+          },
+        }),
+      },
+      { kind: 'collection', mid: '123', season_id: '789', url: COLLECTION_URL },
+    );
+
+    expect(asked).toEqual([{ mid: '123', seasonId: '789' }]);
+  });
+
+  it('passes a partial-success message through WORD FOR WORD', async () => {
+    const result = await expandList(
+      {
+        client: client({
+          favoritesPage: (_id, page) =>
+            page === 1
+              ? Promise.resolve({ title: '我的收藏', videos: [listVideo(1)], hasMore: true })
+              : Promise.reject(new Error('网络断了')),
+        }),
+      },
+      { kind: 'favorites', media_id: '456', url: FAV_URL },
+    );
+
+    // Not summarised, not prefixed, not swallowed: a list shown without its own
+    // warning is a truncated list presented as the whole thing.
+    expect(result.error).toBe('网络断了');
+    expect(result.videos).toHaveLength(1);
+  });
+
+  it('throws when nothing came back at all — that is a refusal, not a list', async () => {
+    await expect(
+      expandList(
+        { client: client({ favoritesPage: () => Promise.reject(new Error('收藏夹不存在')) }) },
+        { kind: 'favorites', media_id: '456', url: FAV_URL },
+      ),
+    ).rejects.toThrow('收藏夹不存在');
+  });
+
+  it('carries the page’s signal down to the request', async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    await expandList(
+      {
+        client: client({
+          favoritesPage: (_id, _page, options) => {
+            seen = options?.signal;
+            return Promise.resolve({ title: '我的收藏', videos: [listVideo(1)], hasMore: false });
+          },
+        }),
+      },
+      { kind: 'favorites', media_id: '456', url: FAV_URL },
+      { signal: controller.signal },
+    );
+
+    // Leaving the picker aborts a walk that may be two hundred requests long.
+    expect(seen).toBe(controller.signal);
+  });
+});
+
+describe('submitting a list (criterion 33: admission is one answer, execution is another)', () => {
+  function harness(hasLlm = false) {
+    const order: string[] = [];
+    const groups: unknown[] = [];
+    return {
+      order,
+      groups,
+      deps: {
+        client: client(),
+        hasLlm: () => hasLlm,
+        foreground: {
+          arm: () => {
+            order.push('arm');
+            return Promise.resolve();
+          },
+          settle: () => order.push('settle'),
+        } as unknown as ForegroundController,
+        engine: {
+          enqueueBatches: (input: unknown) => {
+            order.push('enqueue');
+            groups.push(input);
+            return [];
+          },
+        },
+      },
+    };
+  }
+
+  const videos = [listVideo(1), listVideo(2)];
+
+  it('sends ONE group targeting a new playlist, with the list’s own titles', async () => {
+    const h = harness();
+    await submitListBatch(h.deps, { name: '我的收藏', videos, namingMode: 'original' });
+
+    expect(h.groups).toEqual([
+      [
+        {
+          target: { kind: 'new', name: '我的收藏' },
+          items: [
+            { kind: 'video', bvid: 'BV1', page: null, title: '第 1 首', naming: 'original' },
+            { kind: 'video', bvid: 'BV2', page: null, title: '第 2 首', naming: 'original' },
+          ],
+        },
+      ],
+    ]);
+    expect(h.order).toEqual(['arm', 'enqueue', 'settle']);
+  });
+
+  it('gives the whole group one naming mode (decision c)', async () => {
+    const h = harness(true);
+    await submitListBatch(h.deps, { name: '我的收藏', videos, namingMode: 'clean' });
+
+    const items = (h.groups[0] as { items: { naming: string }[] }[])[0]?.items ?? [];
+    expect(items.every((item) => item.naming === 'clean')).toBe(true);
+  });
+
+  it('refuses 清洗命名 with no model, before arming anything', async () => {
+    const h = harness();
+    await expect(
+      submitListBatch(h.deps, { name: '我的收藏', videos, namingMode: 'clean' }),
+    ).rejects.toThrow('批量里有条目要清洗命名');
+
+    // Nothing queued AND no notification raised for a submission that never
+    // happened: the gate is arithmetic, so there is nothing to protect yet.
+    expect(h.order).toEqual([]);
+    expect(h.groups).toEqual([]);
+  });
+
+  it('refuses an empty selection instead of creating an empty playlist', async () => {
+    const h = harness();
+    await expect(
+      submitListBatch(h.deps, { name: '我的收藏', videos: [], namingMode: 'original' }),
+    ).rejects.toThrow('还没有勾选任何视频');
+    expect(h.order).toEqual([]);
+    expect(h.groups).toEqual([]);
+  });
+
+  it('refuses more than the batch ceiling in the desktop’s own words', async () => {
+    const h = harness();
+    const many = Array.from({ length: DOWNLOAD_BATCH_ITEMS_MAX + 1 }, (_, i) => listVideo(i));
+
+    await expect(
+      submitListBatch(h.deps, { name: '大收藏夹', videos: many, namingMode: 'original' }),
+    ).rejects.toThrow(`一次最多 ${DOWNLOAD_BATCH_ITEMS_MAX} 个视频`);
+    expect(h.order).toEqual([]);
+    expect(h.groups).toEqual([]);
+  });
+
+  it('lets an admission refusal out of the engine, and still settles', async () => {
+    const h = harness();
+    h.deps.engine = {
+      enqueueBatches: () => {
+        h.order.push('enqueue');
+        throw new Error('新歌单名称不能为空');
+      },
+    };
+
+    await expect(
+      submitListBatch(h.deps, { name: '   ', videos, namingMode: 'original' }),
+    ).rejects.toThrow('新歌单名称不能为空');
+
+    // The engine is the authority on its own admission rules — this shell does
+    // not pre-empt the blank name, it just must not swallow the answer. And a
+    // service left `arming` over an empty queue would hold the process up.
+    expect(h.order).toEqual(['arm', 'enqueue', 'settle']);
   });
 });

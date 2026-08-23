@@ -703,6 +703,19 @@
 
 - **下一步 N4f 收藏夹 / 合集批量**——子计划已出：`docs/plans/2026-08-23-phase-b-mobile-n4f.md`（两批 N4f-1/2 / 判据 31–33 / **决策 a–h 于 2026-08-23 全部关闭，§5 是定案**）。**portable 那半已经全写好了**（`parseSongInput` 认得收藏夹与合集 · `fetchList` 带部分成功与截断 · `preflightBatch` 的 LLM 门 · `enqueueBatches` · hub 已带 `batches`），手机上缺的只有展开的调用点、勾选 UI、和「新建歌单」那条路。🔴 **`downloads/preflight.ts:74` 的 `LIST_NOT_YET` 与 N4e 之前的 keyword 分支是同一个形状**——一句写死的「等下一批」，所以**N4f-1 一开始就要有「展开成功」那条路的单测**，不靠设备发现。**按新规矩整批只上机一次**。**决策口径由用户给定：能照 PC 端就照 PC 端**——逐条读了桌面代码再关：目标**恒为新建歌单**（`BatchSelectModal.tsx:236` 写死的，v1 提的三选一砍掉）· 默认全选 · 整组一个命名模式 · 超 1000 条自己算并禁用提交（连文案照抄）· 展开在**选择页挂载时**（桌面同一条时序，v1 提的「展开按钮」是我读错了）· **`batchProgress` 从 gui 私有 store 提进 `@lark/shared`**（用户确认，要动桌面但零行为变化）。双击改标题改成**点一下**——手机没有双击习惯，属平台差异换形态。
 
+#### N4f-1（2026-08-23）逻辑与接线 —— 桌面全绿，选择页留给 N4f-2
+
+- **`packages/shared/src/download-batch.ts`**（决策 h）：`batchProgress` 从 gui 私有 store 提上来，函数体逐字节相同，桌面三处改 import（`DownloadBar` / `DownloadPanel` / 它自己的单测）。**单测跟着代码走**——gui 427 → **426**，shared 143 → **146**（搬来的那条 + 两条新的：失败与取消也算「已结算」，否则一批十条挂了三条会永远停在 7/10；以及跨批次找归属）。
+- **`apps/mobile/src/downloads/selection.ts`**：勾选模型，纯函数。**按 bvid 去重发生在 `pickable` 一处**——同一个 bvid 在收藏夹里出现两次时引擎本来就会 merge 成一个任务，两行会承诺一次下不成的下载，而 `FlatList` 还会撞 key。`overItemLimit` 抄桌面原句（`BatchSelectModal.tsx:210-217`）。**它进 vitest 的理由与 `rows.ts` 同一条**：5000 行的 `FlatList` 只渲染看得见的那些，「全选真的勾了每一行」在设备上不可观测。
+- **`apps/mobile/src/downloads/preflight.ts`**：`Recognition` 加 `list` 分支、**`LIST_NOT_YET` 删掉**；`expandList`（`fetchList` 薄壳，`error` 原样递出、**不 `arm()`**——§1.7：展开是有人盯着屏幕的前台活）· `submitListBatch`（一个列表 = 一个 group = 一次 `enqueueBatches`，目标恒为 `{kind:'new'}`）。
+- **顺序与 `submitDownload` 相反，是有理由的**：那边 `arm()` 在最前，因为它括住的 `preflightSingle` 可能去拿 pagelist，而手势那一刻是 Android 唯一肯让前台服务起来的时刻（N4c-3 实测）。这边 `arm()` 之前全是同步零网络（上限是算术、`preflightBatch` 是零请求的 LLM 门），所以先拒绝再 `arm()`——**一次根本没发生的提交不该先弹一条通知**。
+- **两处自己加的准入检查**（计划里没有，写下来免得当成来自子计划）：**空勾选**与**超 1000**。daemon 路由对这两件都有请求形状校验，手机上没有路由；只靠「按钮禁用」的话，那就是唯一的真相。空歌单名**不**自己挡——那是引擎的规则，薄壳只负责不吞掉它的回答。
+- **判据 32（单测半边）**：core 新增 6 条 `fetchList` 用例（走到底 / 按 total 停 / 中途失败保留已取回 + 原话 / 一条没拿到是抛而不是空列表 / 页上限截断 / 条目上限截断）。**反测跑了**：删掉 `error === null && truncated` 那一步，红的**恰好**是两条截断用例、其余 14 条全绿——失败路径自己带消息，被赌的只有护栏那一句。已还原，`git diff` 干净。薄壳那半断言 `error` 是 `'网络断了'` **一字不差**。
+- **判据 33（单测半边）拆成两条 core 用例**，因为它本来就是两个断言：**准入** = 空歌单名 → `新歌单名称不能为空`，歌单表长度不变、零任务、零批次；**执行** = 一条死链 + 一条好链同批 → `['failed','succeeded']`、`total` 仍是 2、好的那首真的落库。前者是「没建歌单没入队」，后者是「失败不拖累同批」，UI 上是两个位置（提交按钮下 / 任务列表里的红字），设备半边只看这一件事。
+- **「门开了没人接」的单测**（§1.2 的 N4e 教训）：`does not refuse a list, with or without a model`——不靠设备发现。移动侧另有展开的三条（认收藏夹 / 认合集 / 从分享的一整行里挑出列表链接）与提交映射四条。
+- **`ui/add-tab.tsx` 只动了一行预览**（收藏夹 / 合集），是 tsc 逼出来的最小改动：**这一批之后粘一条收藏夹链接会被认出来，但「下载」仍是灰的**——选择页、按钮接线、任务列表的 M/N 都在 N4f-2。
+- **基线**：`just check` exit 0 · `just test` exit 0 / **2909 passed**（shared **146** · core **1279** · mobile **162** · cli 428+9 skipped · daemon 468 · **gui 426**）· `mobile-typecheck` exit 0。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

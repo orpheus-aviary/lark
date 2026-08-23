@@ -17,6 +17,7 @@ export * from './uuid.js';
 export * from './events.js';
 export * from './lrc.js';
 export * from './song-sort.js';
+export * from './download-batch.js';
 export * from './download-labels.js';
 export * from './now-playing.js';
 export * from './operation-queue.js';

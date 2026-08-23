@@ -4,7 +4,7 @@
 import type { DownloadTaskData, LarkEvent } from '@lark/shared';
 import { ApiError } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activeTask, batchProgress, useDownloads } from './download.js';
+import { activeTask, useDownloads } from './download.js';
 
 function task(id: string, overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
   return {
@@ -268,28 +268,6 @@ describe('derivations', () => {
       task('earlier', { state: 'queued', stage: null, created_at: 2, started_at: null }),
     ];
     expect(activeTask(tasks)?.id).toBe('earlier');
-  });
-
-  it('counts a batch by its settled items', () => {
-    const batches = [
-      {
-        id: 'b1',
-        target: { kind: 'all' as const },
-        total: 3,
-        items: [
-          {
-            index: 0,
-            task_id: 't1',
-            final: { state: 'succeeded' as const, error_code: null, song_id: 's' },
-          },
-          { index: 1, task_id: 't2', final: null },
-          { index: 2, task_id: 't3', final: null },
-        ],
-        created_at: 0,
-      },
-    ];
-    expect(batchProgress(batches, 't2')).toMatchObject({ done: 1 });
-    expect(batchProgress(batches, 'unrelated')).toBeNull();
   });
 });
 

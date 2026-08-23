@@ -824,6 +824,31 @@ describe('enqueueBatches', () => {
     expect(readdirSync(nest)).not.toContain('第一个');
   });
 
+  // Criterion 33's admission half (N4f-1). The phone's picker only ever targets
+  // a NEW playlist (decision f), so a name that is blank — or is only spaces,
+  // which is what an edited title cleared with the keyboard leaves behind — is
+  // the admission failure it can actually reach. Nothing may exist afterwards:
+  // no playlist, no task. The other half of that criterion is that a task
+  // FAILING later leaves the batch's own count alone, which is what
+  // 「writes the terminal outcome back onto the batch item」 pins.
+  it('refuses a blank new-playlist name and creates nothing', () => {
+    const e = build();
+    const before = listPlaylists(db, sqlite).length;
+
+    expect(() =>
+      e.enqueueBatches([
+        {
+          target: { kind: 'new', name: '   ' },
+          items: [{ kind: 'video', bvid: BVID, page: 1, title: '稻香', naming: 'original' }],
+        },
+      ]),
+    ).toThrow('新歌单名称不能为空');
+
+    expect(e.snapshot().tasks).toEqual([]);
+    expect(e.snapshot().batches).toEqual([]);
+    expect(listPlaylists(db, sqlite)).toHaveLength(before);
+  });
+
   it('rejects an unknown playlist target without registering anything', () => {
     const e = build();
     expect(() =>
@@ -852,6 +877,32 @@ describe('enqueueBatches', () => {
     const stored = e.snapshot().batches.find((b) => b.id === batch?.id);
     expect(stored?.items[0]?.final).toMatchObject({ state: 'succeeded' });
     expect(stored?.items[0]?.final?.song_id).not.toBeNull();
+  }, 60_000);
+
+  // Criterion 33's execution half (N4f-1). Admission is all-or-nothing; running
+  // is not, and the two must not be read as one thing. An item that fails after
+  // the batch was admitted leaves the others alone, keeps `total` where it was,
+  // and SETTLES — a batch that counted only successes would sit at 1/2 forever
+  // with nothing left that could move it (`batchProgress`, @lark/shared).
+  it('lets one item fail without touching the rest of its batch', async () => {
+    const e = build();
+    const [batch] = e.enqueueBatches([
+      {
+        target: { kind: 'new', name: '半好半坏' },
+        items: [
+          // Absent from the fake upstream: bilibili's own "not found" envelope.
+          { kind: 'video', bvid: 'BV1zzzzzzzzz', page: 1, title: '死链', naming: 'original' },
+          { kind: 'video', bvid: BVID, page: 1, title: '稻香', naming: 'original' },
+        ],
+      },
+    ]);
+    await settleAll(e);
+
+    const stored = e.snapshot().batches.find((b) => b.id === batch?.id);
+    expect(stored?.total).toBe(2);
+    expect(stored?.items.map((item) => item.final?.state)).toEqual(['failed', 'succeeded']);
+    // The good one landed: a sibling's failure is not a reason to hold it back.
+    expect(listSongs(db, sqlite).songs.map((song) => song.name)).toEqual(['稻香']);
   }, 60_000);
 
   it('uses the batch item title over the video title', async () => {
