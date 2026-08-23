@@ -210,11 +210,11 @@ hub 的 `tasks` 里 `state` 为 `queued` 或 `running` 的条数。**lyrics 任�
 18. **`onTimeout` 停的是全部**：单测断言 `onTimeout` → **queued 与 running 一起取消** + `stop()` 被调用 + 状态置 `paused-by-system` + **取消发生在 stop 之前**。**反测**：只取消 running → 必须红。**6 小时配额没有真机证据，如实记「有代码路径、有单测、没有真机证据」。**
 19. **通知权限在第一次下载也申请**：**全新安装**（`pm clear` 或卸载重装）→ 不播放、直接下载 → 权限对话框出现，授予后通知可见。**反测**：只在首播申请 → 下载通知必须不可见。
 
-**本批新增三条**（都因为 N4b 的经验）：
+**本批新增三条**（都因为 N4b 的经验）。**编号从 41 起**：N4 主计划的 §4 把 20–25 给了 N4d（它的 22 还是 gate），子计划另起一套号会让「判据 22」在同一个里程碑里指两件事。
 
-20. **`lark-transfer` 进得了构建**：`just check` 的 `mobile-native-modules` 守卫对新模块绿，且**装机后 `requireNativeModule('LarkTransfer')` 不抛**——N4b 的闪退是在任何画面之前发生的，这条便宜得不该省。
-21. **服务停了就是真停了**：`stop()` 之后 `dumpsys activity services` 里没有 `LarkTransferService`，通知栏里没有我们的条目。**幂等**：连停两次不抛。
-22. **两个服务互不干涉**：一边放歌（媒体服务在）一边下载（dataSync 服务在）→ `dumpsys` 两条都在、两条通知都在，**停下载不影响播放**。
+41. **`lark-transfer` 进得了构建**：`just check` 的 `mobile-native-modules` 守卫对新模块绿，且**装机后 `requireNativeModule('LarkTransfer')` 不抛**——N4b 的闪退是在任何画面之前发生的，这条便宜得不该省。
+42. **服务停了就是真停了**：`stop()` 之后 `dumpsys activity services` 里没有 `LarkTransferService`，通知栏里没有我们的条目。**幂等**：连停两次不抛。
+43. **两个服务互不干涉**：一边放歌（媒体服务在）一边下载（dataSync 服务在）→ `dumpsys` 两条都在、两条通知都在，**停下载不影响播放**。
 
 ---
 
@@ -243,7 +243,7 @@ hub 的 `tasks` 里 `state` 为 `queued` 或 `running` 的条数。**lyrics 任�
 | 🔴 **vivo 杀后台**（系统在下载进行中杀掉进程，不是驱动脚本点不中） | N3 已记「耐久留给打包后的真实使用」。判据 15 只证明一条长曲一次下完；**杀后台的风险原样留着**，不假装被这批消掉。**真机 session 里若 app 被系统清掉导致驱动失效，明确请用户手动杀后台 + 重启 app**（2026-08-21 用户提供的手段） |
 | **6 小时配额测不了** | 判据 18 只到单测。如实记 |
 | **`startForeground` 10 秒死线** | 通知内容走 Intent extra，`onStartCommand` 第一件事就 `startForeground`，中间不做任何 IO |
-| **两个前台服务打架** | 判据 22 明确验一次。两个 type、两条通知、两个 service 类 |
+| **两个前台服务打架** | 判据 43 明确验一次。两个 type、两条通知、两个 service 类 |
 | **判据 19 要全新安装** | `pm clear` 会连同 SecureStore 一起清 → **D16 会走 fresh 分支**，这是对的（新安装本来就该如此），但要记着它会毁掉当前曲库，**跑在设备 session 的最后** |
 
 ---
@@ -271,17 +271,17 @@ hub 的 `tasks` 里 `state` 为 `queued` 或 `running` 的条数。**lyrics 任�
 7. **通知的标题/正文分工定死**：title = `正在下载 N 首`，body = 当前这首的名字（N4c-1 的 acceptance 直调写的是 `('lark', '正在下载 1 首')`，那是临时的）。没名字时回落到用户输入的链接/关键词，**不编造**（`DownloadTaskData.title` 的合同原文）。
 8. **去重与节流是两条独立的守卫，测试必须分开写。** 第一版把它们并成一条断言，**在实现里完全没有去重的情况下照样绿**——节流自己把重复的丢掉了。两条测试各自的反测都点着之后才算数。
 
-**判据**：**18 全绿（单测）· 17 的逻辑半边全绿**（①手势那一刻就 `start`、②归零 2 秒后才停、③起不来照常下完且降级态可读）。判据 17 剩下的一半（`dumpsys` 里服务在不在、后台起不来能不能复现）与判据 19、20–22 留给 N4c-3 的真机 session。
+**判据**：**18 全绿（单测）· 17 的逻辑半边全绿**（①手势那一刻就 `start`、②归零 2 秒后才停、③起不来照常下完且降级态可读）。判据 17 剩下的一半（`dumpsys` 里服务在不在、后台起不来能不能复现）与判据 19、41–43 留给 N4c-3 的真机 session。
 
 **八条反测逐条跑过**（列在 `foreground.test.ts` 的文件头）：只取消 running / 先停后取消 / phase 置晚 / 吞掉全部取消失败 / 去掉宽限 / 把 `start` 挪到入队时刻 / 去掉去重 / 去掉节流——每条都红在它该红的那个测试上。
 
-**顺带的一条真实变化**：`downloads/engine.ts` 现在 import `modules/lark-transfer`，于是**生产 bundle 启动时就会 `requireNativeModule('LarkTransfer')`**（在此之前只有 acceptance 构建碰它）。这是判据 20 后半句想要的性质，也意味着模块接线出问题会以「启动即闪退」的形式暴露——守卫 `check-mobile-native-modules.sh` 已在 `just check` 里。
+**顺带的一条真实变化**：`downloads/engine.ts` 现在 import `modules/lark-transfer`，于是**生产 bundle 启动时就会 `requireNativeModule('LarkTransfer')`**（在此之前只有 acceptance 构建碰它）。这是判据 41 后半句想要的性质，也意味着模块接线出问题会以「启动即闪退」的形式暴露——守卫 `check-mobile-native-modules.sh` 已在 `just check` 里。
 
 ---
 
 ## §9 N4c-3 实测（2026-08-21，冻结设备 vivo V2408A / release 构建）
 
-**判据 17 · 19 · 20 · 21 · 22 全关。** 每条都是「应用自述 + 主机独立核对」两侧，冲突时以主机为准。
+**判据 17 · 19 · 41 · 42 · 43 全关。** 每条都是「应用自述 + 主机独立核对」两侧，冲突时以主机为准。
 
 | 判据 | 应用侧 | 主机侧 |
 |---|---|---|
@@ -291,9 +291,9 @@ hub 的 `tasks` 里 `state` 为 `queued` 或 `running` 的条数。**lyrics 任�
 | **17 反测** | 见下 | **后台窗口 16 秒、0.4 秒一采，服务一次都没出现；一回前台立刻出现** |
 | **19** | —— | `pm clear` 后 `granted=false` → 点「下载」（全程未播放）→ 3 秒内 `granted=true`、服务在、通知在 `lark.downloads` |
 | **19 反测** | —— | `pm revoke` 后服务照样起来（t+3s、t+15s 都在），**通知一条都没有** |
-| **20** | —— | 守卫 `mobile-native-modules` 绿；**生产包装机后正常启动**（四个 tab + 歌曲列表），启动时的 `requireNativeModule('LarkTransfer')` 没抛 |
-| **21** | 2/2：`running after stop false · after a second stop false · second stop threw: no` | 服务 t+0 起、t+7 停；收尾时本包通知数 **0** |
-| **22** | `download service running false · still playing true · phase idle` | 两个服务共存 ~45 秒（`AudioControlsService` + `LarkTransferService`）· t+21s 两条通知都在（`expo_audio_channel` + `lark.downloads`）· 期间 `state:started` 的 AudioTrack 恒为 1 |
+| **41** | —— | 守卫 `mobile-native-modules` 绿；**生产包装机后正常启动**（四个 tab + 歌曲列表），启动时的 `requireNativeModule('LarkTransfer')` 没抛 |
+| **42** | 2/2：`running after stop false · after a second stop false · second stop threw: no` | 服务 t+0 起、t+7 停；收尾时本包通知数 **0** |
+| **43** | `download service running false · still playing true · phase idle` | 两个服务共存 ~45 秒（`AudioControlsService` + `LarkTransferService`）· t+21s 两条通知都在（`expo_audio_channel` + `lark.downloads`）· 期间 `state:started` 的 AudioTrack 恒为 1 |
 
 ### 9.1 🔴 反测答出来的是第三种行为，并且改了代码
 
@@ -311,10 +311,10 @@ hub 的 `tasks` 里 `state` 为 `queued` 或 `running` 的条数。**lyrics 任�
 
 - **前台服务的通知有约 10 秒延后**：`isForeground=true` 之后前 ~10 秒 `dumpsys notification` 里查不到它。断言「通知在」要等过这段，否则得到「服务在但通知没了」的错误结论。
 - **`pm revoke` 会杀掉应用进程**；**`pm clear` 连外部夹具目录一起清**（要重推 `mobile-push-audio-fixtures`，且得先让应用把目录建出来）。
-- **已经在库里的曲目会把「长下载」变成 4 秒**：判据 22 第一次跑只共存了 4 秒，因为长曲早被判据 15 下过了。验收要过程就先清库（`resetInstall()` + 删 `songs/`）。
+- **已经在库里的曲目会把「长下载」变成 4 秒**：判据 43 第一次跑只共存了 4 秒，因为长曲早被判据 15 下过了。验收要过程就先清库（`resetInstall()` + 删 `songs/`）。
 
 ### 9.4 本批仍未证明的
 
 - **6 小时 dataSync 配额**：判据 18 只有单测，如实记「有代码路径、有单测、没有真机证据」。
-- **判据 22 的「取消下载」那一刻**：实际跑的时候长曲已经自己下完（~45 秒），所以量到的是「传输服务自己退场、媒体服务与播放不受影响」，不是「取消进行中的下载」。对判据的主张（两个服务互不干涉）等价，但记着差别。
+- **判据 43 的「取消下载」那一刻**：实际跑的时候长曲已经自己下完（~45 秒），所以量到的是「传输服务自己退场、媒体服务与播放不受影响」，不是「取消进行中的下载」。对判据的主张（两个服务互不干涉）等价，但记着差别。
 - **判据 19 的对话框本身**：`pm clear` 之后权限从 `granted=false` 变成 `granted=true` 是量到的，**但没有截到对话框**——这台 vivo 在三秒内就变成 granted 且带 `USER_SET`，是它自己代答还是弹了一下没抓到，没有证据。要证的那件事（**申请发生在下载路径上**）成立：全程没有播放，权限只可能是这条路要来的。

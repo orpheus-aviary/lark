@@ -601,7 +601,7 @@
   - 🟢 **判据 9**：一边放 short 夹具、一边用 MMR 读 **long（37 分钟）**那条 —— `read 2226.646s in 22ms · 0.8s → 1.7s · never stopped`，主机在**同一刻**数到**恰好 1 个 `state:started` 的 AudioTrack**。**MMR 不碰音频焦点这条从「文档这么写」变成实测。** 场景是两个按钮（arm 停在还在放的状态 / stop 收），因为「系统握着几个 AudioTrack」不是 JS 看得见的事；arm **不开库**，不该为一个跟曲库无关的问题清掉别人的行。
   - 🟢 **判据 11 的真崩溃点**：`createMobileAudioLanding` 加 `crashPoint`（⑤ 与 ⑥ 之间，**park 而不是抛**——抛会展开栈，SIGKILL 不会），arm → `am force-stop` → 重启 → `row still says 136.836s · no canonical file（读作「需要下载」）· .tmp swept · directory kept`，逐字对上崩溃状态表「⑤ 之后 ⑥ 之前（new）」那一行。
   - **判据 11 的反测（不做启动清扫 → `.tmp` 必须还在）没有运行时开关**，如实记着：这条断言只有 ⑪b 跑过才可能成立，而 skip set 那条反测在 sweep 套件里是能跑的。
-**N4c 完成（2026-08-21）——判据 15–22 全关（18 只有单测，如实记）。三批 N4c-1/2/3，决策 a–j 全关。**
+**N4c 完成（2026-08-21）——判据 15–19 + 41–43 全关（18 只有单测，如实记）。三批 N4c-1/2/3，决策 a–j 全关。**
 - **N4c-1 = `modules/lark-transfer`**（dataSync 前台服务：Kotlin service + 通知渠道 + `onTimeout` + 模块自带 manifest）+ `acceptance/foreground.ts`（长曲下载入口与反测）+ **acceptance 面板改成数据驱动列表**（17 个手写 Pressable → `SUITES` 表，复杂度 23 → 过；顺带去掉「运行时把按钮标签改成 Running…」，`drive.mjs` 按标签找按钮，改名会让它第二次按不中）。
 - 🟢 **判据 16（merged manifest）**：`FOREGROUND_SERVICE` · **`FOREGROUND_SERVICE_DATA_SYNC`**（**模块自带 `AndroidManifest.xml` 合并进来了——§1.4 那条「不写第四个 config 插件」的路走通**）· `INTERNET` · `LarkTransferService` 的 `foregroundServiceType="dataSync"`，而 expo-audio 的 `AudioControlsService` 仍是 `mediaPlayback`。服务实测起得来：`isForeground=true` · `types=0x00000001` · 通知在 `lark.downloads` 渠道。
 - 🔴 **判据 15 当场改写（原文两侧都绿，什么也没证明）**：原判据是「熄屏 4 分半下完 54.3MB」——**带服务与不带服务都逐字节下完**（`landed 54273999 of 54273999` ×2）。4 分半、内存宽裕、刚离开前台时 Android 根本不回收这个进程，**熄屏时长不是区分变量**。改成 **应用切后台 + `adb shell am kill`**（只杀「可以安全杀掉的」进程，**豁免持有前台服务的**）：不带服务 `pidof` **为空**，带服务 **pid 11213 存活**并在熄屏 3 分钟后 `task succeeded · 54273999/54273999 · 2226.646s`。子计划 §4 判据 15 已改写并附原文。
@@ -614,15 +614,15 @@
 - **v1 状态机有两个「没有触发源」的洞，都当场补上并记进子计划 §8**：① **`arming → idle` 那条边**——「预检后零入队」恰恰是没有 hub 事件，于是控制面是 `arm()` + `settle()` 两个调用（后者在调用方 `finally` 里）；② **`paused-by-system` 没有出边**——冻结的图只冻自动边，再点一次下载是用户的决定，配额真没了会落进 `degraded`。另有六条修订（`degraded` 归零也调 `stop()`、降级态带 `reason`、先置 phase 再取消、queued 先于 running、通知标题/正文分工、去重与节流分开测）。
 - 🔴 **一条自己踩的假绿**：去重与节流并成一条断言时，**实现里完全没有去重也照样绿**——节流自己把重复的丢掉了。拆成两条、各自反测点着之后才算数。**八条反测逐条跑过**，列在 `foreground.test.ts` 文件头。
 - **顺带的真实变化**：`downloads/engine.ts` 现在 import `modules/lark-transfer`，**生产 bundle 启动时就 `requireNativeModule('LarkTransfer')`**（此前只有 acceptance 构建碰它）——判据 20 后半句想要的正是这个性质。
-- **N4c-3 = 真机验收**（子计划 §9 有逐条对照表）：acceptance 面板加六个入口（三态观测 · 降级态注入 · 后台 arm 的 arm/check 一对 · 停两次 · 两个服务的 arm/stop 一对），`DownloadRuntimeDeps` 加 `service` 注入缝。**判据 17 · 19 · 20 · 21 · 22 全关**，每条都是「应用自述 + 主机独立核对」两侧。
+- **N4c-3 = 真机验收**（子计划 §9 有逐条对照表）：acceptance 面板加六个入口（三态观测 · 降级态注入 · 后台 arm 的 arm/check 一对 · 停两次 · 两个服务的 arm/stop 一对），`DownloadRuntimeDeps` 加 `service` 注入缝。**判据 17 · 19 · 41 · 42 · 43 全关**，每条都是「应用自述 + 主机独立核对」两侧。（**本批新增的三条编号从 41 起**——N4 主计划把 20–25 给了 N4d，子计划再用一次 20–22 会让同一个里程碑里的「判据 22」指两件事。）
 - 🟢 **17①②**：服务在**手势那一刻**起来（`phase arming · 0 active tasks`，主机 t+2s 见到 `isForeground=true · types=0x00000001 · 渠道 lark.downloads · importance=2`），25 秒**什么也没入队**的停泊期里一直在；活动归零 **+1.0s 还在、+3.5s 已停**，主机在 t+30s 看到它消失。**17③** 注入拒绝：`degraded / ERR_LARK_FGS_NOT_ALLOWED`，下载照样成功，且**没有对着不存在的服务说 update**。
-- 🟢 **21**：服务 t+0 起、t+7 停，连停两次不抛，收尾时本包通知数 **0**。🟢 **22**：两个服务共存 **~45 秒**（`AudioControlsService` + `LarkTransferService`），t+21s **两条通知都在**，其间 `state:started` 的 AudioTrack 恒为 1，停下载不影响播放。🟢 **20**：守卫绿 + **生产包装机后正常启动**（启动即 `requireNativeModule('LarkTransfer')`，没抛）。
+- 🟢 **42**：服务 t+0 起、t+7 停，连停两次不抛，收尾时本包通知数 **0**。🟢 **43**：两个服务共存 **~45 秒**（`AudioControlsService` + `LarkTransferService`），t+21s **两条通知都在**，其间 `state:started` 的 AudioTrack 恒为 1，停下载不影响播放。🟢 **41**：守卫绿 + **生产包装机后正常启动**（启动即 `requireNativeModule('LarkTransfer')`，没抛）。
 - 🟢 **19**：`pm clear` 后 `granted=false` → 点下载（**全程未播放**）→ 3 秒内 `granted=true`、服务在、通知在 `lark.downloads`。**反测**：`pm revoke` 后服务照起（t+3s、t+15s 都在）、**通知一条都没有**。（**对话框本身没截到**——这台机器三秒内就 granted 且带 `USER_SET`，是它代答还是弹了没抓到无证据；要证的「申请发生在下载路径上」成立。）
 - 🔴 **反测答出第三种行为，并且改了代码**：**后台的 `startForegroundService()` 在这台机器上既不抛也不起——被延后到应用回前台**（后台窗口 16 秒 · 0.4 秒一采 · 一次没见到；回前台立刻出现）。① 对设计：反测比预想的更硬，「入队时刻起服务」= 整个下载期间毫无保护。② 对代码：`start()` resolve 只等于「系统收下了请求」，状态机原本只认抛异常，**这一整类下判据 17③ 的「降级态可读」是假的** → 加 `START_CONFIRM_MS`（start 成功后 2 秒回头确认一次，不 await、只降不升，落 `ERR_LARK_FGS_NEVER_STARTED`），带 generation 与 phase 两道守卫，单测 5 条 + 反测 3 条。**产品线够不到这条路径**（arm 永远由手势触发）。
 - 🔴 **反测的第一版是错的**：用 `await wait(10_000)` 安排「后台 10 秒后 arm」——后台 JS 定时器冻结，那句 wait 到回前台才到期，arm 其实发生在前台，**得到一个看起来成立的反面结论**。改用 `AppState` 的 `change` 回调才测到真东西。
 - **三条采样陷阱**（已进 `docs/LESSONS.md`）：**前台服务通知有约 10 秒延后**（前 10 秒 `dumpsys notification` 查不到，会误判成「服务在但通知没了」）· **`pm revoke` 会杀进程**、**`pm clear` 连外部夹具目录一起清** · **已在库里的曲目会把「长下载」变成 4 秒**（判据 22 第一次只共存 4 秒，验过程要先清库）。
-- **本批不证明的**：6 小时配额（判据 18 只有单测）· 判据 22 量到的是「传输服务自己退场」而不是「取消进行中的下载」（长曲 45 秒自己下完了，对主张等价但记着差别）。
-- **下一步 N4d**（添加页 + 任务列表 UI）：本批留给它的两件是 **`arm()`/`settle()` 接到提交按钮**（决策 f）与 **hub 里的 `foreground` 渲染成降级提示**。
+- **本批不证明的**：6 小时配额（判据 18 只有单测）· 判据 43 量到的是「传输服务自己退场」而不是「取消进行中的下载」（长曲 45 秒自己下完了，对主张等价但记着差别）。
+- **下一步 N4d**（添加页 v1 + 任务列表 + 分享 intent）：子计划已出 —— `docs/plans/2026-08-21-phase-b-mobile-n4d.md`（**v1 待评审**，三批 N4d-1–3 / 判据 20–25 + 新增 44·45 / 决策 a–j 待关闭）。N4c 留给它的两件是 **`arm()`/`settle()` 接到提交按钮**（N4 决策 f）与 **hub 里的 `foreground` 渲染成降级提示**（N4 决策 e）。**开工第一件事**是 §1.6：`expo-share-intent` 的插件会把 MainActivity 改成 `singleTask`，而这个应用有冻结的启动序列 + `bootOnce`——答错了整批形状要改，所以它排在 N4d-1 而不是最后。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
