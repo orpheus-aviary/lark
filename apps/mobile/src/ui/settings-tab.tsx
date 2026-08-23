@@ -16,6 +16,7 @@
 
 import {
   LATEST_KNOWN_VERSION,
+  LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
   type SqliteLike,
   isLlmConfigured,
@@ -185,14 +186,19 @@ function Llm({ sqlite }: { sqlite: SqliteLike }) {
         placeholder="deepseek-chat"
       />
 
+      {/* Rendered FROM the domain, not beside it: `LOCAL_LLM_API_FORMATS` is
+          what the library will accept back (decision a), and two chips written
+          out by hand are a second place for that to drift. */}
       <View style={styles.row}>
         <Text style={styles.fieldLabel}>接口格式</Text>
-        <Chip label="openai" on={format === 'openai'} onPress={() => setFormat('openai')} />
-        <Chip
-          label="anthropic"
-          on={format === 'anthropic'}
-          onPress={() => setFormat('anthropic')}
-        />
+        {LOCAL_LLM_API_FORMATS.map((option) => (
+          <Chip
+            key={option}
+            label={option}
+            on={format === option}
+            onPress={() => setFormat(option)}
+          />
+        ))}
       </View>
 
       <LabelledInput
