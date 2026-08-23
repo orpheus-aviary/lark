@@ -23,15 +23,14 @@ import {
   type DownloadTimeouts,
   FileEffectRuntime,
   createBilibiliClient,
-  isLlmConfigured,
 } from '@lark/core/portable';
-import type { LlmConfig } from '@lark/shared';
 import LarkTransfer from '../../modules/lark-transfer';
 import type { BootResult } from '../boot/sequence';
 import { libraryChanged } from '../library-signal';
 import { ensureAudioSession } from '../player/session';
 import { type AudioTransfer, createMobileAudioLanding } from '../ports/audio-landing';
 import { createSongFiles } from '../ports/song-files';
+import { hasLlmConfig, readLlmConfig } from '../settings/llm';
 import {
   type ForegroundController,
   type ForegroundService,
@@ -52,19 +51,6 @@ const MOBILE_TIMEOUTS: DownloadTimeouts = {
   ...DEFAULT_TIMEOUTS,
   audioStream: 15 * 60_000,
 };
-
-/**
- * No model is configured, and this device has nowhere to read one from yet.
- *
- * The desktop reads `lark_config.toml` and falls back to aviary's shared
- * config; a phone has neither file (§1.10). The settings page and its
- * SecureStore key are N4e — until then this answers `false` to
- * `isLlmConfigured`, which is what makes the three LLM gates refuse up front
- * with "configure a model" rather than fail asynchronously halfway down a
- * download. An honest "no", in other words, and not a placeholder that will
- * quietly stay wrong once there is something to read.
- */
-const NO_LLM_CONFIG: LlmConfig = { url: '', model: '', api_key: '', api_format: '' };
 
 /**
  * The service itself, as the controller sees it (`modules/lark-transfer`).
@@ -114,8 +100,12 @@ export interface DownloadRuntime {
    * Whether the three LLM gates are open, for the screens that have to say so
    * BEFORE a submission rather than after it (§1.1).
    *
-   * A function and not a boolean because N4e's settings page will make it
-   * change inside one process; today it reads a constant.
+   * A function and not a boolean because the settings page changes the answer
+   * inside one process (N4e-1). Nobody subscribes to it (decision d): the four
+   * tabs are mounted conditionally, so settings and 添加 cannot be on screen at
+   * once and switching back remounts the reader. THAT IS THE ASSUMPTION — a
+   * split view, or settings as a modal over the add page, breaks it, and the
+   * fix then is an external store like `downloads/hub.ts`, not a memo here.
    */
   hasLlm(): boolean;
   /**
@@ -189,7 +179,11 @@ export function createDownloadRuntime(
       store: boot.db,
       ...(deps.transfer === undefined ? {} : { transfer: deps.transfer }),
     }),
-    getLlmConfig: () => NO_LLM_CONFIG,
+    // Read afresh, every task (§1.2). One Keystore round trip per download is
+    // not a hot path, and the engine snapshots the answer for the task's
+    // lifetime anyway — so a config saved mid-download applies to the next one,
+    // which is the only behaviour that can be explained.
+    getLlmConfig: () => readLlmConfig(boot.db.sqlite),
     timeouts: MOBILE_TIMEOUTS,
     // `fetchImpl` is deliberately absent: `globalThis.fetch` here is expo/fetch,
     // which N0b-3 froze and N1i re-checked against the real bilibili endpoints.
@@ -234,7 +228,7 @@ export function createDownloadRuntime(
   return {
     engine,
     bilibili,
-    hasLlm: () => isLlmConfigured(NO_LLM_CONFIG),
+    hasLlm: () => hasLlmConfig(boot.db.sqlite),
     foreground,
     fileOps: new FileEffectRuntime({
       sqlite: boot.db.sqlite,
