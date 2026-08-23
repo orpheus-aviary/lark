@@ -6,10 +6,11 @@
 // somebody is still typing; only `b23.tv` needs a hop, which is why 「正在解析」
 // is a state that exists on short links and nowhere else (criterion 21).
 //
-// WHAT V1 CANNOT DO, IT SAYS ON THE PAGE. There is no model configured on this
-// device until N4e, and three things need one: keyword search, 清洗命名, and
-// picking an episode out of a multi-part video. A submission that failed for
-// one of those reasons and left a red line in the task list would be a wall
+// WHAT THIS DEVICE CANNOT DO, IT SAYS ON THE PAGE. Three things need a model —
+// keyword search, 清洗命名, and picking an episode out of a multi-part video —
+// and until somebody fills in 设置 there is none (N4e-2 gave it a page; §0
+// froze that page as its ONLY source). A submission that failed for one of
+// those reasons and left a red line in the task list would be a wall
 // discovered afterwards; instead the keyword refusal is the preview, the 清洗
 // chip is disabled with its reason on it, and the multi-part gate — the only
 // one that cannot be known without asking bilibili — lands inline here rather
@@ -25,6 +26,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { type Recognition, recognise, submitDownload } from '../downloads/preflight';
 import { subscribeShareDraft, takeShareDraft } from '../share/draft';
+import { Chip } from './chip';
 import { useLibrary } from './library-context';
 import { Sheet, SheetAction } from './sheet';
 import { TaskList } from './task-list';
@@ -45,7 +47,13 @@ const LIBRARY_ONLY = '仅曲库';
 export function AddTab() {
   const { boot, view, changed } = useLibrary();
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
-  const hasLlm = runtime.hasLlm();
+  // ONCE PER MOUNT, not once per render (N4e-2). Until N4e-1 this read a
+  // constant and was free; it is now a SQLite query plus a Keystore round trip,
+  // both synchronous on the JS thread — and this screen re-renders on every
+  // keystroke, which is exactly what typing a keyword search is. Correctness is
+  // untouched: decision d asks for a re-read when the tab remounts, and a memo
+  // recomputes on every mount; what it drops is the 2nd…Nth read of one mount.
+  const hasLlm = useMemo(() => runtime.hasLlm(), [runtime]);
 
   // Consumed AT MOUNT, because the payload behind it is volatile and this is
   // the first moment anything can hold it (N4d-3). A share that arrives later
@@ -178,7 +186,7 @@ export function AddTab() {
             onPress={() => chooseMode('clean')}
           />
         </View>
-        {!hasLlm && <Text style={styles.hint}>清洗命名需要配置 LLM，设置页在下一批开放。</Text>}
+        {!hasLlm && <Text style={styles.hint}>清洗命名需要一个模型，去「设置」填一个。</Text>}
 
         <View style={styles.row}>
           <Text style={styles.rowLabel}>存到</Text>
@@ -263,28 +271,6 @@ function Preview({ seen, resolving }: { seen: Recognition; resolving: boolean })
   );
 }
 
-function Chip({
-  label,
-  on,
-  disabled = false,
-  onPress,
-}: { label: string; on: boolean; disabled?: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      style={[styles.chip, on && styles.chipOn, disabled && styles.chipOff]}
-      onPress={onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ selected: on, disabled }}
-    >
-      <Text style={[styles.chipLabel, on && styles.chipLabelOn, disabled && styles.chipLabelOff]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   form: {
@@ -310,17 +296,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: S.gap },
   rowLabel: { color: C.faint, fontSize: 13, width: 32 },
   hint: { color: C.faint, fontSize: 12 },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: S.radius,
-    backgroundColor: C.surface,
-  },
-  chipOn: { backgroundColor: C.surfaceOn },
-  chipOff: { opacity: 0.4 },
-  chipLabel: { color: C.muted, fontSize: 13 },
-  chipLabelOn: { color: C.text },
-  chipLabelOff: { color: C.faint },
   submit: {
     backgroundColor: C.surfaceOn,
     borderRadius: S.radius,
