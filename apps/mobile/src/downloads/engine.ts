@@ -202,8 +202,8 @@ export function createDownloadRuntime(
         refreshDownloads();
         // A row was written by somebody with no finger on a button. This is the
         // same signal a delete emits (`library-signal.ts`), so the player
-        // reconciles its queue and — once N4d gives it a screen — the song list
-        // rebuilds. A lyrics task changed no song row, and says so.
+        // reconciles its queue and the song list rebuilds (N4d gave it a screen).
+        // A lyrics task changed no song row, and says so.
         if (task.kind !== 'lyrics') libraryChanged();
       },
     },

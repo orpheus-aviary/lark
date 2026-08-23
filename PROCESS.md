@@ -797,7 +797,7 @@ v1 那条读源码读出来的发现原样保留：
 - [ ] 🔴 **TLS（D15）—— N5 的开工前置**（2026-08-20 从 N4 移出，主计划 §4.3 Stage-3 修订）：skybridge server 现为 `http://<公网IP>:8443`，移动端 v1 是 https-only。N5 开工前二选一：补完 TLS（域名 + DNS · 证书 + 自动续期告警与演练 · 反代 · 两端 `server_url` 迁移 · 真机连通），或单独决定移动端的明文口径。负责人 = 用户，AI 协助
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
-- [ ] **跨仓文档跟进 Phase B 起步**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md` 里 lark 的一行状态还停在「0.3.0 已发」，没有 N0b GO 与「下一步 N1」——发下个版本时一并跟进即可，不必单独开一轮
+- [ ] **跨仓文档跟进 Phase B**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md` 里 lark 的一行状态还停在「0.3.0 已发」，没有 Android 版这条线（现已到 N4d：手机上能播、能粘链接下载、能接分享）——发下个版本时一并跟进即可，不必单独开一轮
 - 归用户手动、尚未做的：**skill 的「agent 实际可调用」验收**（M6 起挂着，M7 也没做——需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令）
 
 ## 决策记录

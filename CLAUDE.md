@@ -14,23 +14,21 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
 
 🛠 **Phase B（Android，`apps/mobile`）开发中**——主计划 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md` §4 + 各批子计划。批次 N0a → N0b → N1 → N2 → … → N6。
 
-- **N0b = GO**（2026-08-18）：D4 / D14 / D16 / D17 全部落定，冻结文本在主计划 §4.3 的 Stage-2 修订段。
-- **N1 已全部完成**（2026-08-19，子计划 `docs/plans/2026-08-18-phase-b-mobile-n1.md`，九批 N1a–N1i）：core 的**整个业务图**进了 `@lark/core/portable`——sync 全图、library 全图、SyncCoordinator、LibraryService（+ 跨前端 LibraryContract）、download client 层与编排。Metro 图 **97 个 portable 模块**，bundle smoke 已进 `just check`。**R1–R5 真机全绿 → D5 分段冻结，冻结文本见 N1 子计划 §8.1（单一事实源）**。桌面测试 **2578**。
-  - **唯一未做的是判据 22**：对新构建的 dmg/tgz 复跑 accept 全系列——按用户决定并入下个桌面版本的发版流程。
-- **N2 已全部完成**（2026-08-20，七批 N2a–N2g，判据 1–21 全过；**判据 14 的「拖柄重排」已按用户决定不做**，见子计划 §8.3；**判据 16b = D2D 手机搬家已搁置**，见子计划 §8.2；**§8.4 记了判据 20 的 ②③ 落地成同一个守卫**）——子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（**v3，两轮评审收敛**，七批 N2a–N2g / 判据 22 条 / **决策 a–o 已于 2026-08-19 全部关闭，§5 是定案**，§8 有修订对照）。四条要点：**决策 a = 原子替换**（expo-file-system 57 在 Android 上两条路都堵着）· **`ensureDeviceUuid` 要下沉进 portable**（今天是桌面专有的，缺它移动端一切业务写入抛错）· **删除的文件半推不掉**（`deleteSong` 无条件 drain）→ file-op 执行器提前进 N2 且控制面从桌面提取 · **§2.2 冻结了启动序列**：零写预检（含兼容性）→ 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent → boot drain → 服务。
-- **N3 已完成**（2026-08-20，子计划 `docs/plans/2026-08-20-phase-b-mobile-n3.md`，六批 N3a–N3f / 判据 25 条 / 决策 a–p 全关，§8.1 有 17 条实施修订）：**判据 1–19 + 21–25 全过**（**18 与 21 只记录不判定**、**20 已按用户决定搁置**）。手机上已经是一个完整的播放器——minibar + 全屏歌词页（含 offset ±）+ 队列面板 + 四种播放模式 + 蓝牙歌词 + 拔耳机暂停 + 进度记忆。桌面测试 **2729**。**下一步 N4 下载**。三条要点：**锁屏/车机的「上一首/下一首」在 expo-audio 57.0.3 上不存在**（`AudioMediaSessionCallback` 显式 remove 掉四个曲目导航命令，两个 session 注册点同一个 callback，换 `AudioPlaylist` 也救不了）→ **v1 收窄成播放/暂停/seek**，逃生口定价在 §1.9 · **队列是起播那一刻的快照**（决策 o，与桌面「队列 = 当前视图」分叉，如实记着）· **耐久留给打包后的真实使用**（决策 k，N3 只到 ≥5 分钟后台）。
-- **蓝牙歌词进 v1，只做 Android**（2026-08-19 用户决定）：复用 AVRCP 的 TITLE 字段；**判定函数与 config 字段已随 N2g 落地**——`nowPlayingTitle`（`@lark/shared/now-playing.ts`，纯函数，四种输入回歌名 + 64 code point 上限）与 `local_metadata.now_playing_mode`（`@lark/core/portable/now-playing-mode.ts`，缺行或非法值一律读 `'title'` 且**读路径不写库**）；**接线、开关与节流已随 N3d 落地**（`apps/mobile/src/player/now-playing.ts`：去重看返回值 + 节流 500ms + `mode` 每首重读一次；关开关**绕过节流**强发一次，因为暂停的播放器没有 tick），**桌面整个不做**。见主计划 §4.5 的修订段。**判据 18 的 queue 陷阱前提条件实测成立**（`queueTitle=null, size=1` + `MediaItem.fromUri` 不带 title → queue item 的 title 永远对不上我们写的歌词），**有没有真的延迟 2 秒没有接收端测不了**。
-- **N4 下载：N4a–N4d 已完成**（判据 20·21·22·23·25·44·45 真机全绿，**22 是 gate 且反测走了完整一轮构建**；**24 无法在无模型的构建上验，推到 N4e**），**下一步 N4e LLM 设置页**（子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` v2，七批 N4a–N4g / 判据 40 条）。用户 2026-08-20 拍板四条范围：**TLS 移出 N4**（不阻塞 N4 任何子批，**硬阻塞 N5**——主计划 §4.3 有 Stage-3 修订）· **LLM 设置页进 N4** · **收藏夹/合集批量进 N4** · **加 dataSync 前台服务**。
-  - **N4a ✅**（纯桌面）：preflight 提取进 portable（短链 400 口径先补 characterization 再迁就）· AudioLanding 签名冻结 + `describeAudioRequest` · **AudioLandingContract 八条** · 缓存运行时提取（注入 `defer`）。
-  - **N4b ✅ 判据 5–14 全关**（2026-08-21 真机 session）：移动 AudioLanding（**七步**，③b 是实测加的）· 启动清扫 ⑪b · 引擎装配 + 进程级 hub + 共享 claim registry · 契约移动 hook。🟢 **判据 5 的答案：两张网都是 https**（5G `…mcdn.bilivideo.cn:8082` / Wi-Fi `cn-bj-cc-03-03.bilivideo.com`）——**§1.3 的三条出路一条都不用走，不碰 `usesCleartextTraffic`**。🟢 **MMR 与 ffprobe 逐毫秒一致**（Δ0.000 / Δ0.001s），决策 b 的 A 成立。
-  - **N4c ✅ 判据 15–19 + 41–43 全关**（三批，子计划 `docs/plans/2026-08-21-phase-b-mobile-n4c.md`，**§8 八条实施修订 + §9 真机对照表**）：`modules/lark-transfer`（dataSync 服务 + 通知渠道 + `onTimeout`）· `downloads/foreground.ts` 状态机（27 条单测 + 11 条反测）· 真机验收六个入口。**控制面是 `arm()` + `settle()` 两个调用**——「预检后零入队」没有 hub 事件，只有调用方知道。**判据 18 只有单测，6 小时配额没有真机证据。**
-    - 🔴 **后台的 `startForegroundService()` 在这台机器上既不抛也不起——被延后到应用回前台**（N4c-3 实测）。所以 ① `arm()` 必须在手势那一刻（入队时刻起服务 = 整个下载期间毫无保护）；② **`start()` resolve 只等于「系统收下了请求」**，状态机在 start 后 2 秒回头确认一次（`START_CONFIRM_MS`），确认不了落 `degraded` / `ERR_LARK_FGS_NEVER_STARTED`。
-    - 🔴 **想在后台那一刻做事，只能用 `AppState` 回调，不能用 JS 定时器**（后台定时器冻结，反测第一版因此得到一个看起来成立的反面结论）。另有三条采样陷阱进了 LESSONS：**前台服务通知约 10 秒延后** · `pm revoke` 杀进程 / `pm clear` 清外部夹具目录 · **已在库里的曲目会把「长下载」判据变成 4 秒**。
-  - **四条开工时记住的，两条已被实测改写**：① ~~明文流是头号未知~~ → **已答，是 https**；② **崩溃孤儿进 `trash/recovery-*` 不是 `recovered-songs/`** 且清扫要 `skipSongIds: pendingFileOpSongIds(...)`（已落地，判据 12/13 守着）；③ ~~preflight 提取会把短链 400 改成 502~~ → **已按顺序修好**；④ **hub 与引擎同批出生**（`EngineCallbacks` 只在构造时给，已落地）。
-  - 🔴 **N4b 学到的三条，改移动端代码前必读**（详见 `docs/LESSONS.md`）：**自建 Expo 模块少 `android/build.gradle` → autolink 静默跳过 → 启动即闪退**（守卫 `check-mobile-native-modules.sh` 已进 `just check`）· **MMR 读得出时长 ≠ 文件完整**（fMP4 的 `moov` 在头部，前 64KB 就有完整时长 → 落盘加了 ③b 完整性检查）· **Expo `AsyncFunction` 的最后一个表达式就是返回值**，转不了的类型会在副作用发生之后才 reject。
+- **N0b–N3 已完成**，逐批经过、判据与决策在 `PROCESS.md` 的 Phase B 段与各子计划（`docs/plans/` 下的 `…-n0.md` / `-n1.md` / `-n2.md` / `-n3.md`）。**仍然约束新代码的四条**：
+  - **N1 的 D5 分段冻结**（core 的整个业务图进 `@lark/core/portable`，Metro 图 97 个模块，bundle smoke 在 `just check` 里）——**冻结文本在 N1 子计划 §8.1，那是单一事实源**。**N1 判据 22 仍欠着**：对新构建的 dmg/tgz 复跑 accept 全系列，按用户决定并入下个桌面版本的发版流程。
+  - **N2 §2.2 冻结了启动序列**：零写预检（含兼容性）→ 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent → boot drain → 服务。**每进程只跑一次**（`bootOnce`——Activity 重建后再开同一个库会崩，见 LESSONS）。**文件写一律原子替换**（决策 a，expo-file-system 57 在 Android 上两条路都堵着）。
+  - **N3 的两条产品形状**：**锁屏/车机的「上一首/下一首」在 expo-audio 57.0.3 上不存在**（`AudioMediaSessionCallback` 显式 remove 掉四个曲目导航命令，换 `AudioPlaylist` 也救不了）→ v1 收窄成播放/暂停/seek，逃生口定价在 N3 子计划 §1.9 · **队列是起播那一刻的快照**（决策 o，与桌面「队列 = 当前视图」分叉，如实记着）。
+  - **三条已按用户决定不做/搁置，别当成待办**：N2 判据 14 的拖柄重排（不做）· N2 判据 16b 的 D2D 手机搬家（搁置）· N3 判据 20（搁置）。
+- **蓝牙歌词只做 Android，桌面整个不做**（2026-08-19 用户决定，主计划 §4.5 有修订段）：复用 AVRCP 的 TITLE 字段。判定在 `@lark/shared/now-playing.ts`（纯函数，四种输入回歌名 + 64 code point 上限），开关在 `local_metadata.now_playing_mode`（缺行或非法值一律读 `'title'`、**读路径不写库**），接线在 `apps/mobile/src/player/now-playing.ts`（去重看返回值 + 节流 500ms + `mode` 每首重读一次；**关开关绕过节流强发一次**，暂停的播放器没有 tick）。**没有接收端，所以「会不会延迟 2 秒」测不了**——只知道那个 queue 陷阱的前提条件成立。
+- **N4 下载：N4a–N4d 已完成，下一步 N4e LLM 设置页**（全期子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` v2，七批 N4a–N4g / 判据 40 条）。用户 2026-08-20 拍板四条范围：**TLS 移出 N4**（不阻塞 N4 任何子批，**硬阻塞 N5**——主计划 §4.3 有 Stage-3 修订）· **LLM 设置页进 N4** · **收藏夹/合集批量进 N4** · **加 dataSync 前台服务**。
+  - **N4a**（纯桌面）preflight / AudioLanding 契约 / 缓存运行时三处提取 · **N4b** 移动 AudioLanding 七步 + 引擎装配 + 进程级 hub（判据 5–14）· **N4c** dataSync 前台服务 + `arm()`/`settle()` 状态机（判据 15–19 + 41–43，子计划 `docs/plans/2026-08-21-phase-b-mobile-n4c.md`）· **N4d** 添加页 + 任务列表 + 分享 intent（判据 20–25 + 44–45，子计划 `docs/plans/2026-08-21-phase-b-mobile-n4d.md`）。逐批经过与证据在 `PROCESS.md`。
+  - **两条已答的大问号**：🟢 **音频流两张网都是 https**（5G `…mcdn.bilivideo.cn:8082` / Wi-Fi `cn-bj-cc-03-03.bilivideo.com`）——不碰 `usesCleartextTraffic`；🟢 **MMR 与 ffprobe 逐毫秒一致**（Δ0.000 / Δ0.001s）。
+  - 🔴 **改移动端代码前必读的五条**（详见 `docs/LESSONS.md`）：**自建 Expo 模块少 `android/build.gradle` → autolink 静默跳过 → 启动即闪退**（守卫已进 `just check`）· **MMR 读得出时长 ≠ 文件完整**（fMP4 的 `moov` 在头部，落盘因此加了 ③b 完整性检查）· **Expo `AsyncFunction` 的最后一个表达式就是返回值**，转不了的类型在副作用之后才 reject · **后台的 `startForegroundService()` 既不抛也不起、被延后到回前台**（所以 `arm()` 必须在手势那一刻，且 `start()` resolve ≠ 服务在，`START_CONFIRM_MS` 回头确认）· **想在后台那一刻做事只能用 `AppState` 回调，JS 定时器是冻的**。
+  - 🔴 **N4d 的三条形状**：**分享/复制过来的是「标题 + 短链」一整行**（`EXTRA_TITLE` 为空，真机复现），整行读作自由文本 → 撞 keyword 门，所以 `downloads/preflight.ts` 有 `findSource` 从一行里挑出链接（只在整行读作 keyword 时启动，候选原样过 `parseSongInput`）· **分享的消费点必须在根层**（`App`，在 boot 状态之上；添加 tab 是条件挂载的，冷启动收不到），草稿是**内存单例、消费即清** · **`engine.snapshot()` 是插入序（最旧在前）**，任何「最近 N 条」都要自己按 `finished_at` 排（`downloads/rows.ts`）。
+  - **N4d 欠的一条**：**判据 24（命名模式记忆）的设备半边推到 N4e**——没有模型的构建上只有一个可选命名模式，没有可观测差别；逻辑半边 17 条单测守着。
 - 数值判据一律 **release 构建** + 冻结设备 vivo V2408A。逐批状态见 `PROCESS.md` 的 Phase B 段。
 
-**mobile / spike 的四条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-mobile-imports.sh` + Metro bundle smoke，两者的作用域自 N2a 起是 spike + `apps/mobile` 两处），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。③ **真机测试默认由用户跑**（2026-08-19 定）：我只负责 `just mobile-android-release`（adb 直接装到机器上），然后把「看什么」讲清楚——用户手测比脚本驱动快得多。**我自己驱动手机只在两种情况**：需要抓内容（logcat / dumpsys / 截屏比对），或者判据要求一段精确的流程（崩溃点、force-stop 时机、成组的顺序断言）。真要长跑，**开跑前说一声、跑完说一声**——用户以为跑完了就去动手机，症状会长得像应用 bug（`not in front` / 找不到屏幕上明明有的标签）。④ **改 Expo 模块的原生代码，光 `pnpm patch` 没用**：SDK 57 的模块在 `expo-module.config.json` 里带 `publication`，Android 侧消费的是包内**预编译 AAR**，源码不参与构建——补丁装上了、`.kt` 真的变了、BUILD SUCCESSFUL（8 秒）、设备上零变化。要在 `apps/mobile/package.json` 加 `expo.autolinking.buildFromSource`（目前只有 `expo-audio`，见 `patches/expo-audio@57.0.3.patch`）。**驱动脚本也有两条新边界**：`drive.mjs` 现在读 `content-desc`（图标按钮才点得动），但**播放中 `uiautomator dump` 会失败**（走着的秒数让窗口永不 idle），要先暂停或改用坐标。
+**mobile / spike 的四条常驻规矩**：① **bundle** 只许 import `@lark/core/portable` / `@lark/shared` / skybridge SDK（守卫 `check-mobile-imports.sh` + Metro bundle smoke，两者的作用域自 N2a 起是 spike + `apps/mobile` 两处），**禁止复制 core 实现来假装验证 core**——需要 core 算的输入一律由桌面产 fixture；**唯一豁免是 `spikes/mobile-foundation/scripts/*.mjs`**（主机脚本，不在 Metro 图里，产 fixture 时必须用真 core）。② **Expo 已进桌面 workspace，每次 `pnpm install` 变动后必须复跑 `just check` + `just test`**。**短命夹具不进 bundle**：bilibili 流 URL 两小时过期、skybridge 账号每次新建，由 `probe-host.mjs` 的 `/fixtures/network` 现供。③ **真机测试默认由用户跑**（2026-08-19 定）：我只负责 `just mobile-android-release`（adb 直接装到机器上），然后把「看什么」讲清楚——用户手测比脚本驱动快得多。**我自己驱动手机只在两种情况**：需要抓内容（logcat / dumpsys / 截屏比对），或者判据要求一段精确的流程（崩溃点、force-stop 时机、成组的顺序断言）。真要长跑，**开跑前说一声、跑完说一声**——用户以为跑完了就去动手机，症状会长得像应用 bug（`not in front` / 找不到屏幕上明明有的标签）。④ **改 Expo 模块的原生代码，光 `pnpm patch` 没用**：SDK 57 的模块在 `expo-module.config.json` 里带 `publication`，Android 侧消费的是包内**预编译 AAR**，源码不参与构建——补丁装上了、`.kt` 真的变了、BUILD SUCCESSFUL（8 秒）、设备上零变化。要在 `apps/mobile/package.json` 加 `expo.autolinking.buildFromSource`（目前只有 `expo-audio`，见 `patches/expo-audio@57.0.3.patch`）。**驱动脚本还有三条边界**：`drive.mjs` 读 `content-desc`（图标按钮才点得动）· **播放中 `uiautomator dump` 会失败**（走着的秒数让窗口永不 idle），先暂停或改用坐标 · 🔴 **键盘弹起时 `input tap` 打在输入法窗口上，而 `uiautomator dump` 只报应用自己的坐标**——底部 tab 栏的 bounds 看着一切正常却点不中，`keyevent 4` 也收不掉输入法（RN 的 `TextInput` 还握着焦点）。点之前先 `dumpsys input_method | grep mInputShown`；**`input text` 不受影响**，所以「让用户收键盘、我来打字」是最省的分工。
 
 ### 🚨 曲库安全（每次动库前读）
 
@@ -58,7 +56,7 @@ lark/
 ├── packages/
 │   ├── shared/     # @lark/shared — Node-free 线协议（类型、HTTP client、SSE、api-paths、lrc、
 │   │               #   song-sort 比较器、now-playing 判定函数、play-queue 的 decideNext、
-│   │               #   operation-queue 的串行/generation）
+│   │               #   operation-queue 的串行/generation、download-labels 三张中文枚举表）
 │   ├── core/       # @lark/core — 业务逻辑。N1 之后**桌面专有的只剩**：db/ 的打开与锁、
 │   │               #   ffmpeg 与落盘协议（download/{audio-landing,ffmpeg,resolve,import}）、
 │   │               #   file-op 执行器、config、logger、paths 根解析、media-tools、migration
@@ -66,7 +64,7 @@ lark/
 │   │                      #   schema / migrations / migrate / schema-signature / pending /
 │   │                      #   db-identity（ensureDeviceUuid，N2b 下沉）/
 │   │                      #   now-playing-mode（蓝牙歌词开关，N2g）/ play-mode（N3b）/
-│   │                      #   last-playback（进度记忆，N3f）/
+│   │                      #   last-playback（进度记忆，N3f）/ naming-mode（命名模式记忆，N4d）/
 │   │                      #   open-library（移动端打开分派 classifyLibrary+prepareLibrary）/
 │   │                      #   errors / logger 型 / SqliteLike / PortableDb /
 │   │                      #   ports/（fs·paths·song-files·credentials·events·device·audio-landing）/
@@ -80,12 +78,15 @@ lark/
 │   ├── cli/        # @lark/cli — 对外 CLI（发布为 @orpheus-aviary/lark-cli，bin `lark` / `lark-cli`）
 │   └── mobile/     # @lark/mobile — Android（N2 起）：boot/ 冻结启动序列 · identity/ D16 ·
 │                    #   db/ · ports/ · services/ · player/（driver·store·queue·session·now-playing，N3a–f）·
-│                    #   ui/ 四 tab + minibar/全屏页/队列面板 · acceptance/（仅验收 bundle 可达）
+│                    #   ui/ 四 tab（含 add-tab 添加页 + task-list 任务列表，N4d）+
+│                    #     minibar/全屏页/队列面板 · acceptance/（仅验收 bundle 可达）
 │                    #   modules/lark-fs 自建原生模块（原子替换 + 外部夹具目录）
 │                    #   modules/lark-audio 自建原生模块（ACTION_AUDIO_BECOMING_NOISY，N3e）
 │                    #   modules/lark-media 自建原生模块（MediaMetadataRetriever 时长，N4b）
 │                    #   modules/lark-transfer 自建原生模块（dataSync 前台服务，N4c）
-│                    #   downloads/（engine 装配 · hub 进程级 store · foreground 状态机）
+│                    #   downloads/（engine 装配 · hub 进程级 store + useDownloads hook ·
+│                    #     foreground 状态机 · cancel 三种结果 · preflight 移动薄壳 · rows 排序）
+│                    #   share/（intent 根层 hook + draft 内存单例，N4d-3）
 │                    #   patches/expo-audio 打开 API 33+ 的通知 action（见 LESSONS）
 ├── spikes/
 │   ├── media-protocol/    # lark-media:// 验证工程，长期保留作 M4 移植参照

@@ -12,10 +12,10 @@
 // file and the assembly are one batch (§1.1).
 //
 // `getState()` hands back a CACHED object and rebuilds it only when the engine
-// says something changed, because the screens that read it (N4d) will do so
-// through `useSyncExternalStore` — which compares with `Object.is` and would
-// re-render forever against a freshly built object. The hook itself arrives
-// with its first component; there is nothing to hang it on yet.
+// says something changed, because the screen that reads it does so through
+// `useSyncExternalStore` — which compares with `Object.is` and would re-render
+// forever against a freshly built object. The hook is `downloads/use-downloads.ts`
+// (N4d-1) and its component is the task list.
 
 import type { DownloadEngine } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
@@ -40,7 +40,7 @@ export interface DownloadsState {
    * "the one thing you read to know about downloading", and a degraded
    * download — one running with no service and therefore no protection from
    * being killed — is a fact about downloading that a screen has to be able to
-   * show (N4d).
+   * show. `ui/task-list.tsx` renders it as a banner (N4d-1).
    */
   foreground: ForegroundStatus;
 }

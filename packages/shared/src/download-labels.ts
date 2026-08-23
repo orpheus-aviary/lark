@@ -95,7 +95,7 @@ export function taskDescription(task: DownloadTaskData): string {
  * chunk lands (§3.5). Percent when the source declared a size, megabytes when
  * it did not: "3.4MB of ?" is still progress, "NaN%" is not.
  */
-export function progressLabel(task: DownloadTaskData): string | null {
+function progressLabel(task: DownloadTaskData): string | null {
   if (task.stage !== 'downloading' || task.received_bytes === 0) return null;
   if (task.total_bytes === null) return `${(task.received_bytes / 1024 / 1024).toFixed(1)}MB`;
   return `${Math.floor((task.received_bytes / task.total_bytes) * 100)}%`;

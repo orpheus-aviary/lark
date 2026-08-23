@@ -106,11 +106,12 @@ export function Shell() {
 /**
  * One setting, and the rest diagnostics.
  *
- * The setting is N3d's: Bluetooth lyrics. Everything else a switch could
- * control still belongs to a batch that has not happened — downloads to N4,
- * sync to N5 — and a screen of switches that changed nothing would be worse
- * than a screen that says so. The diagnostics are what a person debugging this
- * build would otherwise have to ask a developer for.
+ * The setting is N3d's: Bluetooth lyrics. The one that is conspicuously
+ * missing is the model — keyword search, 清洗命名 and picking an episode out of
+ * a multi-part video all wait on it, and the add page says so where each of
+ * them is refused (N4e). Sync is N5. A screen of switches that changed nothing
+ * would be worse than a screen that says so. The diagnostics are what a person
+ * debugging this build would otherwise have to ask a developer for.
  */
 function SettingsTab() {
   const { boot, view } = useLibrary();
@@ -138,7 +139,7 @@ function SettingsTab() {
         label="启动时执行的文件操作"
         value={`${boot.drained.executed} 条 · ${boot.drained.failed} 失败 · ${boot.drained.skipped} 跳过`}
       />
-      <Text style={styles.note}>下载在 N4、同步在 N5 开放。</Text>
+      <Text style={styles.note}>模型设置在下一批、同步在 N5 开放。</Text>
     </ScrollView>
   );
 }

@@ -12,7 +12,6 @@ import {
   STAGE_LABELS,
   STATE_LABELS,
   inputLabel,
-  progressLabel,
   taskDescription,
   taskLabel,
   taskTitle,
@@ -98,24 +97,6 @@ describe('taskDescription', () => {
   });
 });
 
-describe('progressLabel', () => {
-  it('is silent outside `downloading`', () => {
-    expect(progressLabel(task({ stage: 'converting', received_bytes: 999 }))).toBeNull();
-  });
-
-  it('is silent before the first chunk', () => {
-    expect(progressLabel(task({ received_bytes: 0, total_bytes: 100 }))).toBeNull();
-  });
-
-  it('is a percentage when the source declared a size', () => {
-    expect(progressLabel(task({ received_bytes: 42, total_bytes: 100 }))).toBe('42%');
-  });
-
-  it('is megabytes when it did not — "3.4MB of ?" is still progress', () => {
-    expect(progressLabel(task({ received_bytes: 3_565_158, total_bytes: null }))).toBe('3.4MB');
-  });
-});
-
 describe('taskLabel', () => {
   it('says the state when the task is not running', () => {
     expect(taskLabel(task({ state: 'queued', stage: null }))).toBe('排队中');
@@ -128,7 +109,16 @@ describe('taskLabel', () => {
 
   it('appends progress only where progress is a question worth answering', () => {
     expect(taskLabel(task({ received_bytes: 50, total_bytes: 100 }))).toBe('下载音频 50%');
+    // Every stage but `downloading`, and the moment before the first chunk.
     expect(taskLabel(task({ stage: 'saving', received_bytes: 50, total_bytes: 100 }))).toBe('落盘');
+    expect(taskLabel(task({ received_bytes: 0, total_bytes: 100 }))).toBe('下载音频');
+  });
+
+  it('counts megabytes when the source never said how big it was', () => {
+    // "3.4MB of ?" is still progress; "NaN%" is not.
+    expect(taskLabel(task({ received_bytes: 3_565_158, total_bytes: null }))).toBe(
+      '下载音频 3.4MB',
+    );
   });
 
   it('ignores a stage on a task the engine has already finished', () => {

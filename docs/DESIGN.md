@@ -1,6 +1,6 @@
 # lark 本仓设计
 
-> 2026-05-07 首版 · 占位级；2026-07-16 需求盘点定稿，实施计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`；**2026-08-10 v0.1.0 已发布**——本文描述的 v0.1 范围全部落地；**2026-08-13 v0.2.0 已发布**——skybridge 多设备同步接入，协议冻结与决策见 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`；**2026-08-17 v0.3.0 已发布**——音频统一 m4a（canonical `song.m4a`）+ schema v3 一次性迁移 + PC 三项，计划见 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`；**2026-08-18 起 Phase B（Android）**——平台勘探批 N0 已收官（**N0b = GO**，判据与冻结出口见 `docs/plans/2026-08-17-phase-b-mobile-n0.md` §9），下一批 N1 是 core 端口化。逐里程碑的实际做法与实测结论见 `PROCESS.md` 与 `docs/plans/`（本文保留为需求与设计的原始记录，不再逐条追平实现细节）。
+> 2026-05-07 首版 · 占位级；2026-07-16 需求盘点定稿，实施计划见 `docs/plans/2026-07-16-ts-rewrite-master-plan.md`；**2026-08-10 v0.1.0 已发布**——本文描述的 v0.1 范围全部落地；**2026-08-13 v0.2.0 已发布**——skybridge 多设备同步接入，协议冻结与决策见 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`；**2026-08-17 v0.3.0 已发布**——音频统一 m4a（canonical `song.m4a`）+ schema v3 一次性迁移 + PC 三项，计划见 `docs/plans/2026-08-13-m4a-and-mobile-master-plan.md`；**2026-08-18 起 Phase B（Android）**——平台勘探 N0 收官（**N0b = GO**）、core 端口化 N1、本地曲库 N2、播放 N3、下载 N4d 均已完成：手机上已经能播、能粘 B 站链接下载、能接系统分享。全期框架见主计划 §4，逐批子计划在 `docs/plans/2026-08-1*-phase-b-mobile-*.md`。逐里程碑的实际做法与实测结论见 `PROCESS.md` 与 `docs/plans/`（本文保留为需求与设计的原始记录，不再逐条追平实现细节）。
 
 ## 1. 定位
 
@@ -130,7 +130,7 @@ CLI 是 daemon 的第二个前端，也是**唯一可以在没有 daemon 时读�
 ## 5. 非目标
 
 - 不做流媒体服务（Spotify / Apple Music 接入），主要面向本地音频库 + 手动下载内容
-- ~~不做移动端~~ → **2026-07-16 修正**（对齐 aviary 2026-07-04 决议）：移动版后置设计（v0.3+ 单独 design doc，方向 RN + skybridge 元数据 + source_url 端上取流）；桌面优先。**2026-08-18 已进入实施**：Android（Expo/RN）平台勘探 N0 收官 GO，方向与当年的判断一致（元数据同步 + 端上按需取流，音频本体不同步）
+- ~~不做移动端~~ → **2026-07-16 修正**（对齐 aviary 2026-07-04 决议）：移动版后置设计（v0.3+ 单独 design doc，方向 RN + skybridge 元数据 + source_url 端上取流）；桌面优先。**2026-08-18 已进入实施**：Android（Expo/RN），到 2026-08-23 已做到播放 + 下载 + 分享接收；方向与当年的判断一致（元数据同步 + 端上按需取流，音频本体不同步）
 - 不做实时协同播放
 - 不做联网 web UI（owl 的 `@owl/web` / `@owl/server` 不复刻；lark 必须有本地 GUI）
 
