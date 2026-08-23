@@ -652,6 +652,15 @@
 - **另一处顺带实测**：格式合法但不存在的 BV 号，预检的 `pagelist` 当场回 -400 → **页面上直接显示「bilibili API error -400: 请求错误」，根本没有任务进队列**——正是 §1.1 想要的「不要提交之后从任务列表里冒出一条红字」。
 - **收尾基线**：`just check` exit 0 · `just test` exit 0 / **2837 passed**（mobile 125）· `mobile-typecheck` exit 0。
 
+#### N4d-3（2026-08-23）分享 intent —— **N4d 完成**
+
+- **`share/intent.ts`（根层 hook）+ `share/draft.ts`（内存单例）**，拆两个文件的理由同 `rows.ts`：hook 引原生模块测不了，而要守的规则（**取走即清空 · 通知不等于消费 · 空分享不算草稿**）一个 import 都不需要。**10 条单测**，两条反测都红在该红的那条。接线三处：`App` 顶上挂 hook（**在 boot 状态之上**，冷启动的分享在 bundle 跑起来十几毫秒后就到，那时库还没开）· `Shell` 的初始 tab 读 `hasShareDraft()`（**不消费**）并订阅切 tab · `AddTab` 在 `useState` 初值和订阅里各取一次（前者管冷启动，后者管「已经停在添加 tab」——那时 `setTab('添加')` 是空操作、不会重新挂载它）。
+- 🟢 **判据 22（gate）绿，四条路径 + 完整反测**：**真 bilibili app 视频详情页分享 → 冷启动开在「添加」**（默认 tab 是「歌曲」）；合成 intent 的**前台**（`intent has been delivered to currently running top-most instance` = `singleTask` + `onNewIntent`）、**后台存活**（任务被拉回前台）、冷启动。**反测走了完整一轮构建**：`useShareIntentBridge()` 从 `App` 搬进 `AddTab` → 重新装机 → 冷启动分享落在「歌曲」、**什么也没收到**；还原重装后又收得到。
+- 🟢 **判据 45 绿**：消费过之后 force-stop 重开 → 落在默认「歌曲」tab、添加页是空的（草稿不诈尸）。
+- 🟢 **真机直接兑现了 §8.2-1 那个偏离计划的改动**：bilibili 发来的是 `当你意识到这首歌不是《东南苦行山》时…… https://b23.tv/3Prw96Q` ——**标题和短链同一行**，预览显示「从这段文字里认出了链接 · 短链已展开 · 第 1 P」+ `BV1MN9ZBCE8i`。**没有 `findSource` 这一条会撞 keyword 门**，「正在解析」从一次真实分享里永远到不了。
+- **N4d 收尾基线**：`just check` exit 0 · `just test` exit 0 / **2847 passed**（shared 146 · core 1243 · **mobile 135** · cli 428+9 skipped · daemon 468 · gui 427）· `mobile-typecheck` exit 0。
+- **N4d 未结的一条**：**判据 24 推到 N4e**（无模型的构建上只有一个可选命名模式，没有可观测差别；17 条单测守着逻辑半边）。**下一步 N4e**：LLM 设置页与它带来的四条能力（关键词 / clean 命名 / 多 P 选集 / 判据 24 的设备半边）。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

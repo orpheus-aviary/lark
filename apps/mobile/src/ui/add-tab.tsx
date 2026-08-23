@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { type Recognition, recognise, submitDownload } from '../downloads/preflight';
+import { subscribeShareDraft, takeShareDraft } from '../share/draft';
 import { useLibrary } from './library-context';
 import { Sheet, SheetAction } from './sheet';
 import { TaskList } from './task-list';
@@ -46,7 +47,12 @@ export function AddTab() {
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   const hasLlm = runtime.hasLlm();
 
-  const [text, setText] = useState('');
+  // Consumed AT MOUNT, because the payload behind it is volatile and this is
+  // the first moment anything can hold it (N4d-3). A share that arrives later
+  // — the app already open on this tab — comes through the subscription below,
+  // since the shell's `setTab('添加')` is a no-op when we are already here and
+  // would never remount this.
+  const [text, setText] = useState(() => takeShareDraft() ?? '');
   const [seen, setSeen] = useState<Recognition>({ kind: 'empty' });
   const [resolving, setResolving] = useState(false);
   const [mode, setMode] = useState<DownloadNamingMode>(() =>
@@ -93,6 +99,15 @@ export function AddTab() {
       controller.abort();
     };
   }, [text, runtime.bilibili, hasLlm]);
+
+  useEffect(
+    () =>
+      subscribeShareDraft(() => {
+        const shared = takeShareDraft();
+        if (shared !== null) setText(shared);
+      }),
+    [],
+  );
 
   const chooseMode = (next: DownloadNamingMode): void => {
     setMode(next);

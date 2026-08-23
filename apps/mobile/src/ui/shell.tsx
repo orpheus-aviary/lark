@@ -15,7 +15,7 @@ import { LATEST_KNOWN_VERSION } from '@lark/core/portable';
 import type { NowPlayingMode } from '@lark/shared';
 import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
 import { Directory } from 'expo-file-system';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Dimensions,
   Modal,
@@ -28,6 +28,7 @@ import {
 } from 'react-native';
 import { nowPlaying, usePlayback } from '../player';
 import { nestDirectory } from '../ports/paths';
+import { hasShareDraft, subscribeShareDraft } from '../share/draft';
 import { AddTab } from './add-tab';
 import { useLibrary } from './library-context';
 import { MiniBar } from './minibar';
@@ -41,7 +42,11 @@ const TABS = ['歌曲', '歌单', '添加', '设置'] as const;
 type Tab = (typeof TABS)[number];
 
 export function Shell() {
-  const [tab, setTab] = useState<Tab>('歌曲');
+  // 歌曲 unless somebody shared something into a cold start, in which case the
+  // tab that can act on it is the one to open (N4d-3). Switching AFTER the
+  // first paint would work too and would flash the wrong screen at someone who
+  // just asked for this one.
+  const [tab, setTab] = useState<Tab>(() => (hasShareDraft() ? '添加' : '歌曲'));
   // Which playlist is open lives HERE, not in the tab: switching tabs
   // unmounts the tab, and a detail screen that forgot where it was every time
   // you glanced at 设置 is a screen you stop using.
@@ -53,6 +58,11 @@ export function Shell() {
   // queue's Modal is rendered last so it sits on top.
   const [playerOpen, setPlayerOpen] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
+  // A share arriving while the app is already alive (`onNewIntent`). Switching
+  // tab IS part of consuming it: receiving a link and staying on 歌曲 reads as
+  // not having received it. It deliberately does not TAKE the draft — the page
+  // it is switching to has to find it there.
+  useEffect(() => subscribeShareDraft(() => setTab('添加')), []);
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>

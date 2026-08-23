@@ -30,6 +30,7 @@ import { downloadRuntimeOnce } from './downloads/engine';
 import { bindPlayer } from './player';
 import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
+import { useShareIntentBridge } from './share/intent';
 import { LibraryProvider } from './ui/library-context';
 import { Shell } from './ui/shell';
 import { C, S } from './ui/theme';
@@ -41,6 +42,12 @@ type BootState =
 
 export function App() {
   const [boot, setBoot] = useState<BootState>({ status: 'booting' });
+  // ABOVE the boot state on purpose (N4d-3, decision p). A share that launches
+  // the app cold arrives within milliseconds of the bundle running — long
+  // before the library is open — and the only thing that could read it lives
+  // three levels down behind a conditional. This collects it; `share/intent.ts`
+  // holds it until something asks.
+  useShareIntentBridge();
 
   useEffect(() => {
     let cancelled = false;

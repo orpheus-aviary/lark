@@ -33,6 +33,11 @@
 // can only be asked whether the file survived. The wording, the counts and the
 // sweep order are worked out here.
 //
+// `share/draft.ts` joined in N4d-3, split out of the hook beside it for this
+// reason exactly: `share/intent.ts` imports a native module and cannot load
+// here, while the rules that matter — consumed once, taking clears it,
+// announcing does not consume — import nothing at all.
+//
 // `downloads/rows.ts` joined in N4d-2 after the device found what it is for: a
 // `FlatList` renders what fits, so a row sorted off the bottom of the screen is
 // indistinguishable from a row that is not there. The ordering therefore cannot
@@ -57,6 +62,7 @@ export default defineConfig({
       'src/downloads/cancel.test.ts',
       'src/downloads/preflight.test.ts',
       'src/downloads/rows.test.ts',
+      'src/share/draft.test.ts',
     ],
   },
 });

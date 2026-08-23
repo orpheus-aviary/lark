@@ -257,3 +257,12 @@ App/Shell 挂载 ──▶ useShareIntent（根层，永远挂着）
 
    **是设备把它逼出来的，但设备看不见它**：`FlatList` 只渲染放得下的行，一条被排到屏幕外的行和一条不存在的行长得一模一样——判据 23 取消成功、回答行写着「已取消《…》」，而列表里找不到那一行，滚到底才发现它在最后。所以顺序被提取成 `orderTaskRows`（纯函数，**7 条单测**，反测把 `.sort` 拿掉 → 3 条红），`hub.ts` 那句错注释也改了。设备复验：一次下载产生两条任务（下载 + 派生的歌词），**歌词后完成、现在排在最上面**。
 7. **提交失败就在页面上，不在任务列表里**（§1.1 想要的性质，顺带实测到）：一个格式合法但不存在的 BV 号，预检的 `pagelist` 当场回 -400，页面上直接显示「bilibili API error -400: 请求错误」，**根本没有任务进队列**。
+
+### 8.3 N4d-3
+
+1. **草稿单例与 hook 拆成两个文件**（`share/draft.ts` + `share/intent.ts`），理由与 `downloads/rows.ts` 同：`intent.ts` 引 `expo-share-intent`，Node 下加载不了；而真正要守的规则——**取走即清空 · 通知不等于消费 · 空分享不算草稿**——一个 import 都不需要。**10 条单测**，两条反测都红在该红的那条（take 不清空 → 5 条红 · **清空放在通知之前** → 4 条红，含「announcing is not consuming」那条）。
+2. **「有没有草稿」与「草稿是什么」是两个调用**（`hasShareDraft` / `takeShareDraft`）。shell 用前者决定开在哪个 tab、**绝不消费**，添加页用后者取走——否则谁先跑谁说了算，而它们的挂载顺序不是这两个文件能约束的。
+3. **添加页两处消费**：`useState` 初值里取一次（冷启动那条路，payload 易失，挂载即消费）+ 订阅里取一次（应用已经停在添加 tab 时，shell 的 `setTab('添加')` 是空操作、不会重新挂载它）。
+4. **保留原始文本，不用 `webUrl`**。库自己也从整行里抽了一个 URL 出来，但 spike 的立场是「记录、绝不依赖」——判断交给 `parseSongInput`，所以交给下游的是**真正到达的那一串**。这条在真机上直接兑现了价值：真 bilibili 发来的是 `当你意识到这首歌不是《东南苦行山》时…… https://b23.tv/3Prw96Q`，**标题和短链同一行**，没有 §8.2-1 的 `findSource` 这一整条会撞 keyword 门。
+5. **判据 22（gate）绿，四条路径**：真 bilibili app 视频详情页分享 → **冷启动开在「添加」**（默认 tab 是「歌曲」）· 合成 intent 的**前台**（`intent has been delivered to currently running top-most instance` = `singleTask` + `onNewIntent`，从歌曲 tab 切过来）· **后台存活**（任务被拉回前台）· 冷启动。**反测做了完整的一轮**：把 `useShareIntentBridge()` 从 `App` 搬进 `AddTab`、重新构建装机 → 冷启动分享落在「歌曲」tab、**什么也没收到**；还原重装后又收得到。
+6. **判据 45 绿**：消费过之后 force-stop 重开 → 落在默认的「歌曲」tab（没有草稿在等）、添加页是空的。
