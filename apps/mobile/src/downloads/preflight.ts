@@ -32,8 +32,9 @@ import {
 import type { DownloadNamingMode, DownloadTaskData, ParsedItem } from '@lark/shared';
 import type { ForegroundController } from './foreground';
 
-/** A `ParsedItem` narrowed to the one kind this batch can submit. */
+/** The two `ParsedItem` kinds a phone can submit. */
 export type VideoItem = Extract<ParsedItem, { kind: 'video' }>;
+export type KeywordItem = Extract<ParsedItem, { kind: 'keyword' }>;
 
 /**
  * What the page knows about what is in the box.
@@ -51,6 +52,16 @@ export type Recognition =
       expandedFrom: string | null;
       /** True when the link was found INSIDE a longer line (see `findSource`). */
       extracted: boolean;
+    }
+  | {
+      /**
+       * A song by name (N4e-2). Not a video: there is nothing to name it after
+       * yet, so this carries no title, no page and no naming mode — the model
+       * picks the video and the name, which is why the gate in front of it is
+       * the LLM one.
+       */
+      kind: 'keyword';
+      item: KeywordItem;
     }
   | { kind: 'refused'; message: string };
 
@@ -165,12 +176,18 @@ async function settle(
   if (item.kind === 'video') return { kind: 'video', item, expandedFrom, extracted };
   if (item.kind === 'keyword') {
     // Portable's own gate and portable's own words. With a model configured it
-    // returns a target instead of throwing, which is exactly what should happen
-    // once N4e exists — this branch needs no edit then, only a keyword-shaped
-    // submission path.
+    // RETURNS a target instead of throwing — and until N4e-2 the code read that
+    // success as a refusal and answered with a placeholder about a batch that
+    // had not happened yet. The gate opening is the whole point; what it needs
+    // is somewhere to go.
+    //
+    // The target it hands back is discarded on purpose: a keyword preflight
+    // touches no network (the search happens later, inside the task), so asking
+    // twice costs nothing, and asking HERE keeps the gate and its sentence in
+    // exactly one place.
     try {
       await preflightSingle({ client: deps.client, hasLlm: deps.hasLlm() }, item, undefined);
-      return { kind: 'refused', message: '关键词搜索要等设置页能配模型的那一批。' };
+      return { kind: 'keyword', item };
     } catch (err) {
       return { kind: 'refused', message: messageOf(err) };
     }
@@ -212,8 +229,13 @@ interface EnqueueInput {
 export async function submitDownload(
   deps: SubmitDeps,
   input: {
-    item: VideoItem;
-    namingMode: DownloadNamingMode;
+    item: VideoItem | KeywordItem;
+    /**
+     * `undefined` for a keyword, and that is a rule rather than an omission:
+     * a keyword has no title to keep or clean, so portable refuses a video
+     * without a mode AND a keyword with one (`assertNamingShape`).
+     */
+    namingMode: DownloadNamingMode | undefined;
     playlistIds: readonly string[];
     signal?: AbortSignal;
   },
@@ -229,7 +251,9 @@ export async function submitDownload(
     return deps.engine.enqueueDownload({
       target,
       ...(input.playlistIds.length === 0 ? {} : { playlistIds: input.playlistIds }),
-      url: input.item.url,
+      // A keyword has no URL to remember: the list shows the query instead,
+      // which is what the person actually typed.
+      ...(input.item.kind === 'video' ? { url: input.item.url } : {}),
     });
   } finally {
     deps.foreground.settle();

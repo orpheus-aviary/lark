@@ -125,7 +125,7 @@ export function AddTab() {
   };
 
   const submit = async (): Promise<void> => {
-    if (seen.kind !== 'video' || submitting) return;
+    if ((seen.kind !== 'video' && seen.kind !== 'keyword') || submitting) return;
     setSubmitting(true);
     setFailed(null);
     try {
@@ -138,7 +138,9 @@ export function AddTab() {
         },
         {
           item: seen.item,
-          namingMode: mode,
+          // A keyword carries no mode at all (portable refuses one), so the
+          // chips above are hidden for it rather than sent and ignored.
+          namingMode: seen.kind === 'keyword' ? undefined : mode,
           playlistIds: playlistId === null ? [] : [playlistId],
         },
       );
@@ -157,7 +159,11 @@ export function AddTab() {
     }
   };
 
-  const ready = seen.kind === 'video' && !submitting;
+  const ready = (seen.kind === 'video' || seen.kind === 'keyword') && !submitting;
+  // Naming is a question about a title, and a keyword has none — the model
+  // names the song it finds. Hiding the row beats disabling it: a disabled
+  // control invites "why can't I choose", and there is nothing to choose.
+  const naming = seen.kind !== 'keyword';
 
   return (
     <View style={styles.fill}>
@@ -176,17 +182,21 @@ export function AddTab() {
 
         <Preview seen={seen} resolving={resolving} />
 
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>命名</Text>
-          <Chip label="原标题" on={mode === 'original'} onPress={() => chooseMode('original')} />
-          <Chip
-            label="清洗命名"
-            on={mode === 'clean'}
-            disabled={!hasLlm}
-            onPress={() => chooseMode('clean')}
-          />
-        </View>
-        {!hasLlm && <Text style={styles.hint}>清洗命名需要一个模型，去「设置」填一个。</Text>}
+        {naming && (
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>命名</Text>
+            <Chip label="原标题" on={mode === 'original'} onPress={() => chooseMode('original')} />
+            <Chip
+              label="清洗命名"
+              on={mode === 'clean'}
+              disabled={!hasLlm}
+              onPress={() => chooseMode('clean')}
+            />
+          </View>
+        )}
+        {naming && !hasLlm && (
+          <Text style={styles.hint}>清洗命名需要一个模型，去「设置」填一个。</Text>
+        )}
 
         <View style={styles.row}>
           <Text style={styles.rowLabel}>存到</Text>
@@ -251,6 +261,14 @@ function Preview({ seen, resolving }: { seen: Recognition; resolving: boolean })
     );
   }
   if (seen.kind === 'empty') return null;
+  if (seen.kind === 'keyword') {
+    return (
+      <View style={styles.preview}>
+        <Text style={styles.previewText}>搜索「{seen.item.query}」</Text>
+        <Text style={styles.previewNote}>由模型挑选视频并命名</Text>
+      </View>
+    );
+  }
   if (seen.kind === 'refused') {
     return (
       <View style={styles.preview}>

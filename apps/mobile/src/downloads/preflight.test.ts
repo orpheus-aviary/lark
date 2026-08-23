@@ -274,3 +274,53 @@ describe('submitting (§1.5: arm before the first packet, settle whatever happen
     ).rejects.toThrow('这个视频有 2 个分P');
   });
 });
+
+// ─── criterion 26: a song by name (N4e-2) ──────────────
+
+describe('a keyword, before and after there is a model', () => {
+  const KEYWORD = 'Yesterday Once More Carpenters';
+
+  it('is refused in portable’s own words when there is no model', async () => {
+    const seen = await recognise(noLlm(), KEYWORD);
+
+    expect(seen).toEqual({
+      kind: 'refused',
+      message: '关键词搜索需要配置 LLM；或者直接粘贴 B 站视频链接',
+    });
+  });
+
+  // The regression this file exists to hold: until N4e-2 the branch treated
+  // `preflightSingle` NOT throwing — the gate being open — as a refusal, and
+  // answered with a placeholder about a batch that had already happened.
+  it('is a submittable recognition once a model is configured', async () => {
+    const seen = await recognise(noLlm({ hasLlm: () => true }), KEYWORD);
+
+    expect(seen).toEqual({ kind: 'keyword', item: { kind: 'keyword', query: KEYWORD } });
+  });
+
+  it('submits with no naming mode and no url', async () => {
+    const enqueued: { target: unknown; url?: string }[] = [];
+    const deps = {
+      client: client(),
+      hasLlm: () => true,
+      foreground: { arm: () => Promise.resolve(), settle: () => undefined },
+      engine: {
+        enqueueDownload: (input: { target: unknown; url?: string }) => {
+          enqueued.push(input);
+          return { id: 'k1' } as never;
+        },
+      },
+    } as unknown as Parameters<typeof submitDownload>[0];
+
+    await submitDownload(deps, {
+      item: { kind: 'keyword', query: KEYWORD },
+      namingMode: undefined,
+      playlistIds: [],
+    });
+
+    expect(enqueued).toEqual([{ target: { kind: 'keyword', query: KEYWORD } }]);
+    // Not `url: undefined` — `exactOptionalPropertyTypes` aside, a task list
+    // row showing an empty link is a row that looks broken.
+    expect('url' in (enqueued[0] as object)).toBe(false);
+  });
+});
