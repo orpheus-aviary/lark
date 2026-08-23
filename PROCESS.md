@@ -622,7 +622,17 @@
 - 🔴 **反测的第一版是错的**：用 `await wait(10_000)` 安排「后台 10 秒后 arm」——后台 JS 定时器冻结，那句 wait 到回前台才到期，arm 其实发生在前台，**得到一个看起来成立的反面结论**。改用 `AppState` 的 `change` 回调才测到真东西。
 - **三条采样陷阱**（已进 `docs/LESSONS.md`）：**前台服务通知有约 10 秒延后**（前 10 秒 `dumpsys notification` 查不到，会误判成「服务在但通知没了」）· **`pm revoke` 会杀进程**、**`pm clear` 连外部夹具目录一起清** · **已在库里的曲目会把「长下载」变成 4 秒**（判据 22 第一次只共存 4 秒，验过程要先清库）。
 - **本批不证明的**：6 小时配额（判据 18 只有单测）· 判据 43 量到的是「传输服务自己退场」而不是「取消进行中的下载」（长曲 45 秒自己下完了，对主张等价但记着差别）。
-- **下一步 N4d**（添加页 v1 + 任务列表 + 分享 intent）：子计划已出 —— `docs/plans/2026-08-21-phase-b-mobile-n4d.md`（**v1 待评审**，三批 N4d-1–3 / 判据 20–25 + 新增 44·45 / 决策 a–j 待关闭）。N4c 留给它的两件是 **`arm()`/`settle()` 接到提交按钮**（N4 决策 f）与 **hub 里的 `foreground` 渲染成降级提示**（N4 决策 e）。**开工第一件事**是 §1.6：`expo-share-intent` 的插件会把 MainActivity 改成 `singleTask`，而这个应用有冻结的启动序列 + `bootOnce`——答错了整批形状要改，所以它排在 N4d-1 而不是最后。
+- **N4d 开工**（添加页 v1 + 任务列表 + 分享 intent）：子计划 `docs/plans/2026-08-21-phase-b-mobile-n4d.md`（三批 N4d-1–3 / 判据 20–25 + 新增 44·45）。**决策 a–j 于 2026-08-23 全部按倾向关闭，§5 是定案**。N4c 留给它的两件是 **`arm()`/`settle()` 接到提交按钮**（N4 决策 f）与 **hub 里的 `foreground` 渲染成降级提示**（N4 决策 e）。
+
+#### N4d-1（2026-08-23）依赖与地基 —— 桌面全绿，设备那一步待跑
+
+- **决策 a 落地：三张中文标签表提升进 `@lark/shared`**（新 `download-labels.ts`）。GUI 那份删掉、两个 importer 改成 `@lark/shared`；CLI `wait.ts` 的 `STAGE_TEXT` 拷贝删掉、改读 `STAGE_LABELS`（`stage === null → '排队中'` 留在 CLI，那是它的渲染口径不是枚举的）。**文案一个字没改**，`progressLabel` 从私有改成导出（手机要同一条进度短语）。**新增 17 条测试**——两份拷贝原本都没有测试，而「加一个 stage 会红」正是提升的理由。
+- **决策 k + f 落地：`portable/naming-mode.ts`**。与 `play-mode` / `now-playing-mode` 同族（`local_metadata` 一个键、读路径永不写库、值域外读成默认并 warn），**但读与默认拆成两个函数**：`readNamingMode` 回 `DownloadNamingMode | null`（`null` = 从没选过），默认由 `resolveNamingMode({ remembered, hasLlm })` 决定——`clean` 在没有模型的装机上不是偏好而是一堵墙，所以默认不能是常量。**记住的值永远优先**，包括「记着 clean 但模型没了」（chip 会 disabled 并说明原因，替用户改选择比一个带理由的灰按钮更糟）。**17 条测试**。
+- **决策 d 落地 + 判据 23 的逻辑半边：`downloads/cancel.ts`**。取消的三种结果（`cancelled` / `refused` / `already-done`）各自作答，「全部取消」是 N 个答案不是一个。**与 `handleTimeout` 共用的是口径与顺序**（`isActive` + `activeInSweepOrder`，queued 先于 running），**错误策略两边各留各的**：系统收权那条对无法解释的错误照旧向上抛（N4c 的断言原样保留），用户点取消那条把 `TASK_NOT_FOUND` 读成「已经结束了」——id 来自这块屏幕刚渲染的列表，它消失只可能是终态后被 ring 滚掉。**14 条测试**，含「一条过了落盘点不能让另外两条报失败」与「不能整批报成功」。
+- **`downloads/use-downloads.ts`**（hub 的 `useSyncExternalStore` hook，无 selector 参数——selector 的返回值会被 `Object.is` 比较，正是 hub 特意避开的无限重渲染）+ **`ui/task-list.tsx`**（决策 c：直接渲染引擎自己的 ring，进行中在上、终态最近 20 条；降级/配额两条提示；失败行显示 `error_message` 原文）。**接进了占位的 AddTab**，否则这一批的东西在设备上看不见——粘贴框仍是 N4d-2。
+- 🟢 **§1.6 的 `singleTask` 风险在主机上就答完了，不成立**：两次 prebuild 对拍（插件整块摘掉一次、装回去一次，diff 生成的 `AndroidManifest.xml`）——**插件的全部改动是一个 `<intent-filter>`**（ACTION_SEND + `text/*` + DEFAULT），别的一个字没动。`launchMode="singleTask"` **本来就是 Expo SDK 57 模板的默认值**，插件的 `withAndroidMainActivityAttributes.js:32` 只是把同一个值又写了一遍。**任务栈语义从 N2 起没变过**，`bootOnce` 与 N3 的所有真机 session 一直在它下面跑。判据 44 因此收窄成「新依赖没把构建和启动搞坏」，仍要在设备上走三条路径。D16 的两条 backup 属性在 prebuild 后仍是我们自己的 xml（`with-backup-rules` 没抛）。
+- **桌面基线**：`just check` exit 0（八条守卫 + 两个 bundle smoke）· `just test` exit 0 / **2812 passed**（shared 146 · core 1243 · mobile 100 · cli 428+9 skipped · daemon 468 · gui 427）· `just mobile-typecheck` exit 0。依赖变动（`expo-share-intent@8.0.1` + `expo-linking@57.0.6`）后的常驻规矩已复跑。
+- 🔴 **待跑，设备不在手边**：判据 44 的三条路径（冷启动 / BACK 退出再打开 / 从别的应用切回来）+ 顺带看一眼任务列表这块屏幕。装包命令是 `just mobile-android-release`。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 

@@ -53,6 +53,24 @@ const config: ExpoConfig = {
       { recordAudioAndroid: false, enableBackgroundPlayback: true },
     ],
     [
+      // N4d: receive what the bilibili app sends (criterion 22). The plugin
+      // adds an ACTION_SEND filter to MainActivity and switches its launchMode
+      // to singleTask, so a share arriving while the app is already alive comes
+      // through `onNewIntent` rather than starting a second copy of it — which
+      // matters more here than it did in the spike, because this app has a boot
+      // sequence that must run exactly once per process (`bootOnce`).
+      //
+      // `text/*` is the plugin default, spelled out because it IS the
+      // criterion: bilibili shares text/plain, and every extra mime type here
+      // is another entry lark would appear under in the share sheet.
+      //
+      // `disableIOS` because this app is `platforms: ['android']` — the iOS
+      // half builds a share-extension Xcode target (and wants a patched `xcode`
+      // package for it), none of which should exist here.
+      'expo-share-intent',
+      { androidIntentFilters: ['text/*'], disableIOS: true },
+    ],
+    [
       // D16: expo-secure-store installs its own backup rules by default,
       // pointing the two manifest attributes at ITS xml files. Ours have to be
       // the only ones — see `plugins/with-backup-rules.js`, which throws

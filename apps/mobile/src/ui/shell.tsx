@@ -7,9 +7,10 @@
 // ask whether this is still true.
 //
 // ONE HARD BOUNDARY THIS SCREEN STILL HAS TO BE HONEST ABOUT: nothing here
-// downloads. A row plays as of N3c, but there is no download link until N4, so
-// the 添加 tab says so in as many words (decision e) instead of showing half a
-// paste box that would do nothing.
+// STARTS a download yet. The engine, the foreground service and the task list
+// are all in place as of N4d-1, so 添加 shows the list — but the paste box that
+// would put something in it is N4d-2, and the tab says so in as many words
+// (N2f decision e) rather than showing half a box that would do nothing.
 
 import { LATEST_KNOWN_VERSION } from '@lark/core/portable';
 import type { NowPlayingMode } from '@lark/shared';
@@ -34,6 +35,7 @@ import { PlayerScreen } from './player-screen';
 import { PlaylistsTab } from './playlists-tab';
 import { QueueSheet } from './queue-sheet';
 import { SongsTab } from './songs-tab';
+import { TaskList } from './task-list';
 import { C, S } from './theme';
 
 const TABS = ['歌曲', '歌单', '添加', '设置'] as const;
@@ -94,9 +96,11 @@ export function Shell() {
 
 function AddTab() {
   return (
-    <View style={styles.centre}>
-      <Text style={styles.headline}>还不能添加歌曲</Text>
-      <Text style={styles.note}>下载链路在 N4 开放。在那之前，曲库里的歌来自桌面版。</Text>
+    <View style={styles.fill}>
+      <View style={styles.addNote}>
+        <Text style={styles.note}>粘贴框在下一批开放。这里先能看见下载任务。</Text>
+      </View>
+      <TaskList />
     </View>
   );
 }
@@ -208,14 +212,7 @@ function Field({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  centre: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: S.pad * 2,
-    gap: S.gap,
-  },
-  headline: { color: C.text, fontSize: 18 },
+  addNote: { paddingHorizontal: S.pad, paddingTop: S.pad },
   note: { color: C.faint, fontSize: 13, textAlign: 'center', lineHeight: 20 },
   settings: { padding: S.pad, gap: S.pad },
   switchRow: { flexDirection: 'row', alignItems: 'center', gap: S.pad },

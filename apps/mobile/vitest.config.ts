@@ -27,6 +27,11 @@
 // that enqueues nothing, a service the system refused — are states a phone
 // reaches rarely, slowly, or only after six hours of downloading. It imports
 // one type from `@lark/shared` and nothing else.
+//
+// `downloads/cancel.ts` joined in N4d-1: criterion 23 is a claim about what a
+// person is TOLD when a sweep hits a task past the commit point, and a phone
+// can only be asked whether the file survived. The wording, the counts and the
+// sweep order are worked out here.
 
 import { defineConfig } from 'vitest/config';
 
@@ -37,6 +42,7 @@ export default defineConfig({
       'src/player/store.test.ts',
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
+      'src/downloads/cancel.test.ts',
     ],
   },
 });

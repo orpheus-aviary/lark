@@ -57,6 +57,7 @@ export * from './migrate.js';
 export * from './open-library.js';
 export * from './migrations/index.js';
 export * from './last-playback.js';
+export * from './naming-mode.js';
 export * from './now-playing-mode.js';
 export * from './pending.js';
 export * from './play-mode.js';

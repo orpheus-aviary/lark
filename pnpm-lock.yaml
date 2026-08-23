@@ -95,9 +95,15 @@ importers:
       expo-file-system:
         specifier: 57.0.4
         version: 57.0.4(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))
+      expo-linking:
+        specifier: 57.0.6
+        version: 57.0.6(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
       expo-secure-store:
         specifier: 57.0.1
         version: 57.0.1(expo@57.0.13)
+      expo-share-intent:
+        specifier: 8.0.1
+        version: 8.0.1(expo-constants@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4)))(expo-linking@57.0.6(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
       expo-sqlite:
         specifier: 57.0.1
         version: 57.0.1(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)

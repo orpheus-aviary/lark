@@ -1,6 +1,6 @@
 # Phase B · N4d 添加页 v1 + 任务列表 + 分享 intent（`apps/mobile`）
 
-- **日期**：2026-08-21（**v1，待用户评审**）。决策 a–j 待关闭。
+- **日期**：2026-08-21（v1）／**2026-08-23 决策 a–j 全部关闭，§5 是定案**，开工。
 - **这是 N4 子计划里 N4d 那一行的展开**，不替代它：`docs/plans/2026-08-20-phase-b-mobile-n4.md` 的 §1.8（分享 intent 四条事实）· §2.1（文件布局）· §2.5（**添加页状态机**）· 决策 **i**（提交语义）/ **j**（任务列表放添加 tab 内）/ **k**（`local_metadata.naming_mode`）/ **p**（分享在根层消费）· 判据 **20–25**（**22 是 gate**）全部原样继承。这份只写「怎么落地、分几批、怎么验」。
 - **前置**：**N4c 已完成**（head `760419c`，判据 15–19 + 41–43 全关）。手机上已经有：引擎 + 进程级 hub（`downloads/hub.ts`）· 落盘协议 · 启动清扫 · dataSync 前台服务与它的状态机（`downloads/foreground.ts` 的 `arm()` / `settle()` / `handleTimeout()`）。
 - **基线**：2026-08-21 实测 `just check` exit 0、`just test` exit 0 / **2764 passed**（shared 129 · core 1226 · mobile 86 · cli 428+9 skipped · daemon 468 · gui 427）。
@@ -61,6 +61,14 @@ try {
 `expo-share-intent` 的 config plugin 会把 `MainActivity` 的 `launchMode` 改成 `singleTask`（N4 §6 风险表已列）。而这个应用有一条**冻结的启动序列**和 `bootOnce`——N2 的 [expo-sqlite Activity 重启陷阱](../LESSONS.md) 就是「Activity 被销毁重建后再打开同一个库直接崩」。`bootOnce` 已经挡住第二次 boot，但 `singleTask` 改的是**任务栈与 `onNewIntent` 的语义**，不是 `onCreate` 的次数。
 
 **开工第一件事就是把依赖装上、prebuild、装机，然后做三件事**：冷启动 → 按 BACK 退出 → 再打开；以及从别的应用回来。**答错了整批的形状要改**（草稿要落库、或者放弃 `expo-share-intent` 自己写 intent 消费），所以它排在 N4d-1 而不是最后（N4c-1 排 §1.6 的同一个道理）。
+
+> 🟢 **2026-08-23 实测，主机上就答完了：这条风险不成立。** 做法是两次 prebuild 对拍——先把插件整块从 `app.config.ts` 摘掉 prebuild 一次，再装回去 prebuild 一次，diff 两份生成的 `AndroidManifest.xml`。
+>
+> **插件对 manifest 的全部改动是一个 `<intent-filter>`（ACTION_SEND + `text/*` + DEFAULT），别的一个字都没动。** `android:launchMode="singleTask"` **在没有这个插件时就已经是 `singleTask`**——它是 Expo SDK 57 模板自己的默认值，插件的 `withAndroidMainActivityAttributes.js:32` 只是把同一个值又写了一遍。
+>
+> **所以任务栈语义从 N2 起就没变过**：`bootOnce`、N2f 的 Activity 重建、N3 的所有真机 session，全都已经在 `singleTask` 下跑过了。插件新增的只是**一条到达路径**，而它的投递（`onNewIntent`）只在真有分享进来时才发生——那是 N4d-3。
+>
+> 判据 44 因此**收窄成「新依赖没把构建和启动搞坏」**，仍然要在设备上走一遍，但它不再是会改批次形状的那种问题。§6 风险表的第一行同步降级。
 
 ### 1.7 标签表已经有两份，本批会是第三份
 
@@ -183,9 +191,9 @@ App/Shell 挂载 ──▶ useShareIntent（根层，永远挂着）
 
 ---
 
-## §5 决策（a–j，**全部待关闭**）
+## §5 决策（a–j，**2026-08-23 全部关闭**，下表即定案）
 
-| # | 决策 | 倾向 | 关键理由 |
+| # | 决策 | 定案 | 关键理由 |
 |---|---|---|---|
 | **a** | 三张中文标签表 | **提升进 `@lark/shared`**（新文件 `download-labels.ts`），GUI 与 CLI 改成消费它 | 已经两份（GUI renderer + `cli/lib/wait.ts:42`），移动端不许 import GUI，第三份就是三份会漂的枚举文案——**rule of three**。shared 已经装着 `nowPlayingTitle` 这种直接产出用户可见字符串的东西，不算越界。代价是动桌面两处，由桌面测试守着 |
 | **b** | 目标歌单的形态 | **默认「仅曲库」+ 一个 sheet 选已存在的歌单；本批不做「新建歌单」** | `ui/sheet.tsx` 已经在；新建歌单是 N4f 批量提交要的（`BatchTargetInput` 的 `kind:'new'`），v1 少一个入口不少一件事 |
@@ -204,7 +212,7 @@ App/Shell 挂载 ──▶ useShareIntent（根层，永远挂着）
 
 | 风险 | 缓解 |
 |---|---|
-| 🔴 **`singleTask` 改任务栈语义**（§1.6） | 排在 N4d-1 第一件事，判据 44 三条路径逐条走。答错就落地成「草稿落库」或「自己写 intent 消费」 |
+| ~~🔴 **`singleTask` 改任务栈语义**（§1.6）~~ → **🟢 已排除**（2026-08-23 两次 prebuild 对拍） | 插件只加了一个 intent filter；`singleTask` 本来就是 SDK 57 的默认值，任务栈语义从 N2 起没变过。判据 44 收窄成「新依赖没把构建和启动搞坏」，仍在设备上走三条路径 |
 | **新依赖扰动桌面** | 常驻规矩：`pnpm install` 变动后复跑桌面 `just check` + `just test`；bundle smoke 每批跑（判据 44 明写） |
 | **标签表提升动了 GUI 与 CLI** | 桌面 427 + 428 条测试守着；纯搬迁 + re-export，不改文案一个字 |
 | **判据 20 依赖真实网络** | 与判据 5/6 同一条：跑在 Wi-Fi 上、用夹具那条短曲；失败先看是不是流地址过期（两小时） |

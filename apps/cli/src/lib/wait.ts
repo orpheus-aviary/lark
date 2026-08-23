@@ -17,7 +17,8 @@
 // log wants a line per milestone and nothing between. Hence two renderers over
 // the same snapshot, with `tty` picking.
 
-import type { DownloadBatchData, DownloadStage, DownloadTaskData } from '@lark/shared';
+import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
+import { STAGE_LABELS } from '@lark/shared';
 import type { CommandContext } from '../context.js';
 import { CliError } from './errors.js';
 
@@ -32,22 +33,6 @@ export interface WaitDeps {
 }
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled']);
-
-/**
- * Stage names as the master plan words them (§3.6-2). `converting` reads as
- * "processing" rather than "transcoding" because from 0.3.0 it is usually a
- * rewrap — the same stage doing a hundredth of the work.
- */
-const STAGE_TEXT: Record<DownloadStage, string> = {
-  analyzing: '解析输入',
-  searching: '搜索视频',
-  resolving: '定位资源',
-  naming: '清洗命名',
-  downloading: '下载音频',
-  converting: '处理音频',
-  saving: '落盘',
-  lyrics: '匹配歌词',
-};
 
 /** Non-TTY milestones (§4-d): every tenth, or — size unknown — every 5MiB. */
 const STEP_FRACTION = 0.1;
@@ -64,8 +49,15 @@ function mib(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+/**
+ * The stage, or the one thing a task with no stage is doing.
+ *
+ * `STAGE_LABELS` is `@lark/shared`'s (N4d, decision a) — the same table the
+ * GUI and the phone read, after this file had carried its own copy since M6.
+ * The `null` case stays here: it is this renderer's, not the enum's.
+ */
 function stageText(task: DownloadTaskData): string {
-  return task.stage === null ? '排队中' : STAGE_TEXT[task.stage];
+  return task.stage === null ? '排队中' : STAGE_LABELS[task.stage];
 }
 
 /** `下载音频 42%` / `下载音频 3.4MB`, or just the stage when nothing moved. */

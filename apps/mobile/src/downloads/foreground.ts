@@ -21,6 +21,7 @@
 // both — hence `degraded`, which is a state and not an error.
 
 import type { DownloadTaskData } from '@lark/shared';
+import { activeInSweepOrder, isActive } from './cancel';
 
 /**
  * Five states. Three of them are the obvious ones; these two are not:
@@ -148,10 +149,6 @@ export interface ForegroundController {
   /** Tests only — the real one lives as long as the process. */
   dispose(): void;
 }
-
-/** Queued and running both, lyrics included (decision h). */
-const isActive = (task: DownloadTaskData): boolean =>
-  task.state === 'queued' || task.state === 'running';
 
 const codeOf = (err: unknown): string =>
   err instanceof Error && 'code' in err && typeof err.code === 'string' ? err.code : String(err);
@@ -327,12 +324,11 @@ export function createForegroundController(deps: ForegroundDeps): ForegroundCont
       move('paused-by-system');
       showing = null;
 
-      const { tasks } = deps.engine.snapshot();
-      // Queued first, running second. Cancelling a running task frees the
-      // worker, and a queued task promoted in that gap would be a task started
-      // after the system said stop.
-      for (const task of tasks) if (task.state === 'queued') cancelQuietly(task.id);
-      for (const task of tasks) if (task.state === 'running') cancelQuietly(task.id);
+      // Scope and order come from `cancel.ts`, which is also what the screen's
+      // 全部取消 sweeps (decision d): "everything" must not mean two different
+      // sets. The error policy below stays HERE — a quota the system took back
+      // is not a conversation, so anything but the commit point propagates.
+      for (const task of activeInSweepOrder(deps.engine.snapshot().tasks)) cancelQuietly(task.id);
 
       // The service has usually stopped itself by now (`onTimeout` calls
       // `stopSelf`), and this is the one call that must not depend on having

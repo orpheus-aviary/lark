@@ -6,11 +6,10 @@
 // `POST /download/song`, and anything else opens the selection dialog.
 
 import type { DownloadNamingMode, ParsedItem } from '@lark/shared';
-import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID, inputLabel, taskDescription, taskLabel } from '@lark/shared';
 import { ListChecks, Loader2, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { inputLabel, taskDescription, taskLabel } from '../lib/download-labels.js';
 import { errorMessage } from '../lib/errors.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { activeTask, batchProgress, useDownloads } from '../stores/download.js';

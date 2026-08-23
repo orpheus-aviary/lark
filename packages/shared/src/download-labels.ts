@@ -1,6 +1,15 @@
-// Chinese text for the download pipeline's enums (D17). The Go daemon sent
-// ready-made Chinese progress strings; M3 split state from stage and left the
-// wording to the front-end, so the table lives here.
+// Chinese text for the download pipeline's enums (D17).
+//
+// The Go daemon sent ready-made Chinese progress strings; M3 split state from
+// stage and left the wording to the front end. It lived in the GUI renderer
+// until there were two front ends that could not share it — the CLI had copied
+// the stage table, and the phone is forbidden from importing the GUI at all
+// (`check-mobile-imports.sh`). A third copy of an enum's wording is three
+// tables that drift, so N4d's decision a moved the wording here, where the
+// enums themselves already are.
+//
+// Node-free like everything else in this package: this is a lookup table and
+// four pure functions.
 
 import type {
   DownloadStage,
@@ -8,12 +17,12 @@ import type {
   DownloadTaskInput,
   DownloadTaskKind,
   TaskState,
-} from '@lark/shared';
+} from './types.js';
 
 /**
- * §3.6-2's wording, shared with the CLI's. `converting` is "processing"
- * rather than "transcoding": from 0.3.0 an AAC source is rewrapped, and the
- * same stage doing a hundredth of the work should not claim otherwise.
+ * §3.6-2's wording. `converting` is "processing" rather than "transcoding":
+ * from 0.3.0 an AAC source is rewrapped, and the same stage doing a hundredth
+ * of the work should not claim otherwise.
  */
 export const STAGE_LABELS: Record<DownloadStage, string> = {
   analyzing: '解析输入',
@@ -31,8 +40,9 @@ export const STAGE_LABELS: Record<DownloadStage, string> = {
  *
  * A finished download and the lyrics fetch it spawned are two tasks about one
  * song (§3.6-3), so since they started carrying the song's name they read as
- * the same row twice. `download` has no tag on purpose: it is what this panel
- * is for, and tagging every row would only make the exceptions harder to spot.
+ * the same row twice. `download` has no tag on purpose: it is what a download
+ * list is for, and tagging every row would only make the exceptions harder to
+ * spot.
  */
 export const KIND_LABELS: Record<DownloadTaskKind, string | null> = {
   download: null,
@@ -85,7 +95,7 @@ export function taskDescription(task: DownloadTaskData): string {
  * chunk lands (§3.5). Percent when the source declared a size, megabytes when
  * it did not: "3.4MB of ?" is still progress, "NaN%" is not.
  */
-function progressLabel(task: DownloadTaskData): string | null {
+export function progressLabel(task: DownloadTaskData): string | null {
   if (task.stage !== 'downloading' || task.received_bytes === 0) return null;
   if (task.total_bytes === null) return `${(task.received_bytes / 1024 / 1024).toFixed(1)}MB`;
   return `${Math.floor((task.received_bytes / task.total_bytes) * 100)}%`;
