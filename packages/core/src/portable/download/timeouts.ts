@@ -61,3 +61,33 @@ export function withTimeout(
   const present = signals.filter((s): s is AbortSignal => s !== undefined);
   return AbortSignal.any([...present, AbortSignal.timeout(timeoutMs)]);
 }
+
+/**
+ * `signal.throwIfAborted()`, for a host that does not have it.
+ *
+ * MEASURED (N4e-2, frozen device, release build): this React Native runtime
+ * has `AbortSignal.any` and `AbortSignal.timeout` — the STATICS — but
+ * `AbortSignal.prototype.throwIfAborted` is `undefined`, and so is
+ * `throwIfAborted` on the signal `any()` hands back. A HALF-MODERN
+ * implementation, which is the worst shape to guess at: `withTimeout` works
+ * everywhere on the phone, so nothing suggests the instance side is missing.
+ *
+ * What it cost before it was found: the ONE call site was inside the handler
+ * that makes `clean` naming degrade to the original title. Any LLM failure
+ * therefore blew that handler up with `TypeError: undefined is not a function`
+ * and took the whole download with it — a graceful-degradation path that was
+ * itself the crash, reported as INTERNAL_ERROR with the real error going to a
+ * logger the phone did not have.
+ *
+ * No `DOMException`: it is not in this runtime's vocabulary either, and the
+ * only thing anything downstream reads is `name === 'AbortError'`
+ * (`shared/transport.ts`, `download/preflight.ts`).
+ */
+export function throwIfAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  const reason = (signal as { reason?: unknown }).reason;
+  if (reason instanceof Error) throw reason;
+  const err = new Error('The operation was aborted');
+  err.name = 'AbortError';
+  throw err;
+}

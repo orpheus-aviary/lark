@@ -18,6 +18,7 @@ import type { DownloadStage, LlmConfig, SongData } from '@lark/shared';
 import type { PortableDb } from '../db.js';
 import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
 import { writeLyrics } from '../library/lyrics.js';
+import type { StructuredLogger } from '../logger.js';
 import type { FileContext } from '../ports/fs.js';
 import type { BiliPage, BilibiliClient } from './bilibili.js';
 import { type NormalizedSource, normalizeSourceOnline } from './link.js';
@@ -26,7 +27,7 @@ import { fetchLyrics } from './lyrics/select.js';
 import type { LyricsOrigins } from './lyrics/shared.js';
 import { ANALYZE_PROMPT, INFER_SONG_INFO_PROMPT, multiPPrompt, selectPrompt } from './prompts.js';
 import type { DownloadTarget } from './target.js';
-import type { DownloadTimeouts } from './timeouts.js';
+import { type DownloadTimeouts, throwIfAborted } from './timeouts.js';
 
 export interface PipelineDeps {
   /** The library, as one connection (N1c) — drizzle and the raw handle together. */
@@ -39,6 +40,8 @@ export interface PipelineDeps {
   timeouts: DownloadTimeouts;
   fetchImpl?: typeof fetch;
   lyricsOrigins?: Partial<LyricsOrigins>;
+  /** Where a step that DEGRADED rather than failed says so. */
+  logger?: StructuredLogger;
 }
 
 export interface StepContext {
@@ -222,8 +225,15 @@ async function inferSongInfo(
     INFER_SONG_INFO_PROMPT,
     payload,
     ctx,
-  ).catch(() => {
-    ctx.signal.throwIfAborted();
+  ).catch((err: unknown) => {
+    // Not `ctx.signal.throwIfAborted()`: some hosts do not have it (see
+    // `throwIfAborted`), and this is the handler whose whole job is to stop a
+    // failure here from taking the task down.
+    throwIfAborted(ctx.signal);
+    // Degrading is correct and silent degrading is not: without this line the
+    // only trace of "the model was asked and could not answer" is a song that
+    // kept its raw bilibili title, which is also what `original` looks like.
+    deps.logger?.warn({ err }, 'clean naming fell back to the original title');
     return null;
   });
   return { song_name: str(parsed?.song_name), artist: str(parsed?.artist) };
@@ -354,6 +364,16 @@ async function llmJson<T>(
   } catch {
     // Unparseable output is a degraded answer, not a failed task: every caller
     // has a deterministic fallback for `null`.
+    //
+    // But it must not be an INVISIBLE one. This is the quieter of the two ways
+    // a model pass gives up — the other at least starts with a thrown error —
+    // and from the outside it is indistinguishable from `original` naming
+    // having been chosen. The answer is bounded because it is a completion,
+    // and a long one belongs in a log line even less than a short one.
+    deps.logger?.warn(
+      { answer: answer.slice(0, 200) },
+      'the model answered something this build could not parse',
+    );
     return null;
   }
 }

@@ -779,6 +779,7 @@ export class DownloadEngine {
       bilibili: this.#bilibili,
       llm: task.llm,
       timeouts: this.#timeouts,
+      logger: this.#logger,
       ...(this.#options.fetchImpl === undefined ? {} : { fetchImpl: this.#options.fetchImpl }),
       ...(this.#options.lyricsOrigins === undefined
         ? {}
