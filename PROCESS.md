@@ -661,6 +661,16 @@
 - **N4d 收尾基线**：`just check` exit 0 · `just test` exit 0 / **2847 passed**（shared 146 · core 1243 · **mobile 135** · cli 428+9 skipped · daemon 468 · gui 427）· `mobile-typecheck` exit 0。
 - **N4d 未结的一条**：**判据 24 推到 N4e**（无模型的构建上只有一个可选命名模式，没有可观测差别；17 条单测守着逻辑半边）。**下一步 N4e**：LLM 设置页与它解锁的四条能力（关键词 / clean 命名 / 多 P 选集 / 重新识别），外加判据 24 的设备半边。子计划 `docs/plans/2026-08-23-phase-b-mobile-n4e.md`（三批 N4e-1–3 / 判据 24 + 26–30）。**决策 a–i 于 2026-08-23 全部按倾向关闭，§5 是定案**。用户同日拍板三条：**手机上填与桌面同一份 url + model + key** · **设置页加「测试连接」** · 🔒 **移动端的 LLM 配置只有「设置页本地填」这一个渠道**——没有 aviary 回退、不从桌面导入、不进同步、不内置默认端点（子计划 §0 有渠道冻结段）。
 
+#### N4e-1（2026-08-23）存储与接线 —— 三道门第一次可以开
+
+- **`portable/llm-config.ts`（新）+ 18 条单测**：`local_metadata` 的 `llm_url` / `llm_model` / `llm_api_format`，形状照 `now-playing-mode.ts`（读路径永不写库、不认识的值 warn 一次并回缺省、不进 `sync_changes`）。**决策 a 落地**：值域只有 `openai` / `anthropic`，缺省 `openai`；桌面合法的 `''`（= 跟随 aviary）在这里是「不认识的值」——`''` 打头的六个 junk 各一条用例，行原样不动。**三个键一起写**（`transaction().immediate()`）：半份配置 = 新 url 配旧 model，那是没人填过的组合、失败起来还像 provider 的错。url/model **写入时 trim**（`chatCompletion` 只 trim url，model 是原样进请求体的）。
+- **`apps/mobile/src/settings/llm.ts`（新）**：库里三个字段 + SecureStore 的 `lark.llm.api_key` 拼成一份 `LlmConfig`。**全同步读**（`SecureStore.getItem` 是同步的，N2c 起就靠这一点），**没有缓存**（§1.2：缓存会让「刚在设置页改完、添加页还是旧的」成为新 bug）。`saveApiKey` 与 `clearApiKey` 分成两个函数，是因为设置页不回显 key——空输入框的意思是「别动它」，只有「清除」才是删。`testLlm()` 用**草稿**（决策 f）跑一次最小 completion，**deadline 取 `DEFAULT_TIMEOUTS.llm`**，与真命名调用同一个预算：测试比它预测的那件事更早放弃，报出来的失败产品本来不会有。
+- **`downloads/engine.ts` 换成现读、`NO_LLM_CONFIG` 删除**：`getLlmConfig: () => readLlmConfig(boot.db.sqlite)` · `hasLlm: () => hasLlmConfig(boot.db.sqlite)`。四处消费端（preflight 的三道门 + `reidentifySource`）**一个字没改**——它们本来就在按 `deps.hasLlm` / `deps.llm` 分支，这一批只是让那个布尔值第一次可以是 `true`。**决策 d 写进了 `DownloadRuntime.hasLlm` 的注释**：不订阅是因为四个 tab 条件挂载、设置页与添加页不可能同时可见，将来加分栏或 modal 时这是第一个断的假设。
+- **两条反测都红在该红的地方**：① 去掉 `writeLlmEndpoint` 的事务 → 「是全三个或一个都不是」当场红（写到第三句才失败，前两句已经落了）；② 往 `settings/llm.ts` 塞一句 `import 'node:crypto'` → Metro 打出完整 import stack（`settings/llm.ts ← downloads/engine.ts ← App.tsx ← root.ts ← index.ts`），**证明这个新文件真在图里**，不是「孤立文件塞什么都是绿的」那一种。
+- **基线**：`just check` exit 0 · `just test` exit 0 / **2862 passed**（shared 143 · **core 1261** · mobile 135 · cli 428+9 skipped · daemon 468 · gui 427，较 N4e 子计划记的 2844 +18）· `mobile-typecheck` exit 0 · bundle smoke **111 个 portable 模块**（+1）。
+- **本批留给 N4e-2 的两件**：① **脱敏还没做**（§6 第二行 / 判据 30②）——`chatCompletion` 在非 2xx 时把 provider 的响应体原样塞进错误文案，`testLlm` 现在也原样往回递；判据 30 排在 N4e-2，脱敏落在哪一层（core 的 `chatCompletion` 一处管三个采样点，还是显示侧各管各的）跟它一起定；② **`AddTab` 在渲染体里读 `hasLlm()`**（§1.5 记着的形状）——以前读的是常量、免费，现在每次重渲染都是一次 SQLite + 一次 Keystore 往返，而这块屏幕**每敲一个字就重渲染一次**。正确性不受影响（决策 d 只要求重挂载时重读），要不要收成 per-mount 由 N4e-2 一并处理。
+
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 
