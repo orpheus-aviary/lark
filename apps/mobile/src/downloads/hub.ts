@@ -22,7 +22,15 @@ import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { FOREGROUND_IDLE, type ForegroundStatus } from './foreground';
 
 export interface DownloadsState {
-  /** Newest first, terminal tasks included — the engine's own ring (§4-f). */
+  /**
+   * The engine's own ring, terminal tasks included (§4-f).
+   *
+   * INSERTION ORDER — OLDEST FIRST. `snapshot()` walks a Map of every task this
+   * process has registered, so the newest is at the END. This comment used to
+   * say "newest first" and a screen believed it (N4d-2): `slice(0, 20)` kept the
+   * twenty oldest and hid every recent one. Reading order belongs to whoever is
+   * displaying it — `downloads/rows.ts`.
+   */
   tasks: readonly DownloadTaskData[];
   batches: readonly DownloadBatchData[];
   /**

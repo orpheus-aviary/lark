@@ -27,12 +27,10 @@ import {
 } from '../downloads/cancel';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import type { ForegroundStatus } from '../downloads/foreground';
+import { orderTaskRows } from '../downloads/rows';
 import { useDownloads } from '../downloads/use-downloads';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
-
-/** A screen and a bit of the ring. The engine keeps more; nobody scrolls to it. */
-const TERMINAL_SHOWN = 20;
 
 export function TaskList() {
   const { boot } = useLibrary();
@@ -43,7 +41,7 @@ export function TaskList() {
   const [said, setSaid] = useState<string | null>(null);
 
   const active = tasks.filter(isActive);
-  const rows = [...active, ...tasks.filter((task) => !isActive(task)).slice(0, TERMINAL_SHOWN)];
+  const rows = orderTaskRows(tasks);
 
   return (
     <View style={styles.fill}>

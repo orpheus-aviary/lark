@@ -253,3 +253,7 @@ App/Shell 挂载 ──▶ useShareIntent（根层，永远挂着）
 3. **共享一个 `BilibiliClient`**。此前引擎自己造一个（`DownloadEngine` 的默认），预检再造一个就是**两个匿名 buvid + 两份 WBI key 缓存**，一个应用两个身份。改成 `createDownloadRuntime` 建一个、传给引擎、挂在 `DownloadRuntime.bilibili` 上——与 daemon 的 `ctx.bilibili` 同一个形状。顺带 `hasLlm()` 也挂上去（N4e 会让它在一个进程里变）。
 4. **keyword 的拒绝语由 portable 现说，不抄**：`settle` 真的调一次 `preflightSingle`（keyword 分支零网络），把它抛的那句原样渲染。有模型时它不抛，那一天这条分支不用改，只差一条 keyword 的提交路径。**唯一自己写的句子是收藏夹/合集那条**，因为 portable 那句点名了两个手机上不存在的 HTTP 路由。
 5. **三条反测逐条跑过**（都红在该红的那条）：把 `onResolving` 挪到 hop 之后 → 判据 21 那条红 · 拿掉 `findSource` → 分享文本三条红 · `settle` 移出 `finally` → 「预检抛了也要 settle」两条红。
+6. 🔴 **真机验收当场发现并修掉一个排序 bug，新增 `downloads/rows.ts`**。`engine.snapshot()` 交回的是 `[...this.#tasks.values()]` —— **Map 的插入序，最旧在前**，而 `hub.ts` 的头注释写的是「Newest first」。任务列表照着那句直接 `slice(0, TERMINAL_SHOWN)`，于是**最新的终态排在最底下，被砍掉的也是最新的那些**——决策 c 的原文是「终态只留**最近** 20 条」，实际留的是最旧 20 条。
+
+   **是设备把它逼出来的，但设备看不见它**：`FlatList` 只渲染放得下的行，一条被排到屏幕外的行和一条不存在的行长得一模一样——判据 23 取消成功、回答行写着「已取消《…》」，而列表里找不到那一行，滚到底才发现它在最后。所以顺序被提取成 `orderTaskRows`（纯函数，**7 条单测**，反测把 `.sort` 拿掉 → 3 条红），`hub.ts` 那句错注释也改了。设备复验：一次下载产生两条任务（下载 + 派生的歌词），**歌词后完成、现在排在最上面**。
+7. **提交失败就在页面上，不在任务列表里**（§1.1 想要的性质，顺带实测到）：一个格式合法但不存在的 BV 号，预检的 `pagelist` 当场回 -400，页面上直接显示「bilibili API error -400: 请求错误」，**根本没有任务进队列**。

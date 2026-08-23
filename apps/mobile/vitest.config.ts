@@ -33,6 +33,11 @@
 // can only be asked whether the file survived. The wording, the counts and the
 // sweep order are worked out here.
 //
+// `downloads/rows.ts` joined in N4d-2 after the device found what it is for: a
+// `FlatList` renders what fits, so a row sorted off the bottom of the screen is
+// indistinguishable from a row that is not there. The ordering therefore cannot
+// be verified by looking at the phone, only by looking at the function.
+//
 // `downloads/preflight.ts` joined in N4d-2 and is the first entry that reaches
 // `@lark/core/portable` for real values rather than types. That is fine and
 // deliberate: portable is Node-free by guard, so it loads here exactly as it
@@ -51,6 +56,7 @@ export default defineConfig({
       'src/downloads/foreground.test.ts',
       'src/downloads/cancel.test.ts',
       'src/downloads/preflight.test.ts',
+      'src/downloads/rows.test.ts',
     ],
   },
 });
