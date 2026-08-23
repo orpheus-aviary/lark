@@ -672,6 +672,15 @@
 - **本批留给 N4e-2 的两件**：① **脱敏还没做**（§6 第二行 / 判据 30②）——`chatCompletion` 在非 2xx 时把 provider 的响应体原样塞进错误文案，`testLlm` 现在也原样往回递；判据 30 排在 N4e-2，脱敏落在哪一层（core 的 `chatCompletion` 一处管三个采样点，还是显示侧各管各的）跟它一起定；② **`AddTab` 在渲染体里读 `hasLlm()`**（§1.5 记着的形状）——以前读的是常量、免费，现在每次重渲染都是一次 SQLite + 一次 Keystore 往返，而这块屏幕**每敲一个字就重渲染一次**。正确性不受影响（决策 d 只要求重挂载时重读），要不要收成 per-mount 由 N4e-2 一并处理。
 
 
+#### N4e-2 / N4e-3（2026-08-23）设置页与验收脚手架 —— 桌面全绿，六条判据等设备
+
+- **`ui/settings-tab.tsx`（新，决策 e）**：从 `shell.tsx` 拆出来——**理由不是行数是形状**，设置页从「一个开关 + 一串只读事实」变成了一个**有草稿状态的表单**。LLM 段四字段（接口地址 / 模型名称 / openai·anthropic / API Key）+ 已配置徽章 + **测试连接** + 清除。**保存与测试是两个动作**：测试跑当前草稿（决策 f），不落库；key 字段不回显，所以**空的意思是「别动它」，只有「清除」才是删**，而测试在草稿为空时回落到已存的 key（否则存过的 key 永远试不了）。保存后**回读**再显示（`writeLlmEndpoint` 会 trim，粘进来的尾随空格应该看得见地消失）。决策 g 的文案没有假装知道是哪种情况——**一个 keyless 的本地端点和一台恢复过的手机长得一模一样**，所以那句话把两种都说了。按钮跟在字段后面、不钉屏幕底部（§1.8），`keyboardShouldPersistTaps="handled"`。
+- **`ui/chip.tsx`（新）**：add 页的 Chip 提出来两处共用——`theme.ts` 只能挡住「各发明一种灰」，挡不住「各画一种形状」。
+- **`ui/add-tab.tsx`**：`hasLlm` 收成 `useMemo` per-mount（§8.4；N4e-1 之前读常量是免费的，现在每敲一个字一次 SQLite + 一次 Keystore），命名 chip 的提示改成「去『设置』填一个」。
+- **`acceptance/reidentify.ts`（新，判据 29）**：⓪ 确认有模型 → ① 真下一首再用 **`updateSong`（产品自己的「手动编辑链接」，不是裸 SQL）** 把 `source_key` 改成 `bvid:999999999` → ② 清空配置必须 `SOURCE_GONE` 且文案说得出怎么修 → ③ 还原配置必须重新识别并下成 → ④ 删歌收尾。**③ 不断言「找回同一个视频」**——模型是按歌名+艺术家搜的，一个同名翻唱是合法答案；要成立的是「死 key 没了 + 文件到了」。
+- 🔴 **写它的时候发现 §8.3 有个洞并已补**：模型的三个字段在 `local_metadata`，也就是**在 `resetInstall()` 删掉的那个库文件里**，而验收套件里除这一个之外**每一个都以 `resetInstall()` 开场**。所以「配置填一次两个 build 都认」的前提是**验收那次装机上只跑 reidentify 这一个套件**。三处落地：这个套件**不重置**（在现有库上造自己的歌、跑完删掉）· ⓪ 条把「模型被谁清掉了」当场说清楚，而不是让 ③ 以「重新识别坏了」的样子失败 · 面板那一行的 note 写明顺序约束。
+- **基线**：`just check` exit 0 · `just test` exit 0 / **2862 passed**（无新增单测：`settings-tab.tsx` / `settings/llm.ts` / `acceptance/` 都进不了 Node 的 runner）· `mobile-typecheck` exit 0 · 生产 bundle smoke 111 portable · **验收 bundle smoke 111 portable + 13 acceptance**（+1，证明新套件真在验收图里）。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

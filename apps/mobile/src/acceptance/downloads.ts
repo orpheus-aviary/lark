@@ -49,8 +49,11 @@ function expect(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-/** The video criterion 6 downloads, and the ffprobe reading it is measured against. */
-function subjectVideo(): { bvid: string; durationSec: number } {
+/**
+ * The video criterion 6 downloads, and the ffprobe reading it is measured
+ * against. Criterion 29 borrows it too — one known-good bvid rather than two.
+ */
+export function subjectVideo(): { bvid: string; durationSec: number } {
   const short = audioFixtures().find((entry) => entry.key === 'short');
   if (short === undefined) throw new Error('no `short` entry in the audio fixture manifest');
   if (short.bvid === undefined) {

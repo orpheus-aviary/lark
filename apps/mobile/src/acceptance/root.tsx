@@ -39,6 +39,7 @@ import {
 import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
 import { runPlaybackScenarios } from './playback';
+import { runReidentifyScenarios } from './reidentify';
 import { runSortScenarios } from './sort';
 import { runSweepScenarios } from './sweep';
 
@@ -82,6 +83,14 @@ const SUITES: readonly { label: string; run: () => Promise<ScenarioRow[]>; note?
     // playurl picks the CDN node by the caller's IP, so one network says
     // nothing about the other.
     note: '5 · 6 · 14 — run on Wi-Fi AND on mobile data; leaves 6ʼs song behind on purpose',
+  },
+  {
+    label: 'Run reidentify scenarios',
+    run: runReidentifyScenarios,
+    // It runs on the library that is THERE, on purpose: the model lives in
+    // `local_metadata`, so a suite that reset the install would have deleted
+    // the configuration ③ is about.
+    note: '29 — 先在生产构建的设置页填好模型；不要在它之前跑任何会重置安装的套件',
   },
   {
     label: 'Arm long download',
