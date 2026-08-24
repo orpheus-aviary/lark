@@ -8,9 +8,12 @@
 // Chinese collation (decision n).
 //
 // A ROW'S TAP IS PLAY, and the menu is its own button — the shape every
-// mobile music app has, and the one a thumb expects. Nothing in this build
-// plays (the player is N3, the download link N4), so the tap says so out loud
-// rather than doing nothing: a row that swallows taps reads as broken.
+// mobile music app has, and the one a thumb expects. As of N4g that is true of
+// EVERY row, including the ones with no file: tapping one fetches the audio
+// and then plays it (decision b), which is one play intent stretched over a
+// download — `downloads/ensure.ts` holds the rules and `MiniBar` shows the
+// wait. What used to be here was a toast saying the download would arrive in
+// N4.
 //
 // Pinned is a channel, not a prefix. The desktop paints four states through
 // four things that never collide (`SongRow.tsx`); here the pin sits AFTER the
@@ -30,10 +33,13 @@ import {
   withField,
 } from '@lark/shared';
 import { EllipsisVertical, Pin } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
+import { downloadRuntimeOnce } from '../downloads/engine';
+import { ensureController } from '../downloads/ensure-runtime';
 import { player, usePlayback } from '../player';
 import { queueFrom } from '../player/queue';
+import { useVisibleQueue } from '../player/visible-queue';
 import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
@@ -41,7 +47,7 @@ import { C, S } from './theme';
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
 export function SongsTab() {
-  const { library, view, changed } = useLibrary();
+  const { library, view, boot, changed } = useLibrary();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [picking, setPicking] = useState(false);
@@ -56,11 +62,29 @@ export function SongsTab() {
     return sortSongs(view.songs(trimmed === '' ? {} : { search: trimmed }).songs, sort);
   }, [view, search, sort]);
 
+  // What a play that starts LATER should play out of (N4g, §2.9): this list,
+  // as it is at that moment — sort, search and all. Republished whenever it
+  // changes, and retracted when this tab is unmounted.
+  useVisibleQueue(useCallback(() => queueFrom({ kind: 'all' }, songs), [songs]));
+
   /** Every write ends the same way: do it, close everything, re-read. */
   const write = (body: () => void) => {
     body();
     closeAll();
     changed();
+  };
+
+  /** 重新下载 (criterion 49): the engine answers, and it is the one who speaks. */
+  const redownload = (song: SongData) => {
+    try {
+      downloadRuntimeOnce(boot).engine.enqueueRedownload(song.id);
+      ToastAndroid.show(`正在重新下载《${song.name}》`, ToastAndroid.SHORT);
+    } catch (err) {
+      // A full queue, or a row that went away while the sheet was open. Both
+      // are the engine's sentences, and both are better than a silent tap.
+      ToastAndroid.show(err instanceof Error ? err.message : '没能排上队', ToastAndroid.SHORT);
+    }
+    closeAll();
   };
 
   // Cancelling has to land in the same place as saving. Dropping back to the
@@ -138,6 +162,14 @@ export function SongsTab() {
             label={acting.pinned ? '取消固定' : '固定'}
             onPress={() => write(() => library.pinSong(acting.id, !acting.pinned))}
           />
+          {/*
+            Decision a. A FORCED refetch, which is a different thing from the
+            row's tap: that one fetches only what is missing and then plays it,
+            this one replaces a file that is already there (a bad transfer, a
+            source that has been re-identified since) and plays nothing. Its
+            own dedupe key in the engine, for exactly that reason.
+          */}
+          <SheetAction label="重新下载" onPress={() => redownload(acting)} />
           <SheetAction label="删除" danger onPress={() => setConfirming(acting)} />
         </Sheet>
       )}
@@ -193,16 +225,19 @@ function SongRow({
   const playing = usePlayback((state) => state.playing);
 
   const start = (): void => {
-    // Decision j: the tap is never swallowed. A row that does nothing reads as
-    // broken, and this one has a real answer — the file is not here yet.
-    if (song.has_file === false) {
-      ToastAndroid.show('这首还没有文件，下载在 N4 开放', ToastAndroid.SHORT);
-      return;
-    }
     // The queue is FROZEN here (§2.6): whatever the list holds at the moment
     // of the tap, sort and search and all. Switching tabs afterwards does not
     // change what plays next.
-    void (isCurrent ? player.toggle() : player.play(song, queueFrom({ kind: 'all' }, songs)));
+    const queue = queueFrom({ kind: 'all' }, songs);
+    // No file yet — the tap is still a play, it just has a download in front
+    // of it (N4g, decision b). The queue handed over is this list, and it is
+    // only the FALLBACK: if another list is on screen when the file lands,
+    // that one wins (§2.9).
+    if (song.has_file === false) {
+      ensureController().request(song, queue);
+      return;
+    }
+    void (isCurrent ? player.toggle() : player.play(song, queue));
   };
 
   return (

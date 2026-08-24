@@ -15,17 +15,22 @@
 // one, by decision.
 
 import {
+  type CacheStatus,
+  type EvictionSummary,
   LATEST_KNOWN_VERSION,
   LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
+  MIB,
   type SqliteLike,
   isLlmConfigured,
+  readCacheLimitMb,
   readLlmEndpoint,
+  writeCacheLimitMb,
 } from '@lark/core/portable';
 import type { NowPlayingMode } from '@lark/shared';
 import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
 import { Directory } from 'expo-file-system';
-import { useState, useSyncExternalStore } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -36,6 +41,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
 import { nowPlaying, usePlayback } from '../player';
 import { nestDirectory } from '../ports/paths';
@@ -55,6 +61,9 @@ export function SettingsTab() {
       <Llm sqlite={boot.db.sqlite} />
       <View style={styles.rule} />
       <BluetoothLyrics />
+      <View style={styles.rule} />
+      <Cache />
+      <View style={styles.rule} />
       <NowPlayingCount />
       <Field label="曲库" value={`${total} 首`} />
       {/*
@@ -302,6 +311,160 @@ function LabelledInput({
 }
 
 /**
+ * What the audio is taking up, and the one number that bounds it (N4g-2,
+ * decision e).
+ *
+ * FOUR THINGS STAY ON SCREEN — used, file count, limit, 立即清理 — and
+ * everything else a drain knows is said once, in its receipt. The desktop's
+ * dialog keeps 「可回收」 and 「不可回收」 permanently visible; on a phone those
+ * are two byte counts nobody reads, while "this run deleted 3 songs and left 2
+ * it could not confirm" is a sentence about something that just happened.
+ *
+ * THE LIMIT IS PER INSTALL and lives in `local_metadata` (`cache-limit.ts`) —
+ * not in `lark_config.toml`, which this phone does not have and is not getting.
+ * Saving it starts a drain, because a limit that took effect "some time later"
+ * would look like a limit that did not work.
+ *
+ * 立即清理 is the ONLY place in the app that waits for a drain and shows what
+ * it did. The other three triggers (launch, a finished download, a saved limit)
+ * are fire-and-forget by design — a background drain that reported to a screen
+ * would be a screen reporting on work nobody asked for.
+ */
+function Cache() {
+  const { view, boot } = useLibrary();
+  const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
+  /** The saved limit, as this screen last read it BACK from the library. */
+  const [limitMb, setLimitMb] = useState(() => readCacheLimitMb(boot.db.sqlite));
+  const [draft, setDraft] = useState(() => String(limitMb));
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<Said | null>(null);
+
+  // `view` is the dependency that makes a delete, a download or an eviction
+  // show up here: every one of them announces itself, and the announcement is
+  // what replaces the reader (`library-context.tsx`). Walking the song
+  // directories is what `cacheStatus` does — cheap for a phone's library, and
+  // this screen is not a hot path.
+  const status: CacheStatus = useMemo(
+    () => view.cacheStatus({ ...runtime.cache.options(), limitBytes: limitMb * MIB }),
+    [view, runtime, limitMb],
+  );
+
+  const save = (): void => {
+    const parsed = Number(draft.trim());
+    if (!Number.isSafeInteger(parsed) || parsed < 0) {
+      setSaid({ ok: false, text: '请填一个不小于 0 的整数（MB），0 表示不限。' });
+      return;
+    }
+    writeCacheLimitMb(boot.db.sqlite, parsed);
+    // Read back rather than assume the write won — the same rule the model
+    // form above follows.
+    const saved = readCacheLimitMb(boot.db.sqlite);
+    setLimitMb(saved);
+    setDraft(String(saved));
+    setSaid({ ok: true, text: saved === 0 ? '已保存：不限。' : `已保存：${saved}MB。` });
+    // Trigger three (§2.2). Not awaited: this one is a preference, and the
+    // drain it starts reports through the numbers above.
+    runtime.cache.schedule('limit-changed');
+  };
+
+  const clean = async (): Promise<void> => {
+    setBusy(true);
+    setSaid(null);
+    try {
+      setSaid({ ok: true, text: describeEviction(await runtime.cache.run()) });
+    } catch (err) {
+      setSaid({ ok: false, text: err instanceof Error ? err.message : '清理失败' });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>缓存</Text>
+      <Field label="已用" value={`${mib(status.used_bytes)}（${status.file_count} 个音频文件）`} />
+      {/*
+        Both halves of "still over the limit" are said, because they are
+        different problems (M5-18): what is left may be pinned, imported or in
+        use, and none of those is something a second tap on 立即清理 will fix.
+      */}
+      {!status.limit_satisfied && (
+        <Text style={styles.note}>
+          仍超出上限：其中 {mib(status.unreclaimable_bytes)} 是固定 / 正在使用 /
+          没有来源的文件，清不掉。
+        </Text>
+      )}
+
+      <View style={styles.row}>
+        <View style={styles.field}>
+          <Text style={styles.fieldLabel}>上限（MB，0 = 不限）</Text>
+          <TextInput
+            style={styles.input}
+            value={draft}
+            onChangeText={setDraft}
+            keyboardType="number-pad"
+            placeholder="0"
+            placeholderTextColor={C.faint}
+            accessibilityLabel="缓存上限"
+          />
+        </View>
+        <Pressable
+          style={[styles.button, styles.buttonPrimary, styles.buttonNarrow]}
+          onPress={save}
+          accessibilityRole="button"
+          accessibilityLabel="保存上限"
+        >
+          <Text style={styles.buttonLabel}>保存</Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        style={[styles.button, busy && styles.buttonOff]}
+        onPress={() => void clean()}
+        disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel="立即清理"
+      >
+        {busy ? (
+          <ActivityIndicator size="small" color={C.muted} />
+        ) : (
+          <Text style={styles.buttonLabel}>立即清理</Text>
+        )}
+      </Pressable>
+      <Text style={styles.note}>
+        只清理下载来的音频，导入的文件和固定的歌不会被删；来源确认不了还能重下的，也留着。歌词永远不清。
+      </Text>
+      {said !== null && (
+        <Text style={said.ok ? styles.ok : styles.failed} accessibilityLabel="缓存操作结果">
+          {said.text}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** One receipt for one drain — the same three facts the GUI toast and `lark cache evict` report. */
+function describeEviction(summary: EvictionSummary): string {
+  // Criterion 37's sentence, and it gets its own branch because it is the
+  // outcome an offline phone always reaches: fail-closed is not an error and
+  // must not read like one. An unreachable network and a dead source look
+  // identical from here, and both mean "keep the file".
+  const kept =
+    summary.skipped_unverified_count === 0
+      ? ''
+      : `${summary.skipped_unverified_count} 首（${mib(summary.skipped_unverified_bytes)}）没能确认可重下，先留着。`;
+
+  if (summary.evicted_count === 0) {
+    return kept === '' ? '没有需要清理的文件。' : `一个文件都没删：${kept}`;
+  }
+  const freed = `清理了 ${summary.evicted_count} 首，释放 ${mib(summary.freed_bytes)}`;
+  return kept === '' ? `${freed}。` : `${freed}；另有 ${kept}`;
+}
+
+function mib(bytes: number): string {
+  return `${(bytes / MIB).toFixed(1)}MB`;
+}
+
+/**
  * The Bluetooth lyrics switch (N3d, criterion 16).
  *
  * Off by default and stored per install (`local_metadata.now_playing_mode`),
@@ -419,6 +582,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   buttonPrimary: { backgroundColor: C.surfaceOn },
+  // Beside a field rather than across the row: the input is the wide half.
+  buttonNarrow: { flex: 0, paddingHorizontal: 20, alignSelf: 'flex-end' },
   buttonOff: { opacity: 0.4 },
   buttonLabel: { color: C.text, fontSize: 15, fontWeight: '600' },
   ok: { color: C.ok, fontSize: 12, lineHeight: 18 },

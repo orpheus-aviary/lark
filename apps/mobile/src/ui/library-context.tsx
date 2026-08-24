@@ -13,26 +13,54 @@
 // the linter cannot check and a reader cannot see used. So a write replaces
 // `view` with a new object instead: the dependency is the reader itself,
 // listing it is honest, and `useExhaustiveDependencies` agrees.
+//
+// WHAT REPLACES IT IS THE SIGNAL, NOT THE BUTTON (N4g-2, decision h). `changed()`
+// used to do both jobs — swap the view AND announce — which meant only writes
+// with a finger on them refreshed the screen. Everything N4g added writes with
+// nobody's finger on anything: an ensure-file finishing, a drain deleting an
+// audio file. Both already emit `libraryChanged` (the engine's callbacks, the
+// eviction runtime), and neither could reach this. So this subscribes like
+// every other reader, `changed()` is now just the announcement, and there is
+// one path from "something wrote" to "the list says so".
 
-import type { LibraryService, ListSongsResult } from '@lark/core/portable';
+import type {
+  CacheOptions,
+  CacheStatus,
+  LibraryService,
+  ListSongsResult,
+} from '@lark/core/portable';
 import type { PlaylistData, SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
-import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from 'react';
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import type { BootResult } from '../boot/sequence';
-import { libraryChanged } from '../library-signal';
+import { libraryChanged, onLibraryChanged } from '../library-signal';
 
 /** The library as it is RIGHT NOW. A new one exists after every write. */
 export interface LibraryView {
   songs(options?: { search?: string; limit?: number }): ListSongsResult;
   playlists(): PlaylistData[];
   playlistSongs(id: string): SongData[];
+  /**
+   * How much room the audio takes (N4g-2). A read like the other three, and
+   * here for the same reason: a download, a delete and an eviction all change
+   * the answer, and all three announce themselves.
+   */
+  cacheStatus(options: CacheOptions): CacheStatus;
 }
 
 interface LibraryValue {
   library: LibraryService;
   view: LibraryView;
   boot: BootResult;
-  /** Say this after a write; it is what replaces `view`. */
+  /** Say this after a write. It announces; the announcement replaces `view`. */
   changed: () => void;
 }
 
@@ -70,18 +98,20 @@ export function LibraryProvider({
       playlists: () =>
         library.listPlaylists().filter((playlist) => playlist.id !== VIRTUAL_ALL_PLAYLIST_ID),
       playlistSongs: (id) => library.listPlaylistSongs(id),
+      cacheStatus: (options) => library.cacheStatus(options),
     }),
     [library],
   );
   const [view, setView] = useState<LibraryView>(() => reader());
-  const changed = useCallback(() => {
-    setView(reader());
-    // And once more for everything outside the tree — the player's queue is a
-    // list of ids, and a song deleted here has to leave it (§2.8). When sync
-    // starts deleting rows in N5 it emits the same signal and this keeps
-    // working without knowing about sync.
-    libraryChanged();
-  }, [reader]);
+  // The one external system this component synchronises with: the library, as
+  // everything that writes to it announces itself. `reader` changes only when
+  // the service does (never, after boot), so this subscribes once.
+  useEffect(() => onLibraryChanged(() => setView(reader())), [reader]);
+  // Say it happened. The player hears it too — its queue is a list of ids, and
+  // a song deleted here has to leave it (§2.8) — and when sync starts deleting
+  // rows in N5 it emits the same signal and everything keeps working without
+  // knowing about sync.
+  const changed = useCallback(() => libraryChanged(), []);
 
   const value = useMemo(() => ({ library, view, boot, changed }), [library, view, boot, changed]);
   return <LibraryContext.Provider value={value}>{children}</LibraryContext.Provider>;

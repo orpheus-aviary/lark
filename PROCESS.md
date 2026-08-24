@@ -745,6 +745,20 @@
 - **收尾基线**：`just check` exit 0 · `just test` exit 0 / **2934 passed**（shared 152 · core 1280 · **mobile 180** · cli 428+9 skipped · daemon 468 · gui 426）· `mobile-typecheck` exit 0。
 - **N4i 的范围（用户 2026-08-24 同意计入）**：多选批量 + **行菜单补齐**（复制链接需新依赖 `expo-clipboard` · 用 app 打开零成本且只放行 http/https · 更改链接含重新识别）。**「重新下载」留给 N4g**，它和 ensure-file 是同一行的两件事。
 
+#### N4g（2026-08-24）拿回文件 · 管住占用 · 把歌单带走 —— **电脑那半已完成，真机会话待跑**
+
+子计划 `docs/plans/2026-08-24-phase-b-mobile-n4g.md`（**v2，决策 a–h 全关**：a–f 由用户拍板「b 直接获取并播放 · d 不做 · 其余按倾向」，g–h 是开工当天从代码里长出来的）。判据 34–40 原样继承，新增 49（重新下载）· 50（限额存取）。
+
+- **N4g-1 逻辑与装配**：`portable/cache-limit.ts`（`local_metadata.cache_limit_mb`，形状照 `now-playing-mode.ts`：缺行读 0 = 不限 · 看不懂的值读 0 且**不写库** · 写入拒绝负数与非整数）· `services/library.ts` 的 `createCacheOptions`（三条排除：正在播的歌 / ensure 租约 / `pendingFileSongIds`；`streamCount` **恒 0 且这次是真的**）· `cache/runtime.ts`（`EvictionScheduler` 的移动装配：`defer = setTimeout(fn,0)` · `probe = canRedownload` · claims 取引擎的 · `onEvicted → libraryChanged()`）· `downloads/ensure.ts` + `ensure-runtime.ts`（一次播放意图的状态机 + 装配）· `player/visible-queue.ts`。
+- **N4g-2 UI 与依赖**：歌曲页与歌单详情的**缺文件行现在是播放**（占位 toast 删了）· 行菜单加「重新下载」· minibar 长出「正在获取《X》」+ 取消 · 设置页缓存区（已用 / 文件数 / 上限 / 立即清理 + 一句回执）· 歌单详情「导出」→ `expo-sharing`（`~57.0.14`，**不需要 config plugin**——它的 plugin 只管 iOS share extension 与「分享进来」的 intent filter，模块本身 autolink，`SharingFileProvider` 在它自己的 manifest 里且 `sharing_provider_paths.xml` 覆盖 cache 目录）。
+- **`pnpm install` 变动后的常驻义务已复跑**：桌面 `just check` exit 0 · `just test` exit 0 / **2984 passed**（shared 152 · core **1296** · **mobile 214** · cli 428+9 skipped · daemon 468 · gui 426）· 两个 bundle smoke 都过（生产图 · 验收图 112+13 模块）。
+- 🔴 **决策 g：手机上根本没人写 `last_accessed_at`**。桌面写它的地方是 `/audio` 路由（`media.ts` 的 `touch(id)`），而 ExoPlayer 直接读文件、那条路由不存在 ⇒ **不补的话「按最近最少使用清理」在手机上其实是「按创建时间清理」**。补法是播放器 `play()` 里 driver 装好、`built.play()` 之后 touch 一次——**装不上的源不 touch**，那正是清理该先碰的文件（单测两条守着这句）。
+- 🔴 **决策 h：`libraryChanged()` 在手机上从来没能刷新过屏幕**。`library-signal.ts` 至今只有播放器在听；`LibraryProvider.changed()` 自己换 `view`，所以**只有手指按在按钮上的写入**会刷新列表——`engine.ts:207` 的注释写着「the song list rebuilds」，它其实只在切 tab 重挂时才重建。N4g 有两条没有手指的写入（ensure 完成、清理删文件），所以改成 **provider 订阅 `onLibraryChanged`，`changed()` 退化成只发信号**：一个信号一个家。
+- **ensure-file 的三条规则照 §2.9 落地，代际复用播放器的**（`player.claimIntent()` / `holdsIntent()`）：**任何**起播路径（行、下一首、队列面板、恢复位置）都自动抢占一个等待中的意图，不需要在每个 call site 加一次作废。判据 35 的反测（不判代际 → 必须抢走）**在单测里**（`ensure.test.ts`，把 `holdsIntent` 换成恒真）。
+- **队列快照取在起播那一刻**：新增 `player/visible-queue.ts`——列表页发布「我这一屏的队列怎么建」，ensure 落地时读一次；**读到的那一屏不含这首歌就回落到点击时的那一屏**（在 设置 / 添加页 / 另一个歌单里等到文件时就是这种情况）。
+- **判据 36（零网络短路）由 core 现有单测承担**（`download/engine.test.ts:1154`「succeeds without a single network call」断言 `upstream.requests` 为空）——去掉短路那条断言必红，形态就是判据要的反测；本批不再造第二份。判据 37 的逻辑半边同理在 `library/cache.test.ts:196`（fail-closed 与「probe 恒真就删」是同一条用例的两半）。
+- **待上机（一次会话）**：判据 **34（gate）** ensure-file → 从头播 + N3 判据 15 的三种歌词 · **38** 限额生效且正在播/pin 的没被删 · **39** 导出到系统分享面板、与桌面导出结构相等 · **40** 跑完仍可交互 · **49** 重新下载 · 35 与 37 的设备半边。
+
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
 
 

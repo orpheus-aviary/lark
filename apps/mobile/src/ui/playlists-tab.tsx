@@ -16,7 +16,7 @@
 // draggable list would have cost.
 
 import type { SongData } from '@lark/shared';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -26,8 +26,11 @@ import {
   ToastAndroid,
   View,
 } from 'react-native';
+import { ensureController } from '../downloads/ensure-runtime';
 import { player } from '../player';
 import { queueFrom } from '../player/queue';
+import { useVisibleQueue } from '../player/visible-queue';
+import { sharePlaylistExport } from '../services/playlist-export';
 import { useLibrary } from './library-context';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
@@ -114,6 +117,16 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
     return playlist === null ? null : { playlist, songs: view.playlistSongs(id) };
   }, [view, id]);
 
+  // This playlist is the queue a delayed play would use, while it is on screen
+  // (N4g, §2.9). `?? []` because the hook cannot be called conditionally and
+  // the screen below returns early when the playlist is gone.
+  useVisibleQueue(
+    useCallback(
+      () => queueFrom({ kind: 'playlist', id }, detail?.songs ?? []),
+      [id, detail?.songs],
+    ),
+  );
+
   // The playlist this screen was opened for is gone. Deleting it from here
   // navigates away on its own (below), so what reaches this branch is the
   // OTHER way it can happen: a stale id — an Activity rebuilt around a
@@ -136,6 +149,21 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
     changed();
   };
 
+  const exportPlaylist = async (): Promise<void> => {
+    if (detail === null) return;
+    try {
+      const result = await sharePlaylistExport(library, detail.playlist);
+      ToastAndroid.show(
+        result.shared
+          ? `已导出「${detail.playlist.name}」（${result.songCount} 首）`
+          : '这台设备没有可以接收文件的应用',
+        ToastAndroid.SHORT,
+      );
+    } catch (err) {
+      ToastAndroid.show(err instanceof Error ? err.message : '导出失败', ToastAndroid.SHORT);
+    }
+  };
+
   return (
     <View style={styles.fill}>
       <Back onPress={onBack} />
@@ -155,6 +183,16 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
           accessibilityRole="button"
         >
           <Text style={styles.newLabel}>歌单改名</Text>
+        </Pressable>
+        {/* Decision f / criterion 39. Not a save dialog: the file goes to the
+            app's cache and the system share sheet carries a grant to it
+            (`services/playlist-export.ts`). */}
+        <Pressable
+          style={styles.newButton}
+          onPress={() => void exportPlaylist()}
+          accessibilityRole="button"
+        >
+          <Text style={styles.newLabel}>导出</Text>
         </Pressable>
         <Pressable
           style={styles.newButton}
@@ -183,11 +221,14 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
             <Pressable
               style={styles.row}
               onPress={() => {
+                const queue = queueFrom({ kind: 'playlist', id }, detail.songs);
+                // Same rule as the 歌曲 tab: no file is not a refusal, it is a
+                // play with a download in front of it (N4g, decision b).
                 if (item.has_file === false) {
-                  ToastAndroid.show('这首还没有文件，下载在 N4 开放', ToastAndroid.SHORT);
+                  ensureController().request(item, queue);
                   return;
                 }
-                void player.play(item, queueFrom({ kind: 'playlist', id }, detail.songs));
+                void player.play(item, queue);
               }}
               accessibilityRole="button"
               accessibilityLabel={`播放 ${item.name}`}
