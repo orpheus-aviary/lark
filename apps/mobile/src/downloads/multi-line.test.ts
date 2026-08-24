@@ -9,7 +9,8 @@
 import type { BilibiliClient } from '@lark/core/portable';
 import { DOWNLOAD_PARSE_LINES_MAX } from '@lark/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { eligible, expandLines, lineItems, readLines } from './multi-line';
+import { expandLines, lineItems, readLines } from './multi-line';
+import { eligible } from './selection';
 
 const BVID = 'BV1LtgV6ZE2U';
 const OTHER = 'BV1xx411c7mD';

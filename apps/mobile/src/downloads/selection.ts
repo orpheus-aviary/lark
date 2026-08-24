@@ -64,6 +64,17 @@ export function listRows(videos: FetchListData['videos']): readonly ListVideo[] 
 }
 
 /**
+ * The rows that can be ticked at all — what 全选 and the counter are about.
+ *
+ * A `PickRow` fact rather than a line fact, and it lives here because two
+ * places wanted it: the paste's own tests and the screen. It was written twice
+ * for about an hour (N4h-2), which is one hour longer than a predicate should
+ * exist in two copies.
+ */
+export const eligible = <T extends PickRow>(rows: readonly T[]): readonly T[] =>
+  rows.filter((row) => row.reason === null);
+
+/**
  * The rows a picker shows: list order, one per bvid.
  *
  * Everything below assumes its input came through here — `chosen.size` is the

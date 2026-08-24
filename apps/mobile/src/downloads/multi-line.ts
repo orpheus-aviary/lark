@@ -248,10 +248,6 @@ function toRow(line: ParsedLine, hasLlm: boolean): LineRow {
   return { key, label: line.raw, note: null, reason: LIST_IN_A_PASTE, item: null };
 }
 
-/** The rows that can be ticked at all — what 全选 and the counter are about. */
-export const eligible = (rows: readonly LineRow[]): readonly LineRow[] =>
-  rows.filter((row) => row.item !== null);
-
 /**
  * Chosen rows, in wire shape.
  *

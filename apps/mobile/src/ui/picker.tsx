@@ -41,6 +41,7 @@ import {
   allChosen,
   chooseAll,
   chosenRows,
+  eligible,
   overItemLimit,
   toggleEvery,
   toggleOne,
@@ -92,9 +93,9 @@ export function Picker<T extends PickRow>({
   // Everything ticked, until somebody says otherwise (N4f decision e).
   // DERIVED rather than set from an effect: the rows arrive asynchronously, and
   // an effect that seeded the set would fight every tap that came before it.
-  const eligible = useMemo(() => rows.filter((row) => row.reason === null), [rows]);
-  const ticked = touched ? chosen : chooseAll(eligible);
-  const picked = chosenRows(eligible, ticked);
+  const tickable = useMemo(() => eligible(rows), [rows]);
+  const ticked = touched ? chosen : chooseAll(tickable);
+  const picked = chosenRows(tickable, ticked);
   const overLimit = overItemLimit(picked.length);
   const ready = picked.length > 0 && overLimit === null && !submitting;
 
@@ -144,16 +145,16 @@ export function Picker<T extends PickRow>({
 
               <View style={styles.row}>
                 <Text style={styles.count}>
-                  已选 {picked.length}/{eligible.length}
+                  已选 {picked.length}/{tickable.length}
                 </Text>
                 <Pressable
                   style={styles.toggleAll}
-                  onPress={() => tick(toggleEvery(ticked, eligible))}
+                  onPress={() => tick(toggleEvery(ticked, tickable))}
                   accessibilityRole="button"
-                  accessibilityLabel={allChosen(ticked, eligible) ? '全不选' : '全选'}
+                  accessibilityLabel={allChosen(ticked, tickable) ? '全不选' : '全选'}
                 >
                   <Text style={styles.toggleAllLabel}>
-                    {allChosen(ticked, eligible) ? '全不选' : '全选'}
+                    {allChosen(ticked, tickable) ? '全不选' : '全选'}
                   </Text>
                 </Pressable>
               </View>
