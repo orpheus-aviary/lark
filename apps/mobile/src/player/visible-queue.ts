@@ -28,8 +28,11 @@ let build: (() => PlayQueue) | null = null;
  * The retraction only clears what it published: React mounts the next screen
  * before unmounting the previous one, so an unconditional clear on unmount
  * would erase a live publication with a dead screen's teardown.
+ *
+ * Not exported: the hook below is how a screen says this, and a second way in
+ * would be a second lifetime to get right.
  */
-export function publishVisibleQueue(next: () => PlayQueue): () => void {
+function publishVisibleQueue(next: () => PlayQueue): () => void {
   build = next;
   return () => {
     if (build === next) build = null;

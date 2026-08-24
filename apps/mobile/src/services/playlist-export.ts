@@ -25,7 +25,7 @@ import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
 /** The desktop's default name, to the letter (`TopBar.tsx`, `transfer.ts`). */
-export function exportFileName(playlistName: string): string {
+function exportFileName(playlistName: string): string {
   return `${sanitizeFileName(playlistName)}.lark-playlist.json`;
 }
 
