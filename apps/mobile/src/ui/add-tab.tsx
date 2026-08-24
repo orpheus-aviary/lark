@@ -24,10 +24,19 @@ import type { DownloadNamingMode } from '@lark/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
-import { type Recognition, listLabel, recognise, submitDownload } from '../downloads/preflight';
+import {
+  type KeywordItem,
+  type ListItem,
+  type Recognition,
+  type VideoItem,
+  listLabel,
+  recognise,
+  submitDownload,
+} from '../downloads/preflight';
 import { subscribeShareDraft, takeShareDraft } from '../share/draft';
 import { Chip } from './chip';
 import { useLibrary } from './library-context';
+import { ListPicker } from './list-picker';
 import { Sheet, SheetAction } from './sheet';
 import { TaskList } from './task-list';
 import { C, S } from './theme';
@@ -68,6 +77,8 @@ export function AddTab() {
   );
   const [playlistId, setPlaylistId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  /** The list whose picker is open. A list is chosen from, not submitted (N4f-2). */
+  const [expanding, setExpanding] = useState<ListItem | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /** What the last submission said, when it did not queue anything. */
   const [failed, setFailed] = useState<string | null>(null);
@@ -124,8 +135,8 @@ export function AddTab() {
     writeNamingMode(boot.db.sqlite, next);
   };
 
-  const submit = async (): Promise<void> => {
-    if ((seen.kind !== 'video' && seen.kind !== 'keyword') || submitting) return;
+  /** One video or one keyword: queued from here, right now. */
+  const startOne = async (item: VideoItem | KeywordItem): Promise<void> => {
     setSubmitting(true);
     setFailed(null);
     try {
@@ -137,10 +148,10 @@ export function AddTab() {
           engine: runtime.engine,
         },
         {
-          item: seen.item,
+          item,
           // A keyword carries no mode at all (portable refuses one), so the
           // chips above are hidden for it rather than sent and ignored.
-          namingMode: seen.kind === 'keyword' ? undefined : mode,
+          namingMode: item.kind === 'keyword' ? undefined : mode,
           playlistIds: playlistId === null ? [] : [playlistId],
         },
       );
@@ -159,11 +170,31 @@ export function AddTab() {
     }
   };
 
-  const ready = (seen.kind === 'video' || seen.kind === 'keyword') && !submitting;
+  const submit = async (): Promise<void> => {
+    if (submitting) return;
+    if (seen.kind === 'list') {
+      // A list does not download from here: the next question is WHICH of it,
+      // and the answer needs a screen (§2.2). The expansion starts when that
+      // screen mounts, so this tap is the last thing that happens offline.
+      setFailed(null);
+      setExpanding(seen.item);
+      return;
+    }
+    if (seen.kind === 'video' || seen.kind === 'keyword') await startOne(seen.item);
+  };
+
+  const ready =
+    (seen.kind === 'video' || seen.kind === 'keyword' || seen.kind === 'list') && !submitting;
   // Naming is a question about a title, and a keyword has none — the model
   // names the song it finds. Hiding the row beats disabling it: a disabled
   // control invites "why can't I choose", and there is nothing to choose.
-  const naming = seen.kind !== 'keyword';
+  //
+  // A list hides BOTH rows for a different reason: it answers them on its own
+  // page, one mode for the whole group (decision c) and always a new playlist
+  // (decision f). Asking here would be asking twice, with the second answer
+  // silently winning.
+  const naming = seen.kind !== 'keyword' && seen.kind !== 'list';
+  const targeting = seen.kind !== 'list';
 
   return (
     <View style={styles.fill}>
@@ -198,10 +229,12 @@ export function AddTab() {
           <Text style={styles.hint}>清洗命名需要一个模型，去「设置」填一个。</Text>
         )}
 
-        <View style={styles.row}>
-          <Text style={styles.rowLabel}>存到</Text>
-          <Chip label={targetName} on onPress={() => setPicking(true)} />
-        </View>
+        {targeting && (
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>存到</Text>
+            <Chip label={targetName} on onPress={() => setPicking(true)} />
+          </View>
+        )}
 
         <Pressable
           style={[styles.submit, !ready && styles.submitOff]}
@@ -218,6 +251,27 @@ export function AddTab() {
       </View>
 
       <TaskList />
+
+      {expanding !== null && (
+        <ListPicker
+          item={expanding}
+          onClose={() => setExpanding(null)}
+          onFailed={(message) => {
+            // Nothing came back, so there is nothing to choose from. The
+            // refusal is portable's own sentence and it belongs where every
+            // other one on this page is (§2.2).
+            setExpanding(null);
+            setFailed(message);
+          }}
+          onSubmitted={() => {
+            setExpanding(null);
+            setText('');
+            setSeen({ kind: 'empty' });
+            // A new playlist exists now, whatever the downloads do next.
+            changed();
+          }}
+        />
+      )}
 
       {picking && (
         <Sheet title="存到哪里" onClose={() => setPicking(false)}>
@@ -278,11 +332,11 @@ function Preview({ seen, resolving }: { seen: Recognition; resolving: boolean })
   }
   if (seen.kind === 'list') {
     // Named, and nothing more: what is INSIDE it costs up to two hundred
-    // requests to find out, and that walk belongs to the picker (§2.2). The
-    // picker itself is N4f-2 — until then 下载 stays disabled for a list.
+    // requests to find out, and that walk belongs to the picker (§2.2).
     return (
       <View style={styles.preview}>
         <Text style={styles.previewText}>{listLabel(seen.item)}</Text>
+        <Text style={styles.previewNote}>下一步挑要下的</Text>
       </View>
     );
   }

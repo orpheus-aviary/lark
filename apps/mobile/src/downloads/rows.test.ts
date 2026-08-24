@@ -6,9 +6,9 @@
 // list, because the engine hands back INSERTION ORDER and the screen kept the
 // first twenty — the oldest — instead of the most recent.
 
-import type { DownloadTaskData } from '@lark/shared';
+import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import { TERMINAL_SHOWN, orderTaskRows } from './rows';
+import { TERMINAL_SHOWN, latestBatch, orderTaskRows } from './rows';
 
 function task(
   id: string,
@@ -96,5 +96,29 @@ describe('reading order', () => {
     const given = [task('a', 'succeeded', 1), task('b', 'succeeded', 2)];
     orderTaskRows(given);
     expect(ids(given)).toEqual(['a', 'b']);
+  });
+});
+
+describe('latestBatch', () => {
+  const batch = (id: string, createdAt: number): DownloadBatchData => ({
+    id,
+    target: { kind: 'all' },
+    total: 1,
+    items: [{ index: 0, task_id: `t-${id}`, final: null }],
+    created_at: createdAt,
+  });
+
+  it('is null when nothing has been submitted', () => {
+    expect(latestBatch([])).toBeNull();
+  });
+
+  it('picks the newest by created_at, not by position', () => {
+    // The engine hands back registry order; a screen reading `at(-1)` would be
+    // trusting a detail it does not own — the same mistake as the rows above.
+    expect(latestBatch([batch('new', 9), batch('old', 2)])?.id).toBe('new');
+  });
+
+  it('takes the later entry when two share a millisecond', () => {
+    expect(latestBatch([batch('first', 5), batch('second', 5)])?.id).toBe('second');
   });
 });

@@ -6,7 +6,7 @@
 // batch that finishes at 3/3 and one that sits at 2/3 with nothing left to run.
 
 import { describe, expect, it } from 'vitest';
-import { batchProgress } from './download-batch.js';
+import { batchDone, batchProgress } from './download-batch.js';
 import type { DownloadBatchData, DownloadBatchItemData } from './types.js';
 
 const item = (
@@ -27,6 +27,14 @@ const batch = (items: readonly DownloadBatchItemData[]): DownloadBatchData => ({
   total: items.length,
   items,
   created_at: 0,
+});
+
+describe('batchDone', () => {
+  it('counts settled items without needing a task to ask about', () => {
+    // The phone's list line has no task in hand: it is about the batch.
+    expect(batchDone(batch([item(0, 't1', settled('succeeded')), item(1, 't2')]))).toBe(1);
+    expect(batchDone(batch([item(0, 't1'), item(1, 't2')]))).toBe(0);
+  });
 });
 
 describe('batchProgress', () => {

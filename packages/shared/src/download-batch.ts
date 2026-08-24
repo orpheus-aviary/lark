@@ -10,12 +10,23 @@
 // byte. Nothing about the desktop's status line changes, which is what makes
 // its own tests the check on this file arriving intact.
 //
+// TWO WAYS IN, ONE RULE (N4f-2). The desktop asks "which batch is this task
+// in, and how far along is it" — its status line is about a task. The phone's
+// list has a line of its own above every row and asks about a BATCH directly,
+// so `batchDone` is the shared half and `batchProgress` is the lookup in front
+// of it.
+//
 // WHAT "DONE" MEANS IS THE WHOLE POINT: an item counts once it is SETTLED, not
 // once it succeeded. A batch of ten where three failed reads 10/10 and stops —
 // the failures are the task rows' business, and a counter that stalled at 7/10
 // forever would be the batch claiming work is still coming.
 
 import type { DownloadBatchData } from './types.js';
+
+/** How many of a batch's items have settled — the `n` of `n/total`. */
+export function batchDone(batch: DownloadBatchData): number {
+  return batch.items.filter((item) => item.final !== null).length;
+}
 
 /** `n/total` for the batch a task belongs to, or null when it is a lone task. */
 export function batchProgress(
@@ -26,5 +37,5 @@ export function batchProgress(
     candidate.items.some((item) => item.task_id === taskId),
   );
   if (!batch) return null;
-  return { batch, done: batch.items.filter((item) => item.final !== null).length };
+  return { batch, done: batchDone(batch) };
 }

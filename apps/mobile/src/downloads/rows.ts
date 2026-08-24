@@ -13,7 +13,7 @@
 // naive `slice(0, 20)` keeps the twenty OLDEST terminal tasks and drops every
 // recent one — the exact opposite of decision c's 「终态只留最近 20 条」.
 
-import type { DownloadTaskData } from '@lark/shared';
+import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { isActive } from './cancel';
 
 /** A screen and a bit of the ring. The engine keeps 100; nobody scrolls to them. */
@@ -36,4 +36,25 @@ export function orderTaskRows(
     .sort((a, b) => (b.finished_at ?? 0) - (a.finished_at ?? 0))
     .slice(0, limit);
   return [...tasks.filter(isActive), ...terminal];
+}
+
+/**
+ * The batch a list should be reporting on: the most recent one (N4f-2).
+ *
+ * BY `created_at`, NOT BY POSITION, for the same reason the rows above sort by
+ * `finished_at`: the engine hands back a Map's insertion order and a screen
+ * that read `at(-1)` would be trusting a detail of a registry it does not own.
+ * Ties go to the later entry — two batches opened in the same millisecond are
+ * one submission's worth of groups, and the phone only ever submits one.
+ *
+ * "Most recent" rather than "the one the running task is in" (the desktop's
+ * rule, `batchProgress`): a phone's list IS the screen, and a line that
+ * vanished the instant the last item settled would never be seen reading N/N.
+ */
+export function latestBatch(batches: readonly DownloadBatchData[]): DownloadBatchData | null {
+  let latest: DownloadBatchData | null = null;
+  for (const batch of batches) {
+    if (latest === null || batch.created_at >= latest.created_at) latest = batch;
+  }
+  return latest;
 }

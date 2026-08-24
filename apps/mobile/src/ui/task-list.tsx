@@ -14,7 +14,8 @@
 // link genuinely has no name until `naming` runs, and inventing one would be
 // worse than showing the URL that was pasted.
 
-import { KIND_LABELS, taskLabel, taskTitle } from '@lark/shared';
+import type { DownloadBatchData } from '@lark/shared';
+import { KIND_LABELS, batchDone, taskLabel, taskTitle } from '@lark/shared';
 import { X } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -27,7 +28,7 @@ import {
 } from '../downloads/cancel';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import type { ForegroundStatus } from '../downloads/foreground';
-import { orderTaskRows } from '../downloads/rows';
+import { latestBatch, orderTaskRows } from '../downloads/rows';
 import { useDownloads } from '../downloads/use-downloads';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
@@ -35,17 +36,19 @@ import { C, S } from './theme';
 export function TaskList() {
   const { boot } = useLibrary();
   const { engine } = useMemo(() => downloadRuntimeOnce(boot), [boot]);
-  const { tasks, foreground } = useDownloads();
+  const { tasks, batches, foreground } = useDownloads();
   // What the last cancel answered. Not a toast: this app has no toast library,
   // and the answer to "did that stop?" belongs next to the list it was about.
   const [said, setSaid] = useState<string | null>(null);
 
   const active = tasks.filter(isActive);
   const rows = orderTaskRows(tasks);
+  const batch = latestBatch(batches);
 
   return (
     <View style={styles.fill}>
       <Warning status={foreground} />
+      <BatchLine batch={batch} />
       <View style={styles.head}>
         <Text style={styles.title}>下载任务</Text>
         {active.length > 0 && (
@@ -102,6 +105,34 @@ export function TaskList() {
 }
 
 /**
+ * How far the last batch got (N4f-2, decision h).
+ *
+ * The desktop counts a batch on its status line, beside the task that is
+ * running; a phone has no status line, so this is the nearest thing — one row
+ * above the list, about the most recent submission (`latestBatch`).
+ *
+ * `batchDone` is `@lark/shared`'s, the same function the desktop counts with,
+ * and it counts SETTLED items rather than successful ones: a folder where three
+ * videos are dead still finishes at 12/12, and the three failures say so in
+ * their own rows. A counter that only believed successes would sit at 9/12 with
+ * nothing left that could ever move it.
+ */
+function BatchLine({ batch }: { batch: DownloadBatchData | null }) {
+  if (batch === null) return null;
+  const name = batch.target.kind === 'playlist' ? batch.target.name : '曲库';
+  return (
+    <View style={styles.batch}>
+      <Text style={styles.batchName} numberOfLines={1}>
+        批量 · {name}
+      </Text>
+      <Text style={styles.batchCount}>
+        {batchDone(batch)}/{batch.total}
+      </Text>
+    </View>
+  );
+}
+
+/**
  * The two phases a person has to be told about (N4c, decision e).
  *
  * `degraded` is a download running with no foreground service holding this
@@ -149,6 +180,15 @@ const styles = StyleSheet.create({
   },
   cancelAllLabel: { color: C.muted, fontSize: 13 },
   said: { color: C.muted, fontSize: 12, paddingHorizontal: S.pad, paddingBottom: S.gap },
+  batch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.gap,
+    paddingHorizontal: S.pad,
+    paddingTop: S.pad,
+  },
+  batchName: { color: C.muted, fontSize: 13, flex: 1 },
+  batchCount: { color: C.text, fontSize: 13, fontWeight: '600' },
   list: { flex: 1 },
   row: {
     flexDirection: 'row',
