@@ -71,7 +71,7 @@ export function App() {
         // (N4g). It needs all three of these — the engine to fetch, the
         // library to re-read the row, the player to decide whether the tap is
         // still the newest one — so it is bound here, where all three exist.
-        bindEnsure({ library, runtime });
+        const ensure = bindEnsure({ library, runtime });
         // The player is built at import time (one process, one player) but
         // half its dependencies need the library that just opened. This is
         // where they arrive, next to the service they belong to.
@@ -118,6 +118,11 @@ export function App() {
               if (!(err instanceof NotFoundError)) throw err;
             }
           },
+          // 下一首 landed on a song with no file (N4g-3). `fixedQueue`: the
+          // player is already playing out of this queue, and a list that
+          // happens to be on screen a minute later has no business replacing
+          // it — that rule is for a tap on a row.
+          fetchAndPlay: (song, queue) => ensure.request(song, queue, { fixedQueue: true }),
         });
         setBoot({ status: 'ready', result, library });
       })

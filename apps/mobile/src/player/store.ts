@@ -84,6 +84,14 @@ export interface PlayerDeps {
    * row". Called when a source actually starts, not when one is asked for.
    */
   touch: (songId: string) => void;
+  /**
+   * Fetch a song's file and play it when it lands (N4g-3, `downloads/ensure.ts`).
+   *
+   * The queue is handed over FIXED: this caller is already playing out of one
+   * and moving inside it, so what is on screen when the file arrives has no
+   * say — unlike a tap on a row, which is about a list you are looking at.
+   */
+  fetchAndPlay: (song: SongData, queue: PlayQueue) => void;
   /** Fires whenever the library changed under us (§2.8). */
   onLibraryChanged: (listener: () => void) => () => void;
 }
@@ -141,6 +149,10 @@ export interface PlayerStore {
    * coming out — must not be able to START playback. A `toggle` on a paused
    * player resumes it, which for that caller would mean unplugging your
    * headphones turns the music ON.
+   *
+   * It also supersedes a waiting ensure-file (decision j), and that caller is
+   * the sharpest reason why: the Bluetooth speaker went away, and a file
+   * landing thirty seconds later must not start playing out loud.
    */
   pause(): Promise<void>;
   seek(seconds: number): Promise<void>;
@@ -282,9 +294,23 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     }
   };
 
-  /** Stop where we are without giving up the song — what `stop` means in §2.4. */
-  const pausePlayback = async (): Promise<void> => {
+  /**
+   * Stop where we are without giving up the song — what `stop` means in §2.4.
+   *
+   * `deliberate` is decision j (N4g-3): a silence somebody ASKED for outranks a
+   * fetch that has not landed yet, so it takes the newest intent and a waiting
+   * ensure-file stops being a promise. A queue that simply ran out of songs
+   * does NOT — nobody spoke, and a tap made a minute ago is still the last
+   * thing anyone said about the speaker.
+   *
+   * The claim happens INSIDE the lane, unlike `play`'s. Outside it, a pause
+   * arriving during a load would abandon that load — and this operation would
+   * then find no driver, reload the song and play it. Which is the opposite of
+   * pausing (`toggle` below has the same reason and the same placement).
+   */
+  const pausePlayback = async (options: { deliberate?: boolean } = {}): Promise<void> => {
     await lane.run(() => {
+      if (options.deliberate === true) claim();
       driver?.pause();
       set({ playing: false });
       remember();
@@ -305,7 +331,13 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     switch (decision.kind) {
       case 'play': {
         const song = songs.find((candidate) => candidate.id === decision.songId);
-        if (song !== undefined) await store.play(song, queue);
+        if (song === undefined) break;
+        // Rule 3's finger half (N4g-3): 下一首 / 上一首 may name a song with no
+        // file, and it is fetched exactly as a tap on its row would be. A song
+        // that ended never names one — `decideNext` skips those — so nothing
+        // here starts a download with nobody watching.
+        if (song.has_file === false) deps.fetchAndPlay(song, queue);
+        else await store.play(song, queue);
         break;
       }
       case 'restart': {
@@ -463,6 +495,11 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       await lane.run(() => {
         const song = state.song;
         if (song === null) return;
+        // Decision j: pressing play or pause is a statement about what should
+        // be coming out of the speaker right now, so it takes the newest
+        // intent — a song fetched for a tap made a minute ago no longer gets
+        // to interrupt. Inside the lane; see `pausePlayback`.
+        claim();
         // NO `state.loading` GUARD HERE, and that is a deletion rather than an
         // omission. There was one, and a mutation proved it dead: the lane
         // means this body never runs WHILE a load is in flight, so `loading`
@@ -502,7 +539,7 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       });
     },
 
-    pause: pausePlayback,
+    pause: () => pausePlayback({ deliberate: true }),
 
     next: () => advance('next'),
     prev: () => advance('prev'),

@@ -65,14 +65,24 @@ interface Slot extends EnsureWait {
   intent: number;
   /** The list the row was tapped in — the fallback, not the answer. */
   tapped: PlayQueue;
+  /** …unless the caller pinned it, in which case it IS the answer. */
+  fixedQueue: boolean;
 }
 
 export interface EnsureController {
   subscribe: (listener: () => void) => () => void;
   /** `null` when nothing is waiting. A stable reference between changes. */
   getState: () => EnsureWait | null;
-  /** Tapped a song with no file. */
-  request: (song: SongData, tapped: PlayQueue) => void;
+  /**
+   * Tapped a song with no file — or advanced onto one (N4g-3).
+   *
+   * `fixedQueue` is the difference between the two callers. A tap is about a
+   * LIST you are looking at, so the queue may be replaced by whatever list is
+   * on screen when the file lands (§2.9). 下一首 is about the queue you are
+   * already playing, and switching queues because a screen moved would make
+   * "next" mean something else entirely.
+   */
+  request: (song: SongData, queue: PlayQueue, options?: { fixedQueue?: boolean }) => void;
   /** The one settlement path. Idempotent; fed by every hub refresh. */
   reconcile: (tasks: readonly DownloadTaskData[]) => void;
   /** Gave up waiting: drop the intent AND the download (§2.9). */
@@ -90,9 +100,8 @@ export function createEnsureController(deps: EnsureDeps): EnsureController {
     for (const listener of listeners) listener();
   };
 
-  /** The file is here. Whether it plays is a question about the intent. */
+  /** The file is here, and the intent was still ours when we checked. */
   const settle = (waited: Slot): void => {
-    if (!deps.holdsIntent(waited.intent)) return; // superseded: library only
     const song = deps.getSong(waited.songId);
     if (song === null) {
       // Downloaded, and deleted before it could play. Rare, and the honest
@@ -100,7 +109,7 @@ export function createEnsureController(deps: EnsureDeps): EnsureController {
       deps.say(`《${waited.name}》已经不在曲库里了`);
       return;
     }
-    deps.play(song, deps.queueFor(song, waited.tapped));
+    deps.play(song, waited.fixedQueue ? waited.tapped : deps.queueFor(song, waited.tapped));
   };
 
   return {
@@ -113,7 +122,7 @@ export function createEnsureController(deps: EnsureDeps): EnsureController {
 
     getState: () => state,
 
-    request(song, tapped) {
+    request(song, queue, options = {}) {
       let task: DownloadTaskData;
       try {
         // BEFORE the intent is claimed, so a refusal changes nothing: claiming
@@ -129,7 +138,8 @@ export function createEnsureController(deps: EnsureDeps): EnsureController {
         songId: song.id,
         name: song.name,
         intent: deps.claimIntent(),
-        tapped,
+        tapped: queue,
+        fixedQueue: options.fixedQueue === true,
       });
       deps.say(`正在获取《${song.name}》`);
     },
@@ -137,6 +147,16 @@ export function createEnsureController(deps: EnsureDeps): EnsureController {
     reconcile(tasks) {
       const waiting = slot;
       if (waiting === null) return;
+
+      // SUPERSEDED, and the row must stop saying otherwise (N4g-3, decision j).
+      // Something else has spoken for the speaker — another song, 下一首, a
+      // deliberate pause — so this fetch will not play when it lands. The
+      // download is NOT cancelled: it was asked for, and it belongs in the
+      // library either way. What ends here is the promise.
+      if (!deps.holdsIntent(waiting.intent)) {
+        publish(null);
+        return;
+      }
 
       const task = tasks.find((candidate) => candidate.id === waiting.taskId);
       if (task === undefined) {

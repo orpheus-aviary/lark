@@ -150,25 +150,59 @@ describe('the current song is not in the queue (D11)', () => {
   });
 });
 
-describe('the neighbour has no file: stop, never skip', () => {
+describe('the neighbour has no file (rule 3, rewritten in N4g-3)', () => {
   const gapped = [song('a'), song('b', { has_file: false }), song('c')];
 
-  it('a song that ended stops there', () => {
+  it('a song that ended skips it — nobody`s finger is on this, so nobody`s data', () => {
     expect(
       decideNext({ songs: gapped, currentId: 'a', mode: 'sequential', trigger: 'ended' }),
-    ).toEqual({ kind: 'stop', reason: 'no-playable' });
+    ).toEqual({ kind: 'play', songId: 'c' });
   });
 
-  it('a button says why', () => {
+  it('a button takes it and lets the host fetch it', () => {
+    // The whole point of the rewrite: tapping the row would have fetched it,
+    // so pressing 下一首 onto the same row must not refuse.
     expect(
       decideNext({ songs: gapped, currentId: 'a', mode: 'repeat-all', trigger: 'next' }),
-    ).toEqual({ kind: 'reject', reason: 'no-file' });
+    ).toEqual({ kind: 'play', songId: 'b' });
     expect(
       decideNext({ songs: gapped, currentId: 'c', mode: 'sequential', trigger: 'prev' }),
-    ).toEqual({ kind: 'reject', reason: 'no-file' });
+    ).toEqual({ kind: 'play', songId: 'b' });
   });
 
-  it('shuffle never offers one in the first place', () => {
+  it('a song that ended stops only when nothing ahead has a file', () => {
+    const none = [song('a'), song('b', { has_file: false }), song('c', { has_file: false })];
+    expect(
+      decideNext({ songs: none, currentId: 'a', mode: 'sequential', trigger: 'ended' }),
+    ).toEqual({ kind: 'stop', reason: 'no-playable' });
+    // repeat-all walks all the way round, and the last candidate it considers
+    // is the song that just ended — a list loop with one playable song in it.
+    expect(
+      decideNext({ songs: none, currentId: 'a', mode: 'repeat-all', trigger: 'ended' }),
+    ).toEqual({ kind: 'play', songId: 'a' });
+  });
+
+  it('skipping still respects rule 1: sequential does not wrap to find one', () => {
+    const tail = [song('a'), song('b'), song('c', { has_file: false })];
+    expect(
+      decideNext({ songs: tail, currentId: 'b', mode: 'sequential', trigger: 'ended' }),
+    ).toEqual({ kind: 'stop', reason: 'no-playable' });
+    expect(
+      decideNext({ songs: tail, currentId: 'b', mode: 'repeat-all', trigger: 'ended' }),
+    ).toEqual({ kind: 'play', songId: 'a' });
+  });
+
+  it('shuffle follows the same split: a press may land on one, an ending may not', () => {
+    expect(
+      decideNext({
+        songs: gapped,
+        currentId: 'a',
+        mode: 'shuffle',
+        trigger: 'ended',
+        random: first,
+      }),
+    ).toEqual({ kind: 'play', songId: 'c' });
+    // `first` picks pool[0], which for a press includes the file-less `b`.
     expect(
       decideNext({
         songs: gapped,
@@ -177,7 +211,7 @@ describe('the neighbour has no file: stop, never skip', () => {
         trigger: 'next',
         random: first,
       }),
-    ).toEqual({ kind: 'play', songId: 'c' });
+    ).toEqual({ kind: 'play', songId: 'b' });
   });
 
   it('`has_file` absent means playable — only an explicit false is a gap', () => {

@@ -41,7 +41,7 @@ export function bindEnsure(deps: {
   library: LibraryService;
   runtime: DownloadRuntime;
 }): EnsureController {
-  return ensureOnce({
+  const controller = ensureOnce({
     claimIntent: () => player.claimIntent(),
     holdsIntent: (mine) => player.holdsIntent(mine),
     enqueue: (songId) => deps.runtime.engine.enqueueEnsureFile(songId),
@@ -68,6 +68,17 @@ export function bindEnsure(deps: {
     play: (song, queue) => void player.play(song, queue),
     say: (message) => ToastAndroid.show(message, ToastAndroid.SHORT),
   });
+  // The OTHER thing that settles a wait (N4g-3, decision j): the player. A
+  // pause, another song, 下一首 — any of them takes the intent, and the moment
+  // one does, the mini bar's 「完成后播放」 is a promise nobody is going to
+  // keep. `reconcile` notices and stops making it. Subscribed here rather than
+  // inside `ensureOnce` for the same reason the hub is: `ensure.ts` must stay
+  // loadable without expo-audio.
+  //
+  // Idempotent by construction, so a tick twice a second costs a `find` over a
+  // short array and nothing else.
+  player.subscribe(() => controller.reconcile(downloads.getState().tasks));
+  return controller;
 }
 
 export { ensureController } from './ensure';

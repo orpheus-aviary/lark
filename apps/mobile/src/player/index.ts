@@ -52,6 +52,15 @@ export interface PlayerBinding {
   rememberPlayback: (value: LastPlayback) => void;
   /** `songs.last_accessed_at` — the LRU key eviction sorts by (N4g). */
   touch: (songId: string) => void;
+  /**
+   * Fetch a file and play it when it lands (N4g-3).
+   *
+   * Through the binding rather than an import, and that is not a style
+   * choice: `downloads/ensure-runtime.ts` imports THIS module (it drives the
+   * player), so importing it back would be a cycle. `App` has both and hands
+   * one to the other.
+   */
+  fetchAndPlay: (song: SongData, queue: PlayQueue) => void;
 }
 
 let binding: PlayerBinding | null = null;
@@ -70,6 +79,7 @@ export const player = createPlayerStore({
   persistMode: (mode) => required().persistMode(mode),
   rememberPlayback: (value) => required().rememberPlayback(value),
   touch: (songId) => required().touch(songId),
+  fetchAndPlay: (song, queue) => required().fetchAndPlay(song, queue),
   onLibraryChanged,
 });
 

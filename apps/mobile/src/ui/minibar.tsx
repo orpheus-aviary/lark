@@ -15,6 +15,15 @@
 // heard is here. It sits ABOVE what is playing, because what is playing is
 // about to be replaced by it, and it carries the one control that matters
 // while waiting: 取消, which drops the play intent and stops the download.
+//
+// IT IS A PROMISE, NOT A DOWNLOAD INDICATOR, and the wording says so
+// ("完成后播放"). That is the answer to "why do downloads started from 添加 not
+// show up here": those have no promise attached — their home is the task list
+// and the notification. This row exists because a tap that shows nothing reads
+// as broken (measured, N2f), and it goes away the moment the promise stops
+// being true (decision j) rather than sitting there being wrong. Its text taps
+// through to the task list, which is where the progress of THIS download is,
+// beside every other one.
 
 import { currentLrcIndex } from '@lark/shared';
 import { ListMusic, Pause, Play, SkipForward, X } from 'lucide-react-native';
@@ -27,7 +36,6 @@ import { C, S } from './theme';
 
 const REFUSALS: Record<string, string> = {
   'not-in-queue': '这首歌不在当前播放的歌单里',
-  'no-file': '下一首还没有文件',
   'no-other-playable': '没有其它可以播放的歌曲',
 };
 
@@ -37,7 +45,11 @@ function useEnsureWait(): EnsureWait | null {
   return useSyncExternalStore(ensure.subscribe, ensure.getState);
 }
 
-export function MiniBar({ onOpen, onQueue }: { onOpen: () => void; onQueue: () => void }) {
+export function MiniBar({
+  onOpen,
+  onQueue,
+  onTasks,
+}: { onOpen: () => void; onQueue: () => void; onTasks: () => void }) {
   const name = usePlayback((state) => state.song?.name ?? null);
   const waiting = useEnsureWait();
 
@@ -45,19 +57,26 @@ export function MiniBar({ onOpen, onQueue }: { onOpen: () => void; onQueue: () =
 
   return (
     <View style={styles.bar}>
-      {waiting !== null && <Fetching waiting={waiting} />}
+      {waiting !== null && <Fetching waiting={waiting} onTasks={onTasks} />}
       {name !== null && <Playing name={name} onOpen={onOpen} onQueue={onQueue} />}
     </View>
   );
 }
 
-/** 正在获取《…》 — a tap that has been heard and is waiting on the network. */
-function Fetching({ waiting }: { waiting: EnsureWait }) {
+/** A tap that has been heard, waiting on the network. See the header. */
+function Fetching({ waiting, onTasks }: { waiting: EnsureWait; onTasks: () => void }) {
   return (
     <View style={styles.fetchRow}>
-      <Text style={styles.fetchText} numberOfLines={1}>
-        正在获取《{waiting.name}》
-      </Text>
+      <Pressable
+        style={styles.fetchBody}
+        onPress={onTasks}
+        accessibilityRole="button"
+        accessibilityLabel={`正在获取 ${waiting.name}，查看进度`}
+      >
+        <Text style={styles.fetchText} numberOfLines={1}>
+          正在获取《{waiting.name}》，完成后播放
+        </Text>
+      </Pressable>
       <Pressable
         style={styles.control}
         onPress={() => ensureController().cancel()}
@@ -190,7 +209,10 @@ const styles = StyleSheet.create({
   body: { flex: 1, marginRight: 8 },
   name: { color: C.active, fontSize: 16 },
   fetchRow: { flexDirection: 'row', alignItems: 'center' },
-  fetchText: { flex: 1, color: C.muted, fontSize: 13 },
+  // The whole row minus the ✕ is the tap target, and it is 44 tall like every
+  // other one here — a 13pt line of text is not something a thumb can hit.
+  fetchBody: { flex: 1, height: 44, justifyContent: 'center' },
+  fetchText: { color: C.muted, fontSize: 13 },
   // The three rows sit ROW_GAP apart, top to bottom. The lyric used to hug the
   // progress bar because its own padding was smaller than the bar's margin.
   lineRow: { marginTop: ROW_GAP, height: LINE_HEIGHT },

@@ -164,15 +164,21 @@ describe('play', () => {
     ).toBe(true);
   });
 
-  it('still refuses a fileless song reached by next/prev (no download cascade)', async () => {
+  // N4g-3 flipped this one. It used to assert that next/prev REFUSED a
+  // fileless song, and the reason given was "no download cascade" — which is
+  // now the other half of the same rule: a finger fetches, a song running out
+  // skips. The cascade is what the case below guards.
+  it('fetches a fileless song reached by next, like a click on the row', async () => {
     useLibrary.setState({ songs: [song('a'), song('gone', { has_file: false })] });
     await usePlayer.getState().play(song('a'));
     calls.length = 0;
 
     const result = await usePlayer.getState().next();
 
-    expect(result).toEqual({ ok: false, message: '这一首没有文件' });
-    expect(calls.some((c) => c.url.includes('/ensure-file'))).toBe(false);
+    expect(result).toEqual({ ok: true, message: '正在下载，完成后自动播放' });
+    expect(
+      calls.some((c) => c.method === 'POST' && c.url.endsWith('/songs/gone/ensure-file')),
+    ).toBe(true);
   });
 
   it('reports a rejected play() rather than pretending to play', async () => {
@@ -253,6 +259,22 @@ describe('ended', () => {
 
     expect(usePlayer.getState().currentSong?.id).toBe('b');
     expect(audio.currentTime).toBe(0);
+  });
+
+  it('skips a fileless neighbour instead of stopping, and downloads nothing', async () => {
+    // The no-cascade rule, in the only place it still applies: nobody is
+    // watching a song run out, so nothing here may spend data (N4g-3).
+    useLibrary.setState({
+      songs: [song('a'), song('gone', { has_file: false }), song('c')],
+    });
+    await usePlayer.getState().play(song('a'));
+    calls.length = 0;
+
+    usePlayer.getState().handleEnded();
+    await flush();
+
+    expect(usePlayer.getState().currentSong?.id).toBe('c');
+    expect(calls.some((c) => c.url.includes('/ensure-file'))).toBe(false);
   });
 
   it('is ignored while the generation recovery owns the element (M4-8)', async () => {

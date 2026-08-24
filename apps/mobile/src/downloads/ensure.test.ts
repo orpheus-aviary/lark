@@ -185,6 +185,21 @@ describe('latest wins (criterion 35)', () => {
     expect(ensure.getState()).toBeNull();
   });
 
+  it('stops promising the moment something else speaks for the speaker', () => {
+    // Decision j: the wait row is a promise ("完成后播放"), and a deliberate
+    // pause or another song makes it one nobody will keep. It goes away on the
+    // next reconcile — which the player drives, so "the next" is immediate.
+    const ensure = createEnsureController(deps());
+    ensure.request(song('a'), queue('a', 'b'));
+    intent += 1;
+
+    ensure.reconcile([task('task-a', { state: 'running' })]);
+    expect(ensure.getState()).toBeNull();
+    // The download it started is NOT cancelled: it was asked for, and it
+    // belongs in the library either way.
+    expect(cancelled).toEqual([]);
+  });
+
   it('REVERSE: a controller that ignores the generation steals it', () => {
     // The mutation the device cannot demonstrate. If `holdsIntent` stops being
     // consulted — the one line — the case above goes green while the phone

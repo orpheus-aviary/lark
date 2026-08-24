@@ -56,7 +56,13 @@ export function Shell() {
         {tab === '添加' && <AddTab />}
         {tab === '设置' && <SettingsTab />}
       </View>
-      <MiniBar onOpen={() => setPlayerOpen(true)} onQueue={() => setQueueOpen(true)} />
+      <MiniBar
+        onOpen={() => setPlayerOpen(true)}
+        onQueue={() => setQueueOpen(true)}
+        // Where the progress of a fetch is (N4g-3): the task list, beside every
+        // other download. The mini bar promises; 添加 shows the work.
+        onTasks={() => setTab('添加')}
+      />
       {playerOpen && (
         <PlayerScreen onClose={() => setPlayerOpen(false)} onQueue={() => setQueueOpen(true)} />
       )}

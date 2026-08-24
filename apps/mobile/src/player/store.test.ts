@@ -103,6 +103,9 @@ let remembered: LastPlayback[] = [];
 /** Every `last_accessed_at` touch, in order (N4g, decision g). */
 let touched: string[] = [];
 
+/** Every song handed to the fetch-then-play path (N4g-3, decision i). */
+let fetched: { song: SongData; queue: PlayQueue }[] = [];
+
 const libraryChanged = (): void => {
   for (const listener of libraryListeners) listener();
 };
@@ -115,6 +118,7 @@ beforeEach(() => {
   persisted = [];
   remembered = [];
   touched = [];
+  fetched = [];
   libraryListeners = [];
   store = createPlayerStore({
     createDriver: createFakeDriver,
@@ -127,6 +131,7 @@ beforeEach(() => {
     persistMode: (mode) => persisted.push(mode),
     rememberPlayback: (value) => remembered.push(value),
     touch: (songId) => touched.push(songId),
+    fetchAndPlay: (song, queue) => fetched.push({ song, queue }),
     onLibraryChanged: (listener) => {
       libraryListeners.push(listener);
       return () => {
@@ -693,6 +698,46 @@ describe('the intent counter, opened up (N4g)', () => {
     expect(store.getState().song?.id).toBe('b');
   });
 
+  it('a deliberate pause takes it, so a fetch cannot start the music later', async () => {
+    // Decision j, and the sharpest case is the one with no finger on it at
+    // all: the Bluetooth speaker went away (`onBecomingNoisy` calls `pause`),
+    // and a file landing thirty seconds later must not play out loud.
+    await start('a');
+    const mine = store.claimIntent();
+
+    await store.pause();
+    expect(store.holdsIntent(mine)).toBe(false);
+    expect(store.getState().playing).toBe(false);
+  });
+
+  it('pressing play or pause takes it too', async () => {
+    await start('a');
+    const mine = store.claimIntent();
+
+    await store.toggle();
+    expect(store.holdsIntent(mine)).toBe(false);
+    // …and it is still a plain pause: no reload, no second driver.
+    expect(built).toHaveLength(1);
+    expect(built[0]?.log).toEqual(['load', 'play', 'pause']);
+  });
+
+  it('a queue that simply ran out does NOT take it — nobody spoke', async () => {
+    // The other half of decision j. `advance` stops playback when there is
+    // nowhere to go, and that is not somebody asking for silence.
+    library = [song('a')];
+    const done = store.play(song('a'), { source: { kind: 'all' }, songIds: ['a'] });
+    await settle();
+    built[0]?.finishLoad();
+    await done;
+
+    const mine = store.claimIntent();
+    built[0]?.emit({ didJustFinish: true });
+    await settle();
+
+    expect(store.getState().playing).toBe(false); // it did stop
+    expect(store.holdsIntent(mine)).toBe(true); // and it said nothing about intent
+  });
+
   it('two waiting intents: only the newer one is honoured', () => {
     const first = store.claimIntent();
     const second = store.claimIntent();
@@ -735,5 +780,42 @@ describe('the LRU key (N4g, decision g)', () => {
     await second;
 
     expect(touched).toEqual(['a', 'a']);
+  });
+});
+
+describe('advancing onto a song with no file (N4g-3, decision i)', () => {
+  /** `a` plays, `b` has no file, `c` does. */
+  const gapped: PlayQueue = { source: { kind: 'all' }, songIds: ['a', 'b', 'c'] };
+
+  const start = async (): Promise<void> => {
+    library = [song('a'), { ...song('b'), has_file: false }, song('c')];
+    const done = store.play(song('a'), gapped);
+    await settle();
+    built[0]?.finishLoad();
+    await done;
+  };
+
+  it('the next button fetches it rather than refusing', async () => {
+    await start();
+    const decision = await store.next();
+
+    expect(decision).toEqual({ kind: 'play', songId: 'b' });
+    expect(fetched.map((entry) => entry.song.id)).toEqual(['b']);
+    // The queue handed over is the one being played, not whatever list is on
+    // screen — `fixedQueue` at the call site says the same thing.
+    expect(fetched[0]?.queue).toBe(gapped);
+    // And nothing tried to load a file that is not there.
+    expect(built).toHaveLength(1);
+  });
+
+  it('a song that ends skips it instead — nobody is watching', async () => {
+    await start();
+    built[0]?.emit({ didJustFinish: true });
+    await settle();
+    built.at(-1)?.finishLoad();
+    await settle();
+
+    expect(fetched).toEqual([]);
+    expect(store.getState().song?.id).toBe('c');
   });
 });

@@ -286,7 +286,6 @@ export const usePlayer = create<PlayerState>((set, get) => {
    */
   const REJECTIONS: Record<Extract<QueueDecision, { kind: 'reject' }>['reason'], string> = {
     'not-in-queue': '当前歌曲不在这个列表里',
-    'no-file': '这一首没有文件',
     'no-other-playable': '没有其它可播放的歌曲',
   };
 
@@ -301,8 +300,14 @@ export const usePlayer = create<PlayerState>((set, get) => {
     switch (decision.kind) {
       case 'play': {
         const song = songs.find((s) => s.id === decision.songId);
-        if (!song) return { ok: false, message: '这一首没有文件' };
-        return await ops.play(song, ctx);
+        if (!song) return { ok: false, message: '这一首不在列表里' };
+        // Rule 3's finger half (N4g-3): a pressed button may name a song with
+        // no file, and `ensureFile` is what turns that into a download that
+        // plays when it lands (M5-9's flip, which the row click already used).
+        // A song that ended never names one — `decideNext` skips those — so
+        // this stays false there rather than spending data with nobody
+        // watching.
+        return await ops.play(song, ctx, { ensureFile: trigger !== 'ended' });
       }
       case 'restart':
         return await restartCurrent();
