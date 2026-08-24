@@ -16,6 +16,7 @@
 
 import type { LibraryService, ListSongsResult } from '@lark/core/portable';
 import type { PlaylistData, SongData } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { BootResult } from '../boot/sequence';
 import { libraryChanged } from '../library-signal';
@@ -54,7 +55,20 @@ export function LibraryProvider({
   const reader = useCallback(
     (): LibraryView => ({
       songs: (options = {}) => library.listSongs(options),
-      playlists: () => library.listPlaylists(),
+      // WITHOUT THE VIRTUAL `all` (2026-08-24). `listPlaylists()` puts it
+      // first by contract — the service composes it so that a name-based
+      // reference resolves the same with or without a daemon (M6) — and NO
+      // screen on this phone wants it: the 歌曲 tab already IS every song, and
+      // the add page's 「存到」 would otherwise offer a playlist called `all`
+      // beside 「仅曲库」, which is the same choice said twice and the broken
+      // half of it. Picking it made a single download report a soft playlist
+      // failure and a pasted batch fail admission outright
+      // (`#assertPlaylistExists`).
+      //
+      // Filtered HERE rather than in each screen, because it was already
+      // filtered in one of them and forgotten in the other.
+      playlists: () =>
+        library.listPlaylists().filter((playlist) => playlist.id !== VIRTUAL_ALL_PLAYLIST_ID),
       playlistSongs: (id) => library.listPlaylistSongs(id),
     }),
     [library],

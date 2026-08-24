@@ -16,7 +16,6 @@
 // draggable list would have cost.
 
 import type { SongData } from '@lark/shared';
-import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useMemo, useState } from 'react';
 import {
   FlatList,
@@ -58,7 +57,10 @@ function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
   const { library, view, changed } = useLibrary();
   const [creating, setCreating] = useState(false);
   const playlists = useMemo(
-    () => view.playlists().filter((playlist) => playlist.id !== VIRTUAL_ALL_PLAYLIST_ID),
+    // The virtual `all` is already gone: `library-context.tsx` drops it once,
+    // for every screen, after the add page was found offering it as a download
+    // target beside 「仅曲库」 (2026-08-24).
+    () => view.playlists(),
     [view],
   );
 
