@@ -46,7 +46,7 @@ import {
   TaskNotCancellableError,
   TaskNotFoundError,
 } from '../errors.js';
-import { addSongsToPlaylistInTx, createPlaylist } from '../library/playlists.js';
+import { addSongsToPlaylistInTx, createPlaylistInTx } from '../library/playlists.js';
 import {
   createFileBackedSongInTx,
   getSong,
@@ -340,12 +340,25 @@ export class DownloadEngine {
     }
     this.#assertCapacity(willCreate.size);
 
+    // `createPlaylistInTx`, NOT `createPlaylist` — we are already inside a
+    // transaction, and the wrapping variant opens a second one.
+    //
+    // MEASURED on the phone (N4f-2, 2026-08-24): every batch submission died
+    // here. better-sqlite3 hides it — its `transaction()` notices it is nested
+    // and degrades to a SAVEPOINT — so the desktop, the daemon, the CLI and
+    // every test in this file ran the bug for months without a symptom. The
+    // portable SqliteLike contract does not promise that nicety (decision c2,
+    // `portable/sqlite.ts`), and the phone's shim answers a nested
+    // `BEGIN IMMEDIATE` the way SQLite does: by refusing.
+    //
+    // This is the one shape the `…InTx` split exists for, and the site right
+    // next door already gets it right (`library/transfer.ts:393`).
     const createdIds = this.#options.store.sqlite
       .transaction(() => {
         const ids = new Map<number, string>();
         plans.forEach((plan, index) => {
           if (plan.target.kind !== 'new') return;
-          const created = createPlaylist(this.#options.store, plan.target.name.trim());
+          const created = createPlaylistInTx(this.#options.store, plan.target.name.trim());
           ids.set(index, created.id);
         });
         return ids;

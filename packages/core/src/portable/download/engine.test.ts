@@ -93,13 +93,64 @@ interface BuildOptions {
   callbacks?: ConstructorParameters<typeof DownloadEngine>[0]['callbacks'];
   /** Replace the landing port — e.g. a spy that captures the `expect` it is handed. */
   audio?: AudioLandingPort;
+  /** Replace the handle the engine writes through — see `strictStore`. */
+  store?: PortableDb;
+}
+
+/**
+ * The same database, minus the ONE nicety a phone does not have.
+ *
+ * better-sqlite3's `transaction()` notices it is already inside one and
+ * degrades to a SAVEPOINT. The portable contract does NOT promise that
+ * (`portable/sqlite.ts`, decision c2) and the expo-sqlite shim does not offer
+ * it: a nested `BEGIN IMMEDIATE` is refused, exactly as SQLite refuses it.
+ *
+ * So every test in this file runs on the forgiving implementation, and a write
+ * path that nests is invisible here — which is how `enqueueBatches` shipped a
+ * crash that only Android could see (N4f-2, 2026-08-24). Wrapping the handle is
+ * the whole reverse test: it costs a millisecond and it is red against the code
+ * that shipped.
+ */
+function strictStore(): PortableDb {
+  let depth = 0;
+  const guard =
+    <A extends unknown[], R>(run: (...args: A) => R) =>
+    (...args: A): R => {
+      if (depth > 0) throw new Error('cannot start a transaction within a transaction');
+      depth++;
+      try {
+        return run(...args);
+      } finally {
+        depth--;
+      }
+    };
+  const strict = new Proxy(store.sqlite, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop);
+      if (prop !== 'transaction') {
+        // Bound to the REAL handle: a native method called with the proxy as
+        // `this` is a different kind of surprise.
+        return typeof value === 'function' ? value.bind(target) : value;
+      }
+      return <A extends unknown[], R>(fn: (...args: A) => R) => {
+        const real = target.transaction(fn);
+        return Object.assign(
+          guard((...args: A) => real(...args)),
+          {
+            immediate: guard((...args: A) => real.immediate(...args)),
+          },
+        );
+      };
+    },
+  });
+  return { ...store, sqlite: strict };
 }
 
 function build(options: BuildOptions = {}): DownloadEngine {
   const llmConfig: LlmConfig = options.llm ?? NO_LLM;
   const tools = options.mediaTools ?? mediaTools;
   engine = new DownloadEngine({
-    store,
+    store: options.store ?? store,
     files: nodeFileContext(),
     getLlmConfig: () => llmConfig,
     // The real desktop landing, exactly as boot builds it: these tests are
@@ -797,6 +848,26 @@ describe('enqueueBatches', () => {
     expect(playlistId).toMatch(/^[0-9a-f-]{36}$/);
     expect(batch?.total).toBe(1);
     expect(batch?.items[0]?.final).toBeNull();
+  });
+
+  // 🔴 THE N4f-2 DEVICE CRASH, made cheap (2026-08-24). Every batch submission
+  // on Android died in the line this covers: the transaction below called
+  // `createPlaylist`, which opens a transaction of its own. Nothing on the
+  // desktop could see it — better-sqlite3 turns the inner one into a SAVEPOINT
+  // — and the phone's shim refuses it, which is what the portable contract
+  // actually promises. Run against the shipped code, this is red.
+  it('creates the playlist without nesting a second transaction', () => {
+    const e = build({ store: strictStore() });
+
+    const [batch] = e.enqueueBatches([
+      {
+        target: { kind: 'new', name: '不许嵌套' },
+        items: [{ kind: 'video', bvid: BVID, page: 1, title: '稻香', naming: 'original' }],
+      },
+    ]);
+
+    expect(batch?.target).toMatchObject({ kind: 'playlist', name: '不许嵌套' });
+    expect(e.snapshot().tasks).toHaveLength(1);
   });
 
   // All or nothing (third review ③): a half-applied batch leaves the user with
