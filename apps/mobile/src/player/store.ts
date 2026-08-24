@@ -75,6 +75,15 @@ export interface PlayerDeps {
   persistMode: (mode: PlayMode) => void;
   /** `local_metadata.last_playback` (N3f, decision i). */
   rememberPlayback: (value: LastPlayback) => void;
+  /**
+   * "This song was just played" — `songs.last_accessed_at` (N4g, decision g).
+   *
+   * The LRU key eviction sorts by. The desktop writes it when a `GET /audio`
+   * starts (`daemon/routes/media.ts`); this player opens the file itself, so
+   * without this the phone's "least recently used" would silently mean "oldest
+   * row". Called when a source actually starts, not when one is asked for.
+   */
+  touch: (songId: string) => void;
   /** Fires whenever the library changed under us (§2.8). */
   onLibraryChanged: (listener: () => void) => () => void;
 }
@@ -105,6 +114,24 @@ export interface PlayerStore {
   remember(): void;
   /** Start this song, playing out of this queue. Supersedes anything in flight. */
   play(song: SongData, queue: PlayQueue, startAtSeconds?: number): Promise<void>;
+  /**
+   * Take the newest play intent for something that will play LATER (N4g).
+   *
+   * The two methods below are `play`'s own race model, opened up for the one
+   * caller that has to make its claim now and start the music a minute from
+   * now: an ensure-file (`downloads/ensure.ts`). Sharing the counter is the
+   * whole point — every other way to start playback already bumps it, so a
+   * waiting intent is superseded by all of them without any of them knowing
+   * that waiting intents exist.
+   *
+   * Claiming abandons whatever load is in flight, exactly as a tap does. It
+   * does NOT stop what is already playing: until the file arrives there is
+   * nothing to replace it with, and silencing the phone for the duration of a
+   * download would be a strange way to answer a tap.
+   */
+  claimIntent(): number;
+  /** Is that intent still the newest one? */
+  holdsIntent(mine: number): boolean;
   /** Pause if playing, resume if paused, start over if the source is gone. */
   toggle(): Promise<void>;
   /**
@@ -355,6 +382,9 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
 
     remember,
 
+    claimIntent: claim,
+    holdsIntent: (mine) => mine === intent,
+
     async play(song, queue, startAtSeconds = 0) {
       const mine = claim();
       await lane.run(async () => {
@@ -406,6 +436,11 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
         // orders them itself.
         if (startAtSeconds > 0) built.seek(startAtSeconds);
         built.play();
+        // Here and nowhere else: a source that loaded and started is what
+        // "played" means. Asking for a song whose file is broken must not
+        // protect it from eviction — that is the one file eviction should
+        // reach first.
+        deps.touch(song.id);
         set({ loading: false, playing: true });
       });
     },

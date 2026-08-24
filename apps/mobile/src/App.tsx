@@ -14,10 +14,12 @@
 
 import {
   type LibraryService,
+  NotFoundError,
   type QueueSource,
   readLastPlayback,
   readNowPlayingMode,
   readPlayMode,
+  touchLastAccessed,
   writeLastPlayback,
   writeNowPlayingMode,
   writePlayMode,
@@ -27,6 +29,7 @@ import { useEffect, useState } from 'react';
 import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import { type BootResult, bootOnce } from './boot/sequence';
 import { downloadRuntimeOnce } from './downloads/engine';
+import { bindEnsure } from './downloads/ensure-runtime';
 import { bindPlayer } from './player';
 import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
@@ -62,8 +65,13 @@ export function App() {
         // Before the library, because the library has to be given the journal
         // runtime that shares the engine's claims rather than the boot one
         // (`downloads/engine.ts`).
-        const { fileOps } = downloadRuntimeOnce(result);
-        const library = createLibrary(result, fileOps);
+        const runtime = downloadRuntimeOnce(result);
+        const library = createLibrary(result, runtime.fileOps);
+        // Tapping a song with no file is a play that starts a minute from now
+        // (N4g). It needs all three of these — the engine to fetch, the
+        // library to re-read the row, the player to decide whether the tap is
+        // still the newest one — so it is bound here, where all three exist.
+        bindEnsure({ library, runtime });
         // The player is built at import time (one process, one player) but
         // half its dependencies need the library that just opened. This is
         // where they arrive, next to the service they belong to.
@@ -99,6 +107,17 @@ export function App() {
             };
           },
           rememberPlayback: (value) => writeLastPlayback(result.db.sqlite, value),
+          // The LRU key eviction sorts by (decision g). A song deleted between
+          // the tap and the source starting is the one thing this can hit, and
+          // it is not worth an error: what it was about to record is that a
+          // song that no longer exists was played.
+          touch: (songId) => {
+            try {
+              touchLastAccessed(result.db.drizzle, result.db.sqlite, songId);
+            } catch (err) {
+              if (!(err instanceof NotFoundError)) throw err;
+            }
+          },
         });
         setBoot({ status: 'ready', result, library });
       })

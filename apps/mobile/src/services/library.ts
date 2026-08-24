@@ -18,7 +18,11 @@ import {
   type CacheOptions,
   type FileEffectRuntime,
   type LibraryService,
+  MIB,
+  type SqliteLike,
+  type StructuredLogger,
   createLibraryService,
+  readCacheLimitMb,
 } from '@lark/core/portable';
 import type { BootResult } from '../boot/sequence';
 
@@ -35,19 +39,47 @@ export function createLibrary(boot: BootResult, fileOps: FileEffectRuntime): Lib
 }
 
 /**
- * `cacheStatus` / `runEviction` options for a build with no player (N2).
+ * What this phone answers when the library asks who may be evicted (§1.4).
  *
- * Both exclusions answer for things that do not exist yet — the player lands
- * in N3, audio streams in N4 — so they are honest `false`/`0` rather than
- * placeholders that will quietly stay wrong once those do exist. `limitBytes:
- * 0` means unlimited, which is what a phone with no configured limit means.
+ * CALL IT PER USE, never once at assembly. Two of the three answers change
+ * inside one process — the limit when somebody edits it, the exclusion set
+ * whenever a song starts playing or a task starts writing — and
+ * `EvictionScheduler` takes a THUNK for exactly this reason: it evaluates one
+ * of these per round, so a snapshot would act on a world that has moved.
  *
- * The cache FEATURE is N4's. This exists because the LibraryContract's cache
- * case is part of N2's gate: the method has to be callable now, whatever is
- * built on it later.
+ * The three exclusions are the phone's reading of the desktop's (M5-5):
+ *
+ *   the song the player is on — trusted however old, because the conservative
+ *     direction is "do not delete what might be playing";
+ *   an ensure lease — a file that just landed for a play that has not started
+ *     yet, protected for 60 seconds (`SongLeaseRegistry`);
+ *   a pending file task — a song a queued or running download is about to
+ *     write, which the engine already tracks for the desktop.
+ *
+ * `streamCount` is the one that differs, and it is honestly 0 rather than
+ * unimplemented: the desktop counts open `GET /audio` responses because its
+ * renderer plays through HTTP. ExoPlayer opens the file itself, so there is no
+ * stream to count and never will be one here.
  */
-export const NO_PLAYER_CACHE_OPTIONS: CacheOptions = {
-  limitBytes: 0,
-  isExcluded: () => false,
-  streamCount: () => 0,
-};
+export interface CacheOptionsDeps {
+  sqlite: SqliteLike;
+  /** The song the player is on, playing or paused. `null` when it has none. */
+  currentSongId: () => string | null;
+  /** `SongLeaseRegistry.has` — the 60-second window after an ensure-file. */
+  hasLease: (songId: string) => boolean;
+  /** `engine.pendingFileSongIds()` — songs a live task will write a file for. */
+  pendingFileSongIds: () => ReadonlySet<string>;
+  /** Where "your limit is not a number I can use" goes (`downloads/log.ts`). */
+  logger?: StructuredLogger;
+}
+
+export function createCacheOptions(deps: CacheOptionsDeps): CacheOptions {
+  return {
+    limitBytes: readCacheLimitMb(deps.sqlite, deps.logger) * MIB,
+    isExcluded: (songId) =>
+      deps.currentSongId() === songId ||
+      deps.hasLease(songId) ||
+      deps.pendingFileSongIds().has(songId),
+    streamCount: () => 0,
+  };
+}

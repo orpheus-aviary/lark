@@ -27,7 +27,9 @@ import {
 import { AppState } from 'react-native';
 import LarkTransfer from '../../modules/lark-transfer';
 import type { BootResult } from '../boot/sequence';
+import { type CacheRuntime, createCacheRuntime } from '../cache/runtime';
 import { libraryChanged } from '../library-signal';
+import { player } from '../player';
 import { ensureAudioSession } from '../player/session';
 import { type AudioTransfer, createMobileAudioLanding } from '../ports/audio-landing';
 import { createSongFiles } from '../ports/song-files';
@@ -125,6 +127,16 @@ export interface DownloadRuntime {
    * engine's claims; the boot one did not.
    */
   fileOps: FileEffectRuntime;
+  /**
+   * Cache accounting and the one eviction scheduler (N4g).
+   *
+   * Built here, and here only, for the same reason the foreground controller
+   * is: it is wired to THIS engine's claim registry and pending-file set, and a
+   * second scheduler over the same library would run concurrent drains over the
+   * same files — which is exactly what the scheduler's single-flight exists to
+   * prevent.
+   */
+  cache: CacheRuntime;
 }
 
 let runtime: DownloadRuntime | null = null;
@@ -173,6 +185,13 @@ export function createDownloadRuntime(
   deps: DownloadRuntimeDeps = {},
 ): DownloadRuntime {
   const bilibili = createBilibiliClient({ timeouts: MOBILE_TIMEOUTS });
+  // The engine's callbacks reach the cache, and the cache is built FROM the
+  // engine (its claims, its pending-file set) — so one of the two has to be
+  // assembled second and read through a hole. The daemon has the same knot and
+  // resolves it the same way (`boot.ts`: `ctx?.cacheLeases.grant(…)`). Nothing
+  // can have been enqueued before this function returns, so no callback can
+  // fire while it is still null.
+  let cache: CacheRuntime | null = null;
   const engine = new DownloadEngine({
     store: boot.db,
     files: boot.files,
@@ -200,11 +219,25 @@ export function createDownloadRuntime(
       onBatchesChanged: refreshDownloads,
       onSucceeded: (task) => {
         refreshDownloads();
+        // A lyrics task changed no song row and landed no audio: nothing below
+        // is about it. Same early return as the daemon's (`boot.ts`).
+        if (task.kind === 'lyrics') return;
         // A row was written by somebody with no finger on a button. This is the
         // same signal a delete emits (`library-signal.ts`), so the player
         // reconciles its queue and the song list rebuilds (N4d gave it a screen).
-        // A lyrics task changed no song row, and says so.
-        if (task.kind !== 'lyrics') libraryChanged();
+        libraryChanged();
+        // The file was fetched so it could be PLAYED, and nothing protects it
+        // yet: the play has not started, and this phone has no stream to stand
+        // in for one. Sixty seconds of immunity (M5-6).
+        if (task.kind === 'ensure-file' && task.result !== null) {
+          cache?.leases.grant(task.result.song_id);
+        }
+        // A new file just landed, so the cache may be over its limit. This runs
+        // inside the engine's `#finish`, past the point of no return: it must
+        // not throw and must not be awaited — and the drain itself starts a
+        // macrotask later, so this task's own file claim is gone before it
+        // looks (M5-6).
+        cache?.schedule('download-succeeded');
       },
     },
   });
@@ -235,11 +268,25 @@ export function createDownloadRuntime(
     void foreground.handleTimeout();
   });
 
+  cache = createCacheRuntime({
+    db: boot.db,
+    files: boot.files,
+    engine,
+    bilibili,
+    timeouts: MOBILE_TIMEOUTS,
+    currentSongId: () => player.getState().song?.id ?? null,
+  });
+  // Trigger one: launch (§2.2). Free on the default library — an unlimited
+  // limit returns before `runEviction` scans a single directory — and the one
+  // chance to notice that a limit somebody set last week is now exceeded.
+  cache.schedule('boot');
+
   return {
     engine,
     bilibili,
     hasLlm: () => hasLlmConfig(boot.db.sqlite),
     foreground,
+    cache,
     fileOps: new FileEffectRuntime({
       sqlite: boot.db.sqlite,
       files: boot.files,

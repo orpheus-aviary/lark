@@ -64,6 +64,19 @@
 // result. It imports `@lark/core/portable` and `@lark/shared` for real values,
 // like the preflight beside it.
 
+// `downloads/ensure.ts` joined in N4g-1 for the reason the store did, one step
+// further out: it is the SAME race — last intent wins — stretched over a
+// minute of network, and the phone can only ever show one run of it. The
+// reverse test (a controller that ignores the generation must steal the
+// speaker) is a mutation, which is a thing a device cannot be asked to be.
+//
+// `services/library.ts` joined in N4g-1 for `createCacheOptions`: three
+// exclusion sources and a limit, all of them injected, deciding which files a
+// drain is allowed to delete. Wrong here means "deleted the song that was
+// playing", which is the kind of thing to find in a second rather than on a
+// phone. It imports `@lark/core/portable` for real values and one TYPE from
+// the boot sequence, which the compiler erases.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -74,10 +87,12 @@ export default defineConfig({
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/cancel.test.ts',
+      'src/downloads/ensure.test.ts',
       'src/downloads/multi-line.test.ts',
       'src/downloads/preflight.test.ts',
       'src/downloads/rows.test.ts',
       'src/downloads/selection.test.ts',
+      'src/services/library.test.ts',
       'src/share/draft.test.ts',
     ],
   },

@@ -100,6 +100,9 @@ const ALL: PlayQueue = { source: { kind: 'all' }, songIds: ['a', 'b', 'c'] };
 /** Every `last_playback` write, in order (N3f). */
 let remembered: LastPlayback[] = [];
 
+/** Every `last_accessed_at` touch, in order (N4g, decision g). */
+let touched: string[] = [];
+
 const libraryChanged = (): void => {
   for (const listener of libraryListeners) listener();
 };
@@ -111,6 +114,7 @@ beforeEach(() => {
   lyrics = {};
   persisted = [];
   remembered = [];
+  touched = [];
   libraryListeners = [];
   store = createPlayerStore({
     createDriver: createFakeDriver,
@@ -122,6 +126,7 @@ beforeEach(() => {
     readLyrics: async (id) => lyrics[id] ?? null,
     persistMode: (mode) => persisted.push(mode),
     rememberPlayback: (value) => remembered.push(value),
+    touch: (songId) => touched.push(songId),
     onLibraryChanged: (listener) => {
       libraryListeners.push(listener);
       return () => {
@@ -632,5 +637,103 @@ describe('the remembered position', () => {
   it('has nothing to write when nothing has played', () => {
     store.remember();
     expect(remembered).toEqual([]);
+  });
+});
+
+describe('the intent counter, opened up (N4g)', () => {
+  const start = async (id: string): Promise<void> => {
+    const done = store.play(song(id), ALL);
+    await settle();
+    built.at(-1)?.finishLoad();
+    await done;
+  };
+
+  it('hands out an intent that is the newest until something else plays', async () => {
+    const mine = store.claimIntent();
+    expect(store.holdsIntent(mine)).toBe(true);
+
+    await start('a');
+    // The tap that started `a` claimed its own: the waiting one is stale, which
+    // is what an ensure-file reads as "only put it in the library" (§2.9).
+    expect(store.holdsIntent(mine)).toBe(false);
+  });
+
+  it('every way to start playback supersedes it, not just a row tap', async () => {
+    await start('a');
+
+    const mine = store.claimIntent();
+    // `next` goes through `play`, and so do the queue panel, the notification
+    // and a restored position. None of them knows a waiting intent exists.
+    const advanced = store.next();
+    await settle();
+    built.at(-1)?.finishLoad();
+    await advanced;
+
+    expect(store.holdsIntent(mine)).toBe(false);
+    expect(store.getState().song?.id).toBe('b');
+  });
+
+  it('claiming abandons a load in flight, and that load starts nothing', async () => {
+    await start('a');
+    const pending = store.play(song('b'), ALL);
+    await settle();
+
+    store.claimIntent();
+    built.at(-1)?.finishLoad();
+    await pending;
+
+    // `b`'s driver was built and then torn down by its own operation — an
+    // abandoned load only ever destroys what it built, and plays nothing.
+    expect(built.at(-1)?.log).toEqual(['load', 'destroy']);
+    expect(store.getState().playing).toBe(false);
+    // What is on screen is `b`, because `play` writes the song it was asked
+    // for BEFORE it loads anything (N3a). Superseding a load does not roll
+    // that back — nothing has arrived to roll it back to, since starting `b`
+    // released `a`'s source on the way in.
+    expect(store.getState().song?.id).toBe('b');
+  });
+
+  it('two waiting intents: only the newer one is honoured', () => {
+    const first = store.claimIntent();
+    const second = store.claimIntent();
+    expect(store.holdsIntent(first)).toBe(false);
+    expect(store.holdsIntent(second)).toBe(true);
+  });
+});
+
+describe('the LRU key (N4g, decision g)', () => {
+  it('marks a song as used when its source actually starts', async () => {
+    const done = store.play(song('a'), ALL);
+    await settle();
+    expect(touched).toEqual([]); // asked for, not started
+    built[0]?.finishLoad();
+    await done;
+
+    expect(touched).toEqual(['a']);
+  });
+
+  it('does not mark a song whose source failed to load', async () => {
+    // The one file eviction SHOULD reach first: a song that cannot be played
+    // must not be protected by having been asked for.
+    const failed = store.play(song('a'), ALL);
+    await settle();
+    built[0]?.failLoad('坏了');
+    await failed;
+
+    expect(touched).toEqual([]);
+  });
+
+  it('marks it again on a second play — that is what "recently" means', async () => {
+    const first = store.play(song('a'), ALL);
+    await settle();
+    built[0]?.finishLoad();
+    await first;
+
+    const second = store.play(song('a'), ALL);
+    await settle();
+    built[1]?.finishLoad();
+    await second;
+
+    expect(touched).toEqual(['a', 'a']);
   });
 });

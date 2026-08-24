@@ -50,6 +50,8 @@ export interface PlayerBinding {
   restore: () => { song: SongData; queue: PlayQueue; positionSeconds: number } | null;
   /** `local_metadata.last_playback`. */
   rememberPlayback: (value: LastPlayback) => void;
+  /** `songs.last_accessed_at` — the LRU key eviction sorts by (N4g). */
+  touch: (songId: string) => void;
 }
 
 let binding: PlayerBinding | null = null;
@@ -67,6 +69,7 @@ export const player = createPlayerStore({
   readLyrics: (songId) => required().readLyrics(songId),
   persistMode: (mode) => required().persistMode(mode),
   rememberPlayback: (value) => required().rememberPlayback(value),
+  touch: (songId) => required().touch(songId),
   onLibraryChanged,
 });
 

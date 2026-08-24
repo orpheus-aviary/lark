@@ -16,6 +16,7 @@
 // would also stop testing the thing the app actually does.
 
 import {
+  type CacheOptions,
   type ContractFailure,
   ContractRefusal,
   type ContractReport,
@@ -35,7 +36,7 @@ import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { Directory, File } from 'expo-file-system';
 import { type BootResult, runBootSequence } from '../boot/sequence';
 import { nestDirectory, recoveredSongsRoot, songDirectory } from '../ports/paths';
-import { NO_PLAYER_CACHE_OPTIONS, createLibrary } from '../services/library';
+import { createLibrary } from '../services/library';
 import { type ScenarioRow, resetInstall } from './d16';
 
 /**
@@ -71,6 +72,29 @@ async function translated<T>(fn: () => T | Promise<T>): Promise<T> {
     throw new ContractRefusal(failure, err instanceof Error ? err.name : 'unknown');
   }
 }
+
+/**
+ * `CacheOptions` for the one thing this suite asks the cache: how many bytes
+ * are on disk (`cases.ts`'s cache case).
+ *
+ * INERT ON PURPOSE, and it lives here rather than beside `createLibrary`
+ * because it is only honest here: `used_bytes` is a walk of the song
+ * directories, and NO exclusion or limit can change it. Production's options
+ * are `createCacheOptions`, which needs a player and an engine — neither of
+ * which this suite builds, since a contract case is about what the library
+ * accepts (see `open` below).
+ *
+ * It used to be exported from `services/library.ts` as
+ * `NO_PLAYER_CACHE_OPTIONS`, from N2 when the phone had no player at all. By
+ * N4g that name was the production answer to a question production had started
+ * asking for real — the second instance of N4h's lesson (a criterion passes,
+ * and nobody can reach the thing it passed on).
+ */
+const USAGE_ONLY_OPTIONS: CacheOptions = {
+  limitBytes: 0,
+  isExcluded: () => false,
+  streamCount: () => 0,
+};
 
 /** Which boot each live subject came from, so `close` can end it. */
 const openBoots = new Map<LibrarySubject, BootResult>();
@@ -120,7 +144,7 @@ function subjectFor(boot: BootResult, library: LibraryService): LibrarySubject {
             : { playlistId: assertLibraryId(id) },
         ),
       ),
-    cacheUsedBytes: () => translated(() => library.cacheStatus(NO_PLAYER_CACHE_OPTIONS).used_bytes),
+    cacheUsedBytes: () => translated(() => library.cacheStatus(USAGE_ONLY_OPTIONS).used_bytes),
 
     seedSong: (input) => Promise.resolve(seedInto(boot, input)),
     songFilesExist: (id) => Promise.resolve(songDirectory(id).exists),
