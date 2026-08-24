@@ -64,7 +64,19 @@ object TransferNotification {
       .setSmallIcon(android.R.drawable.stat_sys_download)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
-      .also { b -> pending?.let { b.setContentIntent(it) } }
+      .also { b ->
+        pending?.let { b.setContentIntent(it) }
+        // WITHOUT THIS THE SHADE IS EMPTY FOR TEN SECONDS (REPORTED from the
+        // device, 2026-08-24; behaviour since Android 12). The system DEFERS a
+        // foreground service's notification by up to 10s so that services which
+        // start and finish quickly do not flash a notification at anyone. A
+        // download is the opposite case: leaving the screen is exactly when the
+        // person wants to see that it is still going, and an invisible download
+        // is one they assume died.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+          b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
+        }
+      }
       .build()
   }
 }
@@ -110,6 +122,26 @@ class LarkTransferService : Service() {
 
     /** Set by the module, called by the service, so JS hears about the quota. */
     @Volatile @JvmStatic var onQuotaExpired: (() -> Unit)? = null
+
+    /**
+     * "Stop as soon as you exist" — the answer to a stop that arrives while the
+     * start is still in flight (N4f-2, MEASURED 2026-08-24).
+     *
+     * `startForegroundService()` is a PROMISE that this service will call
+     * `startForeground()` within a few seconds, and the system keeps that
+     * promise on the books even if the app changes its mind: calling
+     * `stopService()` before the service has been created cancels the creation,
+     * `startForeground()` therefore never happens, and the process is killed
+     * with `ForegroundServiceDidNotStartInTimeException`. That is not a corner
+     * — it is what a download that was armed and then refused looks like, and
+     * on the phone it killed the app every time a batch submission failed.
+     *
+     * So the module never cancels a pending start. It sets this, the promise is
+     * kept below, and the service stops itself immediately afterwards. `start`
+     * clears it, so a flag left over from a stop that had nothing to stop
+     * cannot take down the next real one.
+     */
+    @Volatile @JvmStatic var stopRequested: Boolean = false
   }
 
   override fun onBind(intent: Intent?): IBinder? = null
@@ -129,6 +161,14 @@ class LarkTransferService : Service() {
       startForeground(TransferNotification.ID, notification)
     }
     running = true
+    if (stopRequested) {
+      // The promise is kept — `startForeground` ran a few lines up — so this is
+      // now an ordinary stop rather than a broken start. The notification
+      // exists for the handful of milliseconds in between.
+      stopRequested = false
+      stopSelf()
+      return START_NOT_STICKY
+    }
     // NOT_STICKY: if the system kills this there is nothing to resume — the
     // downloads it was covering died with the process, and the library's boot
     // sweep is what tidies up after them. A restarted service with no tasks

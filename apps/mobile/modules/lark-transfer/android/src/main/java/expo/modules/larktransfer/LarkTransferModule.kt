@@ -55,6 +55,9 @@ class LarkTransferModule : Module() {
           putExtra(LarkTransferService.EXTRA_TITLE, title)
           putExtra(LarkTransferService.EXTRA_BODY, body)
         }
+      // Any stop that was waiting for a service to come up belongs to the
+      // previous arming; this one wants it alive.
+      LarkTransferService.stopRequested = false
       // The `Unit` at the end is load bearing (MEASURED): an AsyncFunction's
       // last expression IS its return value, and `startForegroundService`
       // returns a `ComponentName`, which the bridge cannot convert. The call
@@ -94,12 +97,28 @@ class LarkTransferModule : Module() {
       manager.notify(TransferNotification.ID, TransferNotification.build(context, title, body))
     }
 
-    /** Idempotent: stopping a service that never started is not an error. */
+    /**
+     * Idempotent: stopping a service that never started is not an error.
+     *
+     * WHICH OF TWO STOPS THIS IS DEPENDS ON WHETHER THE SERVICE EXISTS YET
+     * (N4f-2). A running service has already called `startForeground`, so
+     * `stopService` is just a stop. A service that has been ASKED for and not
+     * yet created is a promise the system is holding us to — cancelling it is
+     * how the app gets killed with
+     * `ForegroundServiceDidNotStartInTimeException`, which is what an armed
+     * download that was then refused did on every attempt. That case leaves a
+     * note instead (`stopRequested`) and the service stops itself the moment it
+     * has honoured the contract.
+     */
     AsyncFunction("stop") {
-      // `stopService` returns a Boolean the caller has no use for, and the
-      // bridge would hand it to JS as the resolution value. Same reason as
-      // `start`'s trailing Unit, one type luckier.
-      context.stopService(Intent(context, LarkTransferService::class.java))
+      if (LarkTransferService.running) {
+        // `stopService` returns a Boolean the caller has no use for, and the
+        // bridge would hand it to JS as the resolution value. Same reason as
+        // `start`'s trailing Unit, one type luckier.
+        context.stopService(Intent(context, LarkTransferService::class.java))
+      } else {
+        LarkTransferService.stopRequested = true
+      }
       Unit
     }
 

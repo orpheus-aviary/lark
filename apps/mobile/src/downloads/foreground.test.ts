@@ -91,6 +91,8 @@ interface Harness {
   refuseStartSilently(): void;
   /** Make `cancel` throw for one task, the way the commit point does. */
   refuseCancel(taskId: string, code: string): void;
+  /** Leave the screen (`AppState` stops saying `active`). */
+  background(): void;
 }
 
 function harness(): Harness {
@@ -105,6 +107,8 @@ function harness(): Harness {
   let running = false;
   let silentRefusal = false;
   let now = 10_000;
+  /** `AppState.currentState === 'active'`, as the controller asks it. */
+  let appActive = true;
 
   const controller = createForegroundController({
     service: {
@@ -162,6 +166,7 @@ function harness(): Harness {
       timers.add(timer);
       return () => timers.delete(timer);
     },
+    appActive: () => appActive,
   });
 
   return {
@@ -169,6 +174,14 @@ function harness(): Harness {
     log,
     cancelled,
     status: () => published,
+    /**
+     * Leave the screen. Timers keep working in this harness — the point of the
+     * case below is that the CODE must not need them to, and a fake that froze
+     * its own clock would be testing the fake.
+     */
+    background() {
+      appActive = false;
+    },
     setTasks(next) {
       tasks = next;
       for (const listener of listeners) listener();
@@ -291,6 +304,26 @@ describe('stopping', () => {
 
     expect(h.log).not.toContain('stop');
     expect(h.status().phase).toBe('running');
+  });
+
+  // 🔴 REPORTED from the device, 2026-08-24: after a batch finished with the app
+  // in the background, the notification sat on 「正在下载 1 首」 and the service
+  // stayed up. The queue emptying is a JS callback and it ran; what did not run
+  // was the timer it scheduled — measured three times in this app (N0b-4a, N3f,
+  // N4c-3), and the stop was the one step in a download's whole life that
+  // depended on one.
+  it('stops at once when the app is away, because the grace has nothing to protect', async () => {
+    await h.controller.arm();
+    h.setTasks([task('a', 'running', { title: '青花瓷' })]);
+    h.background();
+    h.setTasks([task('a', 'succeeded', { title: '青花瓷' })]);
+    // No `advance`: the fix is that this needs no clock at all. A second
+    // download cannot be started from a screen nobody is looking at, so there
+    // is no churn to smooth out — and the dataSync quota is a daily budget.
+    await Promise.resolve();
+
+    expect(h.log).toContain('stop');
+    expect(h.status().phase).toBe('idle');
   });
 
   it('stops when a gesture inside the grace enqueues nothing after all', async () => {

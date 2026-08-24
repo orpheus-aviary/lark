@@ -24,6 +24,7 @@ import {
   FileEffectRuntime,
   createBilibiliClient,
 } from '@lark/core/portable';
+import { AppState } from 'react-native';
 import LarkTransfer from '../../modules/lark-transfer';
 import type { BootResult } from '../boot/sequence';
 import { libraryChanged } from '../library-signal';
@@ -220,6 +221,10 @@ export function createDownloadRuntime(
       const handle = setTimeout(fn, ms);
       return () => clearTimeout(handle);
     },
+    // Read at the moment it is asked rather than subscribed to: the one caller
+    // wants to know where the app is RIGHT NOW, and a cached answer from an
+    // event that fired while the JS thread was asleep is worth less than none.
+    appActive: () => AppState.currentState === 'active',
   });
 
   // The quota expiring is the one thing the app does not initiate, so this is

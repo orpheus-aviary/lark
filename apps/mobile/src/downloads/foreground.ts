@@ -129,6 +129,13 @@ export interface ForegroundDeps {
   now(): number;
   /** Run `fn` after `ms`; the returned function cancels it. */
   delay(ms: number, fn: () => void): () => void;
+  /**
+   * Is the app on screen? (`AppState`, 2026-08-24)
+   *
+   * Asked in exactly one place — see `whenNothingIsLeft` — because exactly one
+   * decision here depends on a clock that does not run in the background.
+   */
+  appActive(): boolean;
 }
 
 export interface ForegroundController {
@@ -195,6 +202,14 @@ export function createForegroundController(deps: ForegroundDeps): ForegroundCont
     // the call: `start` rejected AFTER `startForegroundService` had already
     // taken effect, because the bridge could not convert its return value. A
     // service we believe is not running can be running.
+    //
+    // STOPPING DURING `arming` IS SAFE ON THE NATIVE SIDE, and that is where it
+    // was made safe rather than here (N4f-2): a stop that reaches a service the
+    // system has not created yet cancels a promise it is holding us to, and the
+    // app is killed with `ForegroundServiceDidNotStartInTimeException`. The
+    // module answers that case by asking the service to stop ITSELF once it has
+    // called `startForeground` — so this state machine keeps saying what it
+    // means, and does not need a delay it could not size anyway.
     await deps.service.stop();
   };
 
@@ -233,7 +248,31 @@ export function createForegroundController(deps: ForegroundDeps): ForegroundCont
       if (settled) void stopService();
       return;
     }
-    if (status.phase === 'running' || status.phase === 'degraded') scheduleStop();
+    if (status.phase === 'running' || status.phase === 'degraded') {
+      // 🔴 A GRACE PERIOD PROTECTS AGAINST A SECOND TAP, AND A TAP NEEDS A
+      // SCREEN (REPORTED from the device, 2026-08-24: the notification sat on
+      // 「正在下载 1 首」 long after the last song had landed).
+      //
+      // `delay` is a JS timer and those do not fire while the app is away —
+      // measured three times in this app (N0b-4a, N3f, N4c-3: 「用 JS 定时器
+      // 安排『进入后台之后做某事』，测的是『回到前台之后做某事』」). The stop
+      // was the ONE step in the whole download lifecycle that depended on one,
+      // which is why everything else about a backgrounded download works and
+      // only the ending hangs.
+      //
+      // Backgrounded there is nothing to protect: nobody can queue a second
+      // download without coming back first, and the dataSync quota is a daily
+      // budget worth handing back. So the grace applies on screen and nowhere
+      // else.
+      //
+      // WHAT THIS DOES NOT FIX: the screen going off while lark is still the
+      // foreground app. Android leaves `AppState` on `active` there, the timer
+      // freezes anyway, and the notification clears a moment after the phone is
+      // unlocked. Nobody is looking at a shade behind a locked screen, so the
+      // residue is visible only in a dumpsys.
+      if (deps.appActive()) scheduleStop();
+      else void stopService();
+    }
     // `paused-by-system` falls through on purpose: the system stopped this, and
     // an empty queue is the CONSEQUENCE, not a reason to call it idle.
   };
