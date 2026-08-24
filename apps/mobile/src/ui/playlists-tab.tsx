@@ -112,8 +112,11 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
     return playlist === null ? null : { playlist, songs: view.playlistSongs(id) };
   }, [view, id]);
 
-  // The playlist this screen was opened for is gone — deleted from here, or by
-  // a peer. Going back is the only honest thing left to render.
+  // The playlist this screen was opened for is gone. Deleting it from here
+  // navigates away on its own (below), so what reaches this branch is the
+  // OTHER way it can happen: a stale id — an Activity rebuilt around a
+  // playlist that no longer exists, and in N5 a peer that removed it while
+  // this screen was open. Going back is the only honest thing left to render.
   if (detail === null) {
     return (
       <View style={styles.fill}>
@@ -153,7 +156,14 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </Pressable>
         <Pressable
           style={styles.newButton}
-          onPress={() => write(() => library.deletePlaylist(id))}
+          onPress={() => {
+            write(() => library.deletePlaylist(id));
+            // Leaving is part of deleting (2026-08-24). The screen below
+            // already handles "this playlist is gone" — it has to, because a
+            // peer can delete one in N5 — but making somebody tap 返回 out of
+            // a playlist THEY just deleted is asking them to confirm it twice.
+            onBack();
+          }}
           accessibilityRole="button"
         >
           <Text style={[styles.newLabel, styles.danger]}>删除歌单</Text>
