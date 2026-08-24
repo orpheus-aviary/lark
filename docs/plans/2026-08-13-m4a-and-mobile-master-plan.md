@@ -228,7 +228,9 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 | N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点 + **蓝牙歌词接线**（订阅行号变化 → `updateLockScreenMetadata`，节流按行不按时间；开关 UI）。**耳机断开自动暂停等写成行为验收判据，不锁定回调接口**（expo-audio 由库层自动停止，官方无 becoming-noisy 事件 API） | 真机整晚播放不掉 + 行为判据 |
 | N4 | 下载：AAC 选流 + RN 落盘 + 添加页 + 分享 intent + ensure-file + 缓存管理。**~~TLS 完成死线~~（2026-08-20 Stage-3 修订：移出，见上）**；**同次修订加进本批**：LLM 设置页与四条能力 · 收藏夹/合集批量 · dataSync 前台服务。子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md`（**v2，一轮反例评审收敛**，七批 N4a–N4g / 判据 40 条 / 决策 a–p）。**桌面侧三处提取**（preflight / EvictionScheduler+SongLeaseRegistry+canRedownload / AudioLanding 契约）一律零行为变化 | 真实 bilibili 闭环 |
 | N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI。**开工前置（Stage-3 修订后唯一的 TLS 关口）**：TLS 验收全过，或用户单独决定移动端的明文口径 | 与桌面双端真机 soak |
-| N6 | 多选批量 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go | 验收 harness |
+| N6 | ~~多选批量~~（2026-08-24 移到 N4i）+ 歌单导入 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go | 验收 harness |
+
+> **2026-08-24 顺序修订**（用户决定）：N4 尾部插两批，执行顺序 **N4h（多行粘贴，已完成）→ N4g（ensure-file + 缓存管理 + 歌单导出 + 重新下载）→ N4i（歌曲页多选批量 + 行菜单补齐：复制链接 / 用 app 打开 / 更改链接含重新识别）**。字母是登记顺序不是执行顺序。多选批量因此从 N6 提前——它与行菜单是同一屏的同一套手势，分两批做等于把一个交互决定拆开两次。范围见 `docs/plans/2026-08-24-phase-b-mobile-n4h.md` 头部。
 
 ### 4.4 风险清单
 

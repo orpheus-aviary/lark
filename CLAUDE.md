@@ -20,7 +20,7 @@ lark 是百灵音乐播放器的 TypeScript 重写版。从零设计，可参考
   - **N3 的两条产品形状**：**锁屏/车机的「上一首/下一首」在 expo-audio 57.0.3 上不存在**（`AudioMediaSessionCallback` 显式 remove 掉四个曲目导航命令，换 `AudioPlaylist` 也救不了）→ v1 收窄成播放/暂停/seek，逃生口定价在 N3 子计划 §1.9 · **队列是起播那一刻的快照**（决策 o，与桌面「队列 = 当前视图」分叉，如实记着）。
   - **三条已按用户决定不做/搁置，别当成待办**：N2 判据 14 的拖柄重排（不做）· N2 判据 16b 的 D2D 手机搬家（搁置）· N3 判据 20（搁置）。
 - **蓝牙歌词只做 Android，桌面整个不做**（2026-08-19 用户决定，主计划 §4.5 有修订段）：复用 AVRCP 的 TITLE 字段。判定在 `@lark/shared/now-playing.ts`（纯函数，四种输入回歌名 + 64 code point 上限），开关在 `local_metadata.now_playing_mode`（缺行或非法值一律读 `'title'`、**读路径不写库**），接线在 `apps/mobile/src/player/now-playing.ts`（去重看返回值 + 节流 500ms + `mode` 每首重读一次；**关开关绕过节流强发一次**，暂停的播放器没有 tick）。**没有接收端，所以「会不会延迟 2 秒」测不了**——只知道那个 queue 陷阱的前提条件成立。
-- **N4 下载：N4a–N4f 已完成，下一步 N4g（ensure-file + 缓存管理 + 歌单导出）**。N4f 收藏夹/合集批量已上机关闭（子计划 `docs/plans/2026-08-23-phase-b-mobile-n4f.md`，判据 **31 · 33 真机绿**、**32 只有单测**）：手机上现在能粘一个收藏夹/合集链接 → 全屏选择页展开 → 勾选 → 新建歌单成批下载，任务列表顶部走 `M/N`。**口径照 PC 端**：目标恒为「新建歌单」· 默认全选 · 整组一个命名模式 · 超 1000 条禁用提交 · **`batchProgress`/`batchDone` 在 `@lark/shared` 两端共用**（全期子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` v2，七批 N4a–N4g / 判据 40 条）。用户 2026-08-20 拍板四条范围：**TLS 移出 N4**（不阻塞 N4 任何子批，**硬阻塞 N5**——主计划 §4.3 有 Stage-3 修订）· **LLM 设置页进 N4** · **收藏夹/合集批量进 N4** · **加 dataSync 前台服务**。
+- **N4 下载：N4a–N4f + N4h 已完成，下一步 N4g（ensure-file + 缓存管理 + 歌单导出）→ N4i（歌曲页多选 + 行菜单补齐）**。**N4h 多行粘贴**（判据 46 真机绿，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4h.md`）：选择页现在是「壳 + 两个来源」（`ui/picker.tsx`），**一个框两个读者、分界是「≥2 个非空行 = 粘贴」**，粘贴全程离线判定、短链在选择页挂载时并发 3 展开。**两处与桌面不一致（用户已知）**：提交是一次原子批次（换 `M/N`）· 一次粘贴不能混「单曲 + 收藏夹」。N4f 收藏夹/合集批量已上机关闭（子计划 `docs/plans/2026-08-23-phase-b-mobile-n4f.md`，判据 **31 · 33 真机绿**、**32 只有单测**）：手机上现在能粘一个收藏夹/合集链接 → 全屏选择页展开 → 勾选 → 新建歌单成批下载，任务列表顶部走 `M/N`。**口径照 PC 端**：目标恒为「新建歌单」· 默认全选 · 整组一个命名模式 · 超 1000 条禁用提交 · **`batchProgress`/`batchDone` 在 `@lark/shared` 两端共用**（全期子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md` v2，七批 N4a–N4g / 判据 40 条）。用户 2026-08-20 拍板四条范围：**TLS 移出 N4**（不阻塞 N4 任何子批，**硬阻塞 N5**——主计划 §4.3 有 Stage-3 修订）· **LLM 设置页进 N4** · **收藏夹/合集批量进 N4** · **加 dataSync 前台服务**。
   - **N4a**（纯桌面）preflight / AudioLanding 契约 / 缓存运行时三处提取 · **N4b** 移动 AudioLanding 七步 + 引擎装配 + 进程级 hub（判据 5–14）· **N4c** dataSync 前台服务 + `arm()`/`settle()` 状态机（判据 15–19 + 41–43，子计划 `docs/plans/2026-08-21-phase-b-mobile-n4c.md`）· **N4d** 添加页 + 任务列表 + 分享 intent（判据 20–25 + 44–45，子计划 `docs/plans/2026-08-21-phase-b-mobile-n4d.md`）。逐批经过与证据在 `PROCESS.md`。
   - **两条已答的大问号**：🟢 **音频流两张网都是 https**（5G `…mcdn.bilivideo.cn:8082` / Wi-Fi `cn-bj-cc-03-03.bilivideo.com`）——不碰 `usesCleartextTraffic`；🟢 **MMR 与 ffprobe 逐毫秒一致**（Δ0.000 / Δ0.001s）。
   - 🔴 **改移动端代码前必读的五条**（详见 `docs/LESSONS.md`）：**自建 Expo 模块少 `android/build.gradle` → autolink 静默跳过 → 启动即闪退**（守卫已进 `just check`）· **MMR 读得出时长 ≠ 文件完整**（fMP4 的 `moov` 在头部，落盘因此加了 ③b 完整性检查）· **Expo `AsyncFunction` 的最后一个表达式就是返回值**，转不了的类型在副作用之后才 reject · **后台的 `startForegroundService()` 既不抛也不起、被延后到回前台**（所以 `arm()` 必须在手势那一刻，且 `start()` resolve ≠ 服务在，`START_CONFIRM_MS` 回头确认）· **想在后台那一刻做事只能用 `AppState` 回调，JS 定时器是冻的**。
@@ -83,12 +83,14 @@ lark/
 │   └── mobile/     # @lark/mobile — Android（N2 起）：boot/ 冻结启动序列 · identity/ D16 ·
 │                    #   db/ · ports/ · services/ · player/（driver·store·queue·session·now-playing，N3a–f）·
 │                    #   ui/ 四 tab（含 add-tab 添加页 + task-list 任务列表，N4d）+
+│                    #     picker 选择页壳 + list-picker/lines-picker 两个来源（N4f/N4h）+
 │                    #     minibar/全屏页/队列面板 · acceptance/（仅验收 bundle 可达）
 │                    #   modules/lark-fs 自建原生模块（原子替换 + 外部夹具目录）
 │                    #   modules/lark-audio 自建原生模块（ACTION_AUDIO_BECOMING_NOISY，N3e）
 │                    #   modules/lark-media 自建原生模块（MediaMetadataRetriever 时长，N4b）
 │                    #   modules/lark-transfer 自建原生模块（dataSync 前台服务，N4c）
 │                    #   downloads/（engine 装配 · hub 进程级 store + useDownloads hook ·
+│                    #     selection 勾选模型（按 key）· multi-line 多行判定与展开（N4h）·
 │                    #     foreground 状态机 · cancel 三种结果 · preflight 移动薄壳 · rows 排序）
 │                    #   share/（intent 根层 hook + draft 内存单例，N4d-3）
 │                    #   patches/expo-audio 打开 API 33+ 的通知 action（见 LESSONS）

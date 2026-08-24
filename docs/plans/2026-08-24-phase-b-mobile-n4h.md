@@ -1,7 +1,8 @@
 # Phase B · N4h 多行粘贴：一次贴一把链接（`apps/mobile`）
 
 - **日期**：2026-08-24（v1，**决策 a–d 同日全部关闭，§5 是定案**）。用户 2026-08-24 决定把它插在 N4g 之前。
-- **字母是登记顺序，不是执行顺序**。执行顺序：**N4h（本批）→ N4g（ensure-file + 缓存管理 + 歌单导出，判据 34–40）→ N4i（歌曲页多选批量，从 N6 提前）**。N6 保留：歌单导入 · 设置收尾 · 打磨 · 签名发布 · developer verification go/no-go。
+- **字母是登记顺序，不是执行顺序**。执行顺序：**N4h（本批）→ N4g（ensure-file + 缓存管理 + 歌单导出，判据 34–40）→ N4i（歌曲页那一屏）**。N6 保留：歌单导入 · 设置收尾 · 打磨 · 签名发布 · developer verification go/no-go。
+- **N4i 的范围（2026-08-24 用户同意计入）**：① 多选批量（长按进入 · `BackHandler` 退出 · 删除 / 加入歌单 / 固定，歌单详情里多一个「移出歌单」）；② **行菜单补齐**——桌面 M5-10 给了五项，手机只有四项，缺的是**复制链接**（要加 `expo-clipboard`，属新依赖，按常驻规矩②装完复跑桌面 check+test）· **用 app 打开**（`expo-linking` 已在依赖里，零成本，**只放行 http/https**，R10 的等价物）· **更改链接**（桌面是 `EditLinkDialog`：输入 URL → 预览 → 存 `source_url`）。🔴 **顺带接上一条已实现但点不到的能力**：`reidentifySource` 在手机上已实现且判据 29 真机验过五条，**生产 UI 没有任何入口**，只有验收构建到得了——它在桌面挂在「编辑链接…」里，手机上并进「更改链接」。**「重新下载」不进 N4i**：它和 N4g 的 ensure-file 是同一行的两件事（`songs-tab.tsx` 那句「下载在 N4 开放」的占位就在那儿），一起做。
 - **前置**：N4f 已完成（head `eed645d`，判据 31 · 33 真机绿、32 只有单测）。选择页 `ui/list-picker.tsx`、勾选模型 `downloads/selection.ts`、成批提交 `submitListBatch` 都已落地——**本批基本是给选择页接第二个候选来源**。
 - **基线**：`just check` exit 0 · `just test` exit 0 / **2920 passed**（shared 152 · core 1280 · mobile 166 · cli 428+9 skipped · daemon 468 · gui 426）· `mobile-typecheck` exit 0。
 - **冻结设备**：vivo V2408A（Android 15 / API 35），行为判据一律 release 构建。
