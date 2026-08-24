@@ -328,7 +328,12 @@ describe('a keyword, before and after there is a model', () => {
 const FAV_URL = 'https://space.bilibili.com/123/favlist?fid=456&ftype=create';
 const COLLECTION_URL = 'https://space.bilibili.com/123/lists/789';
 
-const listVideo = (n: number) => ({ bvid: `BV${n}`, title: `第 ${n} 首`, duration: 100 });
+const listVideo = (n: number) => ({
+  key: `BV${n}`,
+  bvid: `BV${n}`,
+  title: `第 ${n} 首`,
+  duration: 100,
+});
 
 describe('recognising a list (the door N4f opens)', () => {
   it('recognises a favourites link OFFLINE — nothing is fetched yet', async () => {

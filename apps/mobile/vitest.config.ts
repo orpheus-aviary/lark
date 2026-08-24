@@ -57,6 +57,13 @@
 // do not exist to look at — and trivial here. It imports one constant from
 // `@lark/shared`.
 //
+// `downloads/multi-line.ts` joined in N4h-1 for the reason `selection.ts` did,
+// one step further: a paste is a set of decisions about text — which lines are
+// the same line, which cost a hop, what happens to the ones that cannot be
+// downloaded — and none of them are visible on a screen that only shows the
+// result. It imports `@lark/core/portable` and `@lark/shared` for real values,
+// like the preflight beside it.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -67,6 +74,7 @@ export default defineConfig({
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/cancel.test.ts',
+      'src/downloads/multi-line.test.ts',
       'src/downloads/preflight.test.ts',
       'src/downloads/rows.test.ts',
       'src/downloads/selection.test.ts',

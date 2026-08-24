@@ -44,7 +44,8 @@ import {
   type ListVideo,
   allChosen,
   chooseAll,
-  chosenVideos,
+  chosenRows,
+  listRows,
   overItemLimit,
   pickable,
   toggleEvery,
@@ -102,7 +103,9 @@ export function ListPicker({
     expandList({ client: runtime.bilibili }, item, { signal: controller.signal })
       .then((result) => {
         if (!live) return;
-        const videos = pickable(result.videos);
+        // Keyed by bvid on the way in, so the ticking model — which is shared
+        // with the pasted-lines source since N4h — has an identity to work with.
+        const videos = pickable(listRows(result.videos));
         setRows(videos);
         setChosen(chooseAll(videos));
         setName(result.title === '' ? listLabel(item) : result.title);
@@ -126,7 +129,7 @@ export function ListPicker({
     writeNamingMode(boot.db.sqlite, next);
   };
 
-  const picked = chosenVideos(rows, chosen);
+  const picked = chosenRows(rows, chosen);
   const overLimit = overItemLimit(picked.length);
   const ready = picked.length > 0 && overLimit === null && !submitting;
 
@@ -226,7 +229,7 @@ export function ListPicker({
 
             <FlatList
               data={rows}
-              keyExtractor={(video) => video.bvid}
+              keyExtractor={(video) => video.key}
               style={styles.list}
               // The ticks are NOT in `data` — they are one Set above this list
               // (§1.5) — so a cell has no prop of its own that changes when it
@@ -234,11 +237,11 @@ export function ListPicker({
               extraData={chosen}
               ListEmptyComponent={<Text style={styles.empty}>这个列表里没有视频</Text>}
               renderItem={({ item: video }) => {
-                const on = chosen.has(video.bvid);
+                const on = chosen.has(video.key);
                 return (
                   <Pressable
                     style={styles.item}
-                    onPress={() => setChosen(toggleOne(chosen, video.bvid))}
+                    onPress={() => setChosen(toggleOne(chosen, video.key))}
                     accessibilityRole="checkbox"
                     accessibilityLabel={video.title}
                     accessibilityState={{ checked: on }}

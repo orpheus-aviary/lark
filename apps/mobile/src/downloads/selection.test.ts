@@ -11,19 +11,30 @@ import { describe, expect, it } from 'vitest';
 import {
   allChosen,
   chooseAll,
-  chosenVideos,
+  chosenRows,
+  listRows,
   overItemLimit,
   pickable,
   toggleEvery,
   toggleOne,
 } from './selection';
 
-const video = (n: number) => ({ bvid: `BV${n}`, title: `第 ${n} 首`, duration: 100 });
+const video = (n: number) => ({
+  key: `BV${n}`,
+  bvid: `BV${n}`,
+  title: `第 ${n} 首`,
+  duration: 100,
+});
 const three = [video(1), video(2), video(3)];
 
 describe('rows', () => {
   it('keeps list order', () => {
     expect(pickable(three).map((v) => v.bvid)).toEqual(['BV1', 'BV2', 'BV3']);
+  });
+
+  it('maps a fetchList payload onto rows keyed by bvid', () => {
+    const rows = listRows([{ bvid: 'BV9', title: '九', duration: null }]);
+    expect(rows).toEqual([{ key: 'BV9', bvid: 'BV9', title: '九', duration: null }]);
   });
 
   it('collapses a video that appears twice in one list', () => {
@@ -67,12 +78,12 @@ describe('ticking', () => {
     // selection look partial forever.
     const stale = new Set(['BV1', 'BV2', 'BV3', 'BV99']);
     expect(allChosen(stale, three)).toBe(true);
-    expect(chosenVideos(three, stale).map((v) => v.bvid)).toEqual(['BV1', 'BV2', 'BV3']);
+    expect(chosenRows(three, stale).map((v) => v.bvid)).toEqual(['BV1', 'BV2', 'BV3']);
   });
 
   it('submits the ticked rows in the list’s own order', () => {
     const chosen = new Set(['BV3', 'BV1']);
-    expect(chosenVideos(three, chosen).map((v) => v.bvid)).toEqual(['BV1', 'BV3']);
+    expect(chosenRows(three, chosen).map((v) => v.bvid)).toEqual(['BV1', 'BV3']);
   });
 });
 

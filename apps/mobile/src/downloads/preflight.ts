@@ -36,8 +36,10 @@ import {
   resolveInput,
 } from '@lark/core/portable';
 import type {
+  BatchTargetInput,
   DownloadBatchData,
   DownloadBatchGroupInput,
+  DownloadBatchItemInput,
   DownloadNamingMode,
   DownloadTaskData,
   FetchListData,
@@ -142,6 +144,59 @@ function findSource(text: string): { source: string | null; refusal: string | nu
 }
 
 /**
+ * What one line is, before any packet (N4h-1).
+ *
+ * Extracted from `recognise` because the paste box grew a second reader: a
+ * block of lines, each of which needs exactly this verdict and none of which
+ * may cost a request while somebody is still typing (`downloads/multi-line.ts`,
+ * decision b). One implementation of "what is this line" or the two readers
+ * drift, which is the whole reason `preflight.ts` exists in the first place.
+ */
+export interface OfflineParse {
+  /** `null` when the line was refused. */
+  parsed: ParsedInput | null;
+  /**
+   * The exact string `parsed` came from — the whole line, or the token
+   * `findSource` picked out of it. The hop needs it, and so does 「短链已展开」.
+   */
+  source: string;
+  /** True when the verdict came from a link found INSIDE a longer line. */
+  extracted: boolean;
+  refusal: string | null;
+}
+
+export function parseLine(raw: string): OfflineParse {
+  const text = raw.trim();
+  let source = text;
+  let extracted = false;
+  let offline: ParsedInput;
+  try {
+    offline = parseSongInput(source);
+  } catch (err) {
+    // `parseSongInput` throws the sentence that says what IS supported — for a
+    // youtube link, for a bangumi page, for gibberish. It is already the answer
+    // criterion 25 asks for.
+    return { parsed: null, source: text, extracted: false, refusal: messageOf(err) };
+  }
+
+  if (offline.kind === 'keyword') {
+    const found = findSource(text);
+    if (found.source === null) {
+      // Nothing link-shaped in there. A URL we understood and refused explains
+      // more than the keyword gate does.
+      if (found.refusal !== null) {
+        return { parsed: null, source: text, extracted: false, refusal: found.refusal };
+      }
+    } else {
+      source = found.source;
+      extracted = true;
+      offline = parseSongInput(source);
+    }
+  }
+  return { parsed: offline, source, extracted, refusal: null };
+}
+
+/**
  * Recognise one line of input, with at most one short-link hop.
  *
  * `onResolving` is called synchronously before the hop and not at all without
@@ -157,30 +212,8 @@ export async function recognise(
   const text = raw.trim();
   if (text === '') return { kind: 'empty' };
 
-  let source = text;
-  let extracted = false;
-  let offline: ParsedInput;
-  try {
-    offline = parseSongInput(source);
-  } catch (err) {
-    // `parseSongInput` throws the sentence that says what IS supported — for a
-    // youtube link, for a bangumi page, for gibberish. It is already the answer
-    // criterion 25 asks for.
-    return { kind: 'refused', message: messageOf(err) };
-  }
-
-  if (offline.kind === 'keyword') {
-    const found = findSource(text);
-    if (found.source === null) {
-      // Nothing link-shaped in there. A URL we understood and refused explains
-      // more than the keyword gate does.
-      if (found.refusal !== null) return { kind: 'refused', message: found.refusal };
-    } else {
-      source = found.source;
-      extracted = true;
-      offline = parseSongInput(source);
-    }
-  }
+  const { parsed: offline, source, extracted, refusal } = parseLine(text);
+  if (offline === null) return { kind: 'refused', message: refusal ?? '' };
 
   if (offline.kind === 'short_link') {
     options.onResolving?.();
@@ -357,43 +390,24 @@ export interface SubmitBatchDeps extends RecogniseDeps {
  * `enqueueBatches` has no item limit of its own, only a queue capacity that
  * happens to sit at the same number today.
  */
-export async function submitListBatch(
+export async function submitBatch(
   deps: SubmitBatchDeps,
   input: {
-    /** The playlist to create. Blank is the engine's refusal to make, not ours. */
-    name: string;
-    videos: readonly ListVideo[];
-    /** One mode for the whole group (decision c). */
-    namingMode: DownloadNamingMode;
+    /** Where the songs land. A list creates a playlist; a paste uses 「存到」. */
+    target: BatchTargetInput;
+    /** Already in wire shape: a keyword carries no naming mode, a video must. */
+    items: readonly DownloadBatchItemInput[];
   },
 ): Promise<void> {
   // The daemon route refuses an empty group too ('each group needs a non-empty
   // items array'); on a phone the button is disabled instead, and this is what
   // keeps that from being the only thing that is true. An empty submission
   // would otherwise create an empty playlist and queue nothing.
-  if (input.videos.length === 0) throw new Error('还没有勾选任何视频');
-  const refusal = overItemLimit(input.videos.length);
+  if (input.items.length === 0) throw new Error('还没有勾选任何视频');
+  const refusal = overItemLimit(input.items.length);
   if (refusal !== null) throw new Error(refusal);
 
-  const groups: readonly DownloadBatchGroupInput[] = [
-    {
-      // Always a new playlist, never an existing one: the desktop's dialog has
-      // no other option either (decision f). The name defaults to the list's
-      // own title and the picker lets it be edited.
-      target: { kind: 'new', name: input.name },
-      items: input.videos.map((video) => ({
-        kind: 'video',
-        bvid: video.bvid,
-        page: null,
-        // The list's title travels either way — `original` stores it as it
-        // stands, `clean` is what the model reads a song name OUT of. Sending
-        // null on the clean branch would hand the model the video's own title
-        // instead, which is what once made the desktop's checkbox a no-op.
-        title: video.title,
-        naming: input.namingMode,
-      })),
-    },
-  ];
+  const groups: readonly DownloadBatchGroupInput[] = [{ target: input.target, items: input.items }];
 
   preflightBatch({ client: deps.client, hasLlm: deps.hasLlm() }, groups);
 
@@ -403,6 +417,41 @@ export async function submitListBatch(
   } finally {
     deps.foreground.settle();
   }
+}
+
+/**
+ * The list flavour: always a NEW playlist (decision f).
+ *
+ * A wrapper rather than a call site with a literal, because "a list creates a
+ * playlist and cannot go anywhere else" is a rule the desktop hard-codes too
+ * (`BatchSelectModal.tsx:236-238`) and it should be readable in one place. The
+ * pasted-lines flavour targets 「存到」 instead, which is why the general form
+ * above takes a target at all (N4h).
+ */
+export function submitListBatch(
+  deps: SubmitBatchDeps,
+  input: {
+    /** The playlist to create. Blank is the engine's refusal to make, not ours. */
+    name: string;
+    videos: readonly ListVideo[];
+    /** One mode for the whole group (decision c). */
+    namingMode: DownloadNamingMode;
+  },
+): Promise<void> {
+  return submitBatch(deps, {
+    target: { kind: 'new', name: input.name },
+    items: input.videos.map((video) => ({
+      kind: 'video',
+      bvid: video.bvid,
+      page: null,
+      // The list's title travels either way — `original` stores it as it
+      // stands, `clean` is what the model reads a song name OUT of. Sending
+      // null on the clean branch would hand the model the video's own title
+      // instead, which is what once made the desktop's checkbox a no-op.
+      title: video.title,
+      naming: input.namingMode,
+    })),
+  });
 }
 
 /** `exactOptionalPropertyTypes` forbids passing `{ signal: undefined }`. */
