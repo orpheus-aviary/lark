@@ -26,7 +26,7 @@ import type { DownloadBatchItemInput, DownloadNamingMode } from '@lark/shared';
 import { DOWNLOAD_PARSE_LINES_MAX } from '@lark/shared';
 import type { KeywordItem, VideoItem } from './preflight';
 import { parseLine } from './preflight';
-import type { Pickable } from './selection';
+import type { PickRow } from './selection';
 
 /** Short links expanded at once. Three is a guess with a reason (§7). */
 const EXPAND_CONCURRENCY = 3;
@@ -140,13 +140,8 @@ export function readLines(text: string): LineSummary {
 }
 
 /** A line as the picker shows it: something to tick, or a reason it cannot be. */
-export interface LineRow extends Pickable {
-  /** What the row reads: the bvid, the query, or the line as pasted. */
-  label: string;
-  /** The original line, for a row whose label is not what was typed. */
-  note: string | null;
-  /** Why it cannot be submitted. `null` exactly when `item` is not. */
-  reason: string | null;
+export interface LineRow extends PickRow {
+  /** What to submit. `null` exactly when `reason` is not. */
   item: VideoItem | KeywordItem | null;
 }
 

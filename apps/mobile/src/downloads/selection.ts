@@ -26,8 +26,25 @@ export interface Pickable {
   key: string;
 }
 
-/** One row of an expanded list (N4f), as the picker sees it. */
-export interface ListVideo extends Pickable {
+/**
+ * What the picker screen draws, whatever produced it (N4h).
+ *
+ * Two sources fill this in: an expanded favourites folder, where every row is
+ * a video and none of them can be refused, and a pasted block of lines, where
+ * a row may be a link nobody can follow. One contract rather than two renderers
+ * — the screen should not have to know which door it came through.
+ */
+export interface PickRow extends Pickable {
+  /** The row's own line: a song title, a bvid, a query, a URL. */
+  label: string;
+  /** What was pasted, when the label is something else. */
+  note: string | null;
+  /** Why it cannot be ticked. `null` means it can. */
+  reason: string | null;
+}
+
+/** One row of an expanded list (N4f). */
+export interface ListVideo extends PickRow {
   bvid: string;
   title: string;
   duration: number | null;
@@ -35,7 +52,15 @@ export interface ListVideo extends Pickable {
 
 /** `fetchList` rows, keyed for the picker. The key IS the bvid (§1.5). */
 export function listRows(videos: FetchListData['videos']): readonly ListVideo[] {
-  return videos.map((video) => ({ ...video, key: video.bvid }));
+  // A list row is never refused: everything in a favourites folder is a video
+  // with a bvid, and the walk already dropped what it could not read.
+  return videos.map((video) => ({
+    ...video,
+    key: video.bvid,
+    label: video.title,
+    note: null,
+    reason: null,
+  }));
 }
 
 /**

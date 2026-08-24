@@ -332,6 +332,9 @@ const listVideo = (n: number) => ({
   key: `BV${n}`,
   bvid: `BV${n}`,
   title: `第 ${n} 首`,
+  label: `第 ${n} 首`,
+  note: null,
+  reason: null,
   duration: 100,
 });
 

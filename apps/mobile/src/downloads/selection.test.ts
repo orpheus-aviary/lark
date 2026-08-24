@@ -23,6 +23,9 @@ const video = (n: number) => ({
   key: `BV${n}`,
   bvid: `BV${n}`,
   title: `第 ${n} 首`,
+  label: `第 ${n} 首`,
+  note: null,
+  reason: null,
   duration: 100,
 });
 const three = [video(1), video(2), video(3)];
@@ -34,7 +37,17 @@ describe('rows', () => {
 
   it('maps a fetchList payload onto rows keyed by bvid', () => {
     const rows = listRows([{ bvid: 'BV9', title: '九', duration: null }]);
-    expect(rows).toEqual([{ key: 'BV9', bvid: 'BV9', title: '九', duration: null }]);
+    expect(rows).toEqual([
+      {
+        key: 'BV9',
+        bvid: 'BV9',
+        title: '九',
+        label: '九',
+        note: null,
+        reason: null,
+        duration: null,
+      },
+    ]);
   });
 
   it('collapses a video that appears twice in one list', () => {

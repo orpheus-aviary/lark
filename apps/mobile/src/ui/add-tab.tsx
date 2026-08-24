@@ -19,11 +19,13 @@
 // The wording of those refusals is portable's, not this file's
 // (`downloads/preflight.ts`).
 
+import type { BilibiliClient } from '@lark/core/portable';
 import { readNamingMode, resolveNamingMode, writeNamingMode } from '@lark/core/portable';
-import type { DownloadNamingMode } from '@lark/shared';
+import type { BatchTargetInput, DownloadNamingMode } from '@lark/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
+import { type LineSummary, readLines } from '../downloads/multi-line';
 import {
   type KeywordItem,
   type ListItem,
@@ -36,6 +38,7 @@ import {
 import { subscribeShareDraft, takeShareDraft } from '../share/draft';
 import { Chip } from './chip';
 import { useLibrary } from './library-context';
+import { LinesPicker } from './lines-picker';
 import { ListPicker } from './list-picker';
 import { Sheet, SheetAction } from './sheet';
 import { TaskList } from './task-list';
@@ -53,38 +56,26 @@ const PARSE_DEBOUNCE_MS = 400;
 /** What the library is called when a download is not going into a playlist. */
 const LIBRARY_ONLY = '仅曲库';
 
-export function AddTab() {
-  const { boot, view, changed } = useLibrary();
-  const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
-  // ONCE PER MOUNT, not once per render (N4e-2). Until N4e-1 this read a
-  // constant and was free; it is now a SQLite query plus a Keystore round trip,
-  // both synchronous on the JS thread — and this screen re-renders on every
-  // keystroke, which is exactly what typing a keyword search is. Correctness is
-  // untouched: decision d asks for a re-read when the tab remounts, and a memo
-  // recomputes on every mount; what it drops is the 2nd…Nth read of one mount.
-  const hasLlm = useMemo(() => runtime.hasLlm(), [runtime]);
-
-  // Consumed AT MOUNT, because the payload behind it is volatile and this is
-  // the first moment anything can hold it (N4d-3). A share that arrives later
-  // — the app already open on this tab — comes through the subscription below,
-  // since the shell's `setTab('添加')` is a no-op when we are already here and
-  // would never remount this.
-  const [text, setText] = useState(() => takeShareDraft() ?? '');
+/**
+ * What the box holds, 400ms after the last keystroke (N4h-2).
+ *
+ * ONE BOX, TWO READERS, and this is the only place that decides between them.
+ * Two or more non-empty lines is a paste: settled entirely offline, because a
+ * hop per line per keystroke is a rate-limit incident (decision b). One line is
+ * what it always was — the single-line recogniser, at most one short-link hop,
+ * and 「正在解析」 while it is in flight (criterion 21).
+ *
+ * It owns all three pieces of state, so clearing the box clears the verdict:
+ * the empty branch below runs synchronously, without waiting out the debounce.
+ */
+function useRecognition(
+  text: string,
+  client: BilibiliClient,
+  hasLlm: boolean,
+): { seen: Recognition; resolving: boolean; lines: LineSummary | null } {
   const [seen, setSeen] = useState<Recognition>({ kind: 'empty' });
   const [resolving, setResolving] = useState(false);
-  const [mode, setMode] = useState<DownloadNamingMode>(() =>
-    resolveNamingMode({ remembered: readNamingMode(boot.db.sqlite), hasLlm }),
-  );
-  const [playlistId, setPlaylistId] = useState<string | null>(null);
-  const [picking, setPicking] = useState(false);
-  /** The list whose picker is open. A list is chosen from, not submitted (N4f-2). */
-  const [expanding, setExpanding] = useState<ListItem | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  /** What the last submission said, when it did not queue anything. */
-  const [failed, setFailed] = useState<string | null>(null);
-
-  const playlists = view.playlists();
-  const targetName = playlists.find((entry) => entry.id === playlistId)?.name ?? LIBRARY_ONLY;
+  const [lines, setLines] = useState<LineSummary | null>(null);
 
   // The one external system this screen talks to: bilibili, through the
   // recogniser. A timer and an in-flight request both belong to the text that
@@ -92,13 +83,30 @@ export function AddTab() {
   useEffect(() => {
     if (text.trim() === '') {
       setSeen({ kind: 'empty' });
+      setLines(null);
       setResolving(false);
       return;
     }
     let live = true;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      void recognise({ client: runtime.bilibili, hasLlm: () => hasLlm }, text, {
+      // THE BOUNDARY (N4h §6): two or more non-empty lines is a paste, and a
+      // paste is settled offline — `readLines` parses every line and touches
+      // nothing. One line is what it always was: the single-line recogniser,
+      // one short-link hop, 「正在解析」 (criterion 21). Running the recogniser
+      // on a block would hand `parseSongInput` a blob of text, which reads as
+      // free text, which would then have `findSource` pick the FIRST link out
+      // of it and quietly ignore the rest.
+      const paste = readLines(text);
+      if (paste.total >= 2) {
+        if (!live) return;
+        setLines(paste);
+        setSeen({ kind: 'empty' });
+        setResolving(false);
+        return;
+      }
+      setLines(null);
+      void recognise({ client, hasLlm: () => hasLlm }, text, {
         signal: controller.signal,
         // Synchronous, at the moment the hop starts — the whole point of
         // criterion 21. A result that arrives for text nobody is looking at
@@ -117,7 +125,44 @@ export function AddTab() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [text, runtime.bilibili, hasLlm]);
+  }, [text, client, hasLlm]);
+
+  return { seen, resolving, lines };
+}
+
+export function AddTab() {
+  const { boot, view, changed } = useLibrary();
+  const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
+  // ONCE PER MOUNT, not once per render (N4e-2). Until N4e-1 this read a
+  // constant and was free; it is now a SQLite query plus a Keystore round trip,
+  // both synchronous on the JS thread — and this screen re-renders on every
+  // keystroke, which is exactly what typing a keyword search is. Correctness is
+  // untouched: decision d asks for a re-read when the tab remounts, and a memo
+  // recomputes on every mount; what it drops is the 2nd…Nth read of one mount.
+  const hasLlm = useMemo(() => runtime.hasLlm(), [runtime]);
+
+  // Consumed AT MOUNT, because the payload behind it is volatile and this is
+  // the first moment anything can hold it (N4d-3). A share that arrives later
+  // — the app already open on this tab — comes through the subscription below,
+  // since the shell's `setTab('添加')` is a no-op when we are already here and
+  // would never remount this.
+  const [text, setText] = useState(() => takeShareDraft() ?? '');
+  const { seen, resolving, lines } = useRecognition(text, runtime.bilibili, hasLlm);
+  const [mode, setMode] = useState<DownloadNamingMode>(() =>
+    resolveNamingMode({ remembered: readNamingMode(boot.db.sqlite), hasLlm }),
+  );
+  const [playlistId, setPlaylistId] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  /** The list whose picker is open. A list is chosen from, not submitted (N4f-2). */
+  const [expanding, setExpanding] = useState<ListItem | null>(null);
+  /** True while the pasted lines are open in their own picker. */
+  const [pickingLines, setPickingLines] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  /** What the last submission said, when it did not queue anything. */
+  const [failed, setFailed] = useState<string | null>(null);
+
+  const playlists = view.playlists();
+  const targetName = playlists.find((entry) => entry.id === playlistId)?.name ?? LIBRARY_ONLY;
 
   useEffect(
     () =>
@@ -156,9 +201,9 @@ export function AddTab() {
         },
       );
       // Straight back to the list: the next thing anybody wants to know is
-      // whether it is coming down.
+      // whether it is coming down. Clearing the box clears the verdict — the
+      // recogniser's empty branch runs on the spot, not after the debounce.
       setText('');
-      setSeen({ kind: 'empty' });
       // A queued task has not written a row yet, but a playlist target may have
       // been merged into an existing task — cheap, and it keeps the counts here
       // honest without waiting for the download.
@@ -172,6 +217,13 @@ export function AddTab() {
 
   const submit = async (): Promise<void> => {
     if (submitting) return;
+    if (lines !== null) {
+      // Same shape as a list: the next question is WHICH of them, and the
+      // short links are expanded when that screen mounts (decision b).
+      setFailed(null);
+      setPickingLines(true);
+      return;
+    }
     if (seen.kind === 'list') {
       // A list does not download from here: the next question is WHICH of it,
       // and the answer needs a screen (§2.2). The expansion starts when that
@@ -183,8 +235,14 @@ export function AddTab() {
     if (seen.kind === 'video' || seen.kind === 'keyword') await startOne(seen.item);
   };
 
+  // A paste is submittable when something in it could become a download: the
+  // links, plus the keyword lines IF there is a model to run them (decision
+  // from N4h — a keyword line without one is greyed, not fatal).
+  const pasteReady =
+    lines !== null && lines.refusal === null && lines.ready + (hasLlm ? lines.keywords : 0) > 0;
   const ready =
-    (seen.kind === 'video' || seen.kind === 'keyword' || seen.kind === 'list') && !submitting;
+    (pasteReady || seen.kind === 'video' || seen.kind === 'keyword' || seen.kind === 'list') &&
+    !submitting;
   // Naming is a question about a title, and a keyword has none — the model
   // names the song it finds. Hiding the row beats disabling it: a disabled
   // control invites "why can't I choose", and there is nothing to choose.
@@ -193,7 +251,11 @@ export function AddTab() {
   // page, one mode for the whole group (decision c) and always a new playlist
   // (decision f). Asking here would be asking twice, with the second answer
   // silently winning.
-  const naming = seen.kind !== 'keyword' && seen.kind !== 'list';
+  //
+  // A paste hides the naming row for the same reason a list does — its picker
+  // asks once for the whole group — but KEEPS 「存到」, because that is the
+  // target the batch will use (§2.3, 照桌面).
+  const naming = lines === null && seen.kind !== 'keyword' && seen.kind !== 'list';
   const targeting = seen.kind !== 'list';
 
   return (
@@ -211,23 +273,9 @@ export function AddTab() {
           accessibilityLabel="链接输入框"
         />
 
-        <Preview seen={seen} resolving={resolving} />
+        <Preview seen={seen} resolving={resolving} lines={lines} />
 
-        {naming && (
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>命名</Text>
-            <Chip label="原标题" on={mode === 'original'} onPress={() => chooseMode('original')} />
-            <Chip
-              label="清洗命名"
-              on={mode === 'clean'}
-              disabled={!hasLlm}
-              onPress={() => chooseMode('clean')}
-            />
-          </View>
-        )}
-        {naming && !hasLlm && (
-          <Text style={styles.hint}>清洗命名需要一个模型，去「设置」填一个。</Text>
-        )}
+        {naming && <Naming mode={mode} hasLlm={hasLlm} onChoose={chooseMode} />}
 
         {targeting && (
           <View style={styles.row}>
@@ -252,26 +300,32 @@ export function AddTab() {
 
       <TaskList />
 
-      {expanding !== null && (
-        <ListPicker
-          item={expanding}
-          onClose={() => setExpanding(null)}
-          onFailed={(message) => {
-            // Nothing came back, so there is nothing to choose from. The
-            // refusal is portable's own sentence and it belongs where every
-            // other one on this page is (§2.2).
-            setExpanding(null);
-            setFailed(message);
-          }}
-          onSubmitted={() => {
-            setExpanding(null);
-            setText('');
-            setSeen({ kind: 'empty' });
-            // A new playlist exists now, whatever the downloads do next.
-            changed();
-          }}
-        />
-      )}
+      <Chooser
+        lines={pickingLines ? lines : null}
+        list={expanding}
+        target={
+          playlistId === null ? { kind: 'all' } : { kind: 'playlist', playlist_id: playlistId }
+        }
+        targetName={targetName}
+        onClose={() => {
+          setPickingLines(false);
+          setExpanding(null);
+        }}
+        onFailed={(message) => {
+          // Nothing came back, so there is nothing to choose from. The refusal
+          // is portable's own sentence and it belongs where every other one on
+          // this page is (§2.2).
+          setExpanding(null);
+          setFailed(message);
+        }}
+        onSubmitted={() => {
+          setPickingLines(false);
+          setExpanding(null);
+          setText('');
+          // A playlist may exist now, and tasks certainly do.
+          changed();
+        }}
+      />
 
       {picking && (
         <Sheet title="存到哪里" onClose={() => setPicking(false)}>
@@ -305,7 +359,12 @@ export function AddTab() {
  * is not a recognition — it is the gap between one and the next, and the last
  * result stays on screen underneath it rather than blanking.
  */
-function Preview({ seen, resolving }: { seen: Recognition; resolving: boolean }) {
+function Preview({
+  seen,
+  resolving,
+  lines,
+}: { seen: Recognition; resolving: boolean; lines: LineSummary | null }) {
+  if (lines !== null) return <PastePreview lines={lines} />;
   if (resolving) {
     return (
       <View style={styles.preview}>
@@ -348,6 +407,114 @@ function Preview({ seen, resolving }: { seen: Recognition; resolving: boolean })
   return (
     <View style={styles.preview}>
       <Text style={styles.previewText}>{seen.item.bvid}</Text>
+      {notes.length > 0 && <Text style={styles.previewNote}>{notes.join(' · ')}</Text>}
+    </View>
+  );
+}
+
+/**
+ * How the song will be named — the one question a single link still answers on
+ * this page.
+ *
+ * A list and a paste both hide it, because their pickers ask it once for the
+ * whole group; a keyword hides it because there is no title to keep or clean.
+ */
+function Naming({
+  mode,
+  hasLlm,
+  onChoose,
+}: {
+  mode: DownloadNamingMode;
+  hasLlm: boolean;
+  onChoose: (mode: DownloadNamingMode) => void;
+}) {
+  return (
+    <>
+      <View style={styles.row}>
+        <Text style={styles.rowLabel}>命名</Text>
+        <Chip label="原标题" on={mode === 'original'} onPress={() => onChoose('original')} />
+        <Chip
+          label="清洗命名"
+          on={mode === 'clean'}
+          disabled={!hasLlm}
+          onPress={() => onChoose('clean')}
+        />
+      </View>
+      {!hasLlm && <Text style={styles.hint}>清洗命名需要一个模型，去「设置」填一个。</Text>}
+    </>
+  );
+}
+
+/**
+ * The screen that opens on top of this one, if any (N4h-2).
+ *
+ * Two sources, one slot: a list link expands into a picker of videos, a paste
+ * into a picker of lines, and nothing can be in both states at once — the box
+ * holds either one line or several. Keeping them in one place is what stops the
+ * add page from growing a second copy of "who is on top".
+ */
+function Chooser({
+  lines,
+  list,
+  target,
+  targetName,
+  onClose,
+  onFailed,
+  onSubmitted,
+}: {
+  lines: LineSummary | null;
+  list: ListItem | null;
+  target: BatchTargetInput;
+  targetName: string;
+  onClose: () => void;
+  onFailed: (message: string) => void;
+  onSubmitted: () => void;
+}) {
+  if (lines !== null) {
+    return (
+      <LinesPicker
+        lines={lines.lines}
+        target={target}
+        targetName={targetName}
+        onClose={onClose}
+        onSubmitted={onSubmitted}
+      />
+    );
+  }
+  if (list !== null) {
+    return (
+      <ListPicker item={list} onClose={onClose} onFailed={onFailed} onSubmitted={onSubmitted} />
+    );
+  }
+  return null;
+}
+
+/**
+ * What a paste came to, in counts (N4h-2).
+ *
+ * Counts rather than rows: the rows are the picker's job, and a preview that
+ * listed twelve lines under the box would push the button off the screen. What
+ * this has to answer before anybody taps 下载 is「它认出了多少」—— and, when
+ * some of them need a model this device does not have, that too.
+ */
+function PastePreview({ lines }: { lines: LineSummary }) {
+  if (lines.refusal !== null) {
+    return (
+      <View style={styles.preview}>
+        <Text style={styles.refused}>{lines.refusal}</Text>
+      </View>
+    );
+  }
+  const notes = [
+    ...(lines.keywords === 0 ? [] : [`${lines.keywords} 条按歌名搜`]),
+    ...(lines.unusable === 0 ? [] : [`${lines.unusable} 行不认识`]),
+    ...(lines.total === lines.lines.length ? [] : [`${lines.total - lines.lines.length} 行重复`]),
+  ];
+  return (
+    <View style={styles.preview}>
+      <Text style={styles.previewText}>
+        {lines.total} 行 · 可下载 {lines.ready} 条
+      </Text>
       {notes.length > 0 && <Text style={styles.previewNote}>{notes.join(' · ')}</Text>}
     </View>
   );
