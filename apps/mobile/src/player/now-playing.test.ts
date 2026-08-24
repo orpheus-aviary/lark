@@ -134,7 +134,7 @@ describe('the Bluetooth lyrics bridge', () => {
     expect(h.published).toEqual([]); // still before the first line: the song name
 
     for (const t of [5, 5.5, 6, 6.5, 7, 7.5, 8]) h.tick(t);
-    expect(h.published).toEqual([{ title: '一', artist: '歌手', albumTitle: '歌名' }]);
+    expect(h.published).toEqual([{ title: '一', artist: '歌手 - 歌名', albumTitle: '歌名' }]);
   });
 
   it('counts the segments of a song, not its ticks or its lines', () => {
@@ -156,12 +156,16 @@ describe('the Bluetooth lyrics bridge', () => {
     expect(dense.published.map((meta) => meta.title)).toEqual(['一', '插']);
   });
 
-  it('puts the song name in the album slot only while the title holds a lyric', () => {
+  it('keeps the artist line steady while the title moves (2026-08-24)', () => {
     h.tick(5);
-    h.tick(15); // the timed blank: back to the song name, and no album
+    h.tick(15); // the timed blank: the title falls back to the song name
+    // The artist carries `歌手 - 歌名` for the WHOLE song, interlude included.
+    // It flickering between two shapes as lyrics come and go is exactly what
+    // the device asked us not to do — and with the title taken, this line is
+    // the only place a stereo (or a status-bar widget) shows what is playing.
     expect(h.published).toEqual([
-      { title: '一', artist: '歌手', albumTitle: '歌名' },
-      { title: '歌名', artist: '歌手' },
+      { title: '一', artist: '歌手 - 歌名', albumTitle: '歌名' },
+      { title: '歌名', artist: '歌手 - 歌名', albumTitle: '歌名' },
     ]);
   });
 
@@ -260,7 +264,13 @@ describe('the Bluetooth lyrics bridge', () => {
     h.set({ song: song({ name: '改过的名字' }) });
     expect(h.bridge.stats().published).toBe(1);
     h.tick(15); // the interlude now falls back to the NEW name
-    expect(h.published.at(-1)).toEqual({ title: '改过的名字', artist: '歌手' });
+    // The new name reaches BOTH fields it lives in — the fallback title and
+    // the artist line that carries it while lyrics hold the title.
+    expect(h.published.at(-1)).toEqual({
+      title: '改过的名字',
+      artist: '歌手 - 改过的名字',
+      albumTitle: '改过的名字',
+    });
   });
 
   it('reads the song offset, so the stereo and the screen show the same line', () => {

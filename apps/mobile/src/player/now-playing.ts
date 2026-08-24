@@ -24,7 +24,7 @@
 // closes when the next song opens one.
 
 import type { NowPlayingMode } from '@lark/shared';
-import { nowPlayingTitle } from '@lark/shared';
+import { nowPlayingMetadata } from '@lark/shared';
 import type { AudioMetadata } from 'expo-audio';
 import type { PlaybackState } from './store';
 
@@ -80,29 +80,27 @@ export function createNowPlayingBridge(deps: NowPlayingDeps): NowPlayingBridge {
   const send = (state: PlaybackState, force: boolean): void => {
     const song = state.song;
     if (song === null) return;
-    const title = nowPlayingTitle({
+    const meta = nowPlayingMetadata({
       songName: song.name,
+      artist: song.artist,
       lyrics: state.lyrics,
       timeSeconds: state.currentTime,
       offsetSeconds: song.lyrics_offset,
       mode: currentMode(),
     });
+    const title = meta.title;
     if (title === showing) return;
 
     const at = deps.now();
     const gap = at - showingAt;
     if (!force && gap < NOW_PLAYING_MIN_INTERVAL_MS) return;
 
-    // The song name goes to the album slot whenever the title slot is holding
-    // something else, which is the only way it survives with lyrics on. An
-    // interlude, or lyrics off, puts it back in the title and leaves the album
-    // empty — `MetadataInjectingPlayer.getMediaMetadata` rebuilds all four
-    // fields from what it is given, so omitting one clears it.
-    deps.publish(
-      title === song.name
-        ? { title, artist: song.artist }
-        : { title, artist: song.artist, albumTitle: song.name },
-    );
+    // WHAT goes in which field is `@lark/shared`'s call, not this file's: with
+    // lyrics on the title is taken, so the song name rides in the artist line
+    // (`歌手 - 歌名`, static for the song) and in the album slot. This file
+    // still owns WHEN — de-duplicating on the title, because that is the only
+    // field that moves within a song.
+    deps.publish(meta);
     // Only between two publishes. The first one's gap is measured from the
     // start of the song, which is not an interval between writes.
     if (published > 0) minGapMs = minGapMs === null ? gap : Math.min(minGapMs, gap);

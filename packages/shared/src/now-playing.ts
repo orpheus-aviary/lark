@@ -76,3 +76,49 @@ export function nowPlayingTitle(input: NowPlayingTitleInput): string {
   if (line === undefined || line.text === '') return clampTitle(songName);
   return clampTitle(line.text);
 }
+
+/**
+ * A stereo shows two lines, and with lyrics on the top one is taken.
+ *
+ * The song name used to ride in `albumTitle` alone, which is where AVRCP puts
+ * ALBUM — a field many head units and most status-bar widgets do not show at
+ * all. So with the feature on, "what am I listening to" could disappear
+ * entirely (REPORTED from the device, 2026-08-24). It now travels in the
+ * ARTIST field too, as `歌手 - 歌名`.
+ *
+ * STATIC FOR THE WHOLE SONG, deliberately: the artist line must not flicker
+ * between two shapes as lyrics come and go, so it carries the song name for as
+ * long as the mode is on — including during an interlude, when the title has
+ * fallen back to the song name and the two lines say the same thing. A stable
+ * pair of lines beats a clever one.
+ *
+ * `albumTitle` stays as it was: a receiver that DOES show album keeps what it
+ * had, and one that does not now has the name in a field it shows.
+ */
+export interface NowPlayingMetadata {
+  title: string;
+  artist: string;
+  /**
+   * Only with lyrics on. Omitted with lyrics off, which CLEARS it:
+   * `MetadataInjectingPlayer.getMediaMetadata` rebuilds all four fields from
+   * what it is handed, so a field left out is a field emptied.
+   */
+  albumTitle?: string;
+}
+
+export interface NowPlayingMetadataInput extends NowPlayingTitleInput {
+  artist: string;
+}
+
+export function nowPlayingMetadata(input: NowPlayingMetadataInput): NowPlayingMetadata {
+  const title = nowPlayingTitle(input);
+  if (input.mode === 'title') return { title, artist: input.artist };
+  return {
+    title,
+    artist: clampTitle(
+      // A song with no artist gets the name alone rather than a dangling dash.
+      input.artist === '' ? input.songName : `${input.artist} - ${input.songName}`,
+    ),
+    albumTitle: input.songName,
+  };
+}

@@ -8,6 +8,7 @@ import {
   NOW_PLAYING_TITLE_MAX_CODE_POINTS,
   type NowPlayingMode,
   isNowPlayingMode,
+  nowPlayingMetadata,
   nowPlayingTitle,
 } from './now-playing.js';
 
@@ -113,5 +114,62 @@ describe('the length cap', () => {
     expect(LONE_SURROGATE.test(clamped)).toBe(false);
     expect([...clamped]).toHaveLength(NOW_PLAYING_TITLE_MAX_CODE_POINTS);
     expect(clamped).toBe(`あ${'🎵'.repeat(NOW_PLAYING_TITLE_MAX_CODE_POINTS - 1)}`);
+  });
+});
+
+// ─── the artist line (2026-08-24, reported from the device) ───
+//
+// With lyrics on the title is taken, and the song name was only in `albumTitle`
+// — a field the phone's own status-bar widget does not show. So the feature
+// answered "what is the current line" and stopped answering "what is this
+// song". The fix is a second home for the name, and the property that matters
+// is that it does not MOVE: the artist line must read the same from the first
+// lyric to the last, interludes included.
+
+describe('nowPlayingMetadata', () => {
+  const meta = (over: {
+    mode: NowPlayingMode;
+    artist?: string;
+    timeSeconds?: number;
+    songName?: string;
+  }) =>
+    nowPlayingMetadata({
+      songName: over.songName ?? SONG,
+      artist: over.artist ?? '周杰伦',
+      lyrics: LYRICS,
+      timeSeconds: over.timeSeconds ?? 0,
+      offsetSeconds: 0,
+      mode: over.mode,
+    });
+
+  it('changes nothing with the switch off', () => {
+    expect(meta({ mode: 'title' })).toEqual({ title: SONG, artist: '周杰伦' });
+  });
+
+  it('carries the song name in the artist line with the switch on', () => {
+    expect(meta({ mode: 'lyrics' })).toEqual({
+      title: '故事的小黄花',
+      artist: `周杰伦 - ${SONG}`,
+      albumTitle: SONG,
+    });
+  });
+
+  it('says the same thing during an interlude, when the title falls back', () => {
+    // t=5 is the timed blank. The title goes back to the song name; the artist
+    // line must NOT go back to the bare artist, or it flickers twice a verse.
+    const interlude = meta({ mode: 'lyrics', timeSeconds: 5 });
+    expect(interlude.title).toBe(SONG);
+    expect(interlude.artist).toBe(`周杰伦 - ${SONG}`);
+  });
+
+  it('gives a song with no artist the name alone, not a dangling dash', () => {
+    expect(meta({ mode: 'lyrics', artist: '' }).artist).toBe(SONG);
+  });
+
+  it('clamps the artist line by code point, like the title', () => {
+    const long = 'あ'.repeat(NOW_PLAYING_TITLE_MAX_CODE_POINTS + 20);
+    expect([...meta({ mode: 'lyrics', songName: long }).artist]).toHaveLength(
+      NOW_PLAYING_TITLE_MAX_CODE_POINTS,
+    );
   });
 });
