@@ -205,7 +205,10 @@ export interface SyncStatusData {
 /**
  * `POST /sync/login`. The password is used once, never stored, never logged.
  * `allow_insecure_http` is the explicit breaker for a non-HTTPS `server_url`
- * (localhost aside) and is confirmed twice in the UI before it gets here.
+ * (localhost aside). Every host confirms it in its own way before sending it —
+ * the desktop asks twice (a checkbox, then a dialog), the phone reads a switch
+ * the user set in settings — so what it means HERE is only "a person has said
+ * yes to this", never a particular control.
  */
 export interface SyncLoginRequest {
   server_url: string;

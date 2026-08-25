@@ -5,9 +5,11 @@
 //
 //   loopback — the bytes never leave the machine, which is how the e2e suites
 //     and a self-hosted server on the same host stay usable;
-//   an explicit breaker — `allow_insecure_http`, confirmed twice in the UI
-//     before it reaches here and recorded in the credential file so nobody
-//     later wonders why a plaintext URL was accepted.
+//   an explicit breaker — `allow_insecure_http`, which a person has said yes
+//     to in whatever way the host asks (the desktop twice, on the login form;
+//     the phone once, as a switch in settings), and which is recorded in the
+//     credential store so nobody later wonders why a plaintext URL was
+//     accepted.
 //
 // Fails CLOSED on anything it cannot understand: a URL that does not parse, or
 // one whose scheme is neither http nor https, is refused rather than passed

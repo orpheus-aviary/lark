@@ -7,15 +7,31 @@
 // this device can be reached at all, and whether a whole download lands as a
 // playable song — is exactly what a seam cannot answer.
 //
-// CRITERION 5 COMES FIRST, AND BEFORE ANY UI IS WRITTEN (§1.3). N0b-4a and N1i
-// both pulled audio successfully over mobile data from an mcdn node on
-// `:8082` — but both ran on the SPIKE's build, which sets
-// `usesCleartextTraffic: true`. The product does not, and Android 9+ forbids
-// cleartext by default. If playurl hands this device an `http://` stream on
-// mobile data, every download fails on 4G and every download works on Wi-Fi,
-// which is the hardest possible shape of bug to find later. So this asks the
-// question directly, on the product's own configuration, and answers it in two
-// separate rows: what the scheme IS, and whether bytes actually arrive.
+// CRITERION 5 CAME FIRST, AND ITS PREMISE IS NOW GONE (N5b). It was written
+// because N0b-4a and N1i both pulled audio over mobile data from an mcdn node
+// on `:8082` while running the SPIKE's build, which sets
+// `usesCleartextTraffic: true` — and the product did not. The failure it
+// guarded against was the nastiest shape available: every download works on
+// Wi-Fi and every download fails on 4G.
+//
+// The product now sets it too (master plan §4.3, Stage-4, 2026-08-25 — mobile
+// sync accepts a plaintext server, and Android has no way to permit that for
+// one host chosen at run time). So be honest about what these two rows are
+// still worth:
+//
+//   ① streamSchemeIsHttps STILL MEANS SOMETHING. It is no longer a gate — a
+//      cleartext stream would now be fetched rather than blocked — but it is
+//      the only place that reports WHICH scheme this device was handed, and
+//      the user accepted plaintext audio knowingly (N5 subplan §0.1), not
+//      unknowingly.
+//   ② streamIsReachable NO LONGER PROVES THE CLEARTEXT HALF. It used to
+//      answer "and can the product's own configuration actually reach it";
+//      the configuration it asks that of now permits everything, so what
+//      survives is only "the bytes are there".
+//
+// Neither row is deleted. A criterion that stopped proving one of its two
+// halves is worth keeping as a measurement — quietly dropping it is how the
+// next person concludes the guarantee is still in place.
 //
 // RUN IT ON BOTH NETWORKS. playurl picks a CDN node by the CALLER's IP, so a
 // Wi-Fi answer says nothing about mobile data — that is not a guess, it is
@@ -146,15 +162,18 @@ async function probeStream(): Promise<StreamProbe> {
 async function streamSchemeIsHttps(): Promise<string> {
   const probe = probed ?? (await probeStream());
   const summary = `${probe.scheme}//${probe.host} · ${probe.codecs} · isAac=${probe.isAac}`;
-  // Red here is not a bug report, it is a decision: prefer an https candidate
-  // inside the same codec (`backupUrl`, which the client does not read today),
-  // or a per-domain network security config. Never a blanket
-  // `usesCleartextTraffic` (§1.3, decision h).
+  // Red here is a REPORT, not a blocker, since N5b: the blanket
+  // `usesCleartextTraffic` decision h refused is the one the product now
+  // ships (master plan §4.3, Stage-4), so a cleartext stream downloads fine.
+  // What is left to decide if this goes red is whether to prefer an https
+  // candidate inside the same codec (`backupUrl`, which the client still does
+  // not read) — a quality choice about somebody's mobile data, no longer a
+  // question of whether the feature works at all.
   expect(probe.scheme === 'https:', `${summary} — cleartext`);
   return summary;
 }
 
-/** ②: and whether the product build can actually reach it, cleartext rules included. */
+/** ②: and whether the bytes are actually there (the cleartext half died in N5b). */
 async function streamIsReachable(): Promise<string> {
   const probe = probed ?? (await probeStream());
   const response = await fetch(probe.url, {

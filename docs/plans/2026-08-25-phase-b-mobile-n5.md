@@ -121,12 +121,15 @@ N0b 判据 22 的软半边全绿（子计划 `:581`）：`subscribeEvents` **312
 packages/shared/src/
   sync-labels.ts            ← N5a：从 GUI 提取，两端共用（§1.6）
 
+packages/core/src/portable/
+  sync-insecure.ts          ← N5b：明文开关的存取（§8.3 修正了原本的落点）
+
 apps/mobile/src/
   sync/
     context.ts              ← CoordinatorContext 的移动装配（§2.2）
     triggers.ts             ← 触发器移动版（§2.3），实现 SyncBackgroundHandles
     hub.ts                  ← 进程级 store + useSync hook（照 downloads/hub.ts）
-    settings.ts             ← local_metadata：明文开关 + interval（§2.4）
+    settings.ts             ← local_metadata：interval（明文开关已进 portable，§8.3）
     quarantine.ts           ← countQuarantined 的移动实现
   ports/
     device.ts               ← DeviceNameSource（决策 e）
@@ -212,7 +215,7 @@ apps/mobile/src/
 | 批 | 内容 | 在哪测 |
 |---|---|---|
 | **N5a** ✅ | **纯桌面**：`sync-labels` 提取进 `@lark/shared`（characterization 先行，GUI 改直接 import，`SYNC_INSECURE_URL` 措辞改写）+ **文档口径统一**（判据 65，用户 2026-08-25 要求从 N5b 提到本批——否则有一整批的时间里 `PROCESS.md` 还写着「TLS 硬阻塞」） | 电脑，桌面全测试 |
-| **N5b** | manifest 那一行 + `sync/settings.ts` 明文开关 + §8.2 的两句注释 | 电脑（单测）+ 构建 |
+| **N5b** ✅ | manifest 那一行 + 明文开关的存取（落 `portable/sync-insecure.ts`）+ §8.2 的两句注释 + 判据 66 | 电脑（单测 + **合并 manifest**） |
 | **N5c** | `CoordinatorContext` 移动装配（§2.2 的七个新建）+ `sync/hub.ts` | 电脑（单测 + 假 API 驱动整条登录序列） |
 | **N5d** | 触发器移动版（§2.3 状态机）+ `AppState` 接线 | 电脑（虚拟时钟单测）+ 设备会话 |
 | **N5e** | UI 四块（同步区 / 徽章 / 冲突页 / file-ops） | 电脑（能测的部分）+ 设备会话 |
@@ -229,10 +232,10 @@ apps/mobile/src/
 | # | 判据 | 归属 |
 |---|---|---|
 | 65 ✅ | 主计划 §4.3 有 Stage-4 修订段 + D15 行与 N5 行改写；`PROCESS.md` 的 TLS 待办改成「已选明文开关，TLS 转后续」+「下一站」那句；CLAUDE.md 加 N5 段并去掉「TLS 硬阻塞」（**N5a 完成**） | 文 |
-| 66 | `acceptance/downloads.ts` 判据 5 那段注释改写：前提失效说清楚，**不删判据、不假装它还在证明什么** | 文 |
+| 66 ✅ | `acceptance/downloads.ts` 判据 5 那段注释改写：前提失效说清楚，**不删判据、不假装它还在证明什么**（**N5b 完成**） | 文 |
 | 67 | `sync-labels` 在 `@lark/shared`，GUI 是 re-export；提取前的 characterization 测试搬完**一个字没改**地全绿；桌面 `just check` + `just test` 零回归 | 桌 |
 | 68 | `loginErrorMessage(SYNC_INSECURE_URL)` 的措辞与「复选框在哪」无关，两端读着都成立 | 桌 |
-| 69 | 明文开关**关着**填 `http://<公网IP>:8443` → 拿到 `SYNC_INSECURE_URL` 的那句话，**零请求发出** | 桌 + 机 |
+| 69 | 明文开关**关着**填 `http://<公网IP>:8443` → 拿到 `SYNC_INSECURE_URL` 的那句话，**零请求发出**（**存储那一半 N5b 已关**，14 条单测 + 反测；登录那一半等 N5c） | 桌 + 机 |
 | 70 | 明文开关**开着**同一地址 → 登录成功；SecureStore 里 `server.allow_insecure_http === true` | 机 |
 | 71 | **首次登录跑全量 backfill**：登录后 `pending_count` 覆盖手机上现存的全部歌 / 歌单 / 歌词；一轮之后归零，`pushed_seq > 0` | 机 |
 | 72 | 桌面那台改一首歌名 → 手机**回到前台**之后收敛到同一个名字；手机改歌手 → 桌面收敛。两边互不覆盖 | 机 |
@@ -314,6 +317,17 @@ apps/mobile/src/
 - `packages/core/src/portable/sync/server-url.ts:8`：「an explicit breaker … **confirmed twice in the UI** before it reaches here」
 
 手机上是**一个开关、零次确认**（决策 a）。两句都要改成「由宿主显式表态后才到这里」这种与 UI 形态无关的措辞。
+
+---
+
+### 8.3 N5b 落地（2026-08-25）
+
+- **开关落在 `packages/core/src/portable/sync-insecure.ts`**，不是 `apps/mobile/src/sync/settings.ts`（§2.1 的原计划）。理由是先例：`cache_limit_mb` / `naming_mode` / `now_playing_mode` **三个都是移动端独有的 `local_metadata` 偏好，三个都住在 portable**。多开一处只会让第四个不知道该去哪。§2.1 的文件布局据此修正。
+- **存储格式抄 `audio_migration_pending`：`'1'` / `'0'`，判定是 `=== '1'`**。这不是风格问题——**格式本身就把 fail-closed 做掉了**：`'true'`、`'yes'`、`' 1'`、空串，任何这个 build 没写过的值都不是 `'1'`，于是一律拒绝明文。这个方向上错一次的代价不对称：错向 `false` 是一次登录失败加一句错误提示，错向 `true` 是把密码明文发上网。
+- **反测过**：把判定翻成 fail-open（`row.value !== '0'`）⇒ **11 条红**；还原 ⇒ 14 条绿。
+- **manifest 对着构建产物验的，不是对着配置文件**（照 D14 判据 10⑤ 的规矩）：`just mobile-prebuild` 之后跑 `:app:processReleaseMainManifest`，**合并后的 release manifest** 里 `android:usesCleartextTraffic="true"` 在，且 **D16 的三个属性一个没被顶掉**（`allowBackup="false"` · `dataExtractionRules` · `fullBackupContent` 全是我们那份）——`with-backup-rules.js` 是「宁可抛也不覆盖别人写的值」，多加一条 build-property 原则上可能撞上它，实测没撞。`minSdkVersion=26` / `targetSdkVersion=36` 未变。
+- **判据 66 一并关掉**（它不是独立工作量，是 manifest 那一行的直接后果——落地那一刻那段注释就变成谎话）。改法是**如实分档**而不是删：① `streamSchemeIsHttps` **仍然有意义**，它从「门」降级成「唯一会报告这台设备拿到了哪种 scheme 的地方」；② `streamIsReachable` **的 cleartext 那一半死了**，剩下的只是「字节在那里」。留着而不是删掉——一条不再证明其中一半的判据，安静地拿掉正是下一个人得出「保证还在」的方式。
+- 验证：`just check` exit 0 · `just test` **3050 passed**（= 3036 + 新增 14）。
 
 ---
 

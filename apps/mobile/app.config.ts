@@ -91,6 +91,22 @@ const config: ExpoConfig = {
           compileSdkVersion: 36,
           targetSdkVersion: 36,
           buildToolsVersion: '36.0.0',
+          // N5b, master plan §4.3 Stage-4 (user decision, 2026-08-25). D15
+          // used to say mobile v1 is https-only, and this line's ABSENCE was
+          // how that was enforced — Android 9+ refuses cleartext by default.
+          // lark now supports both schemes with one switch in settings
+          // (`local_metadata.sync_allow_insecure`), because other people run
+          // their own skybridge on a bare IP and "open one host" is not
+          // available to us: a networkSecurityConfig allowlist is compile-time
+          // XML, and the hosts belong to whoever installs this.
+          //
+          // THE COST, spelled out so nobody has to rediscover it: this is
+          // app-wide. bilibili's audio streams, the lyrics providers and a
+          // user-supplied LLM endpoint all lose the platform's https floor
+          // with it. That was part of the same decision (N5 subplan §0.1), and
+          // it is why `src/acceptance/downloads.ts` no longer claims criterion
+          // 5's second half proves anything.
+          usesCleartextTraffic: true,
           // Decision a, closed 2026-08-19. `writeTextAtomic`'s contract needs
           // `Files.move(…, ATOMIC_MOVE)`, which is NIO and therefore API 26+ —
           // and expo-file-system's own module is `@RequiresApi(O)` anyway

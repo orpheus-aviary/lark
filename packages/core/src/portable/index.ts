@@ -62,6 +62,7 @@ export * from './last-playback.js';
 export * from './llm-config.js';
 export * from './naming-mode.js';
 export * from './now-playing-mode.js';
+export * from './sync-insecure.js';
 export * from './pending.js';
 export * from './play-mode.js';
 export * from './ports/index.js';
