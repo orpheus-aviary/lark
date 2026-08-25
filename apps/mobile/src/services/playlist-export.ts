@@ -20,7 +20,8 @@
 // they are about to send to themselves.
 
 import type { LibraryService } from '@lark/core/portable';
-import { sanitizeFileName } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID, sanitizeFileName } from '@lark/shared';
+import type { PlaylistExportData } from '@lark/shared';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
@@ -42,20 +43,50 @@ export async function sharePlaylistExport(
   library: LibraryService,
   playlist: { id: string; name: string },
 ): Promise<{ shared: boolean; songCount: number }> {
-  const data = library.buildExport({ playlistId: playlist.id });
+  return share(library.buildExport({ playlistId: playlist.id }), `导出「${playlist.name}」`);
+}
+
+/**
+ * The whole library, through the same virtual `all` the desktop exports
+ * (N6c, criterion 102).
+ *
+ * 🔴 IT IS THE ONLY BACKUP A PHONE HAS. Playlist export alone left a hole
+ * nobody would notice until it mattered: a song in no playlist could not be
+ * exported at all, while the settings screen was busy telling people that
+ * exporting is how you survive an uninstall. The desktop has had this since
+ * M5 (`TopBar.tsx`: *"Export works on `all` too — it is the whole library"*);
+ * the phone dropped the virtual `all` from its playlist list for good reasons
+ * (2026-08-24) and lost the export with it.
+ *
+ * `name: VIRTUAL_ALL_PLAYLIST_ID` — the literal string `all` — because that is
+ * what the daemon passes (`routes/playlists.ts:211`) and the file has to be
+ * the desktop's byte for byte. So the file is `all.lark-playlist.json` and
+ * importing it proposes a playlist called `all`; the import screen's name
+ * field is editable, which is where that gets fixed.
+ */
+export async function shareLibraryExport(
+  library: LibraryService,
+): Promise<{ shared: boolean; songCount: number }> {
+  return share(
+    library.buildExport({ playlistId: null, name: VIRTUAL_ALL_PLAYLIST_ID }),
+    '导出整个曲库',
+  );
+}
+
+async function share(
+  data: PlaylistExportData,
+  dialogTitle: string,
+): Promise<{ shared: boolean; songCount: number }> {
   if (!(await Sharing.isAvailableAsync())) {
     return { shared: false, songCount: data.songs.length };
   }
 
-  const file = new File(Paths.cache, exportFileName(playlist.name));
+  const file = new File(Paths.cache, exportFileName(data.playlist.name));
   // Overwrite rather than uniquify: exporting the same playlist twice should
   // leave one file behind, not two.
   file.create({ overwrite: true });
   file.write(JSON.stringify(data, null, 2));
 
-  await Sharing.shareAsync(file.uri, {
-    mimeType: 'application/json',
-    dialogTitle: `导出「${playlist.name}」`,
-  });
+  await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle });
   return { shared: true, songCount: data.songs.length };
 }

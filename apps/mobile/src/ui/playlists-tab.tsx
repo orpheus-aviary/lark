@@ -25,7 +25,7 @@ import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/select
 import { player } from '../player';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
-import { sharePlaylistExport } from '../services/playlist-export';
+import { shareLibraryExport, sharePlaylistExport } from '../services/playlist-export';
 import { ImportPlaylistScreen } from './import-playlist';
 import { useLibrary } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
@@ -66,6 +66,20 @@ function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
     [view],
   );
 
+  const exportLibrary = async (): Promise<void> => {
+    try {
+      const result = await shareLibraryExport(library);
+      ToastAndroid.show(
+        result.shared
+          ? `已导出整个曲库（${result.songCount} 首）`
+          : '这台设备没有可以接收文件的应用',
+        ToastAndroid.SHORT,
+      );
+    } catch (err) {
+      ToastAndroid.show(err instanceof Error ? err.message : '导出失败', ToastAndroid.SHORT);
+    }
+  };
+
   return (
     <View style={styles.fill}>
       <View style={styles.actions}>
@@ -84,6 +98,17 @@ function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
           accessibilityRole="button"
         >
           <Text style={styles.newLabel}>导入歌单</Text>
+        </Pressable>
+        {/* N6c, criterion 102. The settings screen tells people that exporting
+            is how a phone-only library survives an uninstall, and until this
+            button existed that was only true of songs that happened to be in a
+            playlist. */}
+        <Pressable
+          style={styles.newButton}
+          onPress={() => void exportLibrary()}
+          accessibilityRole="button"
+        >
+          <Text style={styles.newLabel}>导出曲库</Text>
         </Pressable>
       </View>
 

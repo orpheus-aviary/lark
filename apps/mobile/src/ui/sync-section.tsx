@@ -95,6 +95,13 @@ export function SyncSection({ onConflicts }: SyncSectionProps) {
               别的设备删了它们，但这台设备上的文件可能是独一份。
             </Text>
           )}
+          {status.duplicate_source_keys > 0 && (
+            <Text style={styles.note}>
+              有 {status.duplicate_source_keys} 首歌与另一首来源相同——两台设备各自下过同一个
+              视频，合并时两条都留下了（D8：没有一种合并顺序无关地安全）。桌面版的列表里标着
+              「重复」，删掉一条即可。
+            </Text>
+          )}
           {status.last_error !== null && <Text style={styles.failed}>{status.last_error}</Text>}
         </>
       )}
@@ -179,6 +186,22 @@ function LoginForm({
       {status?.configured === true && (
         <Text style={styles.note}>{authReasonLabel(status.auth_reason)}</Text>
       )}
+      {/* N6c. The forced merge is the thing people are surprised by, and it is
+          irreversible: the first login publishes this phone's whole library to
+          the account. Multi-workspace (v1.1) will turn that into a choice; until
+          then the honest move is to say so before the password, not after. */}
+      <Text style={styles.note}>
+        第一次登录是<Text style={styles.strong}>合并</Text>
+        ，不是覆盖：这台手机现有的曲目会推到账号里，账号里已有的会拉下来，两边都不会少东西。
+        同步的是曲目信息——音频不同步，新来的歌显示「需要下载」，播放时再取；两台设备下过同一个视频时会留下两条，删掉一条即可。
+      </Text>
+      <Text style={styles.note}>
+        一个曲库只能绑一个账号，绑定之后不能改绑；要换账号只能清除应用数据重来。
+      </Text>
+      <Text style={styles.note}>
+        不登录也能用，但曲库只在这台手机上：卸载或清除应用数据会把它一起带走。
+        想留个退路，可以在歌单页把整个曲库导出成文件自己存着——导出的是曲目清单，不含音频，导回来会重新下载。
+      </Text>
       <LabelledInput
         label="服务器地址"
         value={url}
@@ -394,7 +417,15 @@ function FailedFileOps({
 // ── bits ──
 
 function describeLoginError(err: unknown): string {
-  if (err instanceof CodedError) return loginErrorMessage(err.code, err.message);
+  if (err instanceof CodedError) {
+    // The shared table's sentence for this one ends with the desktop's way out
+    // — `lark sync unbind` — and there is no CLI on a phone to run it in. Same
+    // fact, an instruction that exists here. The desktop's copy is untouched.
+    if (err.code === 'SYNC_BINDING_MISMATCH') {
+      return '这个曲库已经绑定到另一个账号，不能改绑。要换账号只能清除应用数据重新开始——本机尚未同步的改动会一并丢失。';
+    }
+    return loginErrorMessage(err.code, err.message);
+  }
   return describeError(err, '登录失败');
 }
 
@@ -466,6 +497,7 @@ const styles = StyleSheet.create({
   badgeError: { color: C.danger, backgroundColor: C.surface },
   badgeOff: { color: C.faint, backgroundColor: C.surface },
   note: { color: C.faint, fontSize: 12, lineHeight: 18 },
+  strong: { color: C.text },
   field: { gap: 2 },
   fieldLabel: { color: C.faint, fontSize: 12 },
   fieldValue: { color: C.text, fontSize: 14 },

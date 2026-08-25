@@ -108,6 +108,11 @@
 // failure on a device is a screen that sits there while a video goes through a
 // hash.
 
+// `sync/devices.ts` joined in N6c for the same reason `identity/state.ts` did:
+// a phone shows ONE confirmation — the one for the row somebody tapped — so
+// "the current device is asked differently" cannot be observed there without
+// revoking something for real.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -118,6 +123,7 @@ export default defineConfig({
       'src/library/import.test.ts',
       'src/player/store.test.ts',
       'src/ports/events.test.ts',
+      'src/sync/devices.test.ts',
       'src/sync/triggers.test.ts',
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
