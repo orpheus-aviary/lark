@@ -17,7 +17,7 @@ import {
 } from '@lark/core/portable';
 import type { DownloadRuntime } from '../downloads/engine';
 
-export type { RecognizedSource, SourceTriple };
+export type { RecognizedSource };
 
 /**
  * The triple to store for this url. Throws `InvalidSourceError` for something
