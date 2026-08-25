@@ -280,7 +280,7 @@ function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
           // is the queue: playing from here plays THIS playlist.
           <View style={[styles.rowLine, chosen.has(item.id) && styles.rowChosen]}>
             <Pressable
-              style={styles.row}
+              style={styles.detailRow}
               onPress={() => {
                 if (selecting) {
                   setChosen(toggleOne(chosen, item.id));
@@ -510,7 +510,17 @@ const styles = StyleSheet.create({
   back: { alignSelf: 'flex-start', paddingHorizontal: S.pad, paddingBottom: S.gap },
   detailTitle: { color: C.text, fontSize: 20, paddingHorizontal: S.pad, paddingBottom: S.gap },
   actions: { flexDirection: 'row', flexWrap: 'wrap' },
-  rowLine: { flexDirection: 'row', alignItems: 'center' },
+  // The separator belongs to the LINE, not to the tappable part: with it on
+  // the pressable it stopped where the text stopped, and the ⋮ hung off the
+  // end of a line that had already been drawn (user, 2026-08-25).
+  rowLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+  },
+  /** The detail row's tappable half. `flex: 1` is what pushes ⋮ to the edge. */
+  detailRow: { flex: 1, paddingVertical: 10, paddingHorizontal: S.pad },
   rowMenu: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   rowMenuGlyph: { color: C.muted, fontSize: 20 },
   row: {
@@ -534,5 +544,9 @@ const styles = StyleSheet.create({
   },
   rowMeta: { color: C.faint, fontSize: 12, marginTop: 2 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
-  picker: { maxHeight: 320 },
+  // FIXED, not `maxHeight` (user, 2026-08-25): the list shrinks as a search
+  // narrows it, and a sheet that resizes under your thumb while the keyboard
+  // is up moves the row you were about to tap. Empty space below two results
+  // is the cheaper of the two.
+  picker: { height: 320 },
 });
