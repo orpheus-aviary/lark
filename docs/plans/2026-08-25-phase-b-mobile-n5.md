@@ -218,7 +218,7 @@ apps/mobile/src/
 | **N5b** ✅ | manifest 那一行 + 明文开关的存取（落 `portable/sync-insecure.ts`）+ §8.2 的两句注释 + 判据 66 | 电脑（单测 + **合并 manifest**） |
 | **N5c** ✅ | `CoordinatorContext` 移动装配（§2.2 的七个新建）+ `sync/hub.ts` | 电脑（单测 + 类型） |
 | **N5d** ✅ | 触发器移动版（§2.3 状态机）+ `AppState` 接线 + 会话恢复 · **N5d-2：借 owl 的两条流策略，两端一起改**（§8.6） | 电脑（虚拟时钟单测，13 + 15 条 + 反测） |
-| **N5e** | UI 四块（同步区 / 徽章 / 冲突页 / file-ops） | 电脑（能测的部分）+ 设备会话 |
+| **N5e** ✅ | UI 五块（同步区 / 徽章 / 冲突页 / file-ops / 设备只读列表）+ 补掉 N5c 的歌词缺口 | 电脑（lint + 类型 + 事件映射单测）+ 设备会话 |
 | **N5f** | **一次打包、一次真机会话**：判据 69–73 + 76 一起跑 | 设备，用户跑 |
 
 **N5a 可以立刻开工**（不依赖任何决策）。N5b 起需要决策 a 关闭；N5d 需要 b/c/d；N5e 需要 f/g/h/i。
@@ -246,9 +246,9 @@ apps/mobile/src/
 | 77 ✅ | **进后台 → SSE 断开、定时器停**；**回前台 → 先查 token、再跑一轮**。三条各有断言（虚拟时钟 + `AppState` 假事件）（**N5d**） | 桌 |
 | 78 ✅ | **suspend 不碰 session**：进后台再回来，`sync.epoch` 不变、不需要重新登录（**N5d**，另加一条「不 abort 飞行中的轮次」） | 桌 |
 | 79 ⚠️ | 一个进程只有一个 `SyncRoundQueue`；两个触发同时到只跑一轮。**合流那一半在 core 已测**（`rounds.ts`），**单例那一半只有一个 `if (handles === null)`，没有单测**——如实记在 §8.5 | 桌 |
-| 80 | 冲突页：造一条冲突 → 列表看得到 → 选「用本机的」→ 冲突计数归零，且本机值被重新推出去 | 桌 |
-| 81 | 文件操作失败的处置：造一条失败 op → 同步区看得到计数 → 重试 / 丢弃各走通一次 | 桌 |
-| 82 | 徽章反映五种状态（`syncing` / `auth_required` / `error` / `offline` / `idle`），文案取自 `@lark/shared` 的 `syncBadgeView` | 桌 |
+| 80 ⚠️ | 冲突页：造一条冲突 → 列表看得到 → 选「用本机的」→ 冲突计数归零（**N5e 已实现，判据本身没有自动化**——造一条真冲突要两台设备互相写；`resolveConflict` 的语义在 core 有测，屏幕这一层留给真机会话） | 桌 |
+| 81 ⚠️ | 文件操作失败的处置：造一条失败 op → 同步区看得到计数 → 重试 / 丢弃各走通一次（**N5e 已实现**，同 80：只在失败发生时出现，没有自动化）| 桌 |
+| 82 ✅ | 徽章反映五种状态，文案取自 `@lark/shared` 的 `syncBadgeView`（**N5a 的 16 条单测就是这张映射表**；`ui` 侧是设置 tab 上的小圆点 + 同步区顶部一行）| 桌 |
 | 83 | **退出登录**：session 没了、binding 还在、曲库一行不少；再登录回来不重复 backfill | 桌 |
 | 84 | `just check` / `just test` / `just mobile-typecheck` / bundle smoke 全绿；守卫八条不破（尤其 mobile 只 import portable/shared/skybridge SDK） | 桌 |
 | 85 ✅ | **流开起来要补一轮**（`onOpen` → `runTracked('remote')`）：服务器不重放订阅之前的事件，所以重连后的空档没有任何东西会告诉你（**N5d-2**，两端） | 桌 |
@@ -375,6 +375,22 @@ apps/mobile/src/
 🔴 **一条如实记下的差别**：owl 的 `syncRecoveryCapability` 把「session 从没装过」和「token 被服务器拒了」分成两种能力（前者存的 access token 就能恢复，后者必须有 refresh token）。**lark 两端在 `token_rejected` 之后都没有自动恢复**，只能手动重新登录——既有行为，不是移动端的回归，本批只记账。
 
 ⚠️ **桌面因此被改了第四轮**（N1 重构 · N4a 提取 · N4g/N4i-1 · **本批的流控制器**），而且这一次**有意改变了桌面行为**（daemon 起来就会补一轮，不再等最多 5 分钟）。发版门禁那条账相应变重。
+
+---
+
+### 8.7 N5e 落地（2026-08-25）
+
+**这个里程碑第一次有东西能在屏幕上看见**。四批之前全是「装好但不启动」「启动但没有界面」。
+
+- **文件切分是被行数逼出来的，不是审美**：`settings-tab.tsx` 已经 593 行，同步区是登录表单 + 状态面板 + 设备列表 + 两个队列。塞进去必破 800 硬线，所以是 `ui/sync-section.tsx`（500）· `ui/conflicts-screen.tsx`（207）· `ui/sync-devices.tsx`（117）三个文件。
+- 🔴 **`ports/events.ts` 的默认 sink 被拿掉了，改成必传** —— **N5d 那个教训的第二次**。补歌词缺口要让 `lyrics:changed` 也通知播放器，而播放器 import expo-audio ⇒ `events.ts` 一旦持有真实 sink 就被 `vitest.config.ts` 的白名单挡在门外，那个十二臂 switch 立刻失去全部测试。**wiring 归装配根（`sync/context.ts`），判定留在能测的文件里**，和 `AppState` 一模一样。
+- **N5c 的歌词缺口已补**：`PlayerStore.refreshLyrics(songId)`（不是当前那首就是 no-op），`lyrics:changed` 同时走 `libraryChanged()` 与它。加了一条单测。
+- **两处 React 写法被 biome 顶回来，改法是对的**：`useEffect` + `setRows` 同步数据库 ⇒ 改成**渲染期直接读**。既不是 effect 也不是 `useMemo`——后者键在一个 bump 计数上，就是「带失效令牌的缓存」，等于绕远路做同一件事。冲突表和失败 op 表都是个位数、同步查询，渲染期读最诚实。
+- **徽章按决策 i**：设置 tab 标签旁一个小圆点（`attention > 0` 或 tone 为 warn/error），完整那句话在同步区顶部。**明确不挂 minibar**——N4g 已经把那一行定性为「播放承诺」，再兼职同步状态就是一个位置两个意思。
+- **设备列表按决策 f**：只读、**按需加载**（桌面是打开就拉）。手机上设置页还住着缓存、模型、蓝牙开关，为了改个上限而去请求一次服务器不合适，所以给了按钮。**与桌面的一处不一致，已知**。
+- **明文开关就在登录表单里**，改动即时写 `local_metadata.sync_allow_insecure`（决策 a：一个开关、无二次确认），旁边一段说明写的是实话——「密码和令牌将以明文穿过网络」。
+- ⚠️ **判据 80 / 81 只做到「实现了」**：造一条真冲突要两台设备互相写，造一条失败 file-op 要让文件系统在特定时刻失败——两者都没有自动化，屏幕这一层留给真机会话。`resolveConflict` 的语义本身在 core 有测。
+- 验证：`just check` exit 0 · `just test` **3092 passed** · `mobile-typecheck` exit 0 · biome 零 error。
 
 ---
 

@@ -11,9 +11,11 @@
 // (`settings-tab.tsx`), which is where the model that unlocks four of the add
 // page's refusals is typed. Sync is the last empty thing here, and it is N5.
 
+import { syncBadgeView } from '@lark/shared';
 import { useEffect, useState } from 'react';
 import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { hasShareDraft, subscribeShareDraft } from '../share/draft';
+import { useSyncNow } from '../sync/use-sync';
 import { AddTab } from './add-tab';
 import { MiniBar } from './minibar';
 import { PlayerScreen } from './player-screen';
@@ -32,6 +34,16 @@ export function Shell() {
   // first paint would work too and would flash the wrong screen at someone who
   // just asked for this one.
   const [tab, setTab] = useState<Tab>(() => (hasShareDraft() ? '添加' : '歌曲'));
+  // The sync badge (decision i). Four tabs are full and the top bar's search
+  // belongs to 歌曲/歌单, so this is a dot beside 设置 and the sentence lives
+  // in the sync section itself. It answers one question — is there something
+  // to go and look at — and nothing else.
+  //
+  // Deliberately NOT on the minibar: N4g made that line a play PROMISE, and a
+  // row that also carried sync state would be two meanings in one place.
+  const { status, conflicts } = useSyncNow();
+  const badge = syncBadgeView(status, conflicts);
+  const needsAttention = badge.attention > 0 || badge.tone === 'warn' || badge.tone === 'error';
   // Which playlist is open lives HERE, not in the tab: switching tabs
   // unmounts the tab, and a detail screen that forgot where it was every time
   // you glanced at 设置 is a screen you stop using.
@@ -87,6 +99,7 @@ export function Shell() {
             accessibilityRole="button"
           >
             <Text style={[styles.tabLabel, tab === name && styles.tabOn]}>{name}</Text>
+            {name === '设置' && needsAttention && <View style={styles.dot} />}
           </Pressable>
         ))}
       </View>
@@ -98,6 +111,17 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   backdrop: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end', padding: S.pad },
   sheetHolder: { maxHeight: Dimensions.get('window').height * (2 / 3) },
+  // Absolute so it never widens the tab and shifts the label off centre.
+  dot: {
+    position: 'absolute',
+    top: 8,
+    right: '50%',
+    marginRight: -22,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: C.danger,
+  },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: StyleSheet.hairlineWidth,

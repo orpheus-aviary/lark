@@ -11,34 +11,34 @@
 // exactly what happens below — the list view rebuilds, and the player checks
 // whether the song under its needle still exists.
 //
-// 🔴 ONE KNOWN GAP, recorded rather than papered over: `lyrics:changed` for the
-// song PLAYING RIGHT NOW does not re-read its lyrics. The player loads lyrics
-// when a song starts (`bindPlayer`'s `readLyrics`), and its library-change
-// handler re-resolves the queue and the row but not the words. A peer editing
-// the lyrics of the current song therefore shows up on the next play. The list
-// refresh below is still correct and still worth doing; closing the other half
-// belongs with the lyrics screen (N5e).
+// `lyrics:changed` goes to BOTH: the library signal rebuilds the list, and the
+// player re-reads the words if that song is the one under the needle. The
+// second half was N5c's known gap — the player loads lyrics exactly once, when
+// a song starts, so a peer's edit to the current song would otherwise appear
+// only the next time it played.
 
 import type { EventsBus } from '@lark/core/portable';
 import type { LarkEvent } from '@lark/shared';
-import { libraryChanged } from '../library-signal';
-import { refreshSync } from '../sync/hub';
 
 /**
- * The two places an announcement can land on this phone.
+ * The three places an announcement can land on this phone.
  *
- * Injected so the mapping below can be tested at all: the real sinks reach
- * `library-signal` and the hub, and this file is the only thing in the app
- * that decides which event goes to which. That decision is a switch with
- * twelve arms and no observable effect on a screen — the worst possible shape
- * to verify by looking at a phone.
+ * REQUIRED, not defaulted, and that is the whole design of this file. The real
+ * sinks reach the library signal, the sync hub and the PLAYER — and the player
+ * imports expo-audio, so a default wired up here would make this module
+ * unloadable by `vitest.config.ts`'s allowlist and take the mapping below out
+ * of reach with it. That mapping is a switch with twelve arms and no
+ * observable effect on any screen: the worst possible thing to verify by
+ * looking at a phone.
+ *
+ * Same lesson as N5d's `AppState`, met a second time: the wiring belongs to
+ * the composition root (`sync/context.ts`), the decision stays here.
  */
 export interface EventSinks {
   libraryChanged(): void;
   syncChanged(): void;
+  lyricsChanged(songId: string): void;
 }
-
-const REAL: EventSinks = { libraryChanged, syncChanged: refreshSync };
 
 /**
  * The bus the coordinator writes to.
@@ -50,7 +50,7 @@ const REAL: EventSinks = { libraryChanged, syncChanged: refreshSync };
  * reaches it through `EngineCallbacks` rather than here. Listing them is how
  * the next person can tell "not applicable" from "forgotten".
  */
-export function createEvents(sinks: EventSinks = REAL): EventsBus {
+export function createEvents(sinks: EventSinks): EventsBus {
   return {
     emit(event: LarkEvent): void {
       switch (event.type) {
@@ -58,9 +58,15 @@ export function createEvents(sinks: EventSinks = REAL): EventsBus {
         // player both have to meet what the library now says.
         case 'songs:changed':
         case 'playlists:changed':
-        case 'lyrics:changed':
         case 'cache:evicted':
           sinks.libraryChanged();
+          return;
+
+        // Both, and in this order: the row on the list first, then the words
+        // on the player if that song happens to be playing.
+        case 'lyrics:changed':
+          sinks.libraryChanged();
+          sinks.lyricsChanged(event.song_id);
           return;
 
         // The badge, the counts, and the sentence in the settings page.

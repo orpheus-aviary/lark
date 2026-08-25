@@ -304,9 +304,3 @@ export function syncTriggersOnce(
   }
   return handles;
 }
-
-/** Tests only. See `resetSyncHubForTests`. */
-export function resetSyncTriggersForTests(): void {
-  handles?.stop();
-  handles = null;
-}

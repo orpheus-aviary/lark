@@ -172,6 +172,18 @@ export interface PlayerStore {
    */
   publishNowPlaying(meta: AudioMetadata): void;
   /**
+   * Read this song's lyrics again, if it is the one playing (N5e).
+   *
+   * Sync is the only caller: a peer editing the words of the song under the
+   * needle changes a file on disk, and the player loads lyrics exactly once,
+   * when a song starts. Without this the new words appear the next time that
+   * song plays — which is not wrong so much as unexplainable.
+   *
+   * A no-op for any other song: what is not on screen will be read when it
+   * gets there.
+   */
+  refreshLyrics(songId: string): void;
+  /**
    * Give up the song, the queue and the source.
    *
    * One caller: the song being played was deleted from the library. It is NOT
@@ -547,6 +559,12 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     async setMode(mode) {
       set({ mode });
       deps.persistMode(mode);
+    },
+
+    refreshLyrics(songId) {
+      const song = state.song;
+      if (song === null || song.id !== songId) return;
+      loadLyrics(song);
     },
 
     publishNowPlaying(meta) {

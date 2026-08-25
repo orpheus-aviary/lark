@@ -47,17 +47,26 @@ import { nowPlaying, usePlayback } from '../player';
 import { nestDirectory } from '../ports/paths';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
 import { Chip } from './chip';
+import { ConflictsScreen } from './conflicts-screen';
 import { useLibrary } from './library-context';
+import { SyncSection } from './sync-section';
 import { C, S } from './theme';
 
 export function SettingsTab() {
   const { boot, view } = useLibrary();
+  // The conflicts screen is a full-screen Modal, and it is owned HERE rather
+  // than inside the sync section: a screen that unmounts with the section
+  // that opened it would close itself the moment a round changed the status.
+  const [conflictsOpen, setConflictsOpen] = useState(false);
   // `limit: 0` fetches no rows and still reports the count.
   const total = view.songs({ limit: 0 }).total;
   return (
     // `handled` and not `always`: a tap on 保存 must reach 保存 with the
     // keyboard up (§1.8), while a tap on the scroll area still dismisses it.
     <ScrollView contentContainerStyle={styles.settings} keyboardShouldPersistTaps="handled">
+      <SyncSection onConflicts={() => setConflictsOpen(true)} />
+      {conflictsOpen && <ConflictsScreen db={boot.db} onClose={() => setConflictsOpen(false)} />}
+      <View style={styles.rule} />
       <Llm sqlite={boot.db.sqlite} />
       <View style={styles.rule} />
       <BluetoothLyrics />
@@ -84,7 +93,6 @@ export function SettingsTab() {
         value={`${boot.drained.executed} 条 · ${boot.drained.failed} 失败 · ${boot.drained.skipped} 跳过`}
       />
       <EngineErrors />
-      <Text style={styles.note}>同步在 N5 开放。</Text>
     </ScrollView>
   );
 }

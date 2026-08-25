@@ -17,6 +17,7 @@ import { type EventSinks, createEvents } from './events';
 
 let library = 0;
 let sync = 0;
+let lyrics: string[] = [];
 
 const sinks: EventSinks = {
   libraryChanged: () => {
@@ -25,6 +26,9 @@ const sinks: EventSinks = {
   syncChanged: () => {
     sync += 1;
   },
+  lyricsChanged: (songId) => {
+    lyrics.push(songId);
+  },
 };
 
 const emit = (event: LarkEvent) => createEvents(sinks).emit(event);
@@ -32,6 +36,7 @@ const emit = (event: LarkEvent) => createEvents(sinks).emit(event);
 beforeEach(() => {
   library = 0;
   sync = 0;
+  lyrics = [];
 });
 
 describe('what a pull changed', () => {
@@ -40,11 +45,21 @@ describe('what a pull changed', () => {
   it.each<LarkEvent>([
     { type: 'songs:changed' },
     { type: 'playlists:changed' },
-    { type: 'lyrics:changed', song_id: '11111111-1111-4111-8111-111111111111' },
     { type: 'cache:evicted', song_id: '11111111-1111-4111-8111-111111111111' },
   ])('$type refreshes the library and nothing else', (event) => {
     emit(event);
     expect(library).toBe(1);
+    expect(sync).toBe(0);
+    expect(lyrics).toEqual([]);
+  });
+
+  // Both halves, and the second one was N5c's known gap: the player reads
+  // lyrics exactly once, when a song starts, so a peer's edit to the song
+  // under the needle would otherwise show up only the next time it played.
+  it('lyrics:changed refreshes the list AND the words on the player', () => {
+    emit({ type: 'lyrics:changed', song_id: 'song-1' });
+    expect(library).toBe(1);
+    expect(lyrics).toEqual(['song-1']);
     expect(sync).toBe(0);
   });
 });

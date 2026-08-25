@@ -23,10 +23,12 @@ import { SYNC_PULL_LIMIT_MOBILE } from '@lark/shared';
 import Constants from 'expo-constants';
 import type { BootResult } from '../boot/sequence';
 import { engineLogger } from '../downloads/log';
+import { libraryChanged } from '../library-signal';
+import { player } from '../player';
 import { createSecureCredentialStore } from '../ports/credentials';
 import { deviceName } from '../ports/device';
 import { createEvents } from '../ports/events';
-import { attachSync } from './hub';
+import { attachSync, refreshSync } from './hub';
 import { countQuarantined } from './quarantine';
 
 /**
@@ -87,7 +89,15 @@ function build(deps: SyncContextDeps): CoordinatorContext {
     // carry the server URL — see that file's exposure note.
     logger: engineLogger,
     credentials: createSecureCredentialStore(),
-    events: createEvents(),
+    // The composition root's job: `ports/events.ts` decides WHICH sink an
+    // event goes to, and this is the only place that knows what the sinks
+    // actually are. Wiring them there would drag expo-audio into a module the
+    // test config has to be able to load (see that file).
+    events: createEvents({
+      libraryChanged,
+      syncChanged: refreshSync,
+      lyricsChanged: (songId) => player.refreshLyrics(songId),
+    }),
     now: Date.now,
     deviceName,
     api: realSkybridgeApi,
@@ -116,9 +126,4 @@ function build(deps: SyncContextDeps): CoordinatorContext {
 function appVersion(): string {
   const version = Constants.expoConfig?.version;
   return typeof version === 'string' && version !== '' ? version : '0.0.0';
-}
-
-/** Tests only. See `resetSyncHubForTests`. */
-export function resetSyncContextForTests(): void {
-  context = null;
 }

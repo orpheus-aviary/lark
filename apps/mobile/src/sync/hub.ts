@@ -68,14 +68,3 @@ export function subscribeSync(listener: () => void): () => void {
 export function getSyncState(): SyncHubState {
   return state;
 }
-
-/**
- * Forget everything. Tests only — a module singleton outlives a test file, and
- * one leaving its coordinator behind makes the next one pass for the wrong
- * reason.
- */
-export function resetSyncHubForTests(): void {
-  ctx = null;
-  state = EMPTY;
-  listeners.clear();
-}
