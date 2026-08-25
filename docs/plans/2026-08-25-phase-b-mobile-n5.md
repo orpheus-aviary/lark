@@ -154,7 +154,7 @@ apps/mobile/src/
 | `now` | `Date.now` | `Date.now` | ✅ |
 | `deviceName` | `os.hostname()` | 决策 **e** | 新建 |
 | `api` | `ctx.skybridge` | `realSkybridgeApi`（`portable/coordinator/client.ts:47`），SDK 已是 mobile 依赖 | ✅ 现成 |
-| `fileOps` | `ctx.fileOps` | `boot.fileOps`（N2 就有的 `FileEffectRuntime`） | ✅ 现成 |
+| `fileOps` | `ctx.fileOps` | 🔴 **`downloadRuntimeOnce(boot).fileOps`，不是 `boot.fileOps`**（§8.4 更正） | ✅ 现成 |
 | `countQuarantined` | 数 `recovered-songs/` 下的目录 | 同语义，`recoveredSongsRoot()` 已存在（`ports/song-files.ts:57`） | 新建（约 10 行） |
 | `intervalMin` | `config.sync.interval_min` | 决策 **d** | 新建 |
 | `pullLimit` | `SYNC_PULL_LIMIT`（500） | `SYNC_PULL_LIMIT_MOBILE`（200），**§1.8 要复测** | ✅ 常量已在 |
@@ -216,7 +216,7 @@ apps/mobile/src/
 |---|---|---|
 | **N5a** ✅ | **纯桌面**：`sync-labels` 提取进 `@lark/shared`（characterization 先行，GUI 改直接 import，`SYNC_INSECURE_URL` 措辞改写）+ **文档口径统一**（判据 65，用户 2026-08-25 要求从 N5b 提到本批——否则有一整批的时间里 `PROCESS.md` 还写着「TLS 硬阻塞」） | 电脑，桌面全测试 |
 | **N5b** ✅ | manifest 那一行 + 明文开关的存取（落 `portable/sync-insecure.ts`）+ §8.2 的两句注释 + 判据 66 | 电脑（单测 + **合并 manifest**） |
-| **N5c** | `CoordinatorContext` 移动装配（§2.2 的七个新建）+ `sync/hub.ts` | 电脑（单测 + 假 API 驱动整条登录序列） |
+| **N5c** ✅ | `CoordinatorContext` 移动装配（§2.2 的七个新建）+ `sync/hub.ts` | 电脑（单测 + 类型） |
 | **N5d** | 触发器移动版（§2.3 状态机）+ `AppState` 接线 | 电脑（虚拟时钟单测）+ 设备会话 |
 | **N5e** | UI 四块（同步区 / 徽章 / 冲突页 / file-ops） | 电脑（能测的部分）+ 设备会话 |
 | **N5f** | **一次打包、一次真机会话**：判据 69–73 + 76 一起跑 | 设备，用户跑 |
@@ -328,6 +328,18 @@ apps/mobile/src/
 - **manifest 对着构建产物验的，不是对着配置文件**（照 D14 判据 10⑤ 的规矩）：`just mobile-prebuild` 之后跑 `:app:processReleaseMainManifest`，**合并后的 release manifest** 里 `android:usesCleartextTraffic="true"` 在，且 **D16 的三个属性一个没被顶掉**（`allowBackup="false"` · `dataExtractionRules` · `fullBackupContent` 全是我们那份）——`with-backup-rules.js` 是「宁可抛也不覆盖别人写的值」，多加一条 build-property 原则上可能撞上它，实测没撞。`minSdkVersion=26` / `targetSdkVersion=36` 未变。
 - **判据 66 一并关掉**（它不是独立工作量，是 manifest 那一行的直接后果——落地那一刻那段注释就变成谎话）。改法是**如实分档**而不是删：① `streamSchemeIsHttps` **仍然有意义**，它从「门」降级成「唯一会报告这台设备拿到了哪种 scheme 的地方」；② `streamIsReachable` **的 cleartext 那一半死了**，剩下的只是「字节在那里」。留着而不是删掉——一条不再证明其中一半的判据，安静地拿掉正是下一个人得出「保证还在」的方式。
 - 验证：`just check` exit 0 · `just test` **3050 passed**（= 3036 + 新增 14）。
+
+---
+
+### 8.4 N5c 落地（2026-08-25）
+
+- 🔴 **§2.2 的 `fileOps` 那一行我写错了，这是本批最有价值的一条更正**。表里写的是「`boot.fileOps` ✅ 现成」。**错的**：boot 的 `FileEffectRuntime` 是在下载引擎存在之前造的，**没有 claim registry**；而 N4b 之后 `LibraryService` 拿的是 `downloadRuntimeOnce(boot).fileOps`（`App.tsx:68` 有明写的注释）。协调器要是拿 boot 那个，**远端删除的 drain 会和正在写同一首歌的下载各自对着一个没人共用的登记表仲裁**——正是 registry 存在的理由。协调器现在与库拿同一个。顺带修掉 `BootResult.fileOps` 上那段**N4 之后就不成立**的注释（它写着「the services the caller assembles have to use THIS one」）。
+- **`SYNC_PULL_LIMIT_MOBILE` 在 `@lark/shared` 不在 portable**（写的时候按错的地方 import 了一次）。
+- **logger 的 R3 复看结论：复用 `engineLogger`，环从 5 行加到 10**。理由是它**早就不是下载引擎专属**——cache runtime 也在写它。两个话多的子系统共用五行，等于吵的那个把另一个唯一的证据擦掉。**没有改名**（三个文件的 churn），但**改了设置页的标签**：「最近的下载错误」→「最近的错误」——一条 sync 失败挂在「下载错误」下面是用户会读到的谎话。曝光面那段注释加了一句：raw error 现在还可能带 skybridge 的 server URL。
+- **`ports/events.ts` 加了注入缝，并做成编译期穷尽**（`event satisfies never`）。缝是为了**能测**：移动端的 vitest include 是显式白名单，碰 RN/expo 的文件不许被收集，而这个 switch 有十二条臂、在屏幕上零可观测差异。**反测过**：把 `lyrics:changed` 误接到 sync 那一路 + 让下载事件也刷库 ⇒ 7 红；还原 ⇒ 14 绿。
+- 🔴 **两条如实记下的缺口**：① **`lyrics:changed` 不会让正在播放的那首歌重读歌词**——播放器在起播时读一次（`bindPlayer` 的 `readLyrics`），它的库变更处理器重解队列和行、不重读词；对端改了当前歌的歌词要到下次播放才看得到。归 **N5e**。② **`sync:file_quarantined` 今天没有任何东西会发**——`FileEffectRuntime` 通过 `onQuarantine` 选项宣告，boot 与 engine 两处装配都没传（daemon 传了三处）。影响有限：`quarantined_count` 在 status 上，而一轮同步前后都刷 status ⇒ 接上回调改变的是**什么时候**被告知，不是**会不会**。
+- **本批没有起任何东西**：构造 context 不开 socket、不装定时器、不读凭证（`SyncRuntime` 出生就是无 session / `auth_required`）。触发器是 N5d。
+- 验证：`just check` exit 0 · `just test` **3064 passed**（= 3050 + 新增 14）· `mobile-typecheck` exit 0。
 
 ---
 

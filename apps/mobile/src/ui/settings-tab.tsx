@@ -520,7 +520,7 @@ function EngineErrors() {
   const lines = useSyncExternalStore(subscribeEngineErrors, engineErrors);
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>最近的下载错误</Text>
+      <Text style={styles.fieldLabel}>最近的错误</Text>
       {lines.length === 0 ? (
         <Text style={styles.fieldValue}>—</Text>
       ) : (

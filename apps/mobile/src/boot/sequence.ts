@@ -70,13 +70,14 @@ export interface BootResult {
   /**
    * The journal runtime step ⑪ drained, handed on rather than rebuilt.
    *
-   * `LibraryService` takes a `FileEffectLike` and `deleteSong` drains it
-   * unconditionally, so the services the caller assembles have to use THIS
-   * one: two runtimes over one journal would arbitrate song files against
-   * two different claim registries, which is the race the registry exists to
-   * prevent. (The desktop separates them because its boot drain runs before
-   * the download engine exists and the long-lived one shares the engine's
-   * registry; there is no engine here until N4.)
+   * ⚠️ THIS ONE IS BOOT'S, AND ONLY BOOT'S — the note that used to stand here
+   * said the caller's services must use it, and N4 made that false. Boot
+   * drains before a download engine exists, so its registry is correct for
+   * boot and wrong for everything outliving it: `LibraryService` (N4b) and the
+   * sync coordinator (N5c) both take `downloadRuntimeOnce(boot).fileOps`
+   * instead, because a delete unlinking a song's audio and a download
+   * replacing it can only take turns through ONE claim registry. Which is the
+   * shape the desktop has always had (`daemon/src/boot.ts`).
    */
   fileOps: FileEffectRuntime;
   /** What step ⑪ found waiting. */

@@ -16,16 +16,24 @@
 // because it paid for itself three times in one session — the runtime's
 // missing `throwIfAborted`, and both silent naming fallbacks.
 //
+// IT IS NO LONGER THE DOWNLOAD ENGINE'S. The cache runtime writes here too,
+// and from N5c so does the sync coordinator — which is why the ring is 10
+// lines rather than 5: two talkative subsystems sharing five would mean the
+// louder one erases the other's only evidence. The name stayed `engineLogger`
+// because renaming it is churn across three files; the settings page label did
+// not, because "最近的下载错误" over a sync failure is a lie a user reads.
+//
 // ⚠️ IT CARRIES RAW ERRORS, and a raw error can carry a provider's response
-// body (§1.4). Redaction was deliberately not done (§8.2), so this screen can
-// in principle show something a screen should not. The exposure is bounded —
+// body (§1.4) or — since N5c — a skybridge server URL. Redaction was
+// deliberately not done (§8.2), so this screen can in principle show something
+// a screen should not. The exposure is bounded —
 // five lines, in-memory, gone on restart, and never on the wire — and it is
 // the price of an INTERNAL_ERROR being explainable at all. Revisit it with
 // redaction, not by taking the window away again.
 
 import type { StructuredLogger } from '@lark/core/portable';
 
-const RING = 5;
+const RING = 10;
 const lines: string[] = [];
 const listeners = new Set<() => void>();
 

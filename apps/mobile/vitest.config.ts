@@ -84,6 +84,13 @@
 // `Linking.openURL` — a list that is only interesting for the entries nobody
 // would type on purpose (`intent://`, `file://`).
 
+// `ports/events.ts` joined in N5c, and it is the first `ports/` entry — every
+// other one in that directory reaches a native module, this one reaches only
+// `@lark/core/portable` and two pure app modules. What it holds is a switch
+// with twelve arms whose effect is invisible on a screen: "the list did not
+// refresh" says nothing about whether an event went to the wrong sink, was
+// dropped, or was never emitted. The sinks are injected for exactly that.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -92,6 +99,7 @@ export default defineConfig({
       'src/identity/state.test.ts',
       'src/library/batch.test.ts',
       'src/player/store.test.ts',
+      'src/ports/events.test.ts',
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/cancel.test.ts',
