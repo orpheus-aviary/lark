@@ -30,7 +30,7 @@
 | D12 | 移动端导入 | v1 不做本地**音频**文件导入（服务层留能力位、「添加」页留入口）。私有目录卸载即删，且 D16 主动把它排除在系统备份之外——`imported` 是用户资产（R1/R26），开放音频导入前必须先有导出/备份故事。**2026-08-17 修订（用户决定）**：这条只约束音频。**歌单 json 不受它约束**——导入产出的是带 `source_key` 的行 + 按需下载的 `downloaded` 文件，全部可重建，卸载重装 + 同步即可复原，没有「只此一份」的东西被创造出来。歌单导出/导入的落位见 §4.5 与 N0 子计划 §5。 |
 | D13 | 分享 intent | bilibili app 分享 → lark「添加」页。 |
 | D14 | 分发与身份 | 侧载 APK，target 36。N0b 定死：applicationId `com.orpheusaviary.lark`；APK 版本线 0.1.0、versionCode=1；keystore 主副本入加密凭证库 + 独立加密备份（alias / 证书 SHA-256 / 密码 + 恢复演练），不进仓库与 CI artifact。developer verification：截至 2026-08，9 月底的要求只覆盖特定参与商店与地区，**直接侧载暂不受影响**，全球扩大在 2027——**N6 设正式 go/no-go** 复查当时政策。 **2026-08-18（N0b-5b）落定**：keystore 已生成（RSA 4096 / alias `lark` / 有效期至 2054-01-03），主副本与密码同放 `orpheus-aviary/android-keystore/`（用户拍板，见子计划 §9），恢复演练已过；政策快照复核结果同段——**adb 安装明确豁免**，2026-09-30 只覆盖巴西/印尼/新加坡/泰国的参与商店，测量设备在中国不在其列，真正相关的是 2027 全球扩大；若届时需要注册，**limited distribution account**（免费、无需政府 ID、上限 20 台）是匹配形态，注册对象是**包名 + 证书 SHA-256**。 |
-| D15 | 传输安全 | 移动端 v1 只支持 https。TLS：负责人 = 用户，AI 协助实施；与 N1 并行、最迟 N4 结束前完成、N5 前置验证。验收：域名 + DNS · 证书 + 自动续期（告警 + 演练）· 反代 · 两端 `server_url` 迁移 · 真机连通。 |
+| D15 | 传输安全 | **2026-08-25 Stage-4 改写（见下）**：~~移动端 v1 只支持 https~~ → **移动端同时支持 https 与明文 http，由设置页的一个开关决定是否接受明文**。TLS 从「N5 前置」降为**后续**，不阻塞任何批次；负责人仍 = 用户，AI 协助。做的时候验收不变：域名 + DNS · 证书 + 自动续期（告警 + 演练）· 反代 · 两端 `server_url` 迁移 · 真机连通。 |
 | D16 | Android 备份/迁移 | `allowBackup=false` + `dataExtractionRules`（12+）与 `fullBackupContent`（11-）显式排除 database/files/sharedprefs/音频/SecureStore 存储（处理 expo-secure-store 插件自动配置冲突）。恢复检测：启动服务/migration/凭证之前，**只读隔离最小打开** DB 读 `install_id` 与 no-backup/Keystore 侧比较后立即关闭；DB 不存在 → 全新库生成双侧；两侧相等 → 正常；任一缺失或不等 → fail closed（不启 sync，清 binding 走重新绑定，曲库数据保留）。**凭证生命周期**：fail closed 时同步清除 SecureStore 旧凭证条目（与 binding 一起）。**收敛（防死循环）**：清理完成后**生成新 install ID 写入两侧**（先写 no-backup 侧意图记录 → 写 DB → 确认；可重入，写一半崩溃重启续写）——否则「检测不一致 → 清理 → 下次 ID 仍不一致 → 再 fail closed」永不收敛；ID 收敛后本地曲库正常可用，sync 保持未绑定等待重新登录。N2 gate 含 D2D restore 测试。 **2026-08-18（N0b-5a）机制落定**：零写打开 = copy-then-open（50MB 库 max 75ms / 带 4MB 热 WAL max 150ms，原件零写）；no-backup 侧 = SecureStore（`requireAuthentication: false`，卸载重装读不出）；排除规则由我方 CNG plugin 全量持有——**`allowBackup=false` 只关云备份，D2D 要 `<device-transfer>`**。详见 §4.3 Stage-2 段。 |
 | D17 | 音频 canonical 与 bilibili codec | canonical = AAC in ISO-BMFF、ExoPlayer 可播可 seek。codec 选择在候选列表阶段：解析 `codecs`（`mp4a.40.*`），AAC 候选内按目标带宽取流；无 AAC：桌面转码、移动端拒绝并报错；codecs 缺失视为非 AAC。raw fMP4 直存达标与否 N0b 实测；JS remux 是须过大文件内存测试的候选。 **2026-08-18（N0b-4b）实测：达标，移动端不做 remux**，三级兜底一级未进；详见 §4.3 Stage-2 段。 |
 
@@ -215,9 +215,17 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 >
 > 另：**D14 落定**（applicationId `com.orpheusaviary.lark`、APK 0.1.0 / versionCode 1、keystore 已生成并做过恢复演练，位置与指纹见子计划 §9）；**分享 intent（D13）平台侧成立**，但分享文本只有 b23.tv 短链、没有 bvid，且**收藏夹分享不到系统面板**——N4 的添加页据此设计。
 
-> **2026-08-20 Stage-3 修订**（用户决定，N4 开工前）：**TLS（D15）移出 N4**。下表 N4 行原本写着「TLS 完成死线」——作废。准确口径是：**TLS 不阻塞 N4 的任何子批**（下载链路完全不碰 skybridge），但**硬阻塞 N5**——server 今天仍是 `http://<公网IP>:8443`，而移动端 v1 是 https-only（D15）。N5 开工前必须二选一：补完 TLS（域名 + 证书 + 自动续期 + 反代 + 两端 `server_url` 迁移 + 真机连通），或者单独决定「移动端要不要一个明文开关」。这条同时进 `PROCESS.md` 的待办，**不算被 N4 消掉**。
+> **2026-08-20 Stage-3 修订**（用户决定，N4 开工前）——⚠️ **其中「硬阻塞 N5」一句已被下面的 Stage-4 修订推翻，本段留作历史**：**TLS（D15）移出 N4**。下表 N4 行原本写着「TLS 完成死线」——作废。准确口径是：**TLS 不阻塞 N4 的任何子批**（下载链路完全不碰 skybridge），但**硬阻塞 N5**——server 今天仍是 `http://<公网IP>:8443`，而移动端 v1 是 https-only（D15）。N5 开工前必须二选一：补完 TLS（域名 + 证书 + 自动续期 + 反代 + 两端 `server_url` 迁移 + 真机连通），或者单独决定「移动端要不要一个明文开关」。这条同时进 `PROCESS.md` 的待办，**不算被 N4 消掉**。
 >
 > 同段落另记 N4 的三处范围扩张（同一次用户决定）：**LLM 设置页进 N4**（关键词搜索 / clean 命名 / 多 P 自动选集 / 重新识别四条能力，配置落 `local_metadata` + SecureStore）· **收藏夹 / 合集批量下载进 N4**（不再等 N6 的多选批量）· **加 dataSync 前台服务**（下载在应用不可见时继续）。详见子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md`。
+
+> **2026-08-25 Stage-4 修订**（用户决定，N5 开工时）：**D15 的「移动端 v1 只支持 https」作废，TLS 不再阻塞 N5。**
+>
+> 新口径：**移动端同时支持 https 与明文 http**，由**设置页的一个开关**（`local_metadata.sync_allow_insecure`）决定是否接受明文；lark 自己那道门（`portable/sync/server-url.ts` 的 `allow_insecure_http`）原样留着，Android 平台那道门（`usesCleartextTraffic`）拆掉。理由是产品形状而不是省事：**其他用户会自建 server**，让他们先能用明文 IP 跑起来，比先要求每人搞定域名 + 证书更重要；而「只给某个 IP 开洞」和「支持任意自建 server」互斥——`networkSecurityConfig` 的 host 白名单是编译期 XML，运行时没有加例外的 API。
+>
+> **同一次决定的第二条**：**接受音频走明文**。拆掉平台那道门之后，bilibili 音频流 / 歌词平台 / 用户自填的 LLM 端点都不再被强制 https。代价明确记在 N5 子计划 §1.7 与 `apps/mobile/src/acceptance/downloads.ts` 的注释里——**判据 5 的第二半从此不证明任何东西**，注释改写而不是假装它还被守着。
+>
+> **TLS 转为后续**（负责人仍 = 用户）：`PROCESS.md` 的待办保留，措辞从「N5 开工前二选一」改成「已选明文开关，TLS 转后续」。真做的时候有一条大陆特有的坑链——阿里云未备案域名的 80/443 被拦 ⇒ 只能用非标端口 ⇒ HTTP-01 与 TLS-ALPN-01 都走不通 ⇒ 必须 DNS-01（Caddy 要带 `caddy-dns/alidns` 重新构建）；另有 Let's Encrypt 的 IP 证书（6 天 shortlived）可完全绕开域名，链路未验。详见 N5 子计划 §0.1。
 
 | 批 | 内容 | gate |
 |---|---|---|
@@ -227,7 +235,7 @@ apps/mobile (@lark/mobile, Expo SDK 57 + CNG)
 | N2 | **D16 身份门（顺序在打开原库之前）** + 移动数据层（完整打开分派 + `ensureDeviceUuid` 下沉）+ 端口实现与 **file-op 执行器** + 服务层接线 + 曲库/歌单读写 + 四 tab 骨架 + **蓝牙歌词的判定函数**（`@lark/shared` 纯函数 + config 字段，接线在 N3）。**子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`（v3，两轮评审收敛，决策 a–o 待关闭）**；头号决策 a = **原子替换**（expo-file-system 57 在 Android 上两条路都堵着，见子计划 §1.5）。**相对主计划本行的三处范围修订**：① **file-op 执行器与 boot drain 从 N4 提前到 N2，且控制面从桌面 `FileEffectRuntime` 提取进 portable**（`deleteSong` 无条件 drain、契约断言目录已删，三者无法同时成立；两套 scheduler 到 N5 必然漂移——子计划 §1.8）；② **`ensureDeviceUuid` 下沉进 portable**（它今天是桌面专有的，缺它则一切业务写入抛错——子计划 §1.7）；③ **D16 的完整 D2D restore 拆成独立 gate**（`bmgr` 证明不了 device-transfer 那条路，子计划判据 16b） | 真库副本可读写 + LibraryContract 18 例三 hook 全绿 + D16 四组 |
 | N3 | 播放：PlayerDriver + minibar + 全屏歌词页 + 队列 + 后台/锁屏/焦点 + **蓝牙歌词接线**（订阅行号变化 → `updateLockScreenMetadata`，节流按行不按时间；开关 UI）。**耳机断开自动暂停等写成行为验收判据，不锁定回调接口**（expo-audio 由库层自动停止，官方无 becoming-noisy 事件 API） | 真机整晚播放不掉 + 行为判据 |
 | N4 | 下载：AAC 选流 + RN 落盘 + 添加页 + 分享 intent + ensure-file + 缓存管理。**~~TLS 完成死线~~（2026-08-20 Stage-3 修订：移出，见上）**；**同次修订加进本批**：LLM 设置页与四条能力 · 收藏夹/合集批量 · dataSync 前台服务。子计划 `docs/plans/2026-08-20-phase-b-mobile-n4.md`（**v2，一轮反例评审收敛**，七批 N4a–N4g / 判据 40 条 / 决策 a–p）。**桌面侧三处提取**（preflight / EvictionScheduler+SongLeaseRegistry+canRedownload / AudioLanding 契约）一律零行为变化 | 真实 bilibili 闭环 |
-| N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI。**开工前置（Stage-3 修订后唯一的 TLS 关口）**：TLS 验收全过，或用户单独决定移动端的明文口径 | 与桌面双端真机 soak |
+| N5 | 同步：移动接线（端口注入 SyncCoordinator）+ 徽章/冲突页/file-ops UI + **明文开关**。**~~开工前置：TLS 关口~~（2026-08-25 Stage-4 修订：用户选了明文开关，TLS 不再阻塞）**。子计划 `docs/plans/2026-08-25-phase-b-mobile-n5.md`（六批 N5a–N5f / 判据 65–84 / 决策 a–j 全关） | 与桌面双端真机往返 |
 | N6 | ~~多选批量~~（2026-08-24 移到 N4i）+ 歌单导入 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go | 验收 harness |
 
 > **2026-08-24 顺序修订**（用户决定）：N4 尾部插两批，执行顺序 **N4h（多行粘贴，已完成）→ N4g（ensure-file + 缓存管理 + 歌单导出 + 重新下载）→ N4i（歌曲页多选批量 + 行菜单补齐：复制链接 / 用 app 打开 / 更改链接含重新识别）**。字母是登记顺序不是执行顺序。多选批量因此从 N6 提前——它与行菜单是同一屏的同一套手势，分两批做等于把一个交互决定拆开两次。范围见 `docs/plans/2026-08-24-phase-b-mobile-n4h.md` 头部。
