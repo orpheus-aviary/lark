@@ -822,7 +822,11 @@
 
 **N5e 完成**（UI 五块 + 补掉 N5c 的歌词缺口）——**这个里程碑第一次有东西能在屏幕上看见**。`ui/sync-section.tsx`（500 行：登录表单含明文开关 · 状态 · 立即同步/退出登录 · 隔离提示 · 失败 file-op 的重试/放弃）· `ui/conflicts-screen.tsx`（207，全屏 Modal，二选一 + CAS 失败如实报）· `ui/sync-devices.tsx`（117，只读、**按需加载**）。**切三个文件是被行数逼的**：`settings-tab.tsx` 已 593 行，塞进去必破 800 硬线。🔴 **`ports/events.ts` 的默认 sink 改成必传——N5d 那个教训的第二次**：补歌词缺口要通知播放器，而播放器 import expo-audio ⇒ `events.ts` 一旦持有真实 sink 就被 vitest 白名单挡在门外，十二臂 switch 立刻失去全部测试；**wiring 归装配根，判定留在能测的文件里**。**歌词缺口已补**：`PlayerStore.refreshLyrics(songId)`（不是当前那首就 no-op）。**两处 React 写法被 biome 顶回来**：`useEffect` + `setRows` 同步数据库 ⇒ 改成**渲染期直接读**（`useMemo` 键在 bump 计数上就是「带失效令牌的缓存」，绕远路做同一件事）。**徽章按决策 i**（设置 tab 标签旁小圆点，明确不挂 minibar——N4g 已把那一行定性为播放承诺）· **设备列表按决策 f**（只读；按需加载是**与桌面的一处已知不一致**）。⚠️ **判据 80 / 81 只做到「实现了」**：造真冲突要两台设备互写、造失败 file-op 要文件系统在特定时刻失败，都没自动化，留给真机会话。验证：`just check` exit 0 · `just test` **3092 passed**。
 
-**下一站**：N5 同步（**TLS 已不再阻塞**——2026-08-25 用户选了移动端明文开关，主计划 §4.3 Stage-4 修订）· N6 歌单导入 + 收尾发布。
+**N5f 真机会话完成 —— N5 收官**（2026-08-25，一次打包一次会话，**判据 69–73 全绿**）。手机端用户跑，桌面端实证由我从副本库里读出来：**69** 开关关着填 `http://` 被挡住 · **70** 副本 nest 出现 `skybridge.toml`（0600）· **71** 副本库**已推送 104 条 / 未推送 0**，手机的 **11 首歌 + 1 个歌单**到达桌面 · **72** 两个方向都收敛，两端最终都是 **18 首** · **73** 副本 **18 个歌曲目录只有 8 个 `song.m4a`**，手机屏幕上三行「需要下载」 · 附带 **0 冲突 / 0 文件操作 / 0 死信**，设置 tab 旁无小红点。游标 `pulled 1729 / pushed 1727`——那个 workspace 上确有 v0.2 soak 的历史，用户明确选择「就用现有账号，都是测试产物」。🔒 **真实 nest 全程未绑定**（无 `skybridge.toml`、`songs.db` 大小未变），桌面跑在 `just backup-nest ~/lark-n5` 的副本上；⚠️ **那个副本现在是已绑定状态**，以后不带 `LARK_NEST_DIR` 起 daemon 会开到真库。**装包时踩到一条**：`am start -n .../.MainActivity` 起不来而 `monkey -c LAUNCHER` 能（N4d 的 singleTask + intent filter 之后，不带 category 的显式启动静默失败），已进 LESSONS。**收尾清理**：删掉三个没有任何测试在用的投机导出（`resetSync*ForTests`）· 端口 47100/8081 空闲 · Gradle daemon 已停 · 无 `adb reverse` 残留。
+
+🔴 **N5 未了的三笔**（都已登记，不是新待办）：判据 **76**（`SYNC_PULL_LIMIT_MOBILE` 在竞争条件下复测，要 ~2000 行合成负载，**单独一批**；R5 的 200 仍是空载下界）· 判据 **80 / 81**（冲突页与失败 file-op 的界面已实现，但没有自然触发条件、也没有自动化）· 决策 **b** 的后台同步（**暂时不做**，留在账上）。
+
+**下一站**：**N6**（歌单导入 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go）。
 
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
@@ -960,6 +964,8 @@ v1 那条读源码读出来的发现原样保留：
 - [x] **跨仓文档跟进 0.3.0**（2026-08-17）：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md`
 - [x] **Phase B 移动版子计划**（2026-08-17，`aa63eac`）：N0 详案 + 全期框架 → 上面的 Phase B 段
 - [ ] **锁屏 / 通知栏的暂停键接进 JS**（N4g 决策 j 的缺口）：`modules/lark-audio` 加一个 media-session 回调面，让它也能作废等待中的 ensure。**2026-08-25 用户决定先不做**；实际使用中被咬到再捡起来
+- [ ] **判据 76：`SYNC_PULL_LIMIT_MOBILE` 在竞争条件下复测**（N1 的 R5 明账，N5f 没跑）——要一次 ~2000 行的合成负载，一边播放一边拉 200/批，p95 ≤ 100ms；超了就把常量降到 100（无协议含义）。**真实两端加起来只有 18 首，跑不出这个判据**
+- [ ] **判据 80 / 81 的界面证据**（N5e 实现了，N5f 没有自然触发条件）：造一条真冲突要两台设备互写，造一条失败 file-op 要文件系统在特定时刻失败。下次两端 soak 时顺带看一眼
 - [ ] 🔴 **下个桌面版本的发版门禁：accept 全系列复跑**（N1 判据 22 + N4a/N4g/N4i-1 的桌面改动）——`accept-gui`（15）· `accept-m5`（22，真 bilibili）· `accept-cli`（27，真二进制）· `accept-sync`（34，真 server 两台 daemon）· `accept-pack`（28，对新构建的 dmg/tgz）。**自 v0.3.0 之后一条都没跑过**，而桌面被改了四轮
 - [ ] **TLS（D15）—— 已从阻塞降为后续**（2026-08-25 主计划 §4.3 **Stage-4 修订**：用户选了「移动端一个明文开关」这条路，TLS **不再阻塞 N5 或任何批次**）：skybridge server 仍是 `http://<公网IP>:8443`。真要做时的验收不变（域名 + DNS · 证书 + 自动续期告警与演练 · 反代 · 两端 `server_url` 迁移 · 真机连通），**负责人 = 用户，AI 协助**。⚠️ 大陆 ECS 有一条坑链：未备案域名的 80/443 被拦 ⇒ 非标端口 ⇒ HTTP-01 / TLS-ALPN-01 都走不通 ⇒ 只剩 DNS-01（Caddy 需带 `caddy-dns/alidns` 重建）；LE 的 IP 证书（6 天 shortlived）可绕开域名但链路未验。见 N5 子计划 §0.1
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
