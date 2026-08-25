@@ -77,12 +77,20 @@
 // phone. It imports `@lark/core/portable` for real values and one TYPE from
 // the boot sequence, which the compiler erases.
 
+// `library/batch.ts` + `library/links.ts` joined in N4i-2, and both are about
+// something a device answers expensively or not at all: a batch whose third
+// item failed (you would have to break one delete on purpose, on a phone, with
+// a real library), and WHICH url strings are allowed to reach
+// `Linking.openURL` — a list that is only interesting for the entries nobody
+// would type on purpose (`intent://`, `file://`).
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     include: [
       'src/identity/state.test.ts',
+      'src/library/batch.test.ts',
       'src/player/store.test.ts',
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',

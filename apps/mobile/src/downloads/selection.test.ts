@@ -5,19 +5,16 @@
 // submit at all. The device half of criterion 31 is whether the rows on screen
 // are the rows that end up in the playlist; this is whether the model behind
 // them can be.
+//
+// It spans TWO files since N4i-2, and deliberately stayed one test: the tick
+// model moved to `library/selection.ts` (the songs tab ticks songs with it)
+// while the download-shaped rows stayed here, and what these cases are about
+// is the two halves working together.
 
 import { DOWNLOAD_BATCH_ITEMS_MAX } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import {
-  allChosen,
-  chooseAll,
-  chosenRows,
-  listRows,
-  overItemLimit,
-  pickable,
-  toggleEvery,
-  toggleOne,
-} from './selection';
+import { allChosen, chooseAll, chosenRows, toggleEvery, toggleOne } from '../library/selection';
+import { listRows, overItemLimit, pickable } from './selection';
 
 const video = (n: number) => ({
   key: `BV${n}`,

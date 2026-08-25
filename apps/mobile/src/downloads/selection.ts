@@ -16,15 +16,15 @@
 //
 // GENERIC SINCE N4h, because the picker grew a second source: a pasted block of
 // lines, where the row is a line rather than a video and two of them can be the
-// same link written differently. What every source owes this file is a stable
-// key; what it means is the source's business.
+// same link written differently. What every source owes the tick model is a
+// stable key; what it means is the source's business — and since N4i-2 the
+// tick model itself lives in `library/selection.ts`, because the songs tab
+// ticks songs with it.
 
 import { DOWNLOAD_BATCH_ITEMS_MAX, type FetchListData } from '@lark/shared';
+import type { Pickable } from '../library/selection';
 
-/** Anything this file can tick: it needs an identity and nothing else. */
-export interface Pickable {
-  key: string;
-}
+export type { Pickable };
 
 /**
  * What the picker screen draws, whatever produced it (N4h).
@@ -88,46 +88,6 @@ export function pickable<T extends Pickable>(rows: readonly T[]): readonly T[] {
     seen.add(row.key);
     return true;
   });
-}
-
-/** Everything ticked — how a freshly expanded list arrives (decision e). */
-export function chooseAll(rows: readonly Pickable[]): ReadonlySet<string> {
-  return new Set(rows.map((row) => row.key));
-}
-
-/** One row's checkbox. A new set every time: React compares by identity. */
-export function toggleOne(chosen: ReadonlySet<string>, key: string): ReadonlySet<string> {
-  const next = new Set(chosen);
-  if (!next.delete(key)) next.add(key);
-  return next;
-}
-
-/**
- * The header's single button, which is 全不选 when everything is ticked and
- * 全选 otherwise (the desktop's `toggleAll`, same rule).
- *
- * "Everything" is counted against the rows, not against the set: a set holding
- * a bvid that is not in this list would otherwise make a full selection look
- * partial forever.
- */
-export function toggleEvery(
-  chosen: ReadonlySet<string>,
-  rows: readonly Pickable[],
-): ReadonlySet<string> {
-  return allChosen(chosen, rows) ? new Set() : chooseAll(rows);
-}
-
-/** Whether every row is ticked — the label on that button. */
-export function allChosen(chosen: ReadonlySet<string>, rows: readonly Pickable[]): boolean {
-  return rows.length > 0 && rows.every((row) => chosen.has(row.key));
-}
-
-/** What a submission would carry: the ticked rows, in the source's own order. */
-export function chosenRows<T extends Pickable>(
-  rows: readonly T[],
-  chosen: ReadonlySet<string>,
-): readonly T[] {
-  return rows.filter((row) => chosen.has(row.key));
 }
 
 /**

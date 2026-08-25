@@ -32,16 +32,30 @@ import {
   toggleOrder,
   withField,
 } from '@lark/shared';
-import { EllipsisVertical, Pin } from 'lucide-react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useCallback, useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
+import {
+  FlatList,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  ToastAndroid,
+  View,
+} from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
-import { ensureController } from '../downloads/ensure-runtime';
-import { player, usePlayback } from '../player';
+import { describeBatch, runBatch } from '../library/batch';
+import { copyableLink, openableLink, refusalFor } from '../library/links';
+import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
+import { EditLink } from './edit-link';
 import { useLibrary } from './library-context';
+import { PlaylistPicker } from './playlist-picker';
+import { SelectionBar } from './selection-bar';
 import { Prompt, Sheet, SheetAction } from './sheet';
+import { SongRow } from './song-row';
 import { C, S } from './theme';
 
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
@@ -54,6 +68,20 @@ export function SongsTab() {
   const [acting, setActing] = useState<SongData | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [confirming, setConfirming] = useState<SongData | null>(null);
+  const [linking, setLinking] = useState<SongData | null>(null);
+  /**
+   * Which rows are ticked, by song id (`library/selection.ts`).
+   *
+   * Selection mode IS this set being non-empty — there is no second boolean to
+   * disagree with it. Un-ticking the last row therefore leaves the mode, which
+   * is what every phone does and one fewer state to get out of sync.
+   */
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  /** Which selection is being asked about: one row's menu, or the ticked set. */
+  const [addingTo, setAddingTo] = useState<readonly SongData[] | null>(null);
+  const [confirmingMany, setConfirmingMany] = useState(false);
+  const selecting = chosen.size > 0;
 
   const songs = useMemo(() => {
     const trimmed = search.trim();
@@ -72,6 +100,76 @@ export function SongsTab() {
     body();
     closeAll();
     changed();
+  };
+
+  /** Rows as the tick model sees them: the key is the song id (§1.4). */
+  const rows = useMemo(() => songs.map((song) => ({ ...song, key: song.id })), [songs]);
+  const picked = useMemo(() => chosenRows(rows, chosen), [rows, chosen]);
+  const leaveSelection = useCallback(() => setChosen(new Set()), []);
+
+  /**
+   * One batch, from the tap to the sentence afterwards (§2.3).
+   *
+   * ALWAYS leaves selection mode, success or not: the selection was a way of
+   * saying what to act on, and it has been acted on. Staying in it invites a
+   * second tap on a set whose rows may no longer exist.
+   */
+  const batch = async (verb: string, act: (id: string) => Promise<void> | void): Promise<void> => {
+    const ids = picked.map((song) => song.id);
+    setBusy(true);
+    const outcome = await runBatch(ids, act);
+    setBusy(false);
+    leaveSelection();
+    closeAll();
+    changed();
+    ToastAndroid.show(describeBatch(verb, outcome), ToastAndroid.SHORT);
+  };
+
+  /** 添加到歌单 for one row or for the ticked set — one sheet, one write. */
+  const addTo = (playlist: { id: string; name: string }): void => {
+    const targets = addingTo ?? [];
+    setAddingTo(null);
+    if (targets.length === 0) return;
+    try {
+      // ONE call: core takes an array, in one transaction, and membership it
+      // already has is not added twice (§2.3).
+      library.addPlaylistSongs(
+        playlist.id,
+        targets.map((song) => song.id),
+      );
+      ToastAndroid.show(`已加入「${playlist.name}」${targets.length} 首`, ToastAndroid.SHORT);
+    } catch (err) {
+      ToastAndroid.show(err instanceof Error ? err.message : '加入歌单失败', ToastAndroid.SHORT);
+    }
+    leaveSelection();
+    closeAll();
+    changed();
+  };
+
+  const copyLink = (song: SongData): void => {
+    const url = copyableLink(song);
+    if (url === null) {
+      ToastAndroid.show('这首歌没有链接', ToastAndroid.SHORT);
+    } else {
+      void Clipboard.setStringAsync(url);
+      ToastAndroid.show('链接已复制', ToastAndroid.SHORT);
+    }
+    closeAll();
+  };
+
+  /** 🔴 The allowlist is in `library/links.ts` — only http(s) reaches the system. */
+  const openLink = (song: SongData): void => {
+    const url = openableLink(song);
+    if (url === null) {
+      ToastAndroid.show(refusalFor(song) ?? '打不开这个链接', ToastAndroid.SHORT);
+    } else {
+      void Linking.openURL(url).catch(() => {
+        // Nothing on this phone claims http(s), or the system refused. Either
+        // way it is worth a word: a menu item that does nothing reads as broken.
+        ToastAndroid.show('没有应用能打开这个链接', ToastAndroid.SHORT);
+      });
+    }
+    closeAll();
   };
 
   /** 重新下载 (criterion 49): the engine answers, and it is the one who speaks. */
@@ -98,30 +196,58 @@ export function SongsTab() {
 
   return (
     <View style={styles.fill}>
-      <View style={styles.controls}>
-        <TextInput
-          style={styles.search}
-          value={search}
-          onChangeText={setSearch}
-          placeholder="搜索歌名或歌手"
-          placeholderTextColor={C.faint}
-          accessibilityLabel="搜索"
+      {selecting ? (
+        <SelectionBar
+          count={chosen.size}
+          everyChosen={allChosen(chosen, rows)}
+          busy={busy}
+          onToggleEvery={() => setChosen(toggleEvery(chosen, rows))}
+          onExit={leaveSelection}
+          actions={[
+            {
+              label: '固定',
+              onPress: () =>
+                void batch('固定', (id) => {
+                  library.pinSong(id, true);
+                }),
+            },
+            {
+              label: '取消固定',
+              onPress: () =>
+                void batch('取消固定', (id) => {
+                  library.pinSong(id, false);
+                }),
+            },
+            { label: '加入歌单', onPress: () => setAddingTo(picked) },
+            { label: '删除', danger: true, onPress: () => setConfirmingMany(true) },
+          ]}
         />
-        <Pressable
-          style={styles.sortButton}
-          onPress={() => setSort(toggleOrder(sort))}
-          accessibilityRole="button"
-        >
-          <Text style={styles.sortLabel}>{sortLabel(sort)}</Text>
-        </Pressable>
-        <Pressable
-          style={styles.sortButton}
-          onPress={() => setPicking(true)}
-          accessibilityRole="button"
-        >
-          <Text style={styles.sortLabel}>排序</Text>
-        </Pressable>
-      </View>
+      ) : (
+        <View style={styles.controls}>
+          <TextInput
+            style={styles.search}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="搜索歌名或歌手"
+            placeholderTextColor={C.faint}
+            accessibilityLabel="搜索"
+          />
+          <Pressable
+            style={styles.sortButton}
+            onPress={() => setSort(toggleOrder(sort))}
+            accessibilityRole="button"
+          >
+            <Text style={styles.sortLabel}>{sortLabel(sort)}</Text>
+          </Pressable>
+          <Pressable
+            style={styles.sortButton}
+            onPress={() => setPicking(true)}
+            accessibilityRole="button"
+          >
+            <Text style={styles.sortLabel}>排序</Text>
+          </Pressable>
+        </View>
+      )}
 
       <Text style={styles.count}>{songs.length} 首</Text>
 
@@ -129,7 +255,18 @@ export function SongsTab() {
         data={songs}
         keyExtractor={(song) => song.id}
         renderItem={({ item }) => (
-          <SongRow song={item} songs={songs} onMenu={() => setActing(item)} />
+          <SongRow
+            song={item}
+            songs={songs}
+            selecting={selecting}
+            chosen={chosen.has(item.id)}
+            onMenu={() => setActing(item)}
+            // Long press is the way IN (decision b), and it works on a row
+            // that is already ticked too — there is no separate gesture for
+            // "add to the selection".
+            onLongPress={() => setChosen(toggleOne(chosen, item.id))}
+            onToggle={() => setChosen(toggleOne(chosen, item.id))}
+          />
         )}
         ListEmptyComponent={
           <Text style={styles.empty}>{search === '' ? '曲库是空的。' : '没有匹配的歌。'}</Text>
@@ -151,7 +288,7 @@ export function SongsTab() {
         </Sheet>
       )}
 
-      {acting !== null && editing === null && confirming === null && (
+      {acting !== null && editing === null && confirming === null && addingTo === null && (
         <Sheet title={acting.name} onClose={closeAll}>
           <SheetAction label="改歌名" onPress={() => setEditing({ song: acting, field: 'name' })} />
           <SheetAction
@@ -169,6 +306,13 @@ export function SongsTab() {
             source that has been re-identified since) and plays nothing. Its
             own dedupe key in the engine, for exactly that reason.
           */}
+          <SheetAction label="添加到歌单" onPress={() => setAddingTo([acting])} />
+          {/* The link three (the desktop's M5-10 set). Copy takes whatever is
+              stored; open only takes http(s) (`library/links.ts`); changing it
+              is the one that can give a song a link it never had. */}
+          <SheetAction label="复制链接" onPress={() => copyLink(acting)} />
+          <SheetAction label="用 app 打开" onPress={() => openLink(acting)} />
+          <SheetAction label="更改链接" onPress={() => setLinking(acting)} />
           <SheetAction label="重新下载" onPress={() => redownload(acting)} />
           <SheetAction label="删除" danger onPress={() => setConfirming(acting)} />
         </Sheet>
@@ -192,6 +336,36 @@ export function SongsTab() {
         </Sheet>
       )}
 
+      {addingTo !== null && (
+        <PlaylistPicker
+          title={
+            addingTo.length === 1
+              ? `添加《${addingTo[0]?.name}》到`
+              : `添加 ${addingTo.length} 首到`
+          }
+          onPick={addTo}
+          onClose={() => setAddingTo(null)}
+        />
+      )}
+
+      {confirmingMany && (
+        <Sheet title={`删除选中的 ${chosen.size} 首？`} onClose={() => setConfirmingMany(false)}>
+          <SheetAction
+            label="删除，连同它们的文件"
+            danger
+            onPress={() => {
+              setConfirmingMany(false);
+              // Deleting is the one action that is per-song and awaited: each
+              // one drains the file journal (§2.3), so ten songs are ten
+              // drains and the bar shows a spinner while they run.
+              void batch('删除', (id) => library.deleteSong(id));
+            }}
+          />
+        </Sheet>
+      )}
+
+      {linking !== null && <EditLink song={linking} onClose={() => setLinking(null)} />}
+
       {editing !== null && (
         <Prompt
           title={editing.field === 'name' ? '改歌名' : '改歌手'}
@@ -210,80 +384,6 @@ export function SongsTab() {
       )}
     </View>
   );
-}
-
-function SongRow({
-  song,
-  songs,
-  onMenu,
-}: { song: SongData; songs: readonly SongData[]; onMenu: () => void }) {
-  // Two subscriptions, both primitives (see `usePlayback`): a row re-renders
-  // when it becomes the current song and when that song starts or stops, and
-  // for nothing else. `currentTime` deliberately does NOT reach here — it
-  // changes twice a second and no row shows it.
-  const isCurrent = usePlayback((state) => state.song?.id === song.id);
-  const playing = usePlayback((state) => state.playing);
-
-  const start = (): void => {
-    // The queue is FROZEN here (§2.6): whatever the list holds at the moment
-    // of the tap, sort and search and all. Switching tabs afterwards does not
-    // change what plays next.
-    const queue = queueFrom({ kind: 'all' }, songs);
-    // No file yet — the tap is still a play, it just has a download in front
-    // of it (N4g, decision b). The queue handed over is this list, and it is
-    // only the FALLBACK: if another list is on screen when the file lands,
-    // that one wins (§2.9).
-    if (song.has_file === false) {
-      ensureController().request(song, queue);
-      return;
-    }
-    void (isCurrent ? player.toggle() : player.play(song, queue));
-  };
-
-  return (
-    <View style={styles.row}>
-      <Pressable
-        style={styles.rowBody}
-        onPress={start}
-        accessibilityRole="button"
-        accessibilityLabel={`播放 ${song.name}`}
-      >
-        <Text style={[styles.rowName, isCurrent && styles.rowNamePlaying]} numberOfLines={1}>
-          {isCurrent && playing ? '▶ ' : ''}
-          {song.name}
-        </Text>
-        <View style={styles.rowMetaLine}>
-          <Text style={styles.rowMeta} numberOfLines={1}>
-            {song.artist === '' ? '未知歌手' : song.artist} · {duration(song.duration)}
-            {song.has_file === false ? ' · 需要下载' : ''}
-          </Text>
-          {song.pinned && (
-            <>
-              <Text style={styles.rowMeta}> · </Text>
-              <Pin size={12} color={C.pinned} fill={C.pinned} accessibilityLabel="已固定" />
-            </>
-          )}
-        </View>
-      </Pressable>
-      {/* Its own target, because the row's is play. 44dp is the smallest
-          thing a thumb hits reliably. */}
-      <Pressable
-        style={styles.rowMenu}
-        onPress={onMenu}
-        accessibilityRole="button"
-        accessibilityLabel={`${song.name} 的菜单`}
-      >
-        <EllipsisVertical size={18} color={C.muted} />
-      </Pressable>
-    </View>
-  );
-}
-
-/** `m:ss`, and `--:--` for a song nobody has measured yet. */
-function duration(seconds: number): string {
-  if (seconds <= 0) return '--:--';
-  const whole = Math.round(seconds);
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
 const styles = StyleSheet.create({
@@ -305,21 +405,5 @@ const styles = StyleSheet.create({
   },
   sortLabel: { color: C.muted, fontSize: 13 },
   count: { color: C.faint, fontSize: 12, paddingHorizontal: S.pad, paddingBottom: 4 },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-  },
-  rowBody: { flex: 1, paddingVertical: 10, paddingLeft: S.pad },
-  rowMenu: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  rowName: { color: C.text, fontSize: 16 },
-  // The amber the desktop's dark theme uses for the playing row
-  // (`--state-active`, converted in `theme.ts`). Not a colour picked here:
-  // N2f put it in the theme with no user precisely so that N3 would not choose
-  // a second one.
-  rowNamePlaying: { color: C.active },
-  rowMetaLine: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  rowMeta: { color: C.faint, fontSize: 12 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
 });

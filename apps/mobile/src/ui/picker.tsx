@@ -36,16 +36,8 @@ import {
   View,
 } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
-import {
-  type PickRow,
-  allChosen,
-  chooseAll,
-  chosenRows,
-  eligible,
-  overItemLimit,
-  toggleEvery,
-  toggleOne,
-} from '../downloads/selection';
+import { type PickRow, eligible, overItemLimit } from '../downloads/selection';
+import { allChosen, chooseAll, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { Chip } from './chip';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
