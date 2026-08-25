@@ -21,7 +21,13 @@ import {
   IMPORT_FIXTURE_PLAYLIST_NAME,
   IMPORT_FIXTURE_SONG_COUNT,
 } from '../acceptance/import-fixture';
-import { IMPORT_FILE_MAX_BYTES, type ImportFileSource, loadImportFile } from './import';
+import {
+  IMPORT_FILE_MAX_BYTES,
+  type ImportFileSource,
+  ImportSourceChangedError,
+  commitImportFile,
+  loadImportFile,
+} from './import';
 
 // Whoever gets there first wins; the port refuses a DIFFERENT function, so
 // this file installs one and only one.
@@ -66,5 +72,94 @@ describe('loadImportFile', () => {
     const bytes = encoder.encode('{"format":"spotify","version":1}');
 
     await expect(loadImportFile(library, source(bytes))).rejects.toThrow();
+  });
+});
+
+// What core does with an import is core's, and `portable/library/transfer.test.ts`
+// tests it against a real database — every target, every reuse rule, the
+// all-or-nothing rollback. What is MOBILE's, and therefore here, is the second
+// read: that it happens, that its digest decides, and that the entries handed
+// over are its own rather than the preview's.
+describe('commitImportFile', () => {
+  const CHOICE = { target: { kind: 'library' }, reuse: new Map() } as const;
+
+  /** A source whose bytes can be swapped between the two reads. */
+  function mutableSource(initial: string) {
+    let text = initial;
+    return {
+      source: {
+        name: 'x.lark-playlist.json',
+        size: 0,
+        read: async () => encoder.encode(text),
+      } satisfies ImportFileSource,
+      swap: (next: string) => {
+        text = next;
+      },
+    };
+  }
+
+  it('imports the entries from the SECOND read, not the preview’s', async () => {
+    const { source: src } = mutableSource(IMPORT_FIXTURE_JSON);
+    const preview = await loadImportFile(library, src);
+    const seen: unknown[] = [];
+    const spy = {
+      ...library,
+      importPlaylist: (input: unknown) => {
+        seen.push(input);
+        return { playlist_id: 'p1', total: 2, created: 1, reused: 1, added: 2 };
+      },
+    };
+
+    await commitImportFile(spy, src, preview, {
+      target: { kind: 'new', name: '晚风' },
+      reuse: new Map([[0, 'song-id-1']]),
+    });
+
+    expect(seen).toEqual([
+      {
+        entries: preview.entries,
+        target: { kind: 'new', name: '晚风' },
+        reuse: [{ index: 0, song_id: 'song-id-1' }],
+      },
+    ]);
+    // IDENTITY, not equality, and that is the whole assertion: an unchanged
+    // file parses to entries that are EQUAL to the preview's either way, so
+    // `toEqual` above cannot tell which read they came from. A different array
+    // object can.
+    expect((seen[0] as { entries: unknown }).entries).not.toBe(preview.entries);
+  });
+
+  it('refuses when the file changed under the answers, and carries the new one', async () => {
+    const { source: src, swap } = mutableSource(IMPORT_FIXTURE_JSON);
+    const preview = await loadImportFile(library, src);
+    const importPlaylist = vi.fn();
+    swap(IMPORT_FIXTURE_JSON.replace('"duration": 372', '"duration": 999'));
+
+    const failure = await commitImportFile(
+      { ...library, importPlaylist },
+      src,
+      preview,
+      CHOICE,
+    ).catch((err: unknown) => err);
+
+    expect(failure).toBeInstanceOf(ImportSourceChangedError);
+    // Nothing was imported against indices that no longer mean what they did.
+    expect(importPlaylist).not.toHaveBeenCalled();
+    // And the screen has the file it would have to preview next, so going back
+    // does not cost a third read — or open a window for a second change.
+    expect((failure as ImportSourceChangedError).current.digest).not.toBe(preview.digest);
+    expect((failure as ImportSourceChangedError).current.entries[0].duration).toBe(999);
+  });
+
+  it('applies the size gate to the second read too', async () => {
+    const { source: src, swap } = mutableSource(IMPORT_FIXTURE_JSON);
+    const preview = await loadImportFile(library, src);
+    const importPlaylist = vi.fn();
+    swap(`${IMPORT_FIXTURE_JSON}${' '.repeat(IMPORT_FILE_MAX_BYTES)}`);
+
+    await expect(
+      commitImportFile({ ...library, importPlaylist }, src, preview, CHOICE),
+    ).rejects.toThrow(/上限 20MB/);
+    expect(importPlaylist).not.toHaveBeenCalled();
   });
 });

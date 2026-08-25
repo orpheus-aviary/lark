@@ -191,4 +191,24 @@
 
 **验证**：`just check` exit 0（bundle smoke：`apps/mobile` 115 个 portable 模块 / 3.1MB）· `just mobile-typecheck` 通过 · mobile 单测 259 → **263**。
 
+### 5.2 N6b（2026-08-25 完成）
+
+**① 判据 88–91 的归属改过，这是本批唯一的计划偏离，如实记下来。** 写判据时假设这四条都落在移动端单测里，实际做的时候发现前提不成立：**手机 vitest 里造不出 `PortableDb`**（要 expo-sqlite），而这四条问的全是 **core 的语义**。所以：
+
+- **判据 88（预览零写入）→ 落在 core**：`portable/library/transfer.test.ts` 新增一条，断言 `songs / playlists / playlist_songs / sync_changes` 四张表的计数在 `previewImport` 前后**逐个相等**。今天这条路上一个 INSERT 都没有、连事务都不开——**测它就是为了把「今天恰好如此」变成一句承诺**。这是本批对桌面目录的唯一改动，**纯测试，零生产代码**。
+- **判据 90 / 91（reuse 语义 · 三个目标）→ 已经在 core 有测**（`importPlaylist` 那一组：按 caller 的选择合并 · 无 target 时只进曲库 · 已在目标歌单里的跳过 · 任何一处失败整批回滚）。**手机这一层不重复测 core** —— 那样测的是同一份代码两遍，而它在两个宿主上本来就是同一份。
+- **判据 89（`IMPORT_SOURCE_CHANGED`）→ 劈成两半**：错误那半有单测；**「屏幕退回预览」那半是 UI，留给真机**（并进判据 92 的会话）。
+
+**② 手机这一层自己的判定是「第二次读取」，测的是它。** 三条：第二次读真的发生 · digest 决定成败 · **交出去的 entries 是第二次读的**。最后一条的断言是 **identity 而不是 equality** —— 文件没变时两次解析出来的 entries **逐值相等**，`toEqual` 分不出来源，只有「不是同一个数组对象」能。**反测已跑**：把 `current.entries` 改回 `preview.entries`，`toEqual` 照样绿、identity 那条当场红。
+
+**③ 比桌面好一处：`ImportSourceChangedError` 带着新解析出来的文件。** 桌面收到 `IMPORT_SOURCE_CHANGED` 之后再发一次预览请求（`ImportPlaylistDialog.tsx:148`），那是**同一个文件的第三次读取**，而且两次读之间还有一个窗口能再变一次。手机的提交手里已经有新的解析，直接 `accept(source, err.current)` 退回预览 —— 少一次读，少一个窗口。
+
+**④ suspects 按决策 d 做成「点行展开、单选」**：行上永远写着当前的选择（`导入为新条目` / `复用：<歌名>`），展开后第一项就是「导入为新条目」。**默认永远是新建**（R12），改成复用是一次点击，只是不是「什么都不做」的那一次。
+
+**⑤ 入口在歌单 tab 顶部「新建歌单」旁**（决策 a）。**不进添加 tab**：那个 tab 是「按链接取新歌」，这是「接过别人的一份单子」，不是一回事。
+
+**落点**：`ui/import-playlist.tsx`（全屏 Modal，与冲突页同一套框架——suspects 可能很长、目标列表是全部歌单，两处滚动的 sheet 没法用）· `library/import.ts` 加 `commitImportFile` + `ImportSourceChangedError`。
+
+**验证**：`just check` exit 0（bundle smoke 115 模块 / **3.2MB**）· `just mobile-typecheck` 通过 · `just test` **3100 passed**（mobile 263 → 266，core 1337 → 1338）。**判据 92 待真机**（与 N6c/N6d 攒成一次会话）。
+
 ---

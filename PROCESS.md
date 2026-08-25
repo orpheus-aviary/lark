@@ -845,6 +845,15 @@
 - **落点**：`library/import.ts`（纯逻辑：两道尺寸闸 + 调用顺序，进 vitest 白名单）· `services/playlist-import.ts`（原生壳：picker + `bytes()`）· `boot/runtime.ts`（+sha256）· `acceptance/{import-fixture,playlist-import}.ts`。**`ImportFileSource` 是那条分界**：`read()` 是函数而不是一份字节，因为两阶段**各读一次**——URI 过期必须在第二阶段如实失败，而不是被这一层偷偷做的副本盖住。**尺寸闸查两次**是因为声明的 size 可能是 0（SAF `content://` 的 provider 不给 stat），而「系统没说」不等于「文件不大」。
 - 验证：`just check` exit 0（bundle smoke：`apps/mobile` **115 个 portable 模块 / 3.1MB**）· `just mobile-typecheck` 通过 · `just test` **3096 passed**（mobile 259 → 263）。
 
+**N6b 完成**（导入 UI，**判据 88 · 89 的逻辑半边 · 90 · 91 关，92 待真机**）。
+
+- 🔴 **判据 88–91 的归属改过，这是本批唯一的计划偏离**：写判据时假设四条都落在移动端单测，实际前提不成立——**手机 vitest 造不出 `PortableDb`**（要 expo-sqlite），而四条问的全是 **core 的语义**。于是 **88 落进 core**（`transfer.test.ts` 新增：`previewImport` 前后四张表计数逐个相等——今天这条路上一个 INSERT 都没有、连事务都不开，**测它是为了把「今天恰好如此」变成承诺**），**90 / 91 发现 core 早就有测**（按选择合并 · 无 target 只进曲库 · 目标里已有的跳过 · 任何一处失败整批回滚），**手机这层不重复测 core**；**89 劈两半**，错误那半有单测、「屏幕退回预览」留给真机。
+- **手机自己那一半是「第二次读取」**：读真的发生 · digest 决定成败 · **交出去的 entries 是第二次读的**。最后一条断言的是 **identity 不是 equality**——文件没变时两次解析逐值相等，`toEqual` 分不出来源。**反测已跑**：改回 `preview.entries` 后 `toEqual` 照样绿、identity 当场红。
+- **比桌面好一处**：`ImportSourceChangedError` **带着新解析出来的文件**。桌面收到 `IMPORT_SOURCE_CHANGED` 后再发一次预览请求（`ImportPlaylistDialog.tsx:148`）= 同一个文件的**第三次**读取，而且两次读之间还有一个能再变一次的窗口；手机的提交手里已经有新解析，直接退回预览。
+- **suspects 按决策 d**：点行展开、单选，行上永远写着当前选择；**默认永远是新建**（R12）。入口按决策 a 放歌单 tab 顶部「新建歌单」旁——**不进添加 tab**（那是「按链接取新歌」，这是「接过别人的一份单子」）。
+- **对桌面的唯一改动是一条测试**（`packages/core/.../transfer.test.ts`），零生产代码——判据 85 的口径继续成立。
+- 验证：`just check` exit 0（bundle smoke **115 模块 / 3.2MB**）· `just mobile-typecheck` 通过 · `just test` **3100 passed**（mobile 263 → 266 · core 1337 → 1338）。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。

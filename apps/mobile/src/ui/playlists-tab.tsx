@@ -26,6 +26,7 @@ import { player } from '../player';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
 import { sharePlaylistExport } from '../services/playlist-export';
+import { ImportPlaylistScreen } from './import-playlist';
 import { useLibrary } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
 import { SelectionBar } from './selection-bar';
@@ -56,6 +57,7 @@ export function PlaylistsTab({
 function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
   const { library, view, changed } = useLibrary();
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const playlists = useMemo(
     // The virtual `all` is already gone: `library-context.tsx` drops it once,
     // for every screen, after the add page was found offering it as a download
@@ -66,13 +68,24 @@ function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
 
   return (
     <View style={styles.fill}>
-      <Pressable
-        style={styles.newButton}
-        onPress={() => setCreating(true)}
-        accessibilityRole="button"
-      >
-        <Text style={styles.newLabel}>新建歌单</Text>
-      </Pressable>
+      <View style={styles.actions}>
+        <Pressable
+          style={styles.newButton}
+          onPress={() => setCreating(true)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.newLabel}>新建歌单</Text>
+        </Pressable>
+        {/* Beside 新建, not in the add tab: that tab is "fetch new songs from a
+            link", and this is "take somebody else's list". N6b. */}
+        <Pressable
+          style={styles.newButton}
+          onPress={() => setImporting(true)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.newLabel}>导入歌单</Text>
+        </Pressable>
+      </View>
 
       <FlatList
         data={playlists}
@@ -99,6 +112,8 @@ function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
           }}
         />
       )}
+
+      {importing && <ImportPlaylistScreen onClose={() => setImporting(false)} />}
     </View>
   );
 }

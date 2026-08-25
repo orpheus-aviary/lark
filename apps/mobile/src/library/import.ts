@@ -12,7 +12,7 @@
 // live in `services/playlist-import.ts`; what stays here is the size gate and
 // the call order — the two things that are wrong silently.
 
-import type { LibraryService, ParsedImportFile } from '@lark/core/portable';
+import type { ImportInput, LibraryService, ParsedImportFile } from '@lark/core/portable';
 
 /** The daemon route's cap, to the byte (M5-13, `IMPORT_FILE_MAX_BYTES`). */
 export const IMPORT_FILE_MAX_BYTES = 20 * 1024 * 1024;
@@ -54,4 +54,57 @@ export async function loadImportFile(
   const bytes = await source.read();
   if (bytes.length > IMPORT_FILE_MAX_BYTES) throw tooLarge(source.name, bytes.length);
   return library.parseImportFile(bytes);
+}
+
+/**
+ * The file changed between the preview and the commit.
+ *
+ * It carries the file AS IT IS NOW, and that is the difference from the
+ * desktop: the GUI catches `IMPORT_SOURCE_CHANGED` off the wire and fires a
+ * second preview request (`ImportPlaylistDialog.tsx:148`), which is a third
+ * read of a file that was already read twice. Here the commit has the new
+ * parse in its hand, so the screen goes back to a preview it can trust without
+ * touching the file again — and, more to the point, without a window in which
+ * the file could change a second time.
+ */
+export class ImportSourceChangedError extends Error {
+  readonly current: ParsedImportFile;
+  constructor(current: ParsedImportFile) {
+    super('文件在预览之后发生了变化，请重新确认再导入');
+    this.name = 'ImportSourceChangedError';
+    this.current = current;
+  }
+}
+
+/** The answers a person gave to the preview. */
+export interface ImportChoice {
+  target: ImportInput['target'];
+  /** Suspect index → the song to merge into. Absent means "import as new". */
+  reuse: ReadonlyMap<number, string>;
+}
+
+/**
+ * Read the file A SECOND TIME and import it — or refuse.
+ *
+ * The re-read is the whole design, not caution: `reuse[].index` points into
+ * the array the person was looking at, so a file that changed underneath makes
+ * every one of those answers point somewhere else. The desktop refuses for the
+ * same reason and in the same place (`routes/playlists.ts`), and the entries
+ * that get imported are the SECOND read's — never the preview's, which is what
+ * makes the digest comparison mean anything at all.
+ */
+export async function commitImportFile(
+  library: Pick<LibraryService, 'parseImportFile' | 'importPlaylist'>,
+  source: ImportFileSource,
+  preview: ParsedImportFile,
+  choice: ImportChoice,
+): Promise<ReturnType<LibraryService['importPlaylist']>> {
+  const current = await loadImportFile(library, source);
+  if (current.digest !== preview.digest) throw new ImportSourceChangedError(current);
+
+  return library.importPlaylist({
+    entries: current.entries,
+    target: choice.target,
+    reuse: [...choice.reuse].map(([index, song_id]) => ({ index, song_id })),
+  });
 }

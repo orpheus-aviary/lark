@@ -58,6 +58,18 @@ const db = () => handles.db;
 const sq = () => handles.sqlite;
 const store = () => handles.portable;
 
+/** Every table a preview could plausibly touch, in one comparable value. */
+function counts(): Record<string, number> {
+  const of = (table: string): number =>
+    (sq().prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+  return {
+    songs: of('songs'),
+    playlists: of('playlists'),
+    playlist_songs: of('playlist_songs'),
+    sync_changes: of('sync_changes'),
+  };
+}
+
 let seq = 0;
 const nextKey = (): string => `BV1seed${++seq}:1`;
 
@@ -270,6 +282,22 @@ describe('computeMatches / previewImport', () => {
     const preview = previewImport(db(), files, file);
     expect(preview.reuse_count).toBe(1);
     expect(preview.new_count).toBe(1);
+  });
+
+  it('writes NOTHING — it is the half a person is allowed to walk away from', async () => {
+    seed('已有的歌', { key: 'BV1aaa:1' });
+    const before = counts();
+    const file = await parseAndValidate(
+      fileOf([entry('随便叫什么', 'BV1aaa:1'), entry('新歌', 'BV1ccc:3')]),
+    );
+
+    previewImport(db(), files, file);
+
+    // The preview is what a screen shows before anybody agrees to anything, on
+    // both front ends (the daemon route says so, and the phone has no route to
+    // say it for it). Nothing here opens a transaction today; this is what
+    // makes that a promise rather than an accident.
+    expect(counts()).toEqual(before);
   });
 
   it('lists every same-name candidate, oldest first, with its file state', async () => {
