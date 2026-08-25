@@ -1,6 +1,8 @@
 // §2.2, the frozen boot sequence. One file, in order, on purpose.
 //
-//   ① installPortableRuntime()          Random is not installed — every mint throws
+//   ① installPortableRuntime()          Random + whole-file sha256; without ①
+//                                       every id mint throws, and (N6a) so does
+//                                       reading a playlist file
 //   ② zero-write reads                  library file · SecureStore · copy-then-open
 //   ③ compatibility verdict (on a copy) §2.4; a refusal writes nothing and does
 //                                       not touch SecureStore

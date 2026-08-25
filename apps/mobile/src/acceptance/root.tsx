@@ -39,6 +39,7 @@ import {
 import { runFileSystemScenarios } from './fs';
 import { runLibraryContractScenarios } from './library-contract';
 import { runPlaybackScenarios } from './playback';
+import { runImportDigestScenarios } from './playlist-import';
 import { runReidentifyScenarios } from './reidentify';
 import { runSortScenarios } from './sort';
 import { runSweepScenarios } from './sweep';
@@ -65,6 +66,14 @@ const SUITES: readonly { label: string; run: () => Promise<ScenarioRow[]>; note?
     note: 'needs `just mobile-push-fixture`; tap once first to make the directory',
   },
   { label: 'Run sort scenarios', run: runSortScenarios },
+  {
+    label: 'Run import digest scenarios',
+    run: runImportDigestScenarios,
+    // Nothing to push and nothing to set up: the fixture is a string in the
+    // bundle and the big inputs are synthesised. The 20MB case allocates,
+    // hashes and frees 20MB five times, so give it a moment.
+    note: '86 · 87 — 20MB × 5 takes a few seconds; no fixture needed',
+  },
   {
     label: 'Run sweep scenarios',
     run: runSweepScenarios,

@@ -828,6 +828,23 @@
 
 **下一站**：**N6**（歌单导入 + 设置收尾 + 打磨 + 签名 APK 发布 + developer verification go/no-go）。
 
+### N6 歌单导入 + 收尾发布（开发中）
+
+**子计划已出**（2026-08-25，`docs/plans/2026-08-25-phase-b-mobile-n6.md`，五批 N6a–N6e / 判据 85–101 / **决策 a–j 同日全部关闭**——用户「都同意」）。范围由用户当天定死五条：**导入 UI 与桌面一致、不加内容** · **撤销设备收尾** · **签名从简** · **只在 GitHub Release 发包、不考虑进商店** · **发版前文档大整理（到那一步再细说）**；另加一条提醒：**桌面版打包记得用图标**（判据 99）。判据 **76 / 80 / 81 同日定为「先不做，只记录」**，不进本批范围。
+
+**开工基线**（2026-08-25 复跑）：`just check` exit 0 · `just test` **3092 passed**。
+
+**N6a 完成**（端口打通：sha256 host + 取字节，**判据 85 · 87 关，86 的探针已就位待真机**）。
+
+- **不需要新依赖 —— 子计划 §1.4 的 `expo-document-picker` 作废**：`expo-file-system@57.0.4` 自带 `File.pickFileAsync({ mimeTypes })` 与 `file.bytes()`，两个动作同一个包。**副作用是好的**：`pnpm install` 没变动 ⇒ 判据 13 那条「装完必须复跑桌面 check + test」这次根本不触发。
+- 🔴 **「N6's gate」已开**：`portable/runtime/digest.ts` 的整文件 sha256 **故意没有默认实现**（异步签名 ≠ 非阻塞——包一层 Promise 的同步哈希照样冻住 JS 线程，而调用方看不出来），桌面在 `node-runtime.ts:23` 装 `node:crypto`，**手机上一处都没有**，所以在此之前手机调 `parseImportFile` 会当场抛。现在 `boot/runtime.ts` 装两件（Random + sha256），启动序列步骤 ① 的注释跟着改成两种炸法。
+- **一处类型摩擦如实记着**：`expo-crypto.digest` 要 `BufferSource`（覆盖普通 `ArrayBuffer` 的视图），端口给的 `Uint8Array` 在 TS 5.9 里是 `Uint8Array<ArrayBufferLike>`（含 `SharedArrayBuffer`）。**用 type guard，不用 `as`，也不无条件复制**：Hermes 没有 `SharedArrayBuffer`，真机永远走「原样递过去」，复制那一支是留给「将来长出来」的诚实答案——20MB 上无条件复制是白花的一次 memcpy。
+- **判据 87 是三方独立的**：常量 `488d8f…669d` 由 **`shasum -a 256`** 产出（既不是 node 也不是 expo），单测用 **`@noble/hashes`** 复算，设备探针用 **`expo-crypto`** 复算 —— **没有任何一方给自己判卷**。夹具 `acceptance/import-fixture.ts` 被单测与探针**共用**（两处各写一份常量会各自漂移且双双变绿），里面的中文名是有用的：多字节 ⇒ `TextEncoder` 错了会改数字而不是蒙混过关。**反测已跑**：把 `"duration": 372` 改成 `373`，digest 那条当场红（`c315b2…` ≠ `488d8f…`），改回即绿。
+- **判据 86 的探针在面板上**（「Run import digest scenarios」，2MB 与 20MB 各 5 次，nearest-rank p95 = 最慢那次）。**行的绿不代表快**——它绿是因为「真的出了一个 64 位 hex」，数字在 detail 里，这正是「只记录不设阈值」该有的样子。
+- **判据 85 成立**：`git diff` 对 `packages/{gui,daemon,cli,core,shared}` **零改动**。子计划 §1.1 的推断由此变成事实 —— **N6 到目前为止真的没动桌面**，发版门禁与 APK 谁先谁后都可以。
+- **落点**：`library/import.ts`（纯逻辑：两道尺寸闸 + 调用顺序，进 vitest 白名单）· `services/playlist-import.ts`（原生壳：picker + `bytes()`）· `boot/runtime.ts`（+sha256）· `acceptance/{import-fixture,playlist-import}.ts`。**`ImportFileSource` 是那条分界**：`read()` 是函数而不是一份字节，因为两阶段**各读一次**——URI 过期必须在第二阶段如实失败，而不是被这一层偷偷做的副本盖住。**尺寸闸查两次**是因为声明的 size 可能是 0（SAF `content://` 的 provider 不给 stat），而「系统没说」不等于「文件不大」。
+- 验证：`just check` exit 0（bundle smoke：`apps/mobile` **115 个 portable 模块 / 3.1MB**）· `just mobile-typecheck` 通过 · `just test` **3096 passed**（mobile 259 → 263）。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
@@ -964,8 +981,8 @@ v1 那条读源码读出来的发现原样保留：
 - [x] **跨仓文档跟进 0.3.0**（2026-08-17）：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md`
 - [x] **Phase B 移动版子计划**（2026-08-17，`aa63eac`）：N0 详案 + 全期框架 → 上面的 Phase B 段
 - [ ] **锁屏 / 通知栏的暂停键接进 JS**（N4g 决策 j 的缺口）：`modules/lark-audio` 加一个 media-session 回调面，让它也能作废等待中的 ensure。**2026-08-25 用户决定先不做**；实际使用中被咬到再捡起来
-- [ ] **判据 76：`SYNC_PULL_LIMIT_MOBILE` 在竞争条件下复测**（N1 的 R5 明账，N5f 没跑）——要一次 ~2000 行的合成负载，一边播放一边拉 200/批，p95 ≤ 100ms；超了就把常量降到 100（无协议含义）。**真实两端加起来只有 18 首，跑不出这个判据**
-- [ ] **判据 80 / 81 的界面证据**（N5e 实现了，N5f 没有自然触发条件）：造一条真冲突要两台设备互写，造一条失败 file-op 要文件系统在特定时刻失败。下次两端 soak 时顺带看一眼
+- [ ] **判据 76：`SYNC_PULL_LIMIT_MOBILE` 在竞争条件下复测**（N1 的 R5 明账，N5f 没跑）——要一次 ~2000 行的合成负载，一边播放一边拉 200/批，p95 ≤ 100ms；超了就把常量降到 100（无协议含义）。**真实两端加起来只有 18 首，跑不出这个判据**。**2026-08-25 用户决定：先不做，只记录**——`SYNC_PULL_LIMIT_MOBILE = 200` 保持现值，实际使用中撞上卡顿再捡起来；在那之前「200 在竞争下也够」是**未经证明的假设**，不是结论
+- [ ] **判据 80 / 81 的界面证据**（N5e 实现了，N5f 没有自然触发条件）：造一条真冲突要两台设备互写，造一条失败 file-op 要文件系统在特定时刻失败。**2026-08-25 用户决定：先不做，只记录**——冲突页与失败 file-op 的重试/放弃**在屏幕上一次都没被人看见过**（`resolveConflict` 的语义在 core 有测，界面这一层没有）。下次两端 soak 或真撞上冲突时顺带看一眼
 - [ ] 🔴 **下个桌面版本的发版门禁：accept 全系列复跑**（N1 判据 22 + N4a/N4g/N4i-1 的桌面改动）——`accept-gui`（15）· `accept-m5`（22，真 bilibili）· `accept-cli`（27，真二进制）· `accept-sync`（34，真 server 两台 daemon）· `accept-pack`（28，对新构建的 dmg/tgz）。**自 v0.3.0 之后一条都没跑过**，而桌面被改了四轮
 - [ ] **TLS（D15）—— 已从阻塞降为后续**（2026-08-25 主计划 §4.3 **Stage-4 修订**：用户选了「移动端一个明文开关」这条路，TLS **不再阻塞 N5 或任何批次**）：skybridge server 仍是 `http://<公网IP>:8443`。真要做时的验收不变（域名 + DNS · 证书 + 自动续期告警与演练 · 反代 · 两端 `server_url` 迁移 · 真机连通），**负责人 = 用户，AI 协助**。⚠️ 大陆 ECS 有一条坑链：未备案域名的 80/443 被拦 ⇒ 非标端口 ⇒ HTTP-01 / TLS-ALPN-01 都走不通 ⇒ 只剩 DNS-01（Caddy 需带 `caddy-dns/alidns` 重建）；LE 的 IP 证书（6 天 shortlived）可绕开域名但链路未验。见 N5 子计划 §0.1
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒

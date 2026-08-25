@@ -100,6 +100,14 @@
 // shows up as somebody being asked to log in again for no reason they can
 // describe.
 
+// `library/import.ts` joined in N6a, and it is the entry whose test does
+// something none of the others do: it stands in for the DESKTOP. Criterion 87
+// is a parity claim between two hosts, so one side of it has to be checked
+// somewhere that is not the phone — here, against the same constant the device
+// probe compares to. What is in the module itself is the size gate, whose
+// failure on a device is a screen that sits there while a video goes through a
+// hash.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -107,6 +115,7 @@ export default defineConfig({
     include: [
       'src/identity/state.test.ts',
       'src/library/batch.test.ts',
+      'src/library/import.test.ts',
       'src/player/store.test.ts',
       'src/ports/events.test.ts',
       'src/sync/triggers.test.ts',
