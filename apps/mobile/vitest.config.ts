@@ -91,6 +91,15 @@
 // refresh" says nothing about whether an event went to the wrong sink, was
 // dropped, or was never emitted. The sinks are injected for exactly that.
 
+// `sync/triggers.test.ts` joined in N5d, and it is the reason `app-state.ts`
+// is a separate fifteen-line file: the machine that decides WHEN to ask for a
+// round must not import React Native, or it could not be collected here. What
+// it holds is the half the daemon does not have — a host that goes away — and
+// both of its load-bearing rules fail invisibly on a device. A leaked timer
+// shows up as a battery figure a week later; a session dropped on suspend
+// shows up as somebody being asked to log in again for no reason they can
+// describe.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -100,6 +109,7 @@ export default defineConfig({
       'src/library/batch.test.ts',
       'src/player/store.test.ts',
       'src/ports/events.test.ts',
+      'src/sync/triggers.test.ts',
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/cancel.test.ts',

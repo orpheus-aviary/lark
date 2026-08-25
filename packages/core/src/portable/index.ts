@@ -22,6 +22,7 @@ export * from './coordinator/runner.js';
 export * from './coordinator/runtime.js';
 export * from './coordinator/session.js';
 export * from './coordinator/status.js';
+export * from './coordinator/stream.js';
 export * from './cache-limit.js';
 export * from './db-identity.js';
 export * from './db.js';

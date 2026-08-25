@@ -30,11 +30,14 @@ import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from '
 import { type BootResult, bootOnce } from './boot/sequence';
 import { downloadRuntimeOnce } from './downloads/engine';
 import { bindEnsure } from './downloads/ensure-runtime';
+import { engineLogger } from './downloads/log';
 import { bindPlayer } from './player';
 import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
 import { useShareIntentBridge } from './share/intent';
+import { createAppStateSource } from './sync/app-state';
 import { syncContextOnce } from './sync/context';
+import { syncTriggersOnce } from './sync/triggers';
 import { LibraryProvider } from './ui/library-context';
 import { Shell } from './ui/shell';
 import { C, S } from './ui/theme';
@@ -73,7 +76,17 @@ export function App() {
         // library just did, for the same reason: a remote delete unlinks audio
         // a download may be replacing, and only one claim registry can make
         // those take turns.
-        syncContextOnce({ db: result.db, files: result.files, fileOps: runtime.fileOps });
+        const syncCtx = syncContextOnce({
+          db: result.db,
+          files: result.files,
+          fileOps: runtime.fileOps,
+        });
+        // …and now started (N5d). The triggers restore the session from
+        // SecureStore, then follow the foreground: armed while somebody is
+        // looking, silent while the app is in a pocket. Sync deliberately does
+        // NOT run in the background — JS timers are frozen there, and a socket
+        // under a dark screen is a battery bug (decision b, deferred).
+        syncTriggersOnce(syncCtx, createAppStateSource(), { logger: engineLogger });
         // Tapping a song with no file is a play that starts a minute from now
         // (N4g). It needs all three of these — the engine to fetch, the
         // library to re-read the row, the player to decide whether the tap is

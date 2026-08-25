@@ -217,7 +217,7 @@ apps/mobile/src/
 | **N5a** ✅ | **纯桌面**：`sync-labels` 提取进 `@lark/shared`（characterization 先行，GUI 改直接 import，`SYNC_INSECURE_URL` 措辞改写）+ **文档口径统一**（判据 65，用户 2026-08-25 要求从 N5b 提到本批——否则有一整批的时间里 `PROCESS.md` 还写着「TLS 硬阻塞」） | 电脑，桌面全测试 |
 | **N5b** ✅ | manifest 那一行 + 明文开关的存取（落 `portable/sync-insecure.ts`）+ §8.2 的两句注释 + 判据 66 | 电脑（单测 + **合并 manifest**） |
 | **N5c** ✅ | `CoordinatorContext` 移动装配（§2.2 的七个新建）+ `sync/hub.ts` | 电脑（单测 + 类型） |
-| **N5d** | 触发器移动版（§2.3 状态机）+ `AppState` 接线 | 电脑（虚拟时钟单测）+ 设备会话 |
+| **N5d** ✅ | 触发器移动版（§2.3 状态机）+ `AppState` 接线 + 会话恢复 · **N5d-2：借 owl 的两条流策略，两端一起改**（§8.6） | 电脑（虚拟时钟单测，13 + 15 条 + 反测） |
 | **N5e** | UI 四块（同步区 / 徽章 / 冲突页 / file-ops） | 电脑（能测的部分）+ 设备会话 |
 | **N5f** | **一次打包、一次真机会话**：判据 69–73 + 76 一起跑 | 设备，用户跑 |
 
@@ -243,14 +243,16 @@ apps/mobile/src/
 | 74 | **`imported` 行永不被自动清理**：单测造一行 `file_origin='imported'` + 一个文件，跑满清理条件，文件仍在 | 桌 |
 | 75 | **`imported` 且无 `source_key` 的歌被点开**：给出一句明确的话（不是转圈、不是 INTERNAL_ERROR）。措辞进 `download-labels` 或就近的枚举表 | 桌 |
 | 76 | **`SYNC_PULL_LIMIT_MOBILE` 在竞争条件下复测**（R5 的明账）：一边播放一边拉 200/批，p95 ≤ 100ms；超了就降到 100 并记录 | 机 |
-| 77 | **进后台 → SSE 断开、定时器停**；**回前台 → 先查 token、再跑一轮**。三条各有断言（虚拟时钟 + `AppState` 假事件） | 桌 |
-| 78 | **suspend 不碰 session**：进后台再回来，`sync.epoch` 不变、不需要重新登录 | 桌 |
-| 79 | 一个进程只有一个 `SyncRoundQueue`；两个触发同时到只跑一轮（照桌面的合流语义） | 桌 |
+| 77 ✅ | **进后台 → SSE 断开、定时器停**；**回前台 → 先查 token、再跑一轮**。三条各有断言（虚拟时钟 + `AppState` 假事件）（**N5d**） | 桌 |
+| 78 ✅ | **suspend 不碰 session**：进后台再回来，`sync.epoch` 不变、不需要重新登录（**N5d**，另加一条「不 abort 飞行中的轮次」） | 桌 |
+| 79 ⚠️ | 一个进程只有一个 `SyncRoundQueue`；两个触发同时到只跑一轮。**合流那一半在 core 已测**（`rounds.ts`），**单例那一半只有一个 `if (handles === null)`，没有单测**——如实记在 §8.5 | 桌 |
 | 80 | 冲突页：造一条冲突 → 列表看得到 → 选「用本机的」→ 冲突计数归零，且本机值被重新推出去 | 桌 |
 | 81 | 文件操作失败的处置：造一条失败 op → 同步区看得到计数 → 重试 / 丢弃各走通一次 | 桌 |
 | 82 | 徽章反映五种状态（`syncing` / `auth_required` / `error` / `offline` / `idle`），文案取自 `@lark/shared` 的 `syncBadgeView` | 桌 |
 | 83 | **退出登录**：session 没了、binding 还在、曲库一行不少；再登录回来不重复 backfill | 桌 |
 | 84 | `just check` / `just test` / `just mobile-typecheck` / bundle smoke 全绿；守卫八条不破（尤其 mobile 只 import portable/shared/skybridge SDK） | 桌 |
+| 85 ✅ | **流开起来要补一轮**（`onOpen` → `runTracked('remote')`）：服务器不重放订阅之前的事件，所以重连后的空档没有任何东西会告诉你（**N5d-2**，两端） | 桌 |
+| 86 ✅ | **静默的流要被判死**（`onFrame` 喂 60s 看门狗，超时按 onError 处理）：半开 socket 一个回调都不触发（**N5d-2**，两端） | 桌 |
 
 **设备判据只有 6 条**（69 的一半 · 70 · 71 · 72 · 73 · 76），攒成一次会话。
 
@@ -340,6 +342,39 @@ apps/mobile/src/
 - 🔴 **两条如实记下的缺口**：① **`lyrics:changed` 不会让正在播放的那首歌重读歌词**——播放器在起播时读一次（`bindPlayer` 的 `readLyrics`），它的库变更处理器重解队列和行、不重读词；对端改了当前歌的歌词要到下次播放才看得到。归 **N5e**。② **`sync:file_quarantined` 今天没有任何东西会发**——`FileEffectRuntime` 通过 `onQuarantine` 选项宣告，boot 与 engine 两处装配都没传（daemon 传了三处）。影响有限：`quarantined_count` 在 status 上，而一轮同步前后都刷 status ⇒ 接上回调改变的是**什么时候**被告知，不是**会不会**。
 - **本批没有起任何东西**：构造 context 不开 socket、不装定时器、不读凭证（`SyncRuntime` 出生就是无 session / `auth_required`）。触发器是 N5d。
 - 验证：`just check` exit 0 · `just test` **3064 passed**（= 3050 + 新增 14）· `mobile-typecheck` exit 0。
+
+---
+
+### 8.5 N5d 落地（2026-08-25）
+
+- **`AppState` 做成必传的依赖，不是文件内的默认值**——这是本批唯一一个结构上的选择，理由是**能测**：移动端 vitest 的 include 是显式白名单，任何 import react-native 的文件都收集不到。所以 `sync/app-state.ts`（15 行，只有 `AppState.currentState` 与 `addEventListener`）与 `sync/triggers.ts`（状态机）分开，后者只 `import type` 它。同一个理由 N4d 把 `share/draft.ts` 从 `share/intent.ts` 里劈出来过。
+- **`SyncTrigger` 加了 `'resume'`**（portable）。查过：全仓没有对这个联合做穷尽 switch 或标签映射，它只进日志行。桌面永远不会发它——桌面没有「走开又回来」这件事。
+- **会话恢复放进 `syncTriggersOnce` 的一次性闸内**，顺序照 `daemon/src/boot.ts:580`（先 `restoreSession`、后挂 handles 并 start）。**必须在闸内**：安装 session 会 bump epoch，Activity 重建后再恢复一次会把一个正在飞的轮次判废。
+- **`#resume` 的顺序是判据不是风格**：先查 token、再跑轮次。口袋里躺了两小时的 app 拿的是大概率已过期的 access token，先跑轮次等于花一个请求去撞 401、掉 session、然后让人莫名其妙重新登录一次。
+- **`#suspend` 三件不做**：不碰 session、不通知 runtime、**不 abort 飞行中的轮次**。前两件因为后台不是生命周期变化（badge 不该因为接了个电话就变「需要登录」）；第三件因为系统还没冻住的活儿，杀掉它是这个文件自己发明了一次失败。
+- **反测三条**：把 resume 的顺序调过来 ⇒ 1 红 · 让 suspend 忘记停定时器并顺手 `teardownSession()` ⇒ 3 红（定时器、session、重建流各一条）。还原 ⇒ 13 绿。
+- ⚠️ **判据 79 只关了一半**：合流语义是 core 的 `SyncRoundQueue`（那里有测试），而「一个进程只有一个」在这里是 `syncTriggersOnce` 里的一个 `if (handles === null)`，**没有单测**——测它要在一个测试文件里模拟 Activity 重建，收益不抵成本。三个一次性闸（`bootOnce` / `downloadRuntimeOnce` / `syncContextOnce`）都是同样的形状，同样没测。
+- 验证：`just check` exit 0 · `just test` **3077 passed**（= 3064 + 新增 13）。
+
+---
+
+### 8.6 N5d-2：借 owl 的两条流策略（2026-08-25，用户「两端一起做」）
+
+用户让我对照 owl 的设计看有没有可借鉴的。读完 `trigger-gate` / `scheduler` / `health-probe` / `sse-bridge` / `auth-signal`，**两条真该借，而且 lark 依赖的 SDK 早就把接口备好了、lark 两端一个都没用**（全仓零处 `onOpen` / `onFrame`）。
+
+- **① 流不重放** ⇒ `onOpen` 补一轮。owl 的原话：「server SSE does NOT replay events from before subscription」。lark 只接了 `onChange`，所以一次流中断之后对端的改动要等下一次时钟触发——**桌面最多 5 分钟**（`interval_min` 默认 5）、**手机最多 15 分钟**。顺带堵掉 N5d 自己的一条小缝：`#resume` 先跑轮次、订阅 1 秒后才建立，这两步之间到达的推送两头都接不到。
+- **② 流会静默** ⇒ `onFrame` 喂看门狗。半开 socket（无 FIN / RST / 读错误）**一个回调都不触发**，`onError` 只覆盖显式断开，客户端会永远坐在僵尸「已连接」里。**先核实了心跳真的存在**：`skybridge/packages/server/src/routes/events.ts` 开流写 `:ok`、之后每 `PING_INTERVAL_MS = 25_000` 发一次 `event: ping`，且这段是最初那版 SSE（`806a935`）就有的，线上 0.1.4 一定在发。60 秒 = 两拍余量，照 owl 的数。**没有心跳就上看门狗会每 60 秒杀掉一条健康的流**，所以这一步不能省。
+- **落点是 `@lark/core/portable/coordinator/stream.ts`，两端共用**。N1f 当初把流留给宿主是对的——那时它只是一个 subscribe 调用加一个冷却；**有了两条要保持一致的策略之后就不对了**，两个宿主会长出两个「这条流还活着吗」的答案，而这种漂移的症状是「手机重连了、电脑没有」。`setTimeout` 是语言全局不是宿主 API，portable 一直允许（`library/eviction-runtime.ts` 在用）。
+- **桌面那三条既有的流测试一字未改地全绿**（`daemon/src/sync/triggers.test.ts` 的 `describe('the server stream')`），是「契约没变、只是搬了家」的证据。
+- **反测两条**：拿掉 `onOpen` 的补轮次 ⇒ 1 红 · 让 `onFrame` 不重置看门狗 ⇒ 1 红。
+
+**不借的两条，理由记着**：
+- **`health-probe.ts`**（backoff 窗口里每 10 秒 poll `/health`）——owl 需要它是因为它的 SSE backoff 是 `[2,4,8,16,30]s + jitter`；lark 是固定 30 秒冷却 + 1 秒轮询重建，已经等价，手机上再加一个 10 秒 poll 只是白白唤醒射频。
+- **`trigger-gate.ts` 的两问分离** —— **lark 本来就问对了**，记一笔免得以后有人「优化」坏：owl 因为把「有凭证」当成「能跑」，一份日志里出过 **163 条连续的 `scheduler tick rejected`**（401 之后 session 掉了但凭证还在）。lark 的 `queue.ready()` 问的是 `ctx.sync.session !== null`。
+
+🔴 **一条如实记下的差别**：owl 的 `syncRecoveryCapability` 把「session 从没装过」和「token 被服务器拒了」分成两种能力（前者存的 access token 就能恢复，后者必须有 refresh token）。**lark 两端在 `token_rejected` 之后都没有自动恢复**，只能手动重新登录——既有行为，不是移动端的回归，本批只记账。
+
+⚠️ **桌面因此被改了第四轮**（N1 重构 · N4a 提取 · N4g/N4i-1 · **本批的流控制器**），而且这一次**有意改变了桌面行为**（daemon 起来就会补一轮，不再等最多 5 分钟）。发版门禁那条账相应变重。
 
 ---
 

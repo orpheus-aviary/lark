@@ -54,6 +54,7 @@ export * from './portable/coordinator/runner.js';
 export * from './portable/coordinator/runtime.js';
 export * from './portable/coordinator/session.js';
 export * from './portable/coordinator/status.js';
+export * from './portable/coordinator/stream.js';
 export * from './portable/services/contract/index.js';
 export * from './portable/services/contract/audio-landing/index.js';
 export * from './portable/services/library.js';

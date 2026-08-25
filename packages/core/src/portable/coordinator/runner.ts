@@ -22,8 +22,15 @@ import { RETENTION_MS, runRetention } from '../sync/retention.js';
 import { classifySyncFailure } from '../sync/retry.js';
 import type { CoordinatorContext } from './context.js';
 
-/** What asked for this round. Only ever used for the log line. */
-export type SyncTrigger = 'manual' | 'scheduler' | 'outbox' | 'remote' | 'boot';
+/**
+ * What asked for this round. Only ever used for the log line.
+ *
+ * `resume` is the phone's (N5d): an app coming back to the foreground is the
+ * moment a device that has been asleep catches up, and it is neither a boot
+ * nor a clock tick. The daemon never emits it — nothing on a desktop goes away
+ * and comes back.
+ */
+export type SyncTrigger = 'manual' | 'scheduler' | 'outbox' | 'remote' | 'boot' | 'resume';
 
 /** Trim the outbox at most this often; the round is just when we notice. */
 const RETENTION_INTERVAL_MS = 60 * 60 * 1000;

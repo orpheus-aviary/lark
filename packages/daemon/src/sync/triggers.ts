@@ -28,6 +28,7 @@ import {
   type RunSyncResult,
   type SyncBackgroundHandles,
   SyncRoundQueue,
+  SyncStreamController,
   type SyncTrigger,
 } from '@lark/core';
 import type { AppContext } from '../context.js';
@@ -37,8 +38,6 @@ import { coordinatorContext, refreshSessionToken, tokenNeedsRefresh } from './co
 const POLL_MS = 1_000;
 /** How often the token expiry is checked. */
 const REFRESH_POLL_MS = 60_000;
-/** After a stream error, wait this long before subscribing again. */
-const SSE_COOLDOWN_MS = 30_000;
 
 export interface SyncHandlesOptions {
   now?: () => number;
@@ -55,16 +54,19 @@ export class SyncHandles implements SyncBackgroundHandles {
   readonly #ctx: AppContext;
   readonly #now: () => number;
   readonly #queue: SyncRoundQueue;
+  /**
+   * The server stream, its cooldown and its idle watchdog (N5d-2).
+   *
+   * Moved into `@lark/core/portable` when the phone needed the same policy:
+   * two hosts growing two answers to "is this stream still alive" is the drift
+   * that shows up as "the phone reconnected and the laptop did not".
+   */
+  readonly #stream: SyncStreamController;
 
   #stopped = false;
   #timers: NodeJS.Timeout[] = [];
   /** The clock trigger specifically: it is the one that can be re-armed (F1). */
   #scheduler: NodeJS.Timeout | null = null;
-
-  // ── server stream ──
-  #unsubscribe: (() => void) | null = null;
-  #subscribedEpoch = -1;
-  #sseBlockedUntil = 0;
 
   constructor(ctx: AppContext, options: SyncHandlesOptions = {}) {
     this.#ctx = ctx;
@@ -72,10 +74,12 @@ export class SyncHandles implements SyncBackgroundHandles {
     // One context for the queue's whole life, carrying THIS host's clock: the
     // trigger tests drive a virtual one, and a queue reading a different clock
     // to the timers around it would debounce against a time nobody is at.
+    const coordinator = { ...coordinatorContext(ctx), now: this.#now };
     this.#queue = new SyncRoundQueue(
-      { ...coordinatorContext(ctx), now: this.#now },
+      coordinator,
       options.random === undefined ? {} : { random: options.random },
     );
+    this.#stream = new SyncStreamController(coordinator, this.#queue);
   }
 
   /** Start the timers. Does nothing when this context runs without triggers. */
@@ -139,7 +143,7 @@ export class SyncHandles implements SyncBackgroundHandles {
     for (const timer of this.#timers) clearInterval(timer);
     this.#timers = [];
     this.#scheduler = null;
-    this.#dropSubscription();
+    this.#stream.stop();
   }
 
   /**
@@ -149,7 +153,7 @@ export class SyncHandles implements SyncBackgroundHandles {
    * outside this process while the drain is waiting.
    */
   async abortAndDrain(): Promise<void> {
-    this.#dropSubscription();
+    this.#stream.drop();
     await this.#queue.abortAndDrain();
   }
 
@@ -161,7 +165,7 @@ export class SyncHandles implements SyncBackgroundHandles {
    */
   tickOutbox(): void {
     if (!this.#queue.ready()) return;
-    this.#ensureSubscription();
+    this.#stream.ensure();
     if (this.#queue.busy) {
       // Load-bearing: the coalescer runs a follow-up even when the in-flight
       // round rejected, so polling into it every second would re-run a failing
@@ -181,55 +185,6 @@ export class SyncHandles implements SyncBackgroundHandles {
   async tickRefresh(): Promise<void> {
     if (this.#stopped || !tokenNeedsRefresh(this.#ctx, this.#now())) return;
     await refreshSessionToken(this.#ctx);
-  }
-
-  // ── the server's event stream ──
-
-  #ensureSubscription(): void {
-    const session = this.#ctx.sync.session;
-    if (session === null) {
-      this.#dropSubscription();
-      return;
-    }
-    if (this.#unsubscribe !== null) {
-      if (!this.#ctx.sync.isStale(this.#subscribedEpoch)) return;
-      this.#dropSubscription(); // the session was replaced under us
-    }
-    if (this.#now() < this.#sseBlockedUntil) return;
-
-    const epoch = this.#ctx.sync.epoch;
-    this.#subscribedEpoch = epoch;
-    try {
-      this.#unsubscribe = session.client.subscribeEvents(session.workspaceId, {
-        onChange: () => {
-          if (this.#queue.stale(epoch)) return;
-          void this.#queue.runTracked('remote');
-        },
-        onError: (err) => {
-          // The SDK does not reconnect (it is deliberately stateless), so the
-          // stream is dead until the next poll rebuilds it — after a cooldown,
-          // so a server refusing the stream is not asked once a second.
-          this.#ctx.logger.warn({ err }, 'sync event stream failed');
-          this.#sseBlockedUntil = this.#now() + SSE_COOLDOWN_MS;
-          this.#subscribedEpoch = -1;
-        },
-      });
-    } catch (err) {
-      this.#ctx.logger.warn({ err }, 'could not open the sync event stream');
-      this.#sseBlockedUntil = this.#now() + SSE_COOLDOWN_MS;
-    }
-  }
-
-  #dropSubscription(): void {
-    const unsubscribe = this.#unsubscribe;
-    this.#unsubscribe = null;
-    this.#subscribedEpoch = -1;
-    if (unsubscribe === null) return;
-    try {
-      unsubscribe();
-    } catch (err) {
-      this.#ctx.logger.warn({ err }, 'closing the sync event stream failed');
-    }
   }
 }
 
