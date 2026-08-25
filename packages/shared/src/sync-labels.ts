@@ -4,7 +4,7 @@
 // is the only place a user learns that sync stopped, and "which sentence for
 // which state" is exactly the part that is easy to get subtly wrong.
 
-import type { SyncAuthReason, SyncFileOpSummary, SyncStatusData } from '@lark/shared';
+import type { SyncAuthReason, SyncFileOpSummary, SyncStatusData } from './sync-types.js';
 
 /**
  * Five tones, not five colours: the component owns the palette. `off` covers
@@ -68,7 +68,10 @@ export function loginErrorMessage(errorCode: string | undefined, message: string
     case 'SYNC_SCHEMA_VERSION_MISMATCH':
       return '服务器与本机的同步协议版本不一致，请先升级较旧的一端。';
     case 'SYNC_INSECURE_URL':
-      return '服务器地址不是 HTTPS。登录会发送密码，所以默认拒绝——确实要用明文 HTTP，请勾选下面的选项。';
+      // Names the setting rather than pointing at where it sits (N5a). The
+      // desktop's is a checkbox under the form; the phone's is a switch in the
+      // sync section, and "下面的选项" was true on exactly one of them.
+      return '服务器地址不是 HTTPS。登录会发送密码，所以默认拒绝——确实要用明文 HTTP，请先打开「允许明文 HTTP」。';
     default:
       return message;
   }

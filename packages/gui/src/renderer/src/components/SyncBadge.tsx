@@ -8,12 +8,12 @@
 // resolve alone (R5-P1-1): a file effect that gave up after five attempts, and
 // a conflict waiting for a person. Everything else on it is read-only.
 
+import type { SyncTone } from '@lark/shared';
+import { authReasonLabel, syncBadgeView } from '@lark/shared';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { formatRelativeTime } from '../lib/format.js';
-import { authReasonLabel, syncBadgeView } from '../lib/sync-labels.js';
-import type { SyncTone } from '../lib/sync-labels.js';
 import { useSettingsUi } from '../stores/settings-ui.js';
 import { useSync } from '../stores/sync.js';
 import { ConfirmDialog } from './ConfirmDialog.js';

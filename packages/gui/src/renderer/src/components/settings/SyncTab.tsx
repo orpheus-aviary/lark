@@ -16,12 +16,11 @@
 //   of as a toast.
 
 import type { SyncDeviceData } from '@lark/shared';
-import { ApiError } from '@lark/shared';
+import { ApiError, authReasonLabel, loginErrorMessage } from '@lark/shared';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../../lib/errors.js';
 import { formatRelativeTime } from '../../lib/format.js';
-import { authReasonLabel, loginErrorMessage } from '../../lib/sync-labels.js';
 import { useSync } from '../../stores/sync.js';
 import { ConfirmDialog } from '../ConfirmDialog.js';
 import { DISCARD_FILE_OP_DESCRIPTION, SyncFileOpsList } from '../SyncFileOpsList.js';

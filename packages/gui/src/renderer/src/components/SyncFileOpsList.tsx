@@ -8,10 +8,10 @@
 // right (a permission fixed, a disk remounted); discard destroys the effect
 // for good, so the host confirms it and this component only asks.
 
+import { fileOpKindLabel } from '@lark/shared';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
-import { fileOpKindLabel } from '../lib/sync-labels.js';
 import { useSync } from '../stores/sync.js';
 import { Button } from './ui/button.js';
 
