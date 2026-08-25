@@ -252,6 +252,51 @@ describe('PUT /songs/:id source_url', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  // ─── The two branches nothing was watching (N4i-1) ───
+  //
+  // Both are CHARACTERIZATION: they pin what the route does today, so that
+  // moving this logic into portable has something to be zero-behaviour-change
+  // AGAINST. Written before the move, red-then-green against the current
+  // implementation, and they must stay green afterwards without a word changed.
+
+  it('expands a short link and stores what it expanded to', async () => {
+    const song = seed('s');
+    // The hop itself belongs to the client (`bilibili.ts`, its own tests); what
+    // is on trial here is the branch — expand, then judge the target as if it
+    // had been pasted.
+    ctx.bilibili.expandShortLink = () => Promise.resolve(`${VIDEO_URL}?p=1`);
+
+    const res = await put(apiPath.song(song.id), { source_url: 'https://b23.tv/cfzPKZX' });
+
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).data).toMatchObject({
+      // NOT the short link: what gets stored is the canonical URL the
+      // expansion led to, so nothing downstream has to hop again.
+      source_url: VIDEO_URL,
+      source_provider: 'bilibili',
+      source_key: `${BVID}:550103819`,
+    });
+  });
+
+  it('keeps a favourites link as a url with no identity — it is not one song', async () => {
+    const song = seed('s', {
+      source_url: VIDEO_URL,
+      source_provider: 'bilibili',
+      source_key: `${BVID}:550103819`,
+    });
+    const list = 'https://space.bilibili.com/12345/favlist?fid=678&ftype=create';
+
+    const res = await put(apiPath.song(song.id), { source_url: list });
+
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).data).toMatchObject({
+      source_url: list,
+      // The old identity goes with it: this song is no longer that video.
+      source_provider: null,
+      source_key: null,
+    });
+  });
+
   // An explicit triple is the client saying what to store; core's invariant is
   // the only judge, and no network call happens.
   it('leaves an explicit triple alone', async () => {
@@ -291,6 +336,20 @@ describe('POST /songs/:id/recognize-url', () => {
     const song = seed('s');
     const res = await post(apiPath.songRecognizeUrl(song.id), { url: VIDEO_URL });
     expect(bodyOf(res).data.source_key).toBe(`${BVID}:550103819`);
+  });
+
+  it('expands a short link before recognising it (N4i-1 characterization)', async () => {
+    const song = seed('s');
+    ctx.bilibili.expandShortLink = () => Promise.resolve(VIDEO_URL);
+
+    const res = await post(apiPath.songRecognizeUrl(song.id), { url: 'https://b23.tv/cfzPKZX' });
+
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).data).toMatchObject({
+      source_url: VIDEO_URL,
+      source_key: `${BVID}:550103819`,
+      video_title: '【私藏馆】周杰伦《稻香》',
+    });
   });
 
   it('400s when there is no url to recognise', async () => {

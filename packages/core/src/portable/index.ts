@@ -40,6 +40,7 @@ export * from './download/lyrics/shared.js';
 export * from './download/pipeline.js';
 export * from './download/preflight.js';
 export * from './download/prompts.js';
+export * from './download/source-url.js';
 export * from './download/target.js';
 export * from './download/task-data.js';
 export * from './download/timeouts.js';

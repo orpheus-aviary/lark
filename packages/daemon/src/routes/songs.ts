@@ -6,9 +6,9 @@ import {
   getSong,
   importSongs,
   isLlmConfigured,
-  normalizeSourceOnline,
-  parseSongInput,
+  recognizeSourceUrl,
   resolveLlmConfig,
+  resolveSourceUrl,
   songFileInfo,
 } from '@lark/core';
 import {
@@ -149,7 +149,9 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     // saying what it wants stored, and core's invariant is the only judge.
     const urlOnly = 'source_url' in body && !('source_provider' in body) && !('source_key' in body);
     if (urlOnly) {
-      const resolved = await resolveSourceUrl(patch.source_url ?? null);
+      const resolved = await resolveSourceUrl(bilibili, patch.source_url ?? null, {
+        signal: netSignal(),
+      });
       patch.source_url = resolved.source_url;
       // Explicit nulls, not omission: `updateSongInTx` inherits absent fields,
       // so leaving these out would keep a stale key attached to a new url.
@@ -163,53 +165,6 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
     ctx.eventsBus.emit({ type: 'songs:changed' });
     ok(reply, song);
   });
-
-  /**
-   * Turn a pasted URL into the stored triple, in four branches (M3-11):
-   * cleared, a bilibili link (normalised online), some other http(s) link
-   * (kept as a url with no identity, R8), or a refusal.
-   */
-  async function resolveSourceUrl(url: string | null): Promise<{
-    source_url: string | null;
-    source_provider: string | null;
-    source_key: string | null;
-  }> {
-    if (url === null || url === '') {
-      return { source_url: null, source_provider: null, source_key: null };
-    }
-
-    let parsed: ReturnType<typeof parseSongInput>;
-    try {
-      parsed = parseSongInput(url);
-    } catch {
-      // Not a bilibili link. A plain http(s) URL is still worth keeping — the
-      // user can open it — it just cannot drive a download.
-      if (/^https?:\/\//.test(url)) {
-        return { source_url: url, source_provider: null, source_key: null };
-      }
-      throw new InvalidRequestError('INVALID_SOURCE', `无法识别的链接：${url}`);
-    }
-
-    if (parsed.kind === 'short_link') {
-      const target = await bilibili.expandShortLink(parsed.url, { signal: netSignal() });
-      return resolveSourceUrl(target);
-    }
-    if (parsed.kind !== 'video') {
-      // A favourites or collection link is not one song's source.
-      return { source_url: url, source_provider: null, source_key: null };
-    }
-
-    const source = await normalizeSourceOnline(
-      bilibili,
-      { bvid: parsed.bvid, page: parsed.page },
-      { signal: netSignal() },
-    );
-    return {
-      source_url: source.source_url,
-      source_provider: source.source_provider,
-      source_key: source.source_key,
-    };
-  }
 
   app.delete(apiPath.song(':id'), async (req, reply) => {
     const id = idOf(req);
@@ -279,27 +234,11 @@ export function registerSongRoutes(app: FastifyInstance, ctx: AppContext): void 
       throw new InvalidRequestError('INVALID_BODY', '这首歌没有链接，请在请求里给出 url');
     }
 
-    const parsed = parseSongInput(url);
-    const video =
-      parsed.kind === 'short_link'
-        ? parseSongInput(await bilibili.expandShortLink(parsed.url, { signal: netSignal() }))
-        : parsed;
-    if (video.kind !== 'video') {
-      throw new InvalidRequestError('INVALID_SOURCE', '只能识别 B 站视频链接');
-    }
-
-    const source = await normalizeSourceOnline(
-      bilibili,
-      { bvid: video.bvid, page: video.page },
-      { signal: netSignal() },
-    );
-    const view = await bilibili.view(video.bvid, { signal: netSignal() });
-    ok(reply, {
-      source_url: source.source_url,
-      source_provider: source.source_provider,
-      source_key: source.source_key,
-      video_title: view.title,
-    } satisfies RecognizeUrlData);
+    // The recognition itself is portable (`download/source-url.ts`, N4i-1);
+    // what stays here is the wire: which url to use when the body omits one,
+    // the deadline, and the envelope.
+    const recognized = await recognizeSourceUrl(bilibili, url, { signal: netSignal() });
+    ok(reply, recognized satisfies RecognizeUrlData);
   });
 
   /** Force a fresh download of this song's audio, replacing whatever is there. */
