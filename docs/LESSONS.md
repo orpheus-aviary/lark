@@ -3,6 +3,10 @@
 > 每一条都是**踩出来的**，不是推导出来的。从 `CLAUDE.md` 迁出（2026-08-19）——那份文件是每次会话都加载的常驻规范，历史细节压在里面会把真正常驻的规矩淹掉。**内容逐字节保留、只按时间重排**。
 >
 > **改动某个模块前先读它对应的那一段**；每段开头的子计划链接是更完整的上下文（判据、决策、逐批记录）。新的实测锁定继续追加到对应段落。
+>
+> 这里是「**为什么会踩**」。「**现在还必须遵守什么**」在 `INVARIANTS.md`，「**当时怎么定的**」在 `history/`，「**还没做的**」在 `plans/2026-08-26-backlog-before-android-v1.md`。
+>
+> 按时间分段：**M0–M7**（v0.1，桌面从零）· **v0.2**（同步）· **v0.2.1 / v0.3.0**（m4a 与迁移）· **Phase B**（Android，最长的一段，随批次追加）。找东西直接 grep 模块名。
 
 ---
 
@@ -129,7 +133,7 @@
 - **图标**：源图的灰光晕**不透明**，量边界要用饱和度不是 alpha；`lark-icon-source.png`（已去光晕的方块）是唯一 tracked 的图标资产，配方写在 `build-icons.mjs` 注释里。**判据在 0.2.1 改了**：不再是「最外圈不透明像素 = 0」——那条只防得住光晕，防不住 macOS 给「不像 tile 的 icns」垫默认灰底板（0.2.0 就是这么带着一圈灰发出去的，详见下方 0.2.1 段）。现在 `build-icons.mjs` 自己造 tile（铺满 → n=5 超椭圆蒙版 → 缺口填边缘中位色），判据改成**用 `NSWorkspace.icon(forFile:)` 渲染出来的图在系统 tile 内没有灰边**
 - **发版**：npm 拒绝 `npm login` 的会话凭据（要 2FA），必须用带 bypass 的 granular token；发布成功后 CDN 还会缓存 404 约 40 秒（`npm access get status` 走 API，那时已经对）。github 在本机三通其一，且 **`git push … | tail` 会吞掉退出码**（管道返回 tail 的）
 
-## v0.2 T0–T3 实测锁定（详见 `PROCESS.md` v0.2 段与 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`）
+## v0.2 T0–T3 实测锁定（详见 `docs/history/v0.2.0-shipped.md` 与 `docs/plans/2026-08-11-v0.2-skybridge-sync.md`）
 
 - **sync 的两条通道不许混**：LWW put/墓碑（`create`/`update`/`delete`）带三元组、比键、**跳过自己的回声**；元数据 op（`set_lyrics`/`clear_lyrics`/`reorder`/`set_rank`）无键、只按 `server_seq` 定序、**自己的回声也要重放**——任何 rank 进 LWW 通道都会分叉（D7）
 - **rank 全部离开 LWW**：拖拽 = rank-only + `set_rank`；归一化 = 一条 `reorder`（超 4000 退化逐行）；add = **成对 emit**（create 不带 rank）
