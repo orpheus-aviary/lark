@@ -234,6 +234,19 @@ describe('POST /sync/login', () => {
       expect(readWorkspaceIndex(paths.workspacesPath()).active).toBe(ACCOUNT);
     });
 
+    // N7g-2: the index carries `label` and `server_url` so a switcher can say
+    // who a library belongs to. Nothing wrote them until the login did — the
+    // only other writer is the one-time migration, which knows the server and
+    // not the account — so every workspace showed as「账号曲库 <8 hex>」.
+    it('names the workspace after the account that owns it', async () => {
+      await post(API_PATHS.syncLogin, login);
+
+      expect(readWorkspaceIndex(paths.workspacesPath()).entries[ACCOUNT]).toEqual({
+        label: login.email,
+        server_url: login.server_url,
+      });
+    });
+
     it('leaves the library it copied complete and bound to nothing (117)', async () => {
       await post(API_PATHS.syncLogin, login);
 

@@ -27,7 +27,7 @@ import {
 } from './config/workspaces.js';
 import { larkDir, workspacePaths, workspacesPath } from './paths.js';
 import type { StructuredLogger } from './portable/logger.js';
-import { withActiveWorkspace } from './portable/workspace-index.js';
+import { withActiveWorkspace, withWorkspaceEntry } from './portable/workspace-index.js';
 import { WORKSPACE_LOCAL, isWorkspaceId } from './portable/workspace.js';
 
 export interface SwitchWorkspaceResult {
@@ -75,4 +75,27 @@ export function switchWorkspace(id: string, logger?: StructuredLogger): SwitchWo
 /** Whether this device has an index at all — i.e. has ever switched. */
 export function hasWorkspaceIndex(): boolean {
   return existsSync(join(larkDir(), WORKSPACES_FILE_NAME));
+}
+
+/**
+ * Give a workspace the name a person recognises, without changing what is open.
+ *
+ * 🔴 SOMEBODY HAS TO CALL THIS OR THE SWITCHER SHOWS A HASH. The index carries
+ * `label` and `server_url` purely so a list can say「me@example.com」rather than
+ * 「账号曲库 085de2c3」, and until N7g-2 nothing ever wrote them: the only
+ * writer was the one-time migration, which knows the server but not the
+ * account. A login is the one moment both are known.
+ *
+ * Best-effort by contract — the caller logs and carries on. A workspace with no
+ * name is a cosmetic loss; a login that failed because a decoration could not be
+ * written would be a real one.
+ */
+export function nameWorkspace(
+  id: string,
+  entry: { label: string; server_url: string },
+  logger?: StructuredLogger,
+): void {
+  if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
+  const path = workspacesPath();
+  writeWorkspaceIndex(withWorkspaceEntry(readWorkspaceIndex(path, logger), id, entry), path);
 }

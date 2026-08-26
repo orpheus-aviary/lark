@@ -36,6 +36,7 @@ import {
   computeWorkspaceId,
   performSyncLogin as coordLogin,
   createDatabase,
+  nameWorkspace,
   nodeCredentialStore,
   nodeFileContext,
   paths,
@@ -177,6 +178,15 @@ export async function performWorkspaceLogin(
 
   const workspaceId = targetId as unknown as string;
   const restartRequired = workspaceId !== active;
+  // The name, every time — including a login back into the workspace already
+  // open, which is how a workspace that predates this line gets one. Best
+  // effort: a switcher that shows a hash is a cosmetic loss, a login that
+  // failed because a decoration could not be written is not (N7g-2).
+  try {
+    nameWorkspace(workspaceId, { label: login.email, server_url: login.server_url }, ctx.logger);
+  } catch (err) {
+    ctx.logger.warn({ err, workspace: workspaceId }, 'could not name the workspace');
+  }
   if (restartRequired) switchWorkspace(workspaceId, ctx.logger);
 
   return {

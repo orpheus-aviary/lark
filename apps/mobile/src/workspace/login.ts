@@ -44,7 +44,7 @@ import { deviceName } from '../ports/device';
 import { createFileSystem } from '../ports/fs';
 import { activeWorkspaceId, createPathsFor, workspaceDirectory } from '../ports/paths';
 import { appVersion } from '../sync/context';
-import { switchWorkspace } from './index-file';
+import { nameWorkspace, switchWorkspace } from './index-file';
 import { prepareWorkspace } from './prepare';
 
 export interface WorkspaceLoginInput extends SyncLoginRequest {
@@ -131,6 +131,19 @@ export async function performWorkspaceLogin(
 
   const workspaceId = targetId as unknown as string;
   const restartRequired = workspaceId !== serving;
+  // The name, every time — including a login back into the workspace already
+  // open, which is how one that predates this line gets a name at all. Best
+  // effort: the switcher falling back to「账号曲库 085de2c3」is a cosmetic
+  // loss, a login that failed because a decoration could not be written is not
+  // (N7g-2).
+  try {
+    await nameWorkspace(createFileSystem(), workspaceId, {
+      label: login.email,
+      server_url: login.server_url,
+    });
+  } catch (err) {
+    engineLogger.warn({ err: String(err) }, 'could not name the workspace');
+  }
   if (restartRequired) await switchWorkspace(createFileSystem(), workspaceId);
 
   return { login, workspaceId, workspaceCreated: created, restartRequired };
