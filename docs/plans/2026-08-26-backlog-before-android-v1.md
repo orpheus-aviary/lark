@@ -9,10 +9,10 @@
 
 ## A. 发版前必须做完（Android v1 的门）
 
-> **2026-08-26 更新：已发版。** A1 / A3 / A4 完成，**A2 与 A5 仍欠着**（下面逐条标注）。下一份 backlog 应以「首发之后」为口径重开。
+> **2026-08-26 更新：已发版，A 节只剩 A5。** A1 / A2 / A3 / A4 全部完成（下面逐条标注），**A5（手机补 LLM key + 重新登录）由用户自己做**。下一份 backlog 应以「首发之后」为口径重开。
 
 - **A1 · 文档大整理** —— ✅ **完成 2026-08-26**（含 `README.md` 的 Android 一节）。本文件、`PROCESS.md` 瘦身、`docs/INVARIANTS.md`、`docs/history/` 归档、`.tokeignore` 都属于它。剩下的一半是**面向用户的文档**：`README.md` 要加 Android 一节（装什么、从哪装、和桌面什么关系、数据在哪、卸载会丢什么）。
-- 🔴 **A2 · 跨仓文档跟进 Phase B**（**仍欠着**） —— `../aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 里 lark 的状态还停在「0.3.0 已发」，**完全没有 Android 这条线**。发版当天一并跟进。
+- **A2 · 跨仓文档跟进 Phase B** —— ✅ **完成 2026-08-26**（`aviary` 与 `.github` 两个仓各一条提交）。原文： —— `../aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 里 lark 的状态还停在「0.3.0 已发」，**完全没有 Android 这条线**。发版当天一并跟进。
 - **A3 · 发版本身** —— ✅ **完成 2026-08-26**（`v0.4.0` + `android-v0.1.0` 两个 Release + npm 0.4.0）。原文： 只在 GitHub Release 发 APK，**不进商店**（⇒ developer verification 不注册），签名从简（已有 lark 自己的 release key，`just mobile-verify-apk` 是门禁）。**桌面版打包记得用图标。**
 - **A4 · 发版前复跑桌面 accept 全系列** —— ✅ **完成 2026-08-26**，128/128。原文： 只在这次发版同时动了桌面时才需要；桌面自 2026-08-26 的 128/128 之后若一行未改，可直接引用那次结果。**别把它当成可省的一步**：N1 判据 22 欠了六轮才还上。
 - 🔴 **A5 · 手机恢复可用状态**（**仍欠着**）—— 现在是**登出**且 **LLM API Key 随卸载丢失**。发版前要用户手动补一次，并确认登录后的完整链路还在。

@@ -79,7 +79,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 
 ## 当前进度
 
-**桌面 v0.3.0 已发布**（2026-08-17，tag `9cf9d97`）；**Android Phase B N0–N7 全部完成、尚未发版**。测试 3308，`just check` 绿，桌面 accept 五套 128/128（2026-08-26）。
+**桌面 v0.4.0 + Android 0.1.0 已发布**（2026-08-26，tag `v0.4.0` / `android-v0.1.0`）。测试 3317，`just check` 绿，发版前对发出去的那份产物复跑五套 accept **128/128**。
 
 **当前状态 + 下一步以 `PROCESS.md` 为准。** 其余入口：
 

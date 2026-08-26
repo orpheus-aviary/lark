@@ -13,11 +13,13 @@
 | **业务代码** | 491 文件 / 49,026 行（`tokei`，口径见 `.tokeignore`）。 |
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
-**下一站：跨仓文档跟进（backlog A2）→ 长期使用复盘。** 待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
+**下一站：长期使用复盘。** 两端都跑起来之后回头看一次日志——owl 的 0.6.2 就是这么挖出一批同步问题的（游标互相清零藏了三周，因为缺的是**轮次 summary 日志**）。待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
 
 ⚠️ **手机当前状态**：处于**登出**，且 **LLM API Key 随卸载丢失**——从 Release 装上之后要手动补一次（backlog A5）。
 
 ### 本阶段记录
+
+- **跨仓文档跟进（2026-08-26，backlog A2 关闭）** —— `aviary/docs/{ROADMAP,DESIGN}.md` 与 `.github/profile/README.md` 里 lark 的状态自 0.3.0 起就没动过、也完全没有 Android 这条线。三处都改了，重点不是「多了个 app」而是**这个 app 是什么**：一台有自己曲库、离线可用、登录后双向同步的**设备**，不是遥控器；每账号一个曲库，id 与 owl 的 per-profile 逐字节同结果；两端业务逻辑同一份代码（`@lark/core/portable`），这是它能做小的前提。
 
 - **发版（2026-08-26）** —— 桌面 **0.4.0** + Android **0.1.0**，两条版本线各自打 tag（`v0.4.0` / `android-v0.1.0`）。
   发版前对**这一份代码和产物**复跑五套 accept：`accept-gui` 15 · `accept-m5` 22 · `accept-cli` 27 · `accept-sync` 36 · `accept-pack` 28 = **128/128**；dmg 与 tgz 的 sha256 与 accept-pack 报的逐字节一致，npm registry 回读的 shasum 与本地 tarball 一致。
