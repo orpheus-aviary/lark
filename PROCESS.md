@@ -797,7 +797,7 @@
 | 判据 30②（key 会不会出现在错误文案）+ `downloads/log.ts` 脱敏 | **暂时不做** |
 | N4g 决策 j 的缝（锁屏 / 通知栏暂停键不经过 JS ⇒ 不作废等待中的 ensure） | **先不做** |
 
-🔴 **唯一仍然要还的，是一件跨批的事**：**桌面 accept 全系列自 v0.3.0 之后一次没跑过**，而这期间桌面被改了四轮（N1 的整个 portable 重构 · N4a 的三处提取 · N4g 的 `decideNext` 规则 3 + `ops.play(ensureFile)` · N4i-1 的 URL 归一化提取）。单测全绿，但 `accept-gui` / `accept-m5` / `accept-cli` / `accept-sync` / `accept-pack` **一条真实证据都没有**。**N1 判据 22 本来就欠着它**（「对新构建的 dmg/tgz 复跑 accept 全系列」）⇒ **记成下个桌面版本的发版门禁**。
+🔴 **唯一仍然要还的，是一件跨批的事**：**桌面 accept 全系列自 v0.3.0 之后一次没跑过**，而这期间桌面被改了四轮（N1 的整个 portable 重构 · N4a 的三处提取 · N4g 的 `decideNext` 规则 3 + `ops.play(ensureFile)` · N4i-1 的 URL 归一化提取）。单测全绿，但 `accept-gui` / `accept-m5` / `accept-cli` / `accept-sync` / `accept-pack` **一条真实证据都没有**。**N1 判据 22 本来就欠着它**（「对新构建的 dmg/tgz 复跑 accept 全系列」）⇒ **记成下个桌面版本的发版门禁**。（**已于 2026-08-26 的 N7g-1 还清**：五套 128/128，见本文件末尾的 N7g-1 段。此处保留原文作为当时的账。）
 
 ### N5 同步（开发中）
 
@@ -971,10 +971,13 @@
   - **打不开的库跳过而不是报错**：调用方是一个设置页的数字或一次后台清理，一个读不了的库不该让整台设备既报不出、也回收不了自己剩下的磁盘。
   - **UI 两端都显示两行**（当前曲库 / 其他曲库 + 「清理时先动这些」），手机那边顺手把两次遍历**并成一个 memo**——`view` 是「有东西变了」的信号，分成两个 memo 会让它在其中一个里成为无用依赖（biome 抓到了，改成一次走完更诚实）。
 
-- **N7g 开了个头就停下（2026-08-26，对话长度所限，下个对话继续）**：
-  - ✅ **`just accept-cli` 27/27 全绿**（含真 bilibili 下载与收藏夹展开、R31 直写拒绝、写锁抢占、身份状态四态）。**这是 N7 大改桌面之后第一套真实验收，也是自 v0.3.0 以来第一次跑它。**
-  - ⏸ **还欠四套**：`accept-gui`(15) · `accept-m5`(22，真 bilibili) · `accept-sync`(34，真 server + 两台 daemon + 真 GUI) · `accept-pack`(28，要先 `just package` + `just pack-cli`)。
-  - ⏸ **判据 123 的真机会话未开始**，清单在子计划 §9.2。
+- **N7g-1 桌面 accept 全系列：判据 122 关闭（2026-08-26，测试 3300）。** 五套 **128/128**（原计 126，accept-sync 多了两条，见下）。**这同时兑现了 N1 判据 22 的旧账**——桌面自 v0.3.0 之后被改了六轮，一条验收都没跑过。
+  - `just accept-cli` **27/27** · `just accept-gui` **15/15** · `just accept-m5` **22/22**（真 bilibili）· `just accept-sync` **36/36**（真 server + 两台 daemon + 真 GUI）· `just accept-pack bundled` **28/28**（对本批新建的 `Lark-0.3.0-arm64.dmg` + `orpheus-aviary-lark-cli-0.3.0.tgz`）。
+  - 🔴 **它抓到了一个真 bug，而且是最贵的那种形状：CLI 让用户去跑他刚跑成功的那条命令。** `accept-sync` 的 D4 红在 `pending 102, pushed_seq 0`，E1 跟着塌成 0/9。最小复现逐字是：`lark sync login` 退出 0 并打印「已登录 / 首次绑定，已排入回填」→ 紧接着 `lark sync status` 说「**状态：需要登录（还没有登录）· 绑定：未绑定**」→ `lark sync run` 退出 3 `SYNC_AUTH_REQUIRED`，正文是「run `lark sync login` first」。**机制全对**：`local` 永远不可能哈希成账号的 id，所以首次登录必然在 `libraries/<id>/` 备一个库、装进去、翻 active，而 daemon 还开着原来那个（`serving` ≠ `active`，形状 ②）。**坏的只是交代**——`restart_required` / `local_workspace_id` / `local_workspace_created` 三个字段一路铺到了 `SyncLoginResultData`、铺到了 CLI 的测试夹具，**GUI 读了并弹「重启后打开这个账号的曲库」，CLI 一个都没印**。修法是 `reportLogin()`（从 `runSyncLogin` 里提出来，否则 biome 的认知复杂度 16 > 15）：新增「本机曲库：<id>（这次新建）」一行，末尾两行讲清「重启一次才会切过去」+ `lark stop-daemon`。两条单测，反测已跑（撤掉源码改动两条同时红）。
+  - **accept-sync 从 34 条变 36 条**，两条都是这次逼出来的：**D3b** 断言登录如实回答「装在别的库里 + 需要重启」；**D3c** 是**判据 117 第一次在真实曲库上拿到证据**——并入之后 `local` 的歌一首不少、且**没有** `skybridge.toml`（装在原库上的话两半都会假）。harness 相应地在登录后**照用户会做的那样重启 daemon**（A 与 B 各一次；B 的 `local` 是全新空库，同样不是账号库）。
+  - **accept-pack 的两条红是判据滞后，不是产品问题**：N7 把 `LOCAL_API_VERSION` 抬到 **7**（两条 `/workspaces` 路由），而脚本里两处硬写着 `6`。改成一个具名常量 `EXPECTED_API_VERSION` 两处共用（**仍然是字面量**：§9 拿它和源码常量比，两边都读源码就只证明文件等于自己）。`CLAUDE.md` 里那句 `= 6` 一并改了。这正是 M7 记过的坑「判据里的协议版本会滞后」的第二次发作。
+  - **harness 的一处卫生修复**：CLI 阶段用 `lark daemon` 起的是**脱管子进程**，脚本的 `finally` 只 `stopChild(daemonA)` 管不到它——上一轮崩在 E1 时就留了个 daemon 占着 47100，而下一轮的 `backupNest` 会因为「有 daemon 在答话」拒绝复制，**报错点离真正的原因十万八千里**（这次真踩到了）。`finally` 现在补一句 `lark stop-daemon`。
+  - ⏸ **只剩判据 123 的真机会话**（用户手操，清单在子计划 §9.2）。
 
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
@@ -1114,7 +1117,7 @@ v1 那条读源码读出来的发现原样保留：
 - [ ] **锁屏 / 通知栏的暂停键接进 JS**（N4g 决策 j 的缺口）：`modules/lark-audio` 加一个 media-session 回调面，让它也能作废等待中的 ensure。**2026-08-25 用户决定先不做**；实际使用中被咬到再捡起来
 - [ ] **判据 76：`SYNC_PULL_LIMIT_MOBILE` 在竞争条件下复测**（N1 的 R5 明账，N5f 没跑）——要一次 ~2000 行的合成负载，一边播放一边拉 200/批，p95 ≤ 100ms；超了就把常量降到 100（无协议含义）。**真实两端加起来只有 18 首，跑不出这个判据**。**2026-08-25 用户决定：先不做，只记录**——`SYNC_PULL_LIMIT_MOBILE = 200` 保持现值，实际使用中撞上卡顿再捡起来；在那之前「200 在竞争下也够」是**未经证明的假设**，不是结论
 - [ ] **判据 80 / 81 的界面证据**（N5e 实现了，N5f 没有自然触发条件）：造一条真冲突要两台设备互写，造一条失败 file-op 要文件系统在特定时刻失败。**2026-08-25 用户决定：先不做，只记录**——冲突页与失败 file-op 的重试/放弃**在屏幕上一次都没被人看见过**（`resolveConflict` 的语义在 core 有测，界面这一层没有）。下次两端 soak 或真撞上冲突时顺带看一眼
-- [ ] 🔴 **下个桌面版本的发版门禁：accept 全系列复跑**（N1 判据 22 + N4a/N4g/N4i-1 的桌面改动）——`accept-gui`（15）· `accept-m5`（22，真 bilibili）· `accept-cli`（27，真二进制）· `accept-sync`（34，真 server 两台 daemon）· `accept-pack`（28，对新构建的 dmg/tgz）。**自 v0.3.0 之后一条都没跑过**，而桌面被改了四轮
+- [x] ✅ **发版门禁：accept 全系列已复跑**（2026-08-26，N7g-1，兑现 N1 判据 22）——`accept-gui` 15 · `accept-m5` 22 · `accept-cli` 27 · `accept-sync` **36**（原 34，本轮加了 D3b/D3c）· `accept-pack bundled` 28，**128/128**，对本批新建的 dmg/tgz。桌面自 v0.3.0 后被改的六轮至此全部过了真实验收。
 - [ ] **TLS（D15）—— 已从阻塞降为后续**（2026-08-25 主计划 §4.3 **Stage-4 修订**：用户选了「移动端一个明文开关」这条路，TLS **不再阻塞 N5 或任何批次**）：skybridge server 仍是 `http://<公网IP>:8443`。真要做时的验收不变（域名 + DNS · 证书 + 自动续期告警与演练 · 反代 · 两端 `server_url` 迁移 · 真机连通），**负责人 = 用户，AI 协助**。⚠️ 大陆 ECS 有一条坑链：未备案域名的 80/443 被拦 ⇒ 非标端口 ⇒ HTTP-01 / TLS-ALPN-01 都走不通 ⇒ 只剩 DNS-01（Caddy 需带 `caddy-dns/alidns` 重建）；LE 的 IP 证书（6 天 shortlived）可绕开域名但链路未验。见 N5 子计划 §0.1
 - [ ] **歌词平台内部并发**（T6d 记录不改）：每平台 1+3 次串行往返，约 0.5–2 秒
 - [x] **跨仓待办**：`aviary/docs/ROADMAP.md` 与 `DESIGN.md`、`.github/profile/README.md` 已跟进到 lark 0.2.0（2026-08-13；0.1.0 那轮在 2026-08-10）
