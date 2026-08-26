@@ -20,6 +20,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import BetterSqlite3 from 'better-sqlite3';
 import { librariesDir, workspacePaths } from './paths.js';
+import { hasSyncTraces } from './portable/sync/traces.js';
 import { type WorkspaceIndex, decideActiveWorkspace } from './portable/workspace-index.js';
 import { WORKSPACE_LOCAL, isAccountWorkspaceId } from './portable/workspace.js';
 
@@ -49,14 +50,6 @@ function count(sqlite: BetterSqlite3.Database, sql: string): number {
   }
 }
 
-function hasRow(sqlite: BetterSqlite3.Database, sql: string): boolean {
-  try {
-    return sqlite.prepare(sql).get() !== undefined;
-  } catch {
-    return false;
-  }
-}
-
 /** Look inside one workspace without opening it for writing. */
 export function inspectWorkspace(id: string): WorkspaceInspection {
   const path = workspacePaths(id).db;
@@ -67,13 +60,9 @@ export function inspectWorkspace(id: string): WorkspaceInspection {
     return {
       songs: count(sqlite, 'SELECT count(*) AS n FROM songs'),
       playlists: count(sqlite, 'SELECT count(*) AS n FROM playlists'),
-      hasSyncTraces:
-        hasRow(sqlite, 'SELECT 1 FROM sync_cursor LIMIT 1') ||
-        hasRow(sqlite, 'SELECT 1 FROM sync_changes WHERE synced_at IS NOT NULL LIMIT 1') ||
-        hasRow(
-          sqlite,
-          "SELECT 1 FROM local_metadata WHERE key IN ('skybridge_device_id','skybridge_workspace_id') LIMIT 1",
-        ),
+      // The judgement is portable — the phone asks the same question of the
+      // library it already has open, because its host has no read-only open.
+      hasSyncTraces: hasSyncTraces(sqlite),
     };
   } finally {
     sqlite.close();

@@ -51,6 +51,7 @@ import { ConflictsScreen } from './conflicts-screen';
 import { useLibrary } from './library-context';
 import { SyncSection } from './sync-section';
 import { C, S } from './theme';
+import { WorkspacesSection } from './workspaces-section';
 
 export function SettingsTab() {
   const { boot, view } = useLibrary();
@@ -66,6 +67,8 @@ export function SettingsTab() {
     <ScrollView contentContainerStyle={styles.settings} keyboardShouldPersistTaps="handled">
       <SyncSection onConflicts={() => setConflictsOpen(true)} />
       {conflictsOpen && <ConflictsScreen db={boot.db} onClose={() => setConflictsOpen(false)} />}
+      <View style={styles.rule} />
+      <WorkspacesSection />
       <View style={styles.rule} />
       <Llm settings={boot.deviceSettings} />
       <View style={styles.rule} />

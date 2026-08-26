@@ -22,14 +22,15 @@ import {
   type CoordinatorContext,
   type DeviceSettingsPort,
   type FileEffectRuntime,
+  hasSyncTraces,
   listFileOps,
-  performSyncLogin,
   performSyncLogout,
   readSyncAllowInsecure,
   writeSyncAllowInsecure,
 } from '@lark/core/portable';
 import {
   type SyncFileOpSummary,
+  type WorkspaceOriginChoice,
   authReasonLabel,
   fileOpKindLabel,
   loginErrorMessage,
@@ -42,6 +43,8 @@ import { engineLogger } from '../downloads/log';
 import { syncContextOnce } from '../sync/context';
 import { refreshSync } from '../sync/hub';
 import { useSyncNow } from '../sync/use-sync';
+import { performWorkspaceLogin } from '../workspace/login';
+import { Chip } from './chip';
 import { useLibrary } from './library-context';
 import { SyncDevices } from './sync-devices';
 import { C, S } from './theme';
@@ -148,6 +151,12 @@ function LoginForm({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [insecure, setInsecure] = useState(() => readSyncAllowInsecure(settings));
+  // What to do when this account has no library on this phone yet (N7e).
+  // 并入 by default: it is what logging in has always done here.
+  const [origin, setOrigin] = useState<WorkspaceOriginChoice>('claim');
+  // Whether the library on screen still carries a PRIOR account's sync state
+  // — the only case worth a warning before a claim (owl's B8).
+  const traces = useMemo(() => hasSyncTraces(ctx.db.sqlite), [ctx]);
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<Said | null>(null);
 
@@ -167,21 +176,29 @@ function LoginForm({
     setBusy(true);
     setSaid(null);
     try {
-      const result = await performSyncLogin(ctx, {
+      const outcome = await performWorkspaceLogin(ctx, {
         server_url: url.trim(),
         email: email.trim(),
         password,
+        workspace_origin: origin,
         ...(insecure ? { allow_insecure_http: true } : {}),
       });
       // The password is used once and never stored — forgetting it here is the
       // front end's half of that promise (the desktop does the same).
       setPassword('');
+      const backfill = outcome.login.backfill;
+      const landed =
+        backfill === null
+          ? '已登录。'
+          : `已登录，本机 ${backfill.songs} 首歌 · ${backfill.playlists} 个歌单排队上行。`;
+      // The account's library is a different file and this app has the old one
+      // open. Saying nothing would look like a login that did not take: the
+      // song list would not change and nothing would sync (N7e).
       setSaid({
         ok: true,
-        text:
-          result.backfill === null
-            ? '已登录。'
-            : `已登录，本机 ${result.backfill.songs} 首歌 · ${result.backfill.playlists} 个歌单排队上行。`,
+        text: outcome.restartRequired
+          ? `${landed}这个账号的曲库已经建好了——完全退出 lark 再打开一次，才会切到它上面；在那之前不会开始同步。`
+          : landed,
       });
     } catch (err) {
       setSaid({ ok: false, text: describeLoginError(err) });
@@ -189,7 +206,7 @@ function LoginForm({
       setBusy(false);
       refreshSync();
     }
-  }, [ctx, url, email, password, insecure]);
+  }, [ctx, url, email, password, insecure, origin]);
 
   const ready = url.trim() !== '' && email.trim() !== '' && password !== '' && !busy;
 
@@ -198,22 +215,40 @@ function LoginForm({
       {status?.configured === true && (
         <Text style={styles.note}>{authReasonLabel(status.auth_reason)}</Text>
       )}
-      {/* N6c. The forced merge is the thing people are surprised by, and it is
-          irreversible: the first login publishes this phone's whole library to
-          the account. Multi-workspace (v1.1) will turn that into a choice; until
-          then the honest move is to say so before the password, not after. */}
+      {/* N6c said the first login was a forced, irreversible merge. N7 made
+          that false: an account gets its OWN library on this phone, and the one
+          you are looking at is either copied into it or left alone. What is
+          still worth saying before the password is which of the two happens. */}
       <Text style={styles.note}>
-        第一次登录是<Text style={styles.strong}>合并</Text>
-        ，不是覆盖：这台手机现有的曲目会推到账号里，账号里已有的会拉下来，两边都不会少东西。
+        每个账号在这台手机上有<Text style={styles.strong}>各自的曲库</Text>
+        ，互不可见。登录时下面那个选项决定这个账号从哪里开始—— 并入是把现在这个曲库
+        <Text style={styles.strong}>复制</Text>一份给它（当前曲库原样保留），新建则是从空的开始。
         同步的是曲目信息——音频不同步，新来的歌显示「需要下载」，播放时再取；两台设备下过同一个视频时会留下两条，删掉一条即可。
       </Text>
       <Text style={styles.note}>
-        一个曲库只能绑一个账号，绑定之后不能改绑；要换账号只能清除应用数据重来。
+        账号的曲库建好之后，需要<Text style={styles.strong}>完全退出 lark 再打开</Text>
+        才会切到它上面；在设置页的「曲库」里可以随时切回来。
       </Text>
+      {origin === 'claim' && traces && (
+        <Text style={styles.failed}>
+          当前曲库里还留着上一个账号的同步痕迹。并入之后，这些内容会被当作新账号的内容重新上传一遍。
+        </Text>
+      )}
       <Text style={styles.note}>
         不登录也能用，但曲库只在这台手机上：卸载或清除应用数据会把它一起带走。
         想留个退路，可以在歌单页把整个曲库导出成文件自己存着——导出的是曲目清单，不含音频，导回来会重新下载。
       </Text>
+      <View style={styles.chips}>
+        {(
+          [
+            ['claim', '并入当前曲库'],
+            ['fresh', '新建空曲库'],
+          ] as const
+        ).map(([value, label]) => (
+          <Chip key={value} label={label} on={origin === value} onPress={() => setOrigin(value)} />
+        ))}
+      </View>
+
       <LabelledInput
         label="服务器地址"
         value={url}
@@ -434,7 +469,9 @@ function describeLoginError(err: unknown): string {
     // — `lark sync unbind` — and there is no CLI on a phone to run it in. Same
     // fact, an instruction that exists here. The desktop's copy is untouched.
     if (err.code === 'SYNC_BINDING_MISMATCH') {
-      return '这个曲库已经绑定到另一个账号，不能改绑。要换账号只能清除应用数据重新开始——本机尚未同步的改动会一并丢失。';
+      // N7 changed what to do about it: an account gets its own library here,
+      // so the way out is to switch to that one — not to wipe the app.
+      return '这个曲库已经绑定到另一个账号。每个账号在本机有各自的曲库，去设置页的「曲库」里切换到对应的那个即可。';
     }
     return loginErrorMessage(err.code, err.message);
   }
@@ -500,6 +537,7 @@ function LabelledInput({
 
 const styles = StyleSheet.create({
   section: { gap: S.gap },
+  chips: { flexDirection: 'row', gap: S.gap },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: S.gap },
   sectionTitle: { color: C.text, fontSize: 16, fontWeight: '600', flex: 1 },
   badge: { fontSize: 12, paddingHorizontal: 8, paddingVertical: 3, borderRadius: S.radius },

@@ -92,6 +92,7 @@ export * from './sync/retention.js';
 export * from './sync/retry.js';
 export * from './sync/server-url.js';
 export * from './sync/tombstones.js';
+export * from './sync/traces.js';
 export * from './sync/unbind.js';
 export * from './workspace.js';
 export * from './workspace-index.js';

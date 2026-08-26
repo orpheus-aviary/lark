@@ -953,6 +953,15 @@
   - **路由**：`GET /workspaces`（列表 + `serving` + `serving_has_sync_traces`）· `POST /workspaces/switch`（回 `restart_required`）· `POST /sync/login` 收 `workspace_origin` 并回 `local_workspace_id` / `local_workspace_created` / `restart_required`（**`workspace_id` 已经被服务端的 workspace 占了**，所以本机那个只能另起名字）。
   - 🔴 **e2e 抓到了这条链最真实的一段**：`sync.files.e2e` 里 B 是个真子进程，登录之后**它服务的还是 `local`，而账号的库在 `libraries/<id>/`** ⇒ 歌词落在了测试没看的那个目录里。修法不是改断言而是**照用户会做的做：登录后重启 B**。于是这套 e2e 现在跨真进程边界证了整条路——从 `local` 登录 → 并入建库 → 重启 → 在新工作区里同步、drain、隔离、重启后仍然如实。
 
+- **N7e-3 桌面 UI / N7e-4 手机 UI / N7e-5 文案：完成（判据 115 · 116 · 117 · 118 的电脑侧全关，测试 3287）。** 真机那一半留 N7g。
+  - **两端的切换器都显示两个事实**：`serving`（这个进程打开着的）与 `active`（下次启动会打开的）。**它们从有人切换到他重启为止都不一样**，而那正是切换器必须说实话的窗口——桌面写「（正在使用）/（重启后使用）」，手机同。
+  - **确认框的措辞是让这件事可理解而不是吓人的关键**：「切换只是改一行记录，现在打开的曲库不会受影响……在那之前正在播放和正在下载的都照旧」。**同意才写**（§2.5）。
+  - **桌面能自己重启**（`app:restart` IPC → `app.relaunch()` + `app.quit()`）：`relaunch` 只登记「退出之后做什么」，所以走的是**普通退出序列**——窗口尺寸照样落盘、自己起的 daemon 照样停。否则会留下一个握着写锁的 daemon，正好挡住新进程要开的那个库。**手机不能**，所以文案是「完全退出 lark 再打开一次」。
+  - **登录二选一默认「并入」**，因为登录一直以来就是这个意思。**owl 的 B8 警告接上了**：判定 `hasSyncTraces` 提进 `portable/sync/traces.ts` 两端共用——桌面只读打开别的工作区问它，**手机只能问自己已经打开的那个库**（这个宿主根本没有只读打开）。
+  - 🔴 **手机的 `prepareWorkspace` 比桌面多一件必须做的事：在工作区出现之前就给它认领一个 D16 身份**。不然第一次启动进新工作区时，会看到「一个带着别人 `install_id`、自己没有 committed 身份的库」——**那正是恢复过的备份的签名**——于是 converge，把刚写进去的绑定和凭证一起清掉。顺序照抄冻结的启动序列：**SecureStore intent → 库 → commit**，而且**整件事在 move 到位之前完成**，所以工作区只会「带着身份」出现。
+  - **手机的列表不显示歌曲数**，这是决定不是遗漏：数一下就得打开库，而这个宿主**没有只读打开**（`SQLiteOpenOptions` 没有那个 flag，打开 WAL 库可能触发恢复与 checkpoint）。桌面能便宜地问是因为 better-sqlite3 有 `readonly: true`。诚实的选项只有「为了数行复制整个库」和「不数」，设置页的一个列表不值得前者。
+  - **判据 118**：两句假话都改了（登录前那段说明、`SYNC_BINDING_MISMATCH` 的报错），并加了**守卫**——`check-workspace-chokepoint.sh` 现在还禁「清除应用数据重来 / 不能改绑 / 只能绑一个账号」这类措辞（反测过：塞回去就红）。一个真了两个里程碑的句子，正是最容易被抄回来的那种。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。

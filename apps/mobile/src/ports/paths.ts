@@ -243,6 +243,29 @@ export function recoveredSongsDirectory(target: string): Directory {
   return new Directory(recoveredSongsRoot(), target);
 }
 
+/**
+ * A `PathsPort` for ONE workspace, whichever one is active (N7e).
+ *
+ * `createPaths()` answers for the workspace this process opened, which is what
+ * the player, the engine and the library service all want. This one is for the
+ * login that installs into a workspace this process is NOT serving: the
+ * backfill reads lyrics off disk, and it has to read the target's.
+ */
+export function createPathsFor(workspaceId: string): PathsPort {
+  const root = workspaceDirectory(workspaceId);
+  const songDir = (id: string): Directory => {
+    assertSongId(id);
+    return new Directory(root, SONGS_DIRECTORY, id);
+  };
+  const songFile = (id: string, name: string): string => new File(songDir(id), name).uri;
+  return {
+    songDir: (id) => songDir(id).uri,
+    songAudio: (id) => songFile(id, CANONICAL_AUDIO_FILE),
+    songLegacyAudio: (id) => songFile(id, LEGACY_AUDIO_FILE),
+    songLyrics: (id) => songFile(id, LYRICS_FILE),
+  };
+}
+
 export function createPaths(): PathsPort {
   const songFile = (id: string, name: string): string => new File(songDirectory(id), name).uri;
 

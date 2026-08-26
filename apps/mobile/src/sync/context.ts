@@ -122,8 +122,11 @@ function build(deps: SyncContextDeps): CoordinatorContext {
  * D14's independent APK version line, read from the embedded config rather
  * than hard-coded — a string that has to be edited in two places is a string
  * that will disagree with itself.
+ *
+ * Exported since N7e: a login that installs into ANOTHER workspace builds its
+ * own throwaway context and must report the same version this one does.
  */
-function appVersion(): string {
+export function appVersion(): string {
   const version = Constants.expoConfig?.version;
   return typeof version === 'string' && version !== '' ? version : '0.0.0';
 }

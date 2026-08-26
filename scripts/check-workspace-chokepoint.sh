@@ -112,4 +112,38 @@ if [ -n "$nest_violations" ]; then
   exit 1
 fi
 
+# ─── The sentences N7 made false (criterion 118) ────────────────────────────
+#
+# Before N7 a device had one library and it could be bound to one account for
+# ever; the settings page said so, twice, and told people the only way out was
+# to wipe the app. Both sentences are now wrong in the most expensive
+# direction: somebody would clear their data to do something the switcher does
+# in two taps.
+#
+# So they are banned rather than merely edited. A phrase that was true for two
+# milestones is exactly the kind of thing that gets copied back in.
+
+copy_violations=""
+while IFS=: read -r file lineno rest; do
+  [ -n "$file" ] || continue
+  copy_violations="${copy_violations}${file}:${lineno}:${rest}"$'\n'
+done < <(rg -n --no-heading \
+  -e "清除应用数据重来" \
+  -e "清除应用数据重新开始" \
+  -e "不能改绑" \
+  -e "只能绑一个账号" \
+  apps/mobile/src packages/gui/src \
+  --glob '!*.test.*' \
+  || true)
+
+if [ -n "$copy_violations" ]; then
+  echo "✗ that sentence stopped being true in N7: an account gets its own"
+  echo "  library on this device, and switching between them is two taps."
+  echo "  Telling somebody to clear their app data would cost them everything"
+  echo "  that has not synced, to do something they did not need to do."
+  echo "$copy_violations"
+  exit 1
+fi
+
 echo "✓ the library file is named in one place, on both hosts"
+echo "✓ nothing still says a library can only ever have one account"
