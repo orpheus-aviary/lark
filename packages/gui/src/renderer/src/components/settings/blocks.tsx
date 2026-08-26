@@ -34,9 +34,21 @@ export function CacheBlock(): React.JSX.Element {
 
   return (
     <div className="space-y-2 rounded-md border border-border p-3 text-xs">
+      {/* Two figures since N7, because the limit is about this MACHINE and a
+          device can hold several libraries. They add up to every byte of lark
+          audio on the disk (criterion 119), and a drain frees the other ones
+          first — the library on screen keeps its files longest. */}
       <div className="grid grid-cols-2 gap-y-1">
-        <span className="text-muted-foreground">已用</span>
+        <span className="text-muted-foreground">当前曲库</span>
         <span className="tabular-nums">{formatSize(status.used_bytes)}</span>
+        {status.other_bytes > 0 && (
+          <>
+            <span className="text-muted-foreground">其他曲库</span>
+            <span className="tabular-nums">
+              {formatSize(status.other_bytes)}（{status.other_files} 个文件，清理时先动这些）
+            </span>
+          </>
+        )}
         <span className="text-muted-foreground">按资格可清理（未验证）</span>
         <span className="tabular-nums">{formatSize(status.eligible_bytes)}</span>
         <span className="text-muted-foreground">不可回收</span>

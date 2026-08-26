@@ -158,6 +158,28 @@ type Handles = ReturnType<Core['createDatabase']>;
 function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Backend {
   const { sqlite, portable: store } = handles;
   const files = core.nodeFileContext();
+  const workspaceId = core.paths.resolveActiveWorkspace().id;
+  /**
+   * This library plus every other one on the device, for the cache figures.
+   *
+   * The limit is a DEVICE setting (N7), so a figure that counted only the open
+   * library would report a device as inside a limit it is over. Opened and
+   * closed around one question.
+   */
+  const withForeignWorkspaces = <T>(
+    _core: Core,
+    body: (
+      others: ReturnType<Core['openForeignWorkspaces']>['workspaces'],
+      current: { id: string; files: typeof files; db: typeof handles.db },
+    ) => T,
+  ): T => {
+    const opened = core.openForeignWorkspaces(workspaceId);
+    try {
+      return body(opened.workspaces, { id: workspaceId, files, db: handles.db });
+    } finally {
+      opened.close();
+    }
+  };
 
   // The library's own rules — the id gate, trim-then-require-then-cap, the
   // virtual `all`, the list ceilings — come from the service rather than from
@@ -265,16 +287,29 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       // `loadConfigReadonly`, not `loadConfig`: reading the limit must not
       // create a default config file or chmod an existing one (M6-23).
       const config = attempt(() => core.loadConfigReadonly());
+      // Every workspace on this device, not just the open one (N7): the limit
+      // is about this machine, so a figure counting one library would report a
+      // device as inside a limit it is over.
       const status = attempt(() =>
-        library.cacheStatus({
-          limitBytes: config.storage.cache_limit_mb * core.MIB,
-          // Nothing is playing, nothing is queued: this process is the only
-          // one holding the library, guaranteed by R31 + the writer lock.
-          isExcluded: () => false,
-          streamCount: () => 0,
+        withForeignWorkspaces(core, (others, current) =>
+          core.cacheStatusAcross(current, others, {
+            limitBytes: config.storage.cache_limit_mb * core.MIB,
+            // Nothing is playing, nothing is queued: this process is the only
+            // one holding the library, guaranteed by R31 + the writer lock.
+            isExcluded: () => false,
+            streamCount: () => 0,
+          }),
+        ),
+      );
+      return Promise.resolve(
+        ok({
+          ...status.current,
+          other_bytes: status.other_bytes,
+          other_files: status.other_files,
+          limit_satisfied: status.limit_satisfied,
+          limit_mb: config.storage.cache_limit_mb,
         }),
       );
-      return Promise.resolve(ok({ ...status, limit_mb: config.storage.cache_limit_mb }));
     },
     cacheEvict: async () => {
       writable();
@@ -316,11 +351,20 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
       );
 
       const after = attempt(() =>
-        library.cacheStatus({ limitBytes, isExcluded: () => false, streamCount: () => 0 }),
+        withForeignWorkspaces(core, (others, current) =>
+          core.cacheStatusAcross(current, others, {
+            limitBytes,
+            isExcluded: () => false,
+            streamCount: () => 0,
+          }),
+        ),
       );
       return ok(
         {
-          ...after,
+          ...after.current,
+          other_bytes: after.other_bytes,
+          other_files: after.other_files,
+          limit_satisfied: after.limit_satisfied,
           limit_mb: config.storage.cache_limit_mb,
           evicted_count: run.evicted.length,
           freed_bytes: run.evicted.reduce((sum, e) => sum + e.freed_bytes, 0),

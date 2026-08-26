@@ -19,7 +19,14 @@
 import type { PortableDrizzle } from '../db.js';
 import { type PipelineDeps, type StepContext, probeSourceKey } from '../download/pipeline.js';
 import type { FileContext } from '../ports/fs.js';
-import { type CacheOptions, type ClaimHandle, type EvictedSong, runEviction } from './cache.js';
+import { type WorkspaceLibrary, runEvictionAcross } from './cache-across.js';
+import {
+  type CacheOptions,
+  type ClaimHandle,
+  type EvictedSong,
+  type EvictionRun,
+  runEviction,
+} from './cache.js';
 
 // ─── The ensure lease ──────────────────────────────────
 
@@ -120,6 +127,19 @@ export interface EvictionRuntimeDeps {
   acquireFileClaim: (songId: string) => ClaimHandle | null;
   probe: (sourceKey: string) => Promise<boolean>;
   onEvicted: (evicted: EvictedSong) => void;
+  /**
+   * The other workspaces on this device, opened for the length of one drain
+   * (N7f, §2.6).
+   *
+   * The cache limit is a DEVICE setting, so once there are several libraries a
+   * drain has to account for all of them — and free the ones nobody is looking
+   * at first. Opening them is the host's job (it is the half that knows how);
+   * this closes whatever it is given, however the drain ends.
+   *
+   * Absent means "this device has one library", which is what it meant before
+   * N7 and what it still means on a phone that has never logged in.
+   */
+  openOtherWorkspaces?: () => { workspaces: readonly WorkspaceLibrary[]; close: () => void };
   /** A file that was eligible but could not be unlinked (permissions, a race). */
   onDeleteFailed: (songId: string, message: string) => void;
   /** Cut the run short when the host starts shutting down. */
@@ -214,19 +234,47 @@ export class EvictionScheduler {
     }
   }
 
+  /**
+   * One pass, over every library this device holds.
+   *
+   * The other workspaces are opened here and closed here, per pass rather than
+   * per scheduler: a drain that held a connection to somebody else's library
+   * for the life of the process would be holding it during the next switch.
+   */
+  async #onePass(): Promise<EvictionRun> {
+    const opened = this.#deps.openOtherWorkspaces?.();
+    try {
+      const options = {
+        ...this.#deps.cacheOptions(),
+        acquireFileClaim: this.#deps.acquireFileClaim,
+        probe: this.#deps.probe,
+        onEvicted: this.#deps.onEvicted,
+        signal: this.#deps.signal,
+      };
+      const current = { id: 'current', files: this.#deps.files, db: this.#deps.db };
+      if (opened === undefined || opened.workspaces.length === 0) {
+        return await runEviction(current.files, current.db, options);
+      }
+      const across = await runEvictionAcross(current, { ...options, others: opened.workspaces });
+      // Flattened: the rounds loop above cares about songs, not about which
+      // library each came from, and the host's `onEvicted` already fired.
+      return {
+        evicted: across.runs.flatMap((entry) => entry.run.evicted),
+        skipped_unverified: across.runs.flatMap((entry) => entry.run.skipped_unverified),
+        failed: across.runs.flatMap((entry) => entry.run.failed),
+      };
+    } finally {
+      opened?.close();
+    }
+  }
+
   async #rounds(
     evicted: Map<string, number>,
     skipped: Map<string, number>,
   ): Promise<EvictionSummary> {
     for (;;) {
       this.#dirty = false;
-      const run = await runEviction(this.#deps.files, this.#deps.db, {
-        ...this.#deps.cacheOptions(),
-        acquireFileClaim: this.#deps.acquireFileClaim,
-        probe: this.#deps.probe,
-        onEvicted: this.#deps.onEvicted,
-        signal: this.#deps.signal,
-      });
+      const run = await this.#onePass();
 
       for (const item of run.evicted) {
         evicted.set(item.song_id, item.freed_bytes);

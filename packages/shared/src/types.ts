@@ -420,6 +420,17 @@ export interface CacheStatusData {
   /** `used_bytes - eligible_bytes`: what no eviction could ever reclaim. */
   unreclaimable_bytes: number;
   limit_satisfied: boolean;
+
+  // ── The other libraries on this device (N7) ─────────────────────────────
+  //
+  // The limit is a DEVICE setting — how much room lark may take on this
+  // machine — so once there are several workspaces the figure above stops
+  // being the whole story. `used_bytes + other_bytes` is every byte of lark
+  // audio on the disk, and `limit_satisfied` is judged against that sum.
+
+  /** Audio held by every workspace except the one this daemon is serving. */
+  other_bytes: number;
+  other_files: number;
 }
 
 /** `POST /cache/evict`. The inherited fields are RECOMPUTED after the run. */

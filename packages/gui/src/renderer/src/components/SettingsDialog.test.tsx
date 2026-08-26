@@ -35,6 +35,8 @@ function cacheStatus(overrides: Partial<CacheStatusData> = {}): CacheStatusData 
     eligible_bytes: 2 * MIB,
     unreclaimable_bytes: 1 * MIB,
     limit_satisfied: true,
+    other_bytes: 0,
+    other_files: 0,
     ...overrides,
   };
 }

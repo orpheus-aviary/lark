@@ -270,6 +270,7 @@ export function createDownloadRuntime(
 
   cache = createCacheRuntime({
     db: boot.db,
+    workspace: boot.workspace,
     settings: boot.deviceSettings,
     files: boot.files,
     engine,

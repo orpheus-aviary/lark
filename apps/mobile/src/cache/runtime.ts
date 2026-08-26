@@ -46,6 +46,7 @@ import {
 import { engineLogger } from '../downloads/log';
 import { libraryChanged } from '../library-signal';
 import { createCacheOptions } from '../services/library';
+import { openForeignWorkspaces } from '../workspace/foreign';
 
 /**
  * Nothing on a phone corresponds to the daemon's shutdown (see the header).
@@ -55,6 +56,8 @@ const NEVER_ABORTED = new AbortController().signal;
 
 export interface CacheRuntimeDeps {
   db: PortableDb;
+  /** The workspace this launch opened — the one a drain frees LAST (N7f). */
+  workspace: string;
   /** This phone's settings — the cache limit is one of them (N7a). */
   settings: DeviceSettingsPort;
   files: FileContext;
@@ -99,6 +102,14 @@ export function createCacheRuntime(deps: CacheRuntimeDeps): CacheRuntime {
   const leases = new SongLeaseRegistry();
   const timeouts = deps.timeouts ?? DEFAULT_TIMEOUTS;
 
+  /**
+   * Every OTHER library on this phone, for the length of one drain (N7f).
+   *
+   * The cache limit is a DEVICE setting, so a drain has to account for all of
+   * them — and free the ones nobody is looking at first (§2.6).
+   */
+  const openOtherWorkspaces = () => openForeignWorkspaces(deps.workspace);
+
   const options = (): CacheOptions =>
     createCacheOptions({
       settings: deps.settings,
@@ -123,6 +134,7 @@ export function createCacheRuntime(deps: CacheRuntimeDeps): CacheRuntime {
     files: deps.files,
     db: deps.db.drizzle,
     cacheOptions: options,
+    openOtherWorkspaces,
     acquireFileClaim: (songId) => {
       try {
         const token = deps.engine.claims.acquire(songId, 'file', `cache:${uuid()}`);

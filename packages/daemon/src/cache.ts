@@ -17,8 +17,9 @@ import {
   type EvictionSummary,
   MIB,
   type PipelineDeps,
-  cacheStatus,
+  cacheStatusAcross,
   canRedownload as coreCanRedownload,
+  openForeignWorkspaces,
   withTimeout,
 } from '@lark/core';
 import type { CacheEvictResultData, CacheStatusData } from '@lark/shared';
@@ -58,11 +59,33 @@ function cacheOptions(ctx: AppContext): {
   };
 }
 
+/**
+ * What `GET /cache/status` answers.
+ *
+ * Since N7 it opens every OTHER workspace read-only to add up their audio too
+ * (§2.6): the limit is about this machine, so a figure that only counted the
+ * library on screen would say a device was inside a limit it is over.
+ */
 export function readCacheStatus(ctx: AppContext): CacheStatusData {
-  return {
-    ...cacheStatus(ctx.files, ctx.db, cacheOptions(ctx)),
-    limit_mb: ctx.config.storage.cache_limit_mb,
-  };
+  const opened = openForeignWorkspaces(ctx.workspace);
+  try {
+    const options = cacheOptions(ctx);
+    const across = cacheStatusAcross(
+      { id: ctx.workspace, files: ctx.files, db: ctx.db },
+      opened.workspaces,
+      options,
+    );
+    return {
+      ...across.current,
+      other_bytes: across.other_bytes,
+      other_files: across.other_files,
+      // The DEVICE's answer, not this library's.
+      limit_satisfied: across.limit_satisfied,
+      limit_mb: ctx.config.storage.cache_limit_mb,
+    };
+  } finally {
+    opened.close();
+  }
 }
 
 /**
@@ -115,6 +138,10 @@ export function createEvictionScheduler(ctx: AppContext): EvictionScheduler {
       }
     },
     probe: (sourceKey) => canRedownload(ctx, sourceKey),
+    // Opened per drain and closed with it (N7f): the other workspaces are
+    // freed first, because the library somebody is looking at should keep its
+    // files for as long as possible.
+    openOtherWorkspaces: () => openForeignWorkspaces(ctx.workspace),
     onEvicted: ({ song_id }) => ctx.eventsBus.emit({ type: 'cache:evicted', song_id }),
     onDeleteFailed: (song_id, message) =>
       ctx.logger.warn({ song_id, err: message }, 'could not delete a cached file'),

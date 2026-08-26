@@ -49,6 +49,7 @@ export * from './download/timeouts.js';
 export * from './download/wbi.js';
 export * from './errors.js';
 export * from './library/cache.js';
+export * from './library/cache-across.js';
 export * from './library/eviction-runtime.js';
 export * from './library/lyrics.js';
 export * from './library/playlists.js';

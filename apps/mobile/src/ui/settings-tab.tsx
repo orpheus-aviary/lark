@@ -22,6 +22,7 @@ import {
   LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
   MIB,
+  cacheStatus,
   isLlmConfigured,
   readCacheLimitMb,
   readLlmEndpoint,
@@ -46,6 +47,7 @@ import { engineErrors, subscribeEngineErrors } from '../downloads/log';
 import { nowPlaying, usePlayback } from '../player';
 import { songsRoot } from '../ports/paths';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
+import { openForeignWorkspaces } from '../workspace/foreign';
 import { Chip } from './chip';
 import { ConflictsScreen } from './conflicts-screen';
 import { useLibrary } from './library-context';
@@ -363,10 +365,32 @@ function Cache() {
   // what replaces the reader (`library-context.tsx`). Walking the song
   // directories is what `cacheStatus` does — cheap for a phone's library, and
   // this screen is not a hot path.
-  const status: CacheStatus = useMemo(
-    () => view.cacheStatus({ ...runtime.cache.options(), limitBytes: limitMb * MIB }),
-    [view, runtime, limitMb],
-  );
+  // How much room lark takes on this PHONE, in one walk (N7f): the library on
+  // screen and every other one. The limit is a device setting, so a figure
+  // counting only the first would say this phone is inside a limit it is over
+  // — and a drain frees the others FIRST, which is worth saying next to them.
+  const usage = useMemo(() => {
+    const here = view.cacheStatus({ ...runtime.cache.options(), limitBytes: limitMb * MIB });
+    const opened = openForeignWorkspaces(boot.workspace);
+    try {
+      let bytes = 0;
+      let files = 0;
+      for (const workspace of opened.workspaces) {
+        const each = cacheStatus(workspace.files, workspace.db, {
+          limitBytes: 0,
+          isExcluded: () => false,
+          streamCount: () => 0,
+        });
+        bytes += each.used_bytes;
+        files += each.file_count;
+      }
+      return { here, other: { bytes, files } };
+    } finally {
+      opened.close();
+    }
+  }, [view, runtime, limitMb, boot]);
+  const status: CacheStatus = usage.here;
+  const other = usage.other;
 
   const save = async (): Promise<void> => {
     const parsed = Number(draft.trim());
@@ -405,7 +429,16 @@ function Cache() {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>缓存</Text>
-      <Field label="已用" value={`${mib(status.used_bytes)}（${status.file_count} 个音频文件）`} />
+      <Field
+        label="当前曲库"
+        value={`${mib(status.used_bytes)}（${status.file_count} 个音频文件）`}
+      />
+      {other.files > 0 && (
+        <Field
+          label="其他曲库"
+          value={`${mib(other.bytes)}（${other.files} 个文件，清理时先动这些）`}
+        />
+      )}
       {/*
         Both halves of "still over the limit" are said, because they are
         different problems (M5-18): what is left may be pinned, imported or in

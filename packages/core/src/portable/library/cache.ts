@@ -65,6 +65,19 @@ export interface EvictionOptions extends CacheOptions {
   acquireFileClaim: (songId: string) => ClaimHandle | null;
   /** Is this key still downloadable? Anything but `true` keeps the file. */
   probe: (sourceKey: string) => Promise<boolean>;
+  /**
+   * Stop once THIS library's usage is at or below this many bytes (N7f).
+   *
+   * Defaults to `limitBytes`, which is the whole story while a device has one
+   * library. It stops being the whole story when the limit is a DEVICE budget
+   * shared across several: a workspace's share is not its own limit, and
+   * "free 300MB from this one" is not expressible as a limit at all — 0 would
+   * mean "unlimited" rather than "empty it".
+   *
+   * So the two are separate: `limitBytes` still says whether there is a limit,
+   * and this says where this pass stops.
+   */
+  targetBytes?: number;
   /** Called once per deleted file, inside the run. */
   onEvicted?: (evicted: EvictedSong) => void;
   /** Cut the run short when the daemon starts stopping. */
@@ -169,18 +182,21 @@ export async function runEviction(
   opts: EvictionOptions,
 ): Promise<EvictionRun> {
   const run: EvictionRun = { evicted: [], skipped_unverified: [], failed: [] };
-  if (opts.limitBytes <= 0) return run;
+  // No explicit target means the limit is the target — and no limit means
+  // nothing to do, which is what every single-library caller has always meant.
+  if (opts.targetBytes === undefined && opts.limitBytes <= 0) return run;
+  const target = opts.targetBytes ?? opts.limitBytes;
 
   const onDisk = scan(files, db);
   let used = onDisk.reduce((sum, f) => sum + f.size, 0);
-  if (used <= opts.limitBytes) return run;
+  if (used <= target) return run;
 
   const candidates = onDisk
     .filter((f) => isReclaimableNow(f.row, opts))
     .sort((a, b) => a.lastUsed - b.lastUsed || (a.row.id < b.row.id ? -1 : 1));
 
   for (const candidate of candidates) {
-    if (used <= opts.limitBytes) break;
+    if (used <= target) break;
     if (opts.signal?.aborted === true) break;
 
     const songId = candidate.row.id;

@@ -172,6 +172,11 @@ describe('GET /cache/status', () => {
       eligible_bytes: 1 * MIB,
       unreclaimable_bytes: 2 * MIB,
       limit_satisfied: false,
+      // Nothing else on this device (N7): a nest with one library reports the
+      // other side as zero rather than omitting it, so a client never has to
+      // guess whether the daemon knows about workspaces.
+      other_bytes: 0,
+      other_files: 0,
     });
   });
 
