@@ -23,7 +23,9 @@ import {
   LEGACY_AUDIO_FILE,
   LYRICS_FILE,
   type PathsPort,
+  WORKSPACE_LOCAL,
   assertSongId,
+  isWorkspaceId,
 } from '@lark/core/portable';
 import { Directory, File, Paths } from 'expo-file-system';
 
@@ -59,6 +61,38 @@ export const DATABASE_NAME = 'songs.db';
  */
 export function deviceSettingsFile(): File {
   return new File(nestDirectory(), 'device.json');
+}
+
+/**
+ * `<nest>/workspaces.json` — which workspace this phone opens (N7b).
+ *
+ * JSON where the desktop keeps TOML, and the same file otherwise: what it
+ * MEANS is `@lark/core/portable`'s `workspace-index.ts`, which both hosts
+ * decode into. Device-level, beside `device.json`: it is the one fact that
+ * cannot be worked out from the disk.
+ */
+export function workspacesFile(): File {
+  return new File(nestDirectory(), 'workspaces.json');
+}
+
+/** `<nest>/libraries/` — the parent of every account workspace. */
+export function librariesDirectory(): Directory {
+  return new Directory(nestDirectory(), 'libraries');
+}
+
+/**
+ * The root of ONE workspace: the nest itself for `local`, `libraries/<id>/`
+ * for an account.
+ *
+ * `local` LIVES AT THE ROOT and that is the whole of §2.4: the library that
+ * was already on this phone becomes the local workspace with nothing moved,
+ * including one that had already been bound to an account. The id gate runs
+ * before the join for the same reason `songDirectory`'s does — this one can
+ * arrive from a file, and a path is not the place to find out it was wrong.
+ */
+export function workspaceDirectory(id: string): Directory {
+  if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
+  return id === WORKSPACE_LOCAL ? nestDirectory() : new Directory(librariesDirectory(), id);
 }
 
 // ─── PathsPort (N2d) ────────────────────────────────────

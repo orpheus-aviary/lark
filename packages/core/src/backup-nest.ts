@@ -85,9 +85,22 @@ function isSkybridgeArtifact(path: string): boolean {
   return name === paths.SKYBRIDGE_FILE_NAME || name.startsWith(paths.SKYBRIDGE_TEMP_PREFIX);
 }
 
+/**
+ * A workspace index caught mid-rename (N7b).
+ *
+ * The file itself IS backed up — it holds an id and a label, not a token, and
+ * a restored nest should come up pointing at the workspace it was pointing at.
+ * Only the temp is skipped, for the reason the other two temps are: half a
+ * file that decides which library opens is worse than no file, which reads as
+ * `local`.
+ */
+function isWorkspaceIndexTemp(path: string): boolean {
+  return basename(path).startsWith(paths.WORKSPACES_TEMP_PREFIX);
+}
+
 /** Everything generated or private that a copy must skip, at any depth. */
 function isExcludedArtifact(path: string): boolean {
-  return isSkillArtifact(path) || isSkybridgeArtifact(path);
+  return isSkillArtifact(path) || isSkybridgeArtifact(path) || isWorkspaceIndexTemp(path);
 }
 
 const STATUS_TIMEOUT_MS = 1000;

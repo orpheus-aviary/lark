@@ -73,3 +73,62 @@ describe('nodePaths', () => {
     expect(port.songDir(id)).toBe(`/tmp/nest-b/lark/songs/${id}`);
   });
 });
+
+describe('the workspace layout (N7b)', () => {
+  const id = '0d37bfbdb385448f80a53bd8ba7e61d3';
+
+  it('puts the device’s own files at the nest root', () => {
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest');
+    expect(paths.workspacesPath()).toBe('/tmp/nest/lark/workspaces.toml');
+    expect(paths.librariesDir()).toBe('/tmp/nest/lark/libraries');
+  });
+
+  it('leaves `local` exactly where the library has always been', () => {
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest');
+    const local = paths.workspacePaths('local');
+    // Not a coincidence to be maintained — it IS the zero-migration promise.
+    expect(local.root).toBe(paths.larkDir());
+    expect(local.db).toBe(paths.dbPath());
+    expect(local.songs).toBe(paths.songsDir());
+    expect(local.trash).toBe(paths.trashDir());
+    expect(local.recoveredSongs).toBe(paths.recoveredSongsDir());
+    expect(local.migrationBackup).toBe(paths.migrationBackupDir());
+    expect(local.skybridgeConfig).toBe(paths.skybridgeConfigPath());
+  });
+
+  it('gives an account workspace its own everything, credentials included', () => {
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest');
+    expect(paths.workspacePaths(id)).toEqual({
+      root: `/tmp/nest/lark/libraries/${id}`,
+      db: `/tmp/nest/lark/libraries/${id}/songs.db`,
+      songs: `/tmp/nest/lark/libraries/${id}/songs`,
+      trash: `/tmp/nest/lark/libraries/${id}/trash`,
+      recoveredSongs: `/tmp/nest/lark/libraries/${id}/recovered-songs`,
+      migrationBackup: `/tmp/nest/lark/libraries/${id}/migration-backup`,
+      skybridgeConfig: `/tmp/nest/lark/libraries/${id}/skybridge.toml`,
+    });
+  });
+
+  it('shares nothing between two workspaces', () => {
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest');
+    const a = paths.workspacePaths(id);
+    const b = paths.workspacePaths('ea7fb08b7a2dc4619ffb7c7bb38d95a2');
+    for (const key of Object.keys(a) as (keyof typeof a)[]) {
+      expect(a[key]).not.toBe(b[key]);
+    }
+  });
+
+  it('refuses an id that is not one, before it becomes a directory', () => {
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest');
+    for (const bad of ['', '..', '../../etc', 'Local', id.toUpperCase(), `${id}/..`]) {
+      expect(() => paths.workspacePaths(bad)).toThrow();
+    }
+  });
+
+  it('re-reads the nest on every call, like the rest of this module', () => {
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest-a');
+    expect(paths.workspacePaths(id).db).toBe(`/tmp/nest-a/lark/libraries/${id}/songs.db`);
+    vi.stubEnv('LARK_NEST_DIR', '/tmp/nest-b');
+    expect(paths.workspacePaths(id).db).toBe(`/tmp/nest-b/lark/libraries/${id}/songs.db`);
+  });
+});

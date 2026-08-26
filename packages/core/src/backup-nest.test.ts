@@ -133,6 +133,36 @@ describe('what lands in the copy', () => {
     expect(readdirSync(result.larkDir).sort()).toEqual(['lark_config.toml', 'songs', 'songs.db']);
   });
 
+  it('never copies an account workspace’s credentials either (N7b)', async () => {
+    // Same rule, one level down: since N7 a workspace keeps its own
+    // `skybridge.toml`, and the exclusion has always been by basename at every
+    // depth — this is what pins that it stays that way.
+    const workspaceDir = join(nest, 'lark', 'libraries', '0d37bfbdb385448f80a53bd8ba7e61d3');
+    mkdirSync(join(workspaceDir, 'songs'), { recursive: true });
+    writeFileSync(join(workspaceDir, 'songs.db'), 'not really a database');
+    writeFileSync(join(workspaceDir, 'skybridge.toml'), '[server]\nurl = "https://sync.test"\n');
+    writeFileSync(join(workspaceDir, '.skybridge.toml.tmp-abc123'), 'stashed');
+
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    const copied = join(result.larkDir, 'libraries', '0d37bfbdb385448f80a53bd8ba7e61d3');
+    expect(readdirSync(copied).sort()).toEqual(['songs', 'songs.db']);
+  });
+
+  it('copies the workspace index but not one caught mid-rename (N7b)', async () => {
+    // The index is a pointer and a label, not a token: a restored nest should
+    // come up on the workspace it was on. Half of one must not, because half
+    // of it reads as `local`.
+    const lark = join(nest, 'lark');
+    writeFileSync(join(lark, 'workspaces.toml'), 'active = "local"\n');
+    writeFileSync(join(lark, '.workspaces.toml.tmp-abc123'), 'active = "loc');
+
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    expect(existsSync(join(result.larkDir, 'workspaces.toml'))).toBe(true);
+    expect(existsSync(join(result.larkDir, '.workspaces.toml.tmp-abc123'))).toBe(false);
+  });
+
   it('produces a database with the same rows and no wal sidecar', async () => {
     const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
 

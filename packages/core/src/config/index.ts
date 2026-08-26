@@ -37,6 +37,11 @@ import { aviaryConfigPath, configPath } from '../paths.js';
 // read it without linking anything native (M6-21).
 export * from './skybridge.js';
 
+// And the workspace index rides on it for the same reason (N7b): the CLI has
+// to know which library this device opens before it may open one, and it must
+// not link anything native to find out.
+export * from './workspaces.js';
+
 export const DEFAULT_CONFIG: LarkConfig = {
   // Every llm field defaults to '' — including api_format. A concrete default
   // ('openai') would make deepMerge mask "absent on disk", so the aviary value

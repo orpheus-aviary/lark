@@ -7,9 +7,11 @@ import {
   type PathsPort,
   assertSongId,
 } from './portable/ports/paths.js';
+import { WORKSPACE_LOCAL, isWorkspaceId } from './portable/workspace.js';
 
 const NEST_DIR = 'orpheus-aviary-nest';
 const LARK_DIR = 'lark';
+const LIBRARIES_DIR = 'libraries';
 
 /**
  * Root data directory.
@@ -34,6 +36,79 @@ export function larkDir(): string {
 /** Config file: `lark/lark_config.toml` (loader lands in M1). */
 export function configPath(): string {
   return join(larkDir(), 'lark_config.toml');
+}
+
+// ─── Workspaces (N7b) ───────────────────────────────────
+//
+// One device, several libraries. The nest splits in two:
+//
+//   lark/                        DEVICE — one per install
+//   ├── lark_config.toml         settings, logs, the daemon's token and pid
+//   ├── workspaces.toml          which workspace this device opens
+//   ├── songs.db · songs/ · …    the `local` workspace, in place
+//   └── libraries/<32hex>/       one account workspace each
+//       └── songs.db · songs/ · skybridge.toml · …
+//
+// `local` LIVES AT THE ROOT and that is the whole migration story (§2.4): a
+// library that was already there simply is the local workspace, byte for byte,
+// with nothing moved. Same shape owl chose, for the same reason — the pure
+// local user pays nothing for a feature they are not using.
+//
+// Credentials go INSIDE the workspace rather than staying at the nest root,
+// which is the one place lark's layout differs from owl's: a workspace's
+// session belongs to that workspace, and keeping them together means the db
+// existing and the credentials existing cannot disagree.
+
+/**
+ * The device's workspace index: `lark/workspaces.toml`.
+ *
+ * Not credential material — it holds an id, a label and a server url — so
+ * unlike `skybridge.toml` it is 0644 and a nest backup keeps it. The temp
+ * prefix is named here for the same reason the others are: the backup has to
+ * recognise a file caught mid-rename.
+ */
+export const WORKSPACES_FILE_NAME = 'workspaces.toml';
+export const WORKSPACES_TEMP_PREFIX = '.workspaces.toml.tmp-';
+
+export function workspacesPath(): string {
+  return join(larkDir(), WORKSPACES_FILE_NAME);
+}
+
+/** `lark/libraries/` — the parent of every account workspace. */
+export function librariesDir(): string {
+  return join(larkDir(), LIBRARIES_DIR);
+}
+
+/** Everything one workspace owns. The device's files are deliberately absent. */
+export interface WorkspacePaths {
+  root: string;
+  db: string;
+  songs: string;
+  trash: string;
+  recoveredSongs: string;
+  migrationBackup: string;
+  skybridgeConfig: string;
+}
+
+/**
+ * Where a workspace's files are, by id.
+ *
+ * The id gate runs before the join for the same reason `songDirPath`'s does:
+ * an id that reaches a path unvalidated is a traversal, and this one can
+ * arrive from a file somebody edited by hand.
+ */
+export function workspacePaths(id: string): WorkspacePaths {
+  if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
+  const root = id === WORKSPACE_LOCAL ? larkDir() : join(librariesDir(), id);
+  return {
+    root,
+    db: join(root, 'songs.db'),
+    songs: join(root, 'songs'),
+    trash: join(root, 'trash'),
+    recoveredSongs: join(root, 'recovered-songs'),
+    migrationBackup: join(root, 'migration-backup'),
+    skybridgeConfig: join(root, SKYBRIDGE_FILE_NAME),
+  };
 }
 
 /** SQLite database: `lark/songs.db` (schema lands in M1). */

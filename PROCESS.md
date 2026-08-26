@@ -907,6 +907,17 @@
   - 🔴 **判据 105 差点没地方验**：`ports/device-settings.ts` 一旦 `import` 了 `./paths` 就会拉进 expo-file-system，Node 下加载不了，「文件缺失/空/坏 JSON」就只能上真机——而这三个状态在 app-private 目录里**根本没法用 adb 摆出来**。所以**四行碰盘的代码留在 boot**（`load` / `save` 两个 thunk），判定留在能加载的文件里。**同一课第三次**（N5 的 `ports/events.ts` 与 `sync/triggers.ts` 是前两次）。
   - **判据 103 实测**：`git diff` 对 `packages/gui` / `packages/daemon` / `apps/cli` **零改动**；`packages/core` 只有那六个模块 + 两个 barrel + 新增的三个文件。**N7 子计划 §4 那条「桌面调用处各为 0」是真的。**
 
+- **N7b 身份与布局：完成（判据 106 · 107 全关，测试 3179）。** 纯函数 + 两端布局 + 桌面索引读写，**没有任何入口的行为改变**（`dbPath()` 仍然回 `lark/songs.db`，改路由是 N7c）。
+  - 🔑 **判据 106 是拿 owl 的构建产物当夹具的**：`node -e "require('../owl/packages/core/dist/profile/id.js').computeProfileId(...)"` 跑出 7 组 (server_id, user_id) → id，**把结果钉进 `workspace.test.ts`**。钉死而不是运行时 import 另一个仓——跨仓 import 在那个仓不在时会「通过」，两仓分开打包的那天就什么都不再证明。**lark 用 `@noble/hashes` 的 sha256、owl 用 `node:crypto`，逐字节同结果**。
+  - **`computeWorkspaceId` 落在 `@lark/core/portable/workspace.ts`，不是子计划写的 `@lark/shared`**：① 它不纯——要 sha256，而 sha256 在 `portable/runtime/digest.ts`；② **workspace id 从不上线**（server 完全不知道 workspace 这回事，这是本机存储布局的决定），而 `shared` 是线协议包。CLI 也不需要它——CLI 只需要「打开哪个库」，那是 `paths` 层的事。
+  - **一处与 owl 有意的不同：空输入拒绝**（owl 照哈希）。空的 `server_id`/`user_id` 不是账号，是一条少了字段的登录响应，把它变成一个长得很正常的目录名，就是让两次不同的事故共用一个库。
+  - **一处如实记下的继承缺陷**：分隔符没转义 ⇒ `('a', 'b\nc')` 与 `('a\nb', 'c')` 同 id。真实 id 是 server 发的不含换行的 token，无害；测试里钉着，让它是个决定不是个惊喜。
+  - 🔑 **磁盘是「有哪些工作区」的事实，索引文件不是**（`workspace-index.ts` 抬头）。`libraries/<id>/songs.db` 存在 = 这个工作区存在；索引只存**唯一推不出来的那件事**——`active`——外加标签和 server_url 两项装饰。这样一个坏掉的索引最多值一个名字和一个起点，**永远不会让一个库消失**。判据 107 的落点就是这条。
+  - **因此 lark 的门比 owl 的少一道**：owl 查三样（id 合法 · `[profiles.<id>]` 段在 · db 文件在），因为它的 profile db 与凭证在两个文件里，「账号 session + 本地库」和「profile 库 + 旧配置」两种撕裂都可达。**lark 把凭证放进工作区内部**（`libraries/<id>/skybridge.toml`），于是「db 在」与「凭证在」是同一个问题，段检查没有东西可抓。
+  - **布局**：设备级留在 nest 根（`lark_config.toml` · `workspaces.toml` · `device.json` · logs · token · pid），工作区级进 `workspacePaths(id)`（db · songs · trash · recovered-songs · migration-backup · **skybridge.toml**）。**`local` 的七条路径与今天逐字节相同**——测试直接断言 `workspacePaths('local').db === dbPath()`，那不是巧合而是零迁移承诺本身。
+  - **TOML 的一个坑先量过**：全是数字的 32 hex（`0123…01`）当 TOML bare key 会不会被读回成数字 —— smol-toml 回的是字符串，测试钉着。
+  - **backup 顺带补一条**：`skybridge.toml` 的排除一直是**按 basename 每一层**，所以 `libraries/<id>/skybridge.toml` 自动就排除了（补了断言钉住）；新增 `.workspaces.toml.tmp-` 的排除——**索引文件本身要备份**（它是指针和标签不是 token，恢复出来的 nest 应该落回原来的工作区），**半个不要**（半个读作 `local`）。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。
