@@ -1,0 +1,53 @@
+# What `tokei` counts here: the code that ships lark's behaviour.
+#
+# The definition, so a future line can be judged against it — TypeScript, TSX
+# and Kotlin that ends up in a dmg or an apk, minus its tests. Everything a
+# line below removes is real, committed and still not the product.
+#
+# tokei already honours .gitignore, so build output and node_modules are gone
+# before this file is read.
+#
+# To see the excluded half, point tokei at it directly: `tokei scripts`,
+# `tokei spikes`, or `tokei -e '!*.test.ts'` for the tests alone.
+
+# ── tests ────────────────────────────────────────────────────────────────────
+# Bigger than the code they cover, on purpose.
+*.test.ts
+*.test.tsx
+*.e2e.ts
+**/testing/
+**/fixtures/
+**/__fixtures__/
+
+# ── harnesses and build tooling ──────────────────────────────────────────────
+# The acceptance suites, the dependency guards, the device drivers, the
+# packaging scripts. They verify and produce the product; none of them is in
+# it. `**/scripts/` and not `/scripts/`: packages/*/scripts/ is the same thing.
+**/scripts/
+justfile
+*.config.js
+*.config.mjs
+*.config.ts
+
+# ── spikes ───────────────────────────────────────────────────────────────────
+# Kept deliberately (media-protocol is M4's reference, mobile-foundation still
+# hosts the device-driving tools), but a spike is an answered question.
+/spikes/
+
+# ── generated native project ─────────────────────────────────────────────────
+# CNG writes these from app.json and the config plugins; `expo prebuild` can
+# recreate every line, so counting them counts the generator twice. The
+# HAND-WRITTEN native code is apps/mobile/modules/ and apps/mobile/plugins/,
+# and both stay — they decide what the apk contains.
+/apps/mobile/android/
+/apps/mobile/ios/
+
+# ── manifests, config and prose ──────────────────────────────────────────────
+*.json
+*.yml
+*.yaml
+*.xml
+*.md
+/docs/
+/vendor/
+/patches/
