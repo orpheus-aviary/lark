@@ -38,6 +38,16 @@ import { fileURLToPath } from 'node:url';
 import { waitForLibraryReady } from './lib/library-ready.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * The wire version the release is supposed to carry.
+ *
+ * A LITERAL on purpose: `§9` compares it against the source constant, so
+ * reading the source into both sides would only prove the file equals itself.
+ * Bumping it is the deliberate act — 6 → 7 when N7 added `GET /workspaces` and
+ * `POST /workspaces/switch`.
+ */
+const EXPECTED_API_VERSION = 7;
 const DAEMON_URL = 'http://127.0.0.1:47100';
 const CDP_PORT = 9334;
 
@@ -308,7 +318,11 @@ function judge9() {
     `${version}: manifests ${[...new Set(manifests)].join('/')}, constants ${[...new Set(constants)].join('/')}`,
   );
   check('§9 · root engines require Node 24', engines === '>=24', engines);
-  check('§9 · LOCAL_API_VERSION is 6', apiVersion === '6', apiVersion ?? '(not found)');
+  check(
+    `§9 · LOCAL_API_VERSION is ${EXPECTED_API_VERSION}`,
+    apiVersion === String(EXPECTED_API_VERSION),
+    apiVersion ?? '(not found)',
+  );
 }
 
 /** Criterion 8, which is also how criteria 6/7/10 get a CLI to drive. */
@@ -429,7 +443,9 @@ async function judge4(cli, app, nest) {
 
   check(
     '§4a · the daemon starts from inside the mounted app and answers /status',
-    start.code === 0 && status?.data?.local_api_version === 6 && fromBundle.includes(app),
+    start.code === 0 &&
+      status?.data?.local_api_version === EXPECTED_API_VERSION &&
+      fromBundle.includes(app),
     `pid=${envelope(start)?.data?.pid} api=${status?.data?.local_api_version}`,
   );
 

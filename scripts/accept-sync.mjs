@@ -174,6 +174,16 @@ function apiFor(baseUrl, larkDir) {
  * A READ-ONLY open, which takes no lock (M6) while both daemons hold the file;
  * opened and closed per question because login is what changes the answer.
  */
+/** How many songs one library holds — by path, because N7 has several. */
+function countSongs(dbPath) {
+  const db = require('better-sqlite3')(dbPath, { readonly: true });
+  try {
+    return db.prepare('SELECT count(*) AS n FROM songs').get().n;
+  } finally {
+    db.close();
+  }
+}
+
 function songsWithCreateChange(larkDir) {
   const db = require('better-sqlite3')(join(libraryDir(larkDir), 'songs.db'), { readonly: true });
   try {
@@ -647,8 +657,40 @@ try {
     `${loginData?.backfill?.songs}/${unpublished} owed of ${songsBefore.length} songs, device ${loginData?.device_reused ? 'reused' : 'new'}`,
   );
 
+  // N7: `local` can never hash to an account's id, so this login did NOT bind
+  // the library the daemon has open — it prepared a second one under
+  // `libraries/<id>/`, installed the account there, and moved the index. The
+  // daemon keeps serving what it opened; that divergence IS the design
+  // (switching is one atomic line, opening it is a restart).
+  check(
+    'D3b · the account landed in its own library, and the login says a restart opens it',
+    loginData?.restart_required === true &&
+      loginData?.local_workspace_created === true &&
+      /^[0-9a-f]{32}$/.test(loginData?.local_workspace_id ?? ''),
+    `${loginData?.local_workspace_id} created=${loginData?.local_workspace_created} restart=${loginData?.restart_required}`,
+  );
+
+  // Criterion 117, on a real library rather than a fixture: claiming COPIES.
+  // The library that was open must come out of it whole and still unbound —
+  // if the install had run on it, both halves of this would be false.
+  const localSongs = countSongs(join(larkA, 'songs.db'));
+  check(
+    'D3c · claiming left `local` complete and unbound (117)',
+    localSongs === songsBefore.length && !existsSync(join(larkA, 'skybridge.toml')),
+    `${localSongs}/${songsBefore.length} songs, credentials ${existsSync(join(larkA, 'skybridge.toml'))}`,
+  );
+
   const mode = statSync(credentialsA()).mode & 0o777;
   check('B1 · the credential file is 0600', mode === 0o600, `0${mode.toString(8)}`);
+
+  // What the login just told the user to do. Everything below this line talks
+  // to a daemon serving the ACCOUNT's library — before it, D4 would measure an
+  // unbound `local` and report a sync that never happened.
+  console.log('      restarting device A onto the account library…');
+  lark(['stop-daemon'], nestA);
+  await waitForDaemonGone(DAEMON_A);
+  lark(['daemon'], nestA);
+  await waitForDaemon(DAEMON_A);
 
   const ran = lark(['--json', 'sync', 'run'], nestA);
   const statusAfterRun = lark(['--json', 'sync', 'status'], nestA).json?.data;
@@ -693,14 +735,17 @@ try {
 
   console.log('[6/9] device B…');
 
-  daemonB = spawn(process.execPath, [BOOT_CHILD], {
-    cwd: ROOT,
-    env: { ...process.env, LARK_NEST_DIR: nestB, LARK_DAEMON_TEST_PORT: String(PORT_B) },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  daemonB.stdout.on('data', (chunk) => process.stdout.write(`[B] ${chunk}`));
-  daemonB.stderr.on('data', (chunk) => process.stderr.write(`[B] ${chunk}`));
-  await waitForDaemon(DAEMON_B);
+  const startB = async () => {
+    daemonB = spawn(process.execPath, [BOOT_CHILD], {
+      cwd: ROOT,
+      env: { ...process.env, LARK_NEST_DIR: nestB, LARK_DAEMON_TEST_PORT: String(PORT_B) },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    daemonB.stdout.on('data', (chunk) => process.stdout.write(`[B] ${chunk}`));
+    daemonB.stderr.on('data', (chunk) => process.stderr.write(`[B] ${chunk}`));
+    await waitForDaemon(DAEMON_B);
+  };
+  await startB();
   const apiB = apiFor(DAEMON_B, larkB);
 
   const loginB = await apiB('POST', '/sync/login', {
@@ -708,6 +753,13 @@ try {
     email: EMAIL,
     password: PASSWORD,
   });
+  // The same restart device A just did, for the same reason: B's `local` is a
+  // brand new empty library, and the account's is a different one (N7). A
+  // second device that never restarted would pull the workspace into a library
+  // nobody is serving, and answer `/songs` from the empty one.
+  await stopChild(daemonB);
+  await waitForDaemonGone(DAEMON_B);
+  await startB();
   await apiB('POST', '/sync/run');
   const songsOnB = (await apiB('GET', '/songs?limit=500')).json?.data ?? [];
   check(
@@ -1069,6 +1121,14 @@ try {
   await stopChild(gui);
   await stopChild(daemonA);
   await stopChild(daemonB);
+  // The CLI phase starts device A with `lark daemon`, which spawns a DETACHED
+  // child this script does not own — so a throw in the middle used to leave a
+  // daemon answering on 47100, and `backupNest` refuses while one does. The
+  // next run then failed on the copy, nowhere near the real cause.
+  if (copy) {
+    lark(['stop-daemon'], copy.nestDir);
+    await waitForDaemonGone(DAEMON_A);
+  }
   if (server) await stopChild(server.child);
   if (electronAbi) {
     try {
