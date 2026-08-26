@@ -9,7 +9,8 @@ import { createRequire } from 'node:module';
 import { loadConfig } from '@lark/core/config';
 import { localTokenPath } from '@lark/core/paths';
 import { defaultDaemonBaseUrl } from '@lark/shared';
-import { type BrowserWindow, app, dialog } from 'electron';
+import { type BrowserWindow, app, dialog, ipcMain } from 'electron';
+import { IPC_CHANNELS } from '../shared/ipc.js';
 import { saveWindowSize } from './daemon-config.js';
 import { DaemonManager, DaemonStartError } from './daemon-manager.js';
 import { registerDialogIpc } from './dialog-ipc.js';
@@ -135,6 +136,17 @@ async function bootstrap(): Promise<void> {
   adoptWindow(createMainWindow({ width, height, daemonUrl, tokenPath }));
   // The dialogs open MODAL to the window, so they ask for the live one too.
   registerDialogIpc(() => windowRef.live());
+
+  // Opening a different library (N7e). `relaunch` only registers what should
+  // happen AFTER this process exits, so the quit below is the ordinary one —
+  // `before-quit` still flushes the window size and stops the daemon this app
+  // started, and the relaunch happens once that has finished. Doing it any
+  // other way would leave a daemon holding the writer lock of a library the
+  // new process is about to open.
+  ipcMain.handle(IPC_CHANNELS.restartApp, () => {
+    app.relaunch();
+    app.quit();
+  });
 
   app.on('activate', () => {
     // macOS dock click. Usually the window is merely hidden (red X hides,

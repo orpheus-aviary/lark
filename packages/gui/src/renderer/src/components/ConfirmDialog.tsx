@@ -18,6 +18,14 @@ interface ConfirmDialogProps {
   title: string;
   description: string;
   confirmLabel?: string;
+  /**
+   * The other button's words.
+   *
+   * `取消` unless a dialog is not really asking a yes/no question — N7's
+   * "restart now?" is a WHEN, and a button that said 取消 there would read as
+   * "undo the thing that already happened".
+   */
+  cancelLabel?: string;
   destructive?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -28,6 +36,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = '确定',
+  cancelLabel = '取消',
   destructive = false,
   onConfirm,
   onCancel,
@@ -46,7 +55,7 @@ export function ConfirmDialog({
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel}>
-            取消
+            {cancelLabel}
           </Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}

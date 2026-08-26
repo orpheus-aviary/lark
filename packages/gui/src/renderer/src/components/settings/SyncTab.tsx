@@ -15,7 +15,7 @@
 //   demand, never on a timer, and a failure is shown next to the list instead
 //   of as a toast.
 
-import type { SyncDeviceData } from '@lark/shared';
+import type { SyncDeviceData, WorkspaceData, WorkspaceOriginChoice } from '@lark/shared';
 import {
   ApiError,
   authReasonLabel,
@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { errorMessage } from '../../lib/errors.js';
 import { formatRelativeTime } from '../../lib/format.js';
 import { useSync } from '../../stores/sync.js';
+import { useWorkspaces } from '../../stores/workspaces.js';
 import { ConfirmDialog } from '../ConfirmDialog.js';
 import { DISCARD_FILE_OP_DESCRIPTION, SyncFileOpsList } from '../SyncFileOpsList.js';
 import { Button } from '../ui/button.js';
@@ -51,19 +52,28 @@ interface LoginDraft {
   email: string;
   password: string;
   allowInsecure: boolean;
+  /** N7: what to do when this account has no library on this machine yet. */
+  origin: WorkspaceOriginChoice;
 }
 
 function LoginForm({ serverUrl }: { serverUrl: string | null }): React.JSX.Element {
   const login = useSync((s) => s.login);
+  const refreshWorkspaces = useWorkspaces((s) => s.refresh);
+  const hasSyncTraces = useWorkspaces((s) => s.servingHasSyncTraces);
   const [form, setForm] = useState<LoginDraft>({
     serverUrl: serverUrl ?? '',
     email: '',
     password: '',
     allowInsecure: false,
+    // 并入 is the default because it is what logging in used to do: this
+    // library becomes the account's.
+    origin: 'claim',
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  /** Set when the account's library is not the one this app has open. */
+  const [restartNeeded, setRestartNeeded] = useState(false);
 
   const submit = async (): Promise<void> => {
     setConfirming(false);
@@ -74,16 +84,22 @@ function LoginForm({ serverUrl }: { serverUrl: string | null }): React.JSX.Eleme
         server_url: form.serverUrl.trim(),
         email: form.email.trim(),
         password: form.password,
+        workspace_origin: form.origin,
         ...(form.allowInsecure ? { allow_insecure_http: true } : {}),
       });
       // Gone from memory as soon as it has been used.
       setForm((current) => ({ ...current, password: '' }));
+      refreshWorkspaces();
       const backfilled = result.backfill;
       toast.success(
         backfilled === null
           ? `已登录：${result.email}`
           : `已登录：${result.email}，首次同步将上传 ${backfilled.songs} 首歌 / ${backfilled.playlists} 个歌单`,
       );
+      // The account's library is a different file, and this app has the old
+      // one open. Saying nothing here would look like a login that did not
+      // take: the song list would not change and nothing would sync.
+      setRestartNeeded(result.restart_required);
     } catch (err) {
       setError(
         err instanceof ApiError ? loginErrorMessage(err.errorCode, err.message) : errorMessage(err),
@@ -132,6 +148,33 @@ function LoginForm({ serverUrl }: { serverUrl: string | null }): React.JSX.Eleme
         />
       </Field>
 
+      <Field
+        label="这个账号的曲库"
+        htmlFor="sync-origin"
+        hint="只在这个账号还没有本机曲库时用到；已经有的话直接打开它"
+      >
+        <Select
+          value={form.origin}
+          onValueChange={(value) => setForm({ ...form, origin: value as WorkspaceOriginChoice })}
+        >
+          <SelectTrigger id="sync-origin">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="claim">并入当前曲库（复制一份，当前曲库保持不变）</SelectItem>
+            <SelectItem value="fresh">给这个账号新建一个空曲库</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      {form.origin === 'claim' && hasSyncTraces && (
+        <p className="grid grid-cols-[8rem_1fr] gap-3 text-xs">
+          <span />
+          <span className="text-destructive">
+            当前曲库里还留着上一个账号的同步痕迹。并入之后，这些内容会被当作新账号的内容重新上传一遍。
+          </span>
+        </p>
+      )}
+
       <div className="grid grid-cols-[8rem_1fr] items-start gap-3 text-xs">
         <span />
         <label htmlFor="sync-insecure" className="flex cursor-pointer items-start gap-2">
@@ -170,8 +213,133 @@ function LoginForm({ serverUrl }: { serverUrl: string | null }): React.JSX.Eleme
         onConfirm={() => void submit()}
         onCancel={() => setConfirming(false)}
       />
+
+      {/* The login worked and this app still has the OLD library open. Not a
+          dialog: the login already happened, so there is nothing left to
+          agree to — only something to do when it suits. */}
+      <ConfirmDialog
+        open={restartNeeded}
+        title="重启后打开这个账号的曲库"
+        description="登录已经完成，这个账号的曲库已经准备好了。lark 现在打开的还是原来的曲库——重启一次才会切过去，在那之前不会开始同步。"
+        confirmLabel="立即重启"
+        cancelLabel="稍后手动重启"
+        onConfirm={() => {
+          setRestartNeeded(false);
+          void window.larkAPI.restartApp();
+        }}
+        onCancel={() => setRestartNeeded(false)}
+      />
     </div>
   );
+}
+
+/**
+ * The libraries on this machine (N7e-3).
+ *
+ * 🔴 IT SHOWS TWO DIFFERENT FACTS AND MUST NOT COLLAPSE THEM: the library this
+ * app currently has OPEN, and the one it will open next time. They differ from
+ * the moment somebody switches until they restart, and that window is exactly
+ * when a person needs to be told which is which.
+ */
+function WorkspacesSection(): React.JSX.Element {
+  const workspaces = useWorkspaces((s) => s.workspaces);
+  const serving = useWorkspaces((s) => s.serving);
+  const error = useWorkspaces((s) => s.error);
+  const refresh = useWorkspaces((s) => s.refresh);
+  const switchTo = useWorkspaces((s) => s.switchTo);
+  const [pending, setPending] = useState<WorkspaceData | null>(null);
+  const [restartNeeded, setRestartNeeded] = useState(false);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const confirmSwitch = async (): Promise<void> => {
+    const target = pending;
+    setPending(null);
+    if (target === null) return;
+    try {
+      const result = await switchTo(target.id);
+      setRestartNeeded(result.restart_required);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  return (
+    <Section title="曲库" hint="每个账号在本机有各自的曲库，互不可见；没有登录过的那个在最上面">
+      <div className="space-y-2 text-xs">
+        {error !== null && <p className="text-muted-foreground">读取曲库列表失败：{error}</p>}
+        {workspaces === null ? (
+          <p className="text-muted-foreground">正在读取曲库列表…</p>
+        ) : (
+          <ul className="space-y-2">
+            {workspaces.map((workspace) => (
+              <li
+                key={workspace.id}
+                className="flex items-start justify-between gap-3 rounded-md border border-border p-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate">
+                    {workspaceTitle(workspace)}
+                    {workspace.id === serving && (
+                      <span className="ml-1 text-muted-foreground">（正在使用）</span>
+                    )}
+                    {workspace.active && workspace.id !== serving && (
+                      <span className="ml-1 text-destructive">（重启后使用）</span>
+                    )}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {workspace.songs} 首歌 · {workspace.playlists} 个歌单
+                    {workspace.server_url === '' ? '' : ` · ${workspace.server_url}`}
+                  </p>
+                </div>
+                {!workspace.active && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={`切换到 ${workspaceTitle(workspace)}`}
+                    onClick={() => setPending(workspace)}
+                  >
+                    切换
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={pending !== null}
+        title="切换曲库需要重启应用"
+        description="切换只是改一行记录，lark 现在打开的曲库不会受影响。重启之后才会打开新的曲库；在那之前，正在播放和正在下载的都照旧。同意吗？"
+        confirmLabel="同意"
+        cancelLabel="取消"
+        onConfirm={() => void confirmSwitch()}
+        onCancel={() => setPending(null)}
+      />
+
+      <ConfirmDialog
+        open={restartNeeded}
+        title="已记下，重启后生效"
+        description="下次启动 lark 会打开你选的曲库。现在重启吗？"
+        confirmLabel="立即重启"
+        cancelLabel="稍后手动重启"
+        onConfirm={() => {
+          setRestartNeeded(false);
+          void window.larkAPI.restartApp();
+        }}
+        onCancel={() => setRestartNeeded(false)}
+      />
+    </Section>
+  );
+}
+
+/** What a person recognises: the account, or the words for the one with none. */
+function workspaceTitle(workspace: WorkspaceData): string {
+  if (workspace.id === 'local') return '本机曲库';
+  return workspace.label === '' ? `账号曲库 ${workspace.id.slice(0, 8)}` : workspace.label;
 }
 
 function DeviceRow({
@@ -315,6 +483,8 @@ export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.El
           </div>
         )}
       </Section>
+
+      <WorkspacesSection />
 
       {authenticated && (
         <Section title="设备" hint="这个账号下 lark 的设备；吊销后该设备需要重新登录">

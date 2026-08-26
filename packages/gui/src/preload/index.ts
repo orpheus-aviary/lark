@@ -38,4 +38,5 @@ contextBridge.exposeInMainWorld('larkAPI', {
     ipcRenderer.invoke(IPC_CHANNELS.readLegal, document) as Promise<string | null>,
   openMigrationBackup: () =>
     ipcRenderer.invoke(IPC_CHANNELS.openMigrationBackup) as Promise<boolean>,
+  restartApp: () => ipcRenderer.invoke(IPC_CHANNELS.restartApp) as Promise<void>,
 } satisfies LarkApi);

@@ -27,6 +27,7 @@ function defaultLarkApi(): LarkApi {
     saveExportFile: vi.fn(() => Promise.resolve(true)),
     readLegal: vi.fn(() => Promise.resolve('MIT License\n\nCopyright (c) test')),
     openMigrationBackup: vi.fn(() => Promise.resolve(true)),
+    restartApp: vi.fn(() => Promise.resolve()),
   };
 }
 

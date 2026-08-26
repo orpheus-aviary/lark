@@ -1,7 +1,7 @@
 // The sync settings tab (v0.2 T4): logging in (including the two-step
 // plaintext-HTTP breaker), what a bound library refuses, and the device list.
 
-import type { PublicLarkConfig, SyncDeviceData, SyncStatusData } from '@lark/shared';
+import type { PublicLarkConfig, SyncDeviceData, SyncStatusData, WorkspaceData } from '@lark/shared';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -72,6 +72,8 @@ interface Call {
 
 let calls: Call[] = [];
 let devices: SyncDeviceData[] = [];
+let workspaces: WorkspaceData[] = [];
+let syncTraces = false;
 /** Overrides the answer to `POST /sync/login` when set. */
 let loginResponse: (() => Response) | null = null;
 let updates: Partial<Draft>[] = [];
@@ -98,6 +100,8 @@ function renderTab(): ReturnType<typeof userEvent.setup> {
 beforeEach(() => {
   calls = [];
   devices = [];
+  workspaces = [{ id: 'local', label: '', server_url: '', active: true, songs: 3, playlists: 1 }];
+  syncTraces = false;
   loginResponse = null;
   updates = [];
   vi.stubGlobal(
@@ -125,6 +129,29 @@ beforeEach(() => {
               backfill: null,
               rebased_entities: 0,
               device_stamp: 'first-registration',
+              local_workspace_id: 'local',
+              local_workspace_created: false,
+              restart_required: false,
+            },
+          }),
+        );
+      }
+      if (url.includes('/workspaces/switch')) {
+        return Promise.resolve(
+          jsonResponse({
+            success: true,
+            data: { id: 'other', previous: 'local', changed: true, restart_required: true },
+          }),
+        );
+      }
+      if (url.includes('/workspaces')) {
+        return Promise.resolve(
+          jsonResponse({
+            success: true,
+            data: {
+              workspaces,
+              serving: 'local',
+              serving_has_sync_traces: syncTraces,
             },
           }),
         );
@@ -179,6 +206,10 @@ describe('logging in', () => {
 
     await waitFor(() => expect(posted('/sync/login')).toBeDefined());
     expect(posted('/sync/login')?.body).toEqual({
+      // 并入 by default: logging in has always made THIS library the
+      // account's, and N7 keeps that as the default rather than the only
+      // option.
+      workspace_origin: 'claim',
       server_url: 'https://sync.example',
       email: 'me@example.com',
       password: 'hunter2',
@@ -312,6 +343,86 @@ describe('an account that is logged in', () => {
     expect(screen.queryByText(/另有/)).toBeNull();
   });
 
+  // ── The libraries on this machine (N7e-3) ────────────────────────────────
+  //
+  // Criterion 115 on screen: a switch is behind a confirmation that says what
+  // it costs, and the app goes on showing the library it has open until
+  // somebody restarts.
+  describe('the workspace switcher', () => {
+    const other = {
+      id: '0d37bfbdb385448f80a53bd8ba7e61d3',
+      label: 'me@example.com',
+      server_url: 'https://sync.example',
+      active: false,
+      songs: 12,
+      playlists: 2,
+    };
+
+    it('lists what is here and which one is in use', async () => {
+      workspaces = [
+        { id: 'local', label: '', server_url: '', active: true, songs: 3, playlists: 1 },
+        other,
+      ];
+      const user = renderTab();
+
+      expect(await screen.findByRole('button', { name: /切换到 me@example.com/ })).toBeDefined();
+      expect(screen.getByText(/正在使用/)).toBeDefined();
+      expect(screen.getByText(/me@example.com/)).toBeDefined();
+      expect(screen.getByText(/12 首歌/)).toBeDefined();
+      // The one already in use offers no switch.
+      expect(screen.queryByRole('button', { name: /切换到 本机曲库/ })).toBeNull();
+      void user;
+    });
+
+    it('asks before switching, and says a restart is what opens it', async () => {
+      workspaces = [
+        { id: 'local', label: '', server_url: '', active: true, songs: 3, playlists: 1 },
+        other,
+      ];
+      const user = renderTab();
+
+      await user.click(await screen.findByRole('button', { name: /切换到 me@example.com/ }));
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog.textContent).toContain('需要重启');
+      // §2.5: nothing is written until somebody agrees.
+      expect(posted('/workspaces/switch')).toBeUndefined();
+
+      await user.click(screen.getByRole('button', { name: '同意' }));
+
+      await waitFor(() =>
+        expect(posted('/workspaces/switch')?.body).toEqual({ workspace_id: other.id }),
+      );
+      // And then it offers the restart rather than performing one.
+      expect((await screen.findByRole('dialog')).textContent).toContain('重启');
+    });
+
+    it('writes nothing when the confirmation is declined', async () => {
+      workspaces = [
+        { id: 'local', label: '', server_url: '', active: true, songs: 3, playlists: 1 },
+        other,
+      ];
+      const user = renderTab();
+
+      await user.click(await screen.findByRole('button', { name: /切换到 me@example.com/ }));
+      await user.click(screen.getByRole('button', { name: '取消' }));
+
+      expect(posted('/workspaces/switch')).toBeUndefined();
+    });
+
+    it('says which one the next launch opens when they differ', async () => {
+      // The window between a switch and the restart that honours it — the one
+      // moment a person has to be told these are two different things.
+      workspaces = [
+        { id: 'local', label: '', server_url: '', active: false, songs: 3, playlists: 1 },
+        { ...other, active: true },
+      ];
+      renderTab();
+
+      expect(await screen.findByText(/正在使用/)).toBeDefined();
+      expect(screen.getByText(/重启后使用/)).toBeDefined();
+    });
+  });
+
   it('says the binding survives a logout', async () => {
     useSync.setState({ status: bound });
     const user = renderTab();
@@ -333,5 +444,58 @@ describe('an account that is logged in', () => {
 
     expect(updates).toEqual([{ syncIntervalMin: 15 }]);
     expect(calls.some((call) => call.method === 'PATCH')).toBe(false);
+  });
+});
+
+describe('choosing where a login lands', () => {
+  it('warns before claiming a library that carries another account’s traces', async () => {
+    syncTraces = true;
+    useSync.setState({ status: syncStatus() });
+    renderTab();
+    // owl's B8 warning: claiming it would republish what the old account
+    // already had.
+    expect(await screen.findByText(/上一个账号的同步痕迹/)).toBeDefined();
+  });
+
+  it('says nothing when there is nothing to warn about', async () => {
+    syncTraces = false;
+    useSync.setState({ status: syncStatus() });
+    renderTab();
+    await screen.findByLabelText('邮箱');
+    expect(screen.queryByText(/上一个账号的同步痕迹/)).toBeNull();
+  });
+
+  it('offers the restart when the account’s library is a different one', async () => {
+    useSync.setState({ status: syncStatus() });
+    loginResponse = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          server_url: 'https://sync.example',
+          user_id: 'u-1',
+          email: 'me@example.com',
+          device_id: 'dev-1',
+          device_name: 'laptop',
+          device_reused: false,
+          workspace_id: 'ws-1',
+          backfill: null,
+          rebased_entities: 0,
+          device_stamp: 'first-registration',
+          local_workspace_id: '0d37bfbdb385448f80a53bd8ba7e61d3',
+          local_workspace_created: true,
+          restart_required: true,
+        },
+      });
+    const user = renderTab();
+
+    await screen.findByLabelText('邮箱');
+    await fillLogin(user);
+    await user.click(screen.getByRole('button', { name: '登录' }));
+
+    // Without this the login looks like it did not take: the song list does
+    // not change and nothing syncs.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toContain('重启');
+    expect(dialog.textContent).toContain('不会开始同步');
   });
 });

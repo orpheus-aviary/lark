@@ -210,11 +210,22 @@ export interface SyncStatusData {
  * the user set in settings — so what it means HERE is only "a person has said
  * yes to this", never a particular control.
  */
+/** What to do when the account has no library on this device yet (N7). */
+export type WorkspaceOriginChoice = 'claim' | 'fresh';
+
 export interface SyncLoginRequest {
   server_url: string;
   email: string;
   password: string;
   allow_insecure_http?: boolean;
+  /**
+   * What to do when this account has no library on this device yet (N7).
+   *
+   * Ignored when it already has one: the workspace id is a hash of the
+   * account, so logging in twice lands on the same copy. Absent means `claim`
+   * — this library becomes the account's, which is what logging in used to do.
+   */
+  workspace_origin?: WorkspaceOriginChoice;
 }
 
 export const SYNC_FILE_OP_STATES = ['pending', 'failed'] as const;
@@ -297,9 +308,6 @@ export interface SyncLoginResultData {
    */
   restart_required: boolean;
 }
-
-/** What to do when the account has no library on this device yet (N7). */
-export type WorkspaceOriginChoice = 'claim' | 'fresh';
 
 export interface WorkspaceData {
   /** `local`, or 32 lowercase hex. */

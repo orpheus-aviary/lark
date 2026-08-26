@@ -56,4 +56,13 @@ export interface LarkApi {
    * the honest answer once the backups have been cleared.
    */
   readonly openMigrationBackup: () => Promise<boolean>;
+  /**
+   * Relaunch the app so it opens the workspace that is now active (N7e).
+   *
+   * Never resolves in the ordinary case — the process it was called from is
+   * the one going away. It goes through the same quit sequence a menu quit
+   * does, so the window size is flushed and the daemon this app started is
+   * stopped before anything is relaunched.
+   */
+  readonly restartApp: () => Promise<void>;
 }

@@ -21,4 +21,10 @@ export const IPC_CHANNELS = {
    * gets to name a target.
    */
   openMigrationBackup: 'shell:open-migration-backup',
+  /**
+   * Relaunch the app (N7e-3). Takes no arguments and can do nothing else:
+   * opening a different library means re-entering every once-per-process gate
+   * the boot sequence owns, and a restart is the only way to do that honestly.
+   */
+  restartApp: 'app:restart',
 } as const;
