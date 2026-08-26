@@ -30,3 +30,14 @@ lark 的手机端。同一个曲库：播放、从 bilibili 下载、自动配�
 ## 验收
 
 在一台冻结设备（vivo V2408A / Android 15）上按里程碑逐批跑，全部为 release 构建。APK 用 lark 自己的 release key 签名，签名在构建流程里当场校验。
+
+---
+
+**产物校验**
+
+```
+lark-0.1.0.apk  sha256 2b8635b6b800c922d3973446a5a514b98501298786fb4b177e7530f9a26d22f9
+签名证书        sha256 38544c9f69a39e131ef879c9eec96121e0aa1096ad94047b141fbd5eecbaf63d（lark 自己的 release key）
+```
+
+tag `android-v0.1.0`。

@@ -3,21 +3,26 @@
 > **这个文件只写「现在」。** 逐批的历史记录已经归档到 `docs/history/`，索引在下面。
 > 对话以本文件为基准；旧的东西查得到就行，不必读进上下文。
 
-## 当前阶段：**Phase B 全部完成 → 文档整理 → Android 首次发版**
+## 当前阶段：**🎉 桌面 0.4.0 + Android 0.1.0 已发布（2026-08-26）**
 
 | | |
 |---|---|
-| **桌面** | **v0.3.0 已发布**（2026-08-17，tag `9cf9d97`）。之后被改了七轮，**全部过了 accept 全系列**（128/128，2026-08-26）——下次发版前若再动桌面，仍要复跑。 |
-| **移动** | **N0–N7 全部完成**。一台 Android 手机现在是 workspace 里的一台设备：能播、能下载、能同步、能导入歌单、能按账号分曲库。**尚未发版。** |
-| **测试** | **3308**（`just test`）。`just check` 绿。 |
+| **桌面** | **v0.4.0 已发布**（2026-08-26，tag `v0.4.0`）—— `Lark-0.4.0-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。协议 `LOCAL_API_VERSION` 6 → 7，**曲库不迁移**（schema 仍 v3）。 |
+| **移动** | **Android 0.1.0 已发布**（2026-08-26，tag `android-v0.1.0`）—— `lark-0.1.0.apk`，versionCode 1，minSdk 26。只在 GitHub Release 发，不进商店，无自动更新。 |
+| **测试** | **3317**（`just test`）。`just check` 绿。发版前五套 accept **128/128**，对的就是发出去的那份产物。 |
 | **业务代码** | 491 文件 / 49,026 行（`tokei`，口径见 `.tokeignore`）。 |
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
-**发版前要做什么、之后规划做什么 → `docs/plans/2026-08-26-backlog-before-android-v1.md`**（A 节是发版的门）。
+**下一站：跨仓文档跟进（backlog A2）→ 长期使用复盘。** 待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
 
-⚠️ **手机当前状态**：处于**登出**，且 **LLM API Key 随卸载丢失**——要用户手动补（backlog A5）。
+⚠️ **手机当前状态**：处于**登出**，且 **LLM API Key 随卸载丢失**——从 Release 装上之后要手动补一次（backlog A5）。
 
 ### 本阶段记录
+
+- **发版（2026-08-26）** —— 桌面 **0.4.0** + Android **0.1.0**，两条版本线各自打 tag（`v0.4.0` / `android-v0.1.0`）。
+  发版前对**这一份代码和产物**复跑五套 accept：`accept-gui` 15 · `accept-m5` 22 · `accept-cli` 27 · `accept-sync` 36 · `accept-pack` 28 = **128/128**；dmg 与 tgz 的 sha256 与 accept-pack 报的逐字节一致，npm registry 回读的 shasum 与本地 tarball 一致。
+  🔴 **门禁抓到一条**：`DAEMON_VERSION` 在其余八处都到 0.4.0 之后还停在 0.3.0——只改源码不够，**dmg 里编译进去的是旧值**，所以重打了包再跑。`accept-pack` §9 读源码比字面量，正是为这个。
+  **顺带补了 `just mobile-android-apk`**：`expo run:android` 没有设备就拒绝构建（它是 run 命令，只是顺带构建），而**发版不该依赖手机插没插在这台电脑上**。
 
 - **文档大整理（2026-08-26，A1 的一半）** —— `PROCESS.md` 1145 行 → 归档成五份 + 本文件（52 行）；`CLAUDE.md` 40KB → 6.6KB，从逐批状态改成「常驻规范 + 全是指针的进度段」；新增 `docs/INVARIANTS.md`（**仍然生效的约束**，从 CLAUDE.md 的状态段里提炼）与 `docs/plans/2026-08-26-backlog-before-android-v1.md`（带字母编号的待办 + **E 节「防止重复捡起」**）；新增 `.tokeignore`（`tokei` 只数业务代码：830 文件 / 92k → **491 文件 / 49,026 行**）。**结构照 owl**（`docs/history/<阶段>-shipped.md` + PROCESS 里一张查找表 + backlog 用稳定字母 id）。CLAUDE.md 同时加了一条**测试规范**：不要过度设计测试，上机由用户操作且集中安排。**A1 剩下的一半是面向用户的 `README.md`。**
 - **N7 每账号独立工作区完成（2026-08-26）** —— 判据 103–123 全关。判据 122 是桌面 accept 五套 **128/128**（顺带还清 N1 判据 22 欠了六轮的旧账），判据 123 是一次真机会话（八步里除「第二个账号新建空库」按用户决定不测外全过，**空库 / 要求重新登录 / converge 三种失败一次未现**）。逐批经过见 `docs/history/phase-b-shipped.md`。
