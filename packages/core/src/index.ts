@@ -44,6 +44,9 @@ export * from './portable/pending.js';
 // `config/workspaces.ts`, which rides on the config subpath.
 export * from './switch-lock.js';
 export * from './workspace-migrate.js';
+export * from './workspace-prepare.js';
+export * from './workspace-list.js';
+export * from './workspace-switch.js';
 export * from './portable/workspace.js';
 export * from './portable/workspace-index.js';
 export * from './migration/preflight.js';

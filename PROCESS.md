@@ -937,6 +937,13 @@
   - 🔴 **给 N7e 的一条硬约束**：`activeWorkspaceId()` 的门要求**目标库的 `songs.db` 已经在盘上**，否则回落 `local`。所以「新建工作区」和「并入」都必须**先把库放好、再翻 active**——顺序反了会得到一个静默回落到 local 的切换。
   - **判据 114 的电脑证据到此为止**：`workspaceSegments` 的两端共用测试 + SecureStore 键互不相交 + 守卫证明每条库内路径只有一个出口。**「A 的歌在 B 里看不见」这句话本身要等 N7e 能造出第二个工作区之后，在 N7g 的真机会话上看**——如实记着，不假装电脑侧已经证明了它。
 
+- **N7e-1 工作区的三个原语：完成（判据 115 · 117 关，测试 3267）。** `prepareWorkspace` / `switchWorkspace` / `listWorkspaces`+`inspectWorkspace`。UI 与登录接线在后面几批。
+  - 🔑 **一个被判据逼出来的形状：登录的安装必须跑在「目标工作区」上，不是当前库上。** 推导链条是硬的——判据 116 要求「新建工作区」时**原工作区一条 `sync_changes` 都不多**，所以登录不能先绑当前库；判据 117 要求「并入」之后**原工作区仍然完整可用**，所以也不能绑了当前库再搬走。⇒ 顺序只能是：**远端登录（拿到 server_id/user_id ⇒ 算出 id）→ 备好目标工作区 → 在目标上跑 bind/backfill → 翻 active → 重启**。工作区 id 在登录之前算不出来，这是整条链的起点。
+  - **并入的范围：数据库 + 音频一起复制**（用户 2026-08-26 定）。§6 那句「重复下载可接受」本来指向更便宜的「只复制数据库」，但那样一并入，本机所有歌都变成「需要下载」——一次账号操作换来整库重下，不合理。磁盘翻倍由 §2.6 的统一上限兜着（清理优先清其他工作区）。
+  - **`prepareWorkspace` 在暂存目录里造、造完一次 rename 到位**。`libraries/<id>/` 正是 `decideActiveWorkspace` 的判据，所以它**绝不能半成品地存在**；目录 rename 到一个不存在的名字是原子的，崩了留下的 `.incoming-<id>` 只是垃圾，**不叫任何工作区、也挡不住任何事**（`isAccountWorkspaceId` 认不了带点的名字）。数据库走 **sqlite online backup 而不是 `cp`**——调用方是 daemon，daemon 就是写者。
+  - **`switchWorkspace` 只写一行，别的什么都不做**，这正是它安全的原因：进程继续服务已经打开的那个库（`resolveActiveWorkspace()` 每进程只判一次）。所以「重启才生效」不是功能没做完的托词——§3① 列的四个一次性闸（引擎 claim registry · 同步会话 · 播放器会话 · file-op runtime）加上 expo-sqlite 的 Activity 重建坑，全长在换库这条路上。🔴 **它拒绝指向一个还没有库的工作区**：那样会被门回落到 `local`，得到「看起来切成功了、然后是个空库」——所有失败里最坏的一种，所以「先备库、再翻 active」是唯一存在的顺序。
+  - **`listWorkspaces` 列磁盘、用索引装饰**（与 N7b 的「磁盘是事实」一致），并借 owl 的 `hasSyncTraces`——`sync_cursor` / 推过的 change / 存过的 skybridge id——给判据 116 最后那句警告备好判定。⚠️ **如实记一条副作用**：只读连接打开 WAL 库会**新建 `-wal`/`-shm` 且关闭时不删**。那不是改数据，但文件确实会出现；下游都是知道这件事写的（迁移用 checkpoint 而不是搬、备份直接丢掉它们）。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。

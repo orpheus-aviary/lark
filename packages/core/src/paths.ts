@@ -134,6 +134,17 @@ export const WORKSPACE_ENTRIES = [
   MIGRATION_BACKUP_SUBDIR,
 ] as const;
 
+/**
+ * The two names anything building a workspace from scratch needs.
+ *
+ * Exported so that `workspace-prepare.ts` can name them without spelling
+ * `songs.db` — which `check-workspace-chokepoint.sh` forbids everywhere but
+ * here, and rightly: a second spelling is how a process ends up opening the
+ * nest root while the library lives somewhere else.
+ */
+export const WORKSPACE_DB_FILE = DB_FILE;
+export const WORKSPACE_SONGS_SUBDIR = SONGS_SUBDIR;
+
 /** The sidecars a WAL database keeps beside it. Checkpointed away, never moved. */
 export const DB_SIDECARS = [`${DB_FILE}-wal`, `${DB_FILE}-shm`] as const;
 
@@ -347,6 +358,28 @@ export function nodePaths(): PathsPort {
     songAudio: (id) => join(songDir(id), CANONICAL_AUDIO_FILE),
     songLegacyAudio: (id) => join(songDir(id), LEGACY_AUDIO_FILE),
     songLyrics: (id) => join(songDir(id), LYRICS_FILE),
+  };
+}
+
+/**
+ * A `PathsPort` for ONE workspace, whichever one is active (N7e).
+ *
+ * `nodePaths()` answers for the active workspace and is what the daemon
+ * serves from. This one is for the login that installs into a workspace this
+ * process is NOT serving: the backfill reads lyrics off disk, and it has to
+ * read the target's, not the current library's.
+ */
+export function workspacePathsPort(id: string, larkDirPath: string = larkDir()): PathsPort {
+  const songs = workspacePaths(id, larkDirPath).songs;
+  const songDir = (songId: string): string => {
+    assertSongId(songId);
+    return join(songs, songId);
+  };
+  return {
+    songDir,
+    songAudio: (songId) => join(songDir(songId), CANONICAL_AUDIO_FILE),
+    songLegacyAudio: (songId) => join(songDir(songId), LEGACY_AUDIO_FILE),
+    songLyrics: (songId) => join(songDir(songId), LYRICS_FILE),
   };
 }
 
