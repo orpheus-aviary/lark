@@ -61,3 +61,55 @@ export function hiddenDevicesNote(hidden: number): string | null {
   if (hidden <= 0) return null;
   return `另有 ${hidden} 台设备属于同一账号的其它工具（owl 等），这里不显示——它们也持有这个账号的凭证，要停用请到那个工具里撤销。`;
 }
+
+// ── Revoked devices (N7g-3) ────────────────────────────────────────────────
+//
+// 🔴 THEY NEVER GO AWAY, and that is the server's design rather than a gap
+// here: skybridge revokes SOFT, because `changes.device_id` and
+// `attachments.uploaded_by_device` are both `ON DELETE RESTRICT` — a device
+// that ever wrote a row cannot be deleted without orphaning the history that
+// says who wrote what. `GET /devices` returns them all, with no filter.
+//
+// And they ACCUMULATE: `resolveDevice` treats "revoked" exactly like "gone"
+// and registers a new device, on purpose — reusing one would reopen a door
+// somebody just closed. So one phone revoked three times is four rows, three
+// of them tombstones, for as long as the account exists.
+//
+// Hence a fold rather than a filter. Hiding them outright would be a lie about
+// what the account holds, and this list is where somebody goes to check
+// exactly that; burying them under one line is the difference between a list
+// that grows and a list that grows visibly.
+
+export interface RevokedDeviceSplit<T> {
+  /** Still usable. What the list shows without being asked. */
+  active: T[];
+  /** Tombstones, behind the fold. */
+  revoked: T[];
+}
+
+export function splitRevokedDevices<T>(
+  rows: readonly T[],
+  revokedAtOf: (row: T) => number | null,
+): RevokedDeviceSplit<T> {
+  const active: T[] = [];
+  const revoked: T[] = [];
+  for (const row of rows) (revokedAtOf(row) === null ? active : revoked).push(row);
+  return { active, revoked };
+}
+
+/** The fold's own label. `null` when there is nothing behind it. */
+export function revokedDevicesLabel(count: number, open: boolean): string | null {
+  if (count <= 0) return null;
+  return open ? `收起已撤销的 ${count} 台` : `显示已撤销的 ${count} 台`;
+}
+
+/**
+ * Why the fold is there at all, shown once it is open.
+ *
+ * It answers the question opening it raises — "why are these still here, and
+ * can I get rid of them?" — because the honest answer is no, and a list that
+ * lets somebody hunt for a delete button that does not exist is worse than one
+ * that says so.
+ */
+export const REVOKED_DEVICES_NOTE =
+  '已撤销的设备留在账号里，是因为同步记录里每一条变更都记着是哪台设备写的——删掉设备，那些记录就说不清出处了。它们已经不能再访问这个账号，撤销同一台设备多次会留下多条。';

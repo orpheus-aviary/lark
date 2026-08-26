@@ -18,10 +18,13 @@
 import type { SyncDeviceData, WorkspaceData, WorkspaceOriginChoice } from '@lark/shared';
 import {
   ApiError,
+  REVOKED_DEVICES_NOTE,
   authReasonLabel,
   hiddenDevicesNote,
   loginErrorMessage,
+  revokedDevicesLabel,
   splitLarkDevices,
+  splitRevokedDevices,
 } from '@lark/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -377,10 +380,93 @@ function DeviceRow({
   );
 }
 
-export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.Element {
-  const status = useSync((s) => s.status);
+/**
+ * The devices on this account, in two groups.
+ *
+ * 🔴 DEVICES ARE PER ACCOUNT, NOT PER WORKSPACE (N7c, criterion 111): the same
+ * skybridge account carries owl's registrations too. The judgement is
+ * `@lark/shared`'s so the two front ends cannot drift — a device the phone
+ * hides and this shows is a device nobody can reason about.
+ *
+ * 🔴 AND REVOKED ONES NEVER GO AWAY (N7g-3, `@lark/shared/sync-devices.ts`
+ * says why): the server soft-revokes because the change log's `device_id` is
+ * ON DELETE RESTRICT, and a re-login after a revoke registers a NEW device
+ * rather than reusing the closed one. So this list only grows. Folded rather
+ * than filtered — this is the screen somebody comes to when they want to know
+ * what holds their credentials, and hiding rows outright would answer that
+ * question wrongly.
+ */
+function DeviceList({
+  onRevoke,
+}: {
+  onRevoke: (device: SyncDeviceData) => void;
+}): React.JSX.Element {
   const devices = useSync((s) => s.devices);
   const devicesError = useSync((s) => s.devicesError);
+  const refreshDevices = useSync((s) => s.refreshDevices);
+  const [showRevoked, setShowRevoked] = useState(false);
+
+  const larkOnly = useMemo(
+    () => splitLarkDevices(devices, (device) => device.app_version),
+    [devices],
+  );
+  const byRevoked = useMemo(
+    () => splitRevokedDevices(larkOnly.shown, (device) => device.revoked_at),
+    [larkOnly],
+  );
+  const hiddenNote = hiddenDevicesNote(larkOnly.hidden);
+  const revokedLabel = revokedDevicesLabel(byRevoked.revoked.length, showRevoked);
+
+  const list = (rows: readonly SyncDeviceData[]) => (
+    <ul className="space-y-2">
+      {rows.map((device) => (
+        <DeviceRow key={device.id} device={device} onRevoke={onRevoke} />
+      ))}
+    </ul>
+  );
+
+  return (
+    <div className="space-y-2 text-xs">
+      {devicesError !== null ? (
+        <p className="text-muted-foreground">读取设备列表失败：{devicesError}</p>
+      ) : devices.length === 0 ? (
+        <p className="text-muted-foreground">正在读取设备列表…</p>
+      ) : (
+        <>
+          {byRevoked.active.length === 0 ? (
+            <p className="text-muted-foreground">这个账号下还没有 lark 的设备。</p>
+          ) : (
+            list(byRevoked.active)
+          )}
+          {revokedLabel !== null && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground"
+              aria-expanded={showRevoked}
+              onClick={() => setShowRevoked((open) => !open)}
+            >
+              {revokedLabel}
+            </Button>
+          )}
+          {showRevoked && (
+            <>
+              <p className="text-muted-foreground">{REVOKED_DEVICES_NOTE}</p>
+              {list(byRevoked.revoked)}
+            </>
+          )}
+          {hiddenNote !== null && <p className="text-muted-foreground">{hiddenNote}</p>}
+        </>
+      )}
+      <Button size="sm" variant="secondary" onClick={() => refreshDevices()}>
+        刷新
+      </Button>
+    </div>
+  );
+}
+
+export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.Element {
+  const status = useSync((s) => s.status);
   const refreshDevices = useSync((s) => s.refreshDevices);
   const logout = useSync((s) => s.logout);
   const revokeDevice = useSync((s) => s.revokeDevice);
@@ -388,15 +474,6 @@ export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.El
 
   const [pendingRevoke, setPendingRevoke] = useState<SyncDeviceData | null>(null);
 
-  // 🔴 DEVICES ARE PER ACCOUNT, NOT PER WORKSPACE (N7c, criterion 111): the
-  // same skybridge account carries owl's registrations too. The judgement is
-  // `@lark/shared`'s so the two front ends cannot drift — a device the phone
-  // hides and this shows is a device nobody can reason about.
-  const larkOnly = useMemo(
-    () => splitLarkDevices(devices, (device) => device.app_version),
-    [devices],
-  );
-  const hiddenNote = hiddenDevicesNote(larkOnly.hidden);
   const [pendingDiscard, setPendingDiscard] = useState<number | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -488,29 +565,7 @@ export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.El
 
       {authenticated && (
         <Section title="设备" hint="这个账号下 lark 的设备；吊销后该设备需要重新登录">
-          <div className="space-y-2 text-xs">
-            {devicesError !== null ? (
-              <p className="text-muted-foreground">读取设备列表失败：{devicesError}</p>
-            ) : devices.length === 0 ? (
-              <p className="text-muted-foreground">正在读取设备列表…</p>
-            ) : (
-              <>
-                {larkOnly.shown.length === 0 ? (
-                  <p className="text-muted-foreground">这个账号下还没有 lark 的设备。</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {larkOnly.shown.map((device) => (
-                      <DeviceRow key={device.id} device={device} onRevoke={setPendingRevoke} />
-                    ))}
-                  </ul>
-                )}
-                {hiddenNote !== null && <p className="text-muted-foreground">{hiddenNote}</p>}
-              </>
-            )}
-            <Button size="sm" variant="secondary" onClick={() => refreshDevices()}>
-              刷新
-            </Button>
-          </div>
+          <DeviceList onRevoke={setPendingRevoke} />
         </Section>
       )}
 

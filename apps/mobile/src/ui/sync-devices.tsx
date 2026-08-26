@@ -21,7 +21,13 @@
 // should not talk to a server. So there is a button.
 
 import { type CoordinatorContext, callSkybridge, requireSession } from '@lark/core/portable';
-import { hiddenDevicesNote, splitLarkDevices } from '@lark/shared';
+import {
+  REVOKED_DEVICES_NOTE,
+  hiddenDevicesNote,
+  revokedDevicesLabel,
+  splitLarkDevices,
+  splitRevokedDevices,
+} from '@lark/shared';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { canRevoke, revokePrompt } from '../sync/devices';
@@ -42,12 +48,15 @@ export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
   const [rows, setRows] = useState<readonly Row[] | null>(null);
   /** Other tools' devices on this account — counted, never listed. */
   const [hidden, setHidden] = useState(0);
+  /** Whether the tombstones are folded out. Reset by every reload (N7g-3). */
+  const [showRevoked, setShowRevoked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
     setFailed(null);
+    setShowRevoked(false);
     try {
       const session = requireSession(ctx);
       const devices = await callSkybridge('device list', () => session.client.listDevices());
@@ -107,33 +116,55 @@ export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
     [ctx, load],
   );
 
+  // Split at render rather than at load: the fold is a view state, and the
+  // rows behind it are the same rows.
+  const split = rows === null ? null : splitRevokedDevices(rows, (row) => row.revokedAt);
+  const foldLabel = revokedDevicesLabel(split?.revoked.length ?? 0, showRevoked);
+
+  const deviceRow = (row: Row) => (
+    <View key={row.id} style={styles.row}>
+      <View style={styles.text}>
+        <Text style={styles.name} numberOfLines={1}>
+          {row.name}
+          {row.isCurrent ? '（本机）' : ''}
+        </Text>
+        <Text style={styles.note}>
+          {row.platform ?? '未知平台'} · {row.appVersion ?? '版本未知'} ·{' '}
+          {describeSeen(row.lastSeenAt)}
+          {row.revokedAt === null ? '' : ' · 已撤销'}
+        </Text>
+      </View>
+      {canRevoke(row) && (
+        <Pressable
+          style={[styles.revoke, busy && styles.buttonOff]}
+          onPress={() => revoke(row)}
+          disabled={busy}
+          accessibilityRole="button"
+        >
+          <Text style={styles.revokeLabel}>撤销</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+
   return (
     <View style={styles.block}>
-      {rows?.map((row) => (
-        <View key={row.id} style={styles.row}>
-          <View style={styles.text}>
-            <Text style={styles.name} numberOfLines={1}>
-              {row.name}
-              {row.isCurrent ? '（本机）' : ''}
-            </Text>
-            <Text style={styles.note}>
-              {row.platform ?? '未知平台'} · {row.appVersion ?? '版本未知'} ·{' '}
-              {describeSeen(row.lastSeenAt)}
-              {row.revokedAt === null ? '' : ' · 已撤销'}
-            </Text>
-          </View>
-          {canRevoke(row) && (
-            <Pressable
-              style={[styles.revoke, busy && styles.buttonOff]}
-              onPress={() => revoke(row)}
-              disabled={busy}
-              accessibilityRole="button"
-            >
-              <Text style={styles.revokeLabel}>撤销</Text>
-            </Pressable>
-          )}
-        </View>
-      ))}
+      {split?.active.map(deviceRow)}
+      {foldLabel !== null && (
+        <Pressable
+          style={styles.fold}
+          onPress={() => setShowRevoked((open) => !open)}
+          accessibilityRole="button"
+        >
+          <Text style={styles.foldLabel}>{foldLabel}</Text>
+        </Pressable>
+      )}
+      {showRevoked && (
+        <>
+          <Text style={styles.note}>{REVOKED_DEVICES_NOTE}</Text>
+          {split?.revoked.map(deviceRow)}
+        </>
+      )}
       {rows?.length === 0 && <Text style={styles.note}>没有其它设备。</Text>}
       {hiddenDevicesNote(hidden) !== null && (
         <Text style={styles.note}>{hiddenDevicesNote(hidden)}</Text>
@@ -178,6 +209,8 @@ const styles = StyleSheet.create({
   },
   revoke: { paddingHorizontal: 12, justifyContent: 'center', minHeight: 44 },
   revokeLabel: { color: C.danger, fontSize: 13 },
+  fold: { paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  foldLabel: { color: C.muted, fontSize: 12 },
   buttonOff: { opacity: 0.4 },
   buttonLabel: { color: C.text, fontSize: 15, fontWeight: '600' },
 });

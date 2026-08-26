@@ -4,7 +4,14 @@
 // about.
 
 import { describe, expect, it } from 'vitest';
-import { hiddenDevicesNote, isLarkDevice, splitLarkDevices } from './sync-devices.js';
+import {
+  REVOKED_DEVICES_NOTE,
+  hiddenDevicesNote,
+  isLarkDevice,
+  revokedDevicesLabel,
+  splitLarkDevices,
+  splitRevokedDevices,
+} from './sync-devices.js';
 
 describe('whose device is this', () => {
   it('is ours when it says so', () => {
@@ -67,5 +74,50 @@ describe('what the screen says about what it is not showing', () => {
     expect(note).toContain('凭证');
     // Without this half the count reads as a defect rather than a fact.
     expect(note).toContain('撤销');
+  });
+});
+
+// N7g-3: revoked devices are tombstones the server cannot delete, and
+// `resolveDevice` mints a fresh one every time — so the list only ever grows.
+// The fold is what keeps that growth from burying the devices somebody came to
+// look at.
+describe('the revoked fold', () => {
+  const row = (id: string, revokedAt: number | null) => ({ id, revokedAt });
+
+  it('keeps the active ones out front and the tombstones behind', () => {
+    const split = splitRevokedDevices(
+      [row('a', null), row('b', 1000), row('c', null), row('d', 2000)],
+      (r) => r.revokedAt,
+    );
+
+    expect(split.active.map((r) => r.id)).toEqual(['a', 'c']);
+    expect(split.revoked.map((r) => r.id)).toEqual(['b', 'd']);
+  });
+
+  // The order within each half is the server's (`ORDER BY created_at`), and
+  // both front ends render it as given — a fold that also reordered would make
+  // "which one is the new registration" unanswerable.
+  it('preserves the order it was given', () => {
+    const split = splitRevokedDevices([row('x', 3), row('y', 1), row('z', 2)], (r) => r.revokedAt);
+
+    expect(split.revoked.map((r) => r.id)).toEqual(['x', 'y', 'z']);
+  });
+
+  it('has no fold to show when nothing is revoked', () => {
+    expect(revokedDevicesLabel(0, false)).toBeNull();
+    expect(splitRevokedDevices([row('a', null)], (r) => r.revokedAt).revoked).toEqual([]);
+  });
+
+  it('says which way the fold goes', () => {
+    expect(revokedDevicesLabel(3, false)).toBe('显示已撤销的 3 台');
+    expect(revokedDevicesLabel(3, true)).toBe('收起已撤销的 3 台');
+  });
+
+  // Opening the fold raises "can I delete these?", and the answer is no. The
+  // note has to carry the reason, or somebody goes hunting for a button that
+  // does not exist.
+  it('explains why they cannot be removed', () => {
+    expect(REVOKED_DEVICES_NOTE).toContain('哪台设备写的');
+    expect(REVOKED_DEVICES_NOTE).toContain('多条');
   });
 });

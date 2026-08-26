@@ -334,6 +334,43 @@ describe('an account that is logged in', () => {
     expect(screen.getByText(/另有 2 台设备/)).toBeDefined();
   });
 
+  // N7g-3. The server cannot delete a revoked device (the change log's
+  // `device_id` is ON DELETE RESTRICT) and a re-login registers a NEW one
+  // instead of reusing it — so the same machine revoked twice is three rows.
+  // Folded, not filtered: this list is where somebody checks what holds their
+  // credentials, and dropping rows would answer that wrongly.
+  it('folds revoked devices away, and opens them with their reason', async () => {
+    devices = [
+      device({ id: 'dev-1', name: 'laptop' }),
+      device({ id: 'dev-2', name: 'old-phone', revoked_at: 1_700_000_000_000 }),
+      device({ id: 'dev-3', name: 'older-phone', revoked_at: 1_600_000_000_000 }),
+    ];
+    useSync.setState({ status: bound });
+    const user = renderTab();
+
+    expect(await screen.findByText(/laptop/)).toBeDefined();
+    expect(screen.queryByText(/old-phone/)).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: '显示已撤销的 2 台' }));
+
+    expect(screen.getByText(/^old-phone/)).toBeDefined();
+    expect(screen.getByText(/older-phone/)).toBeDefined();
+    // Opening it raises "can I delete these?", and the answer has to be there.
+    expect(screen.getByText(/哪台设备写的/)).toBeDefined();
+
+    await user.click(screen.getByRole('button', { name: '收起已撤销的 2 台' }));
+    expect(screen.queryByText(/older-phone/)).toBeNull();
+  });
+
+  it('has no fold when nothing is revoked', async () => {
+    devices = [device({ id: 'dev-1', name: 'laptop' })];
+    useSync.setState({ status: bound });
+    renderTab();
+
+    expect(await screen.findByText(/laptop/)).toBeDefined();
+    expect(screen.queryByText(/已撤销的/)).toBeNull();
+  });
+
   it('says nothing about other tools when there are none', async () => {
     devices = [device({ id: 'dev-1', name: 'laptop' })];
     useSync.setState({ status: bound });
