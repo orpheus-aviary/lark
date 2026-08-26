@@ -627,6 +627,23 @@ mobile-android-release: build-shared build-core
     JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR="{{_keystore_dir}}" pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
     just mobile-verify-apk
 
+# The SAME release build, without a phone attached (release day).
+#
+# `expo run:android` refuses to build when no device is connected — it is a
+# run command that happens to build. A release needs the artifact, not the
+# install, and requiring a plugged-in phone to CUT a release is how a release
+# ends up depending on which desk somebody is sitting at.
+#
+# Same three things the recipe above does and in the same order: delete the
+# bundle (the N0b-5b trap — Gradle cannot see that `@lark/core`'s dist moved),
+# build with the release keystore property present, then verify the signature
+# on the artifact itself.
+[group('mobile')]
+mobile-android-apk: build-shared build-core
+    rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
+    cd {{_mobile}}/android && JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR="{{_keystore_dir}}" ./gradlew assembleRelease
+    just mobile-verify-apk
+
 # The acceptance artifact (decision o②): the SAME package and signing as the
 # product, built with Metro's root redirected to `src/acceptance/`. Not a flag
 # on top of the release build — a second artifact, so the two cannot be

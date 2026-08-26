@@ -6,6 +6,8 @@ dist-publish/
 out/
 build/
 release/
+# Staged release artifacts (dmg + apk + tgz), assembled by hand on release day.
+dist-release/
 *.tsbuildinfo
 # The publishable CLI tarball (`just pack-cli`). The release gate verifies and
 # publishes the same file; it is an artifact, not a source.
