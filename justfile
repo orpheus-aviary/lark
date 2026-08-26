@@ -82,6 +82,16 @@ mobile-imports:
 mobile-native-modules:
     bash scripts/check-mobile-native-modules.sh
 
+# The launcher icon is declared and its files are there (0.1.1). Android 0.1.0
+# shipped Expo's placeholder, and no offline gate could see it: a missing
+# `icon` is not an error — the template has a default and prebuild uses it
+# silently. Every other check here is about code; this one is about an asset
+# that was simply never named.
+
+[group('lint')]
+mobile-icon:
+    bash scripts/check-mobile-icon.sh
+
 # The CLI's module graph (M6-21): no daemon / gui / electron, and no STATIC
 # import of the core barrel — that one would drag better-sqlite3 into commands
 # that never open a database.
@@ -99,7 +109,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

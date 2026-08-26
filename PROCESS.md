@@ -22,6 +22,7 @@
 - **发版（2026-08-26）** —— 桌面 **0.4.0** + Android **0.1.0**，两条版本线各自打 tag（`v0.4.0` / `android-v0.1.0`）。
   发版前对**这一份代码和产物**复跑五套 accept：`accept-gui` 15 · `accept-m5` 22 · `accept-cli` 27 · `accept-sync` 36 · `accept-pack` 28 = **128/128**；dmg 与 tgz 的 sha256 与 accept-pack 报的逐字节一致，npm registry 回读的 shasum 与本地 tarball 一致。
   🔴 **门禁抓到一条**：`DAEMON_VERSION` 在其余八处都到 0.4.0 之后还停在 0.3.0——只改源码不够，**dmg 里编译进去的是旧值**，所以重打了包再跑。`accept-pack` §9 读源码比字面量，正是为这个。
+  🔴 **发布约一小时后发现 Android 版没有图标**——`app.config.ts` 里既没有 `icon` 也没有 `adaptiveIcon`，`expo prebuild` 一声不吭地用了模板自带的占位图。**离线的门一个都照不到**：缺失不是错误，tsc / biome / bundle smoke / 原生模块守卫全都只管代码，而这是一个从来没被命名过的资产。已补（图标取自桌面那份源图，前景铺满自适应图标的内侧 72/108 安全区，底色 `#0b332f` 是画面自己的描边色，配方在 `apps/mobile/assets/README.md`），并加了守卫 `check-mobile-icon.sh` 进 `just check`（两种破法都验过红）。**APK 就地换掉、版本号与 versionCode 不变**（0.1.0 / 1 ⇒ 覆盖安装、曲库不丢），Release 说明里如实写了换过、新旧 sha256 都记着。
   **顺带补了 `just mobile-android-apk`**：`expo run:android` 没有设备就拒绝构建（它是 run 命令，只是顺带构建），而**发版不该依赖手机插没插在这台电脑上**。
 
 - **文档大整理（2026-08-26，A1 的一半）** —— `PROCESS.md` 1145 行 → 归档成五份 + 本文件（52 行）；`CLAUDE.md` 40KB → 6.6KB，从逐批状态改成「常驻规范 + 全是指针的进度段」；新增 `docs/INVARIANTS.md`（**仍然生效的约束**，从 CLAUDE.md 的状态段里提炼）与 `docs/plans/2026-08-26-backlog-before-android-v1.md`（带字母编号的待办 + **E 节「防止重复捡起」**）；新增 `.tokeignore`（`tokei` 只数业务代码：830 文件 / 92k → **491 文件 / 49,026 行**）。**结构照 owl**（`docs/history/<阶段>-shipped.md` + PROCESS 里一张查找表 + backlog 用稳定字母 id）。CLAUDE.md 同时加了一条**测试规范**：不要过度设计测试，上机由用户操作且集中安排。**A1 剩下的一半是面向用户的 `README.md`。**

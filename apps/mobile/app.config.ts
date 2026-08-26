@@ -16,6 +16,17 @@ const config: ExpoConfig = {
   orientation: 'portrait',
   platforms: ['android'],
   scheme: 'lark',
+  // The launcher icon. Missing until 0.1.1, which shipped Expo's placeholder —
+  // nothing offline could see it, because a missing `icon` is not an error:
+  // the template has a default and prebuild uses it without a word.
+  //
+  // Both files are derived from the desktop's
+  // `packages/gui/resources/lark-icon-source.png` — the artwork with its opaque
+  // grey halo already cut away. They are committed artifacts, not build output
+  // (prebuild reads them), and `assets/README.md` carries the recipe that made
+  // them, the same way `packages/gui/scripts/build-icons.mjs` carries the one
+  // that made its source.
+  icon: './assets/icon.png',
   android: {
     // D14 (N0b-5b): this id and the `lark-release.jks` keystore are what the
     // Play policy snapshot registers, and it is deliberately NOT the spike's
@@ -35,6 +46,20 @@ const config: ExpoConfig = {
     // off device-to-device transfer on Android 12+, which is what the rule
     // files in `plugins/with-backup-rules.js` are for.
     allowBackup: false,
+    // Android 8+ masks every icon into the launcher's own shape, and minSdk is
+    // 26 — so THIS is the icon on every device lark supports; `icon` above is
+    // only the legacy fallback and the notification base.
+    //
+    // The foreground spans exactly the inner 72 of 108dp: that is the safe
+    // zone, so a circular mask, a squircle and a rounded square all show the
+    // whole scene rather than clipping the wordmark off the bottom. The
+    // background is the artwork's own dark outline colour (sampled), so what
+    // the mask leaves at the corners looks like part of the tile instead of a
+    // slab behind it.
+    adaptiveIcon: {
+      foregroundImage: './assets/adaptive-icon.png',
+      backgroundColor: '#0b332f',
+    },
   },
   plugins: [
     [
