@@ -19,7 +19,7 @@
 // question, not after the fact).
 
 import { publicSkybridgeCredentials, readSkybridgeCredentials } from '@lark/core/config';
-import type { SyncFileOpSummary, SyncStatusData } from '@lark/shared';
+import type { SyncFileOpSummary, SyncLoginResultData, SyncStatusData } from '@lark/shared';
 import { SYNC_FILE_OP_STATES, type SyncFileOpState } from '@lark/shared';
 import type { CommandContext } from '../context.js';
 import { confirm } from '../lib/confirm.js';
@@ -131,25 +131,51 @@ export async function runSyncLogin(
 
   const result = envelope.data;
   if (result === undefined) return ctx.streams.out('已登录。');
-  ctx.streams.out(`已登录：${result.email} @ ${result.server_url}`);
-  ctx.streams.out(
+  reportLogin(ctx.streams, result);
+}
+
+/** Everything a login did, in the order a person reads it. */
+function reportLogin(streams: Streams, result: SyncLoginResultData): void {
+  streams.out(`已登录：${result.email} @ ${result.server_url}`);
+  streams.out(
     `设备：${result.device_name}（${result.device_id}${result.device_reused ? '，复用' : '，新注册'}）`,
   );
-  ctx.streams.out(`workspace：${result.workspace_id}`);
+  streams.out(`workspace：${result.workspace_id}`);
+  // The account's library on THIS device, which since N7 is rarely the one the
+  // daemon has open: `local` can never hash to an account's id, so a first
+  // login always lands somewhere else. Saying so is the whole point — without
+  // it the next command reports "还没有登录" one line after a login that
+  // worked, and the only advice on screen is to run it again.
+  if (result.local_workspace_id !== 'local') {
+    streams.out(
+      `本机曲库：${result.local_workspace_id}${result.local_workspace_created ? '（这次新建）' : ''}`,
+    );
+  }
   if (result.backfill !== null) {
     const backfill = result.backfill;
-    ctx.streams.out(
+    streams.out(
       `首次绑定，已排入回填：${backfill.songs} 首歌 / ${backfill.playlists} 个歌单 / ${backfill.memberships} 条成员 / ${backfill.lyrics} 份歌词`,
     );
     if (backfill.lyrics_oversize > 0) {
-      ctx.streams.out(`其中 ${backfill.lyrics_oversize} 份歌词过大，无法同步（已留档）`);
+      streams.out(`其中 ${backfill.lyrics_oversize} 份歌词过大，无法同步（已留档）`);
     }
   }
   if (result.rebased_entities > 0) {
-    ctx.streams.out(`已按服务器时钟重排 ${result.rebased_entities} 个实体的未推送变更`);
+    streams.out(`已按服务器时钟重排 ${result.rebased_entities} 个实体的未推送变更`);
   }
   if (result.device_stamp === 'device-changed') {
-    ctx.streams.out('检测到设备更换：未推送的变更已重新标注为本设备');
+    streams.out('检测到设备更换：未推送的变更已重新标注为本设备');
+  }
+  // Last, because it is the only line that asks for something. The GUI opens a
+  // dialog here; a CLI has one daemon to restart and no window to reopen.
+  if (result.restart_required) {
+    streams.out('');
+    streams.out(
+      '登录已经完成，但 lark 现在打开的还是原来的曲库——重启一次才会切过去，在那之前不会开始同步。',
+    );
+    streams.out(
+      '先 `lark stop-daemon`（桌面版开着的话请退出它），下一条命令会打开这个账号的曲库。',
+    );
   }
 }
 

@@ -152,6 +152,66 @@ describe('sync login', () => {
     expect(text).toContain('1 份歌词过大');
   });
 
+  // N7: `local` never hashes to an account's id, so a first login lands the
+  // account's library somewhere else and the running daemon keeps serving the
+  // old one. Without these lines the very next command says 「还没有登录」and
+  // the only advice on screen is to run the login again.
+  it('says where the account landed, and that a restart is what opens it', async () => {
+    const ctx = fakeContext({
+      syncLogin: {
+        server_url: 'https://sync.example',
+        user_id: 'u-1',
+        email: 'me@example.com',
+        device_id: 'dev-1',
+        device_name: 'laptop',
+        device_reused: false,
+        workspace_id: 'ws-1',
+        backfill: null,
+        rebased_entities: 0,
+        device_stamp: 'first-registration',
+        local_workspace_id: '085de2c37e3e5c45ba2503fd042e9975',
+        local_workspace_created: true,
+        restart_required: true,
+      },
+    });
+
+    await runSyncLogin(ctx, { server: 'https://sync.example', email: 'me@example.com' }, SECRET);
+
+    const text = ctx.streams.stdout.join('\n');
+    expect(text).toContain('本机曲库：085de2c37e3e5c45ba2503fd042e9975（这次新建）');
+    expect(text).toContain('重启一次才会切过去');
+    expect(text).toContain('lark stop-daemon');
+  });
+
+  // The other half: logging back into the workspace already open changes
+  // nothing, and a restart notice there would be a lie.
+  it("says none of it when the account's library is the one already open", async () => {
+    const ctx = fakeContext({
+      syncLogin: {
+        server_url: 'https://sync.example',
+        user_id: 'u-1',
+        email: 'me@example.com',
+        device_id: 'dev-1',
+        device_name: 'laptop',
+        device_reused: true,
+        workspace_id: 'ws-1',
+        backfill: null,
+        rebased_entities: 0,
+        device_stamp: 'unchanged',
+        local_workspace_id: '085de2c37e3e5c45ba2503fd042e9975',
+        local_workspace_created: false,
+        restart_required: false,
+      },
+    });
+
+    await runSyncLogin(ctx, { server: 'https://sync.example', email: 'me@example.com' }, SECRET);
+
+    const text = ctx.streams.stdout.join('\n');
+    expect(text).toContain('本机曲库：085de2c37e3e5c45ba2503fd042e9975');
+    expect(text).not.toContain('这次新建');
+    expect(text).not.toContain('stop-daemon');
+  });
+
   // §3.7: the flag says "I know", the confirmation says what it costs. In
   // --json mode the confirmation cannot be asked, so the login never happens.
   it('will not carry the plaintext breaker without a second act', async () => {
