@@ -1,163 +1,218 @@
-# Phase B · N7 每账号独立工作区（`apps/mobile`）
+# N7 每账号独立工作区（两端）
 
-- **日期**：2026-08-26（v1，待评审）
+- **日期**：2026-08-26（**v2**，按用户当天的四条决定重写；v1 的 §3 决策 a–g 已全部关闭，d 被 owl 的做法取代）
 - **执行顺序**：N6a–N6d ✅（含真机会话）→ **N7（本批）** → N6e 文档大整理 → 发版
-- **来历**：用户 2026-08-25 提出，当天讨论后定为 v1.1；**2026-08-26 用户改主意，提前到发版之前**（N6 子计划 §6 是那次讨论的完整结论，四个难点与起点建议一字未改）
-- **前置**：N6 真机会话完成——手机现在是一个**全新安装、签名正确、D16 走过一遍**的干净状态，这正是动换库代码之前想要的地基
+- **来历**：用户 2026-08-25 提出 → 当天定为 v1.1 → **2026-08-26 提前到发版之前**，并在看过 owl 的实现后定下形状
+- **前置**：N6 真机会话完成——手机是一个全新安装、签名正确、D16 走过一遍的干净状态
 - **基线**：`just check` exit 0 · `just test` **3107 passed**（2026-08-26）
 - **冻结设备**：vivo V2408A，行为判据一律 release 构建
 - **判据编号**：**103 起**（N6 用到 102）
 
-**一句话的边界**：手机现在是「一台设备 = 一个曲库 = 一个账号」，绑定之后不可改绑。**N7 把这三者解开**：一台设备可以有多个曲库，每个曲库各自绑一个账号（或谁都不绑），互不可见、互不合并。
+**一句话的边界**：今天「一台设备 = 一个曲库 = 一个账号」，绑定之后不可改绑。**N7 把三者解开**：一台设备可以有多个曲库，每个各自绑一个账号（或谁都不绑），互不可见、互不合并。**两端都做。**
 
 ---
 
-## §0 范围
+## §0 用户已定的四条（2026-08-26）
 
-**做**：① 设备级设置与曲库级设置**分家**；② 多曲库的**布局与打开**（含现有单库的迁移）；③ **D16 身份门做成 per-library**；④ **切换工作区的 UI**；⑤ 登录时的**「新建工作区 / 并入当前曲库」**二选一。
+1. **桌面也一起做** —— 多工作区不是手机专属；桌面的设备列表过滤也一并改。
+2. **手机不做迁移**（读法 B）：旧数据不管，反正能重装重拉（N6 会话刚证明过，五分钟）。**只有桌面做一次简单迁移**——它那个 nest 是真实曲库。
+3. **切换要确认框**：「切换账号需要重启应用，同意 / 取消」。
+4. **统一缓存上限口径**：设置页显示**当前工作区 + 其他工作区**各自占用；清理**优先删其他工作区里没固定的**，再动当前工作区。
 
-**不做（本批）**：
-
-- 🔴 **共享曲库**（同一首歌两个工作区各下一份）——这是 N6 §6 里贵的那一半，代价几乎全在它身上。**重复下载可接受**：没有文件的歌显示「需要下载」、不会静默下载，空间有上限兜着（用户 2026-08-26 定）。
-- **跨库缓存清理**（「优先清非当前账号」）——见决策 c，本批只做每库各自的上限。
-- 桌面的任何多库能力。**桌面仍是一个 nest 一个库**，`LARK_NEST_DIR` 那条路不动。
-- 删除一个工作区（决策 g）。
+> 🔴 **第五条，用户同一条消息里提醒的**：**设置页的中文说明要跟着改**。N6c 写的那三段里有一句现在会变成假话——「一个曲库只能绑一个账号，绑定之后不能改绑；要换账号只能清除应用数据重来」。绑定不匹配的报错文案（N6c 改过的那句「只能清除应用数据重新开始」）同理。**文案是本批的交付物之一，不是收尾**（判据 118）。
 
 ---
 
-## §1 开工前必须知道的
+## §1 owl 已经把这件事做过一遍——照抄它的形状
 
-### 1.1 桌面早就是分层的，是**手机**把它压平了
+`../owl/packages/core/src/profile/` 与 `skybridge/switch-lock.ts`。六条事实，逐条带出处：
 
-`portable/cache-limit.ts:10` 的注释就是证据：
+**① profile id = `sha256(serverId + "\n" + userId)` 取前 32 hex**（`profile/id.ts:66`）。确定性哈希而不是随机 id ⇒ **同一个账号永远落回同一份本地拷贝**，登出再登录不会长出第二个。
 
-> *"the desktop keeps `storage.cache_limit_mb` in `lark_config.toml` — a file the phone does not have"*
+**② 锚是 `server_id`，不是 URL**（`id.ts` 抬头 D11）：*"The server's url is not part of the id, so moving the deployment / changing the url keeps the same profile."* —— 与 lark 的 TLS 那笔账记的「换 URL 不打断绑定」同一条。**32 hex 的宽度一旦有 profile 落盘就冻结**（改它会把已有目录变孤儿）。
 
-桌面有两个存储层：**`lark_config.toml`（设备级）** 与 **`local_metadata`（曲库级）**。手机没有 config 文件这一层，于是把设备级的东西也塞进了 `local_metadata` —— **那是当时唯一能写的地方**，不是设计。
+**③ 保留 id `local`** —— 从没登录过 / 离线的那个工作区（`profile/resolver.ts:23`）。
 
-所以 N7a 的正确说法不是「拆分 `local_metadata`」，而是：**给手机补上它缺的那一层**，也就是 `lark_config.toml` 的对应物。
+**④ 零迁移是明写的设计**（`config/paths.ts:53`）：*"Local profile database = `owl/owl.db` in place … so pure-local users need zero migration. Account sync never writes here."* 账号库在 `profiles/<32hex>/owl.db`，老库**原地不动**当 `local`——连已经绑过账号的老库也是（`local-inspect.ts` 的 `hasSyncTraces` 正是为这种库准备的警告）。
 
-### 1.2 ✅ 已核实：这七个读取器**桌面一个都不用** ⇒ N7a 是纯移动端重构
+**⑤ 并入 = 整库 COPY，绝不 move**（`local-inspect.ts:8`）：*"a whole-db claim, never a move — account sync must never write the local db."*
+
+**⑥ 桌面多一整块：切换锁**（`skybridge/switch-lock.ts`）。GUI main 在切换临界区持有锁文件，CLI direct 开库前读它、发现切换在飞就拒绝。三条性质：**原子写**（temp+rename，读者永不见撕裂）· **owner nonce**（只能释放自己写的那把）· **pid 存活 + 30s TTL**（崩溃的持有者 pid 立刻消失，pid 复用被 TTL 兜住）。**这是多进程才需要的，手机单进程不需要。**
+
+---
+
+## §2 lark 的落法
+
+### 2.1 布局
 
 ```
-readCacheLimitMb  readLlmConfig  readPlayMode  readNamingMode
-readNowPlayingMode  readSyncAllowInsecure  readLastPlayback
+~/orpheus-aviary-nest/lark/              桌面
+├── lark_config.toml                     设备级（已有）
+├── workspaces.toml                      ← 新：active + 索引（非机密）
+├── songs.db / songs/                    ← `local`：原地，零迁移
+└── libraries/<32hex>/                   ← 账号工作区
+    ├── songs.db
+    ├── songs/<song id>/{song.m4a, lyrics.lrc}
+    └── skybridge.toml                   ← 凭证跟着工作区走（0600）
+
+<Paths.document>/lark/                   手机
+├── device.json                          ← 新：设备级设置（N7a）
+├── workspaces.json                      ← 新：active + 索引
+├── songs.db / songs/                    ← `local`：原地
+└── libraries/<32hex>/{songs.db, songs/}
 ```
-在 `packages/daemon` / `packages/gui` / `apps/cli` 里的调用处**各为 0**（2026-08-26 实测）。它们住在 portable，但**只有手机在读**。
 
-⇒ **N7a 改它们不会碰到桌面的任何行为**，这是「先做 N7a」这个起点建议的全部依据。
+**schema 不动**：每个库仍是 schema v3，**没有 v4，没有迁移链改动**。工作区是**库外面**的一层，这是本批最大的去风险点。
 
-### 1.3 归属表：哪些跟着设备走，哪些跟着曲库走
+**凭证**：桌面从 nest 根的 `skybridge.toml` 变成**每个工作区一份**；手机在 SecureStore 里**按 profile id 加前缀**（`CredentialStore` 端口内部的事，接口不变）。
 
-| key | 归属 | 桌面的对应物 |
-|---|---|---|
-| `cache_limit_mb` | **设备** | `config.storage.cache_limit_mb` |
-| `llm_url` / `llm_model` / `llm_api_format` | **设备** | `config.llm`（key 已在 SecureStore，本来就是设备级）|
-| `now_playing_mode`（蓝牙歌词）| **设备** | 无（桌面不做蓝牙歌词）|
-| `play_mode`（循环/随机）| **设备** | GUI 的视图态 |
-| `naming_mode`（命名模式记忆）| **设备** | GUI 的弹框记忆 |
-| `sync_allow_insecure`（明文开关）| **设备** | 无（桌面无此开关）|
-| `device_uuid` | **曲库** | 同（每个库是自己的同步参与者）|
-| `skybridge_device_id` / `skybridge_token` | **曲库** | 同（跟着绑定走）|
-| `sync_backfill_done/target_generation` | **曲库** | 同 |
-| `audio_migration_pending` | **曲库** | 同 |
-| `last_playback`（上次听到哪）| **曲库** | 无（歌 id 属于某个库）|
+### 2.2 身份与解析（两端共用）
 
-🔴 **不分层的代价是具体的**：切一次账号，缓存上限、蓝牙歌词开关、明文开关、播放模式、命名模式**全都跟着变**；而 LLM 会被**劈成两半**——key 在 SecureStore（设备）跟着你走，url/model 在库里（曲库）跟着账号走，于是「配好的模型」在另一个账号下变成「有 key 没端点」。
+- `computeWorkspaceId(serverId, userId)` —— 照抄 owl 的定义，进 `@lark/shared`（两端 + 将来 CLI 都要用，且它是纯函数）。
+- `WORKSPACE_LOCAL = 'local'` 保留字。
+- **单一收口**：`resolveActiveWorkspace()` 决定「这个进程打开哪个库」，daemon boot / GUI 启动预检 / CLI direct / 手机 boot 全部走它，**没有任何入口能绕回旧路径**（owl 的 `resolver.ts` 抬头写的就是这条）。
 
-### 1.4 🔴 切换 = 在同一个进程里换一个已打开的数据库
+### 2.3 桌面的「简单迁移」（用户决定的唯一一次迁移）
 
-启动序列（N2 §2.2）是**冻结**的，而且**每进程只跑一次**（`bootOnce`）；下游 `downloadRuntimeOnce` / `syncContextOnce` / 播放器会话 / 引擎的 claim registry **全是一次性闸**。而 expo-sqlite 的 Activity 重建坑（LESSONS：`OnDestroy` 关不掉缓存的库 ⇒ 再开就 `NullPointerException`）正好长在这个位置。
+桌面那个 nest 的库**已经绑定**了账号。首次启动新版本时：
 
-**本批的答案：切换 = 重开应用**（决策 b）。选中另一个工作区后写下「下次启动打开哪一个」，然后请用户重新打开应用。丑，但它把「拆掉五个一次性闸并保证在途下载、正在响的音频、SSE 流、journal claim 都收干净」这一整类风险按到零。
+1. 读 `sync_binding`（`server_id` / `user_id` 都在里面）→ 算出 id；
+2. 把 `songs.db` + `songs/` + `skybridge.toml` **移进** `libraries/<id>/`；
+3. 写 `workspaces.toml`：`active = <id>`，索引里一条。
 
-### 1.5 D16 的身份门是 per-library 的
+**没有绑定的库不动**——它就是 `local`。**移动是同一文件系统内的 rename**，加一个「搬到一半」的恢复点（判据 108）。
 
-`identity/` 那套（零写预检 → 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent）今天为**一个**库工作，SecureStore 里也只有一份 install_id / binding。N 个库要 N 份，**而这是全仓「写错会让用户曲库消失」的那段代码**——本批最需要小心的地方，判据也最密。
+### 2.4 手机：不迁移
 
-### 1.6 缓存上限的口径会变味
+用户决定：**旧数据不管**。升级后打开的是 `local`（原地那个库），**如果它是绑定过的，就带着绑定继续用**——与 owl 的「带同步痕迹的 local」同形，**并入别的账号时给同一条警告**（判据 116）。不写任何搬家代码。
 
-`runEviction` 只看一个库。分库之后「上限 2GB」实际变成**每个账号 2GB**，手机总占用是 N 倍——恰恰是这个上限本来要控制的东西。见决策 c。
+### 2.5 切换 = 重启，且要一次确认
 
-### 1.7 现有的单库要搬家
+写下 active 之后**不热切**（§3 难点①）。桌面与手机同一句话：**「切换账号需要重启应用。同意 / 取消」**，同意才写。桌面同意后由 GUI 自己重启（daemon 随之换库，临界区由 switch-lock 守）；手机提示用户重开应用。
 
-今天是 `<Paths.document>/lark/{songs.db, songs/}`。多库之后是 `<Paths.document>/lark/libraries/<key>/{songs.db, songs/}`。**已经在用的那个库必须原地升级成第一个工作区**，而且要崩溃安全——搬到一半断电，下次启动必须能认出来并接着搬完（判据 107）。
+### 2.6 缓存：一个上限，跨工作区清理
+
+- 上限仍是**设备级**一个数（桌面 `config.storage.cache_limit_mb`，手机 `device.json`）。
+- 设置页显示两行：**当前工作区占用** / **其他工作区占用**。
+- 清理顺序：**其他工作区里没固定的 → 当前工作区里没固定的**，各自内部仍按 `last_accessed_at`。
+- 🔴 **可行性已核过**：清理**只删文件、不写库**（`has_file` 是探盘得来的），所以别的工作区**只读打开**列行就够——owl 的 `local-inspect` 就是这个模式（raw read-only 连接，不触发迁移副作用）。**探活 fail-closed 与 imported 永不清理两条不变量原样适用于每一个工作区**（R1/R26）。
 
 ---
 
-## §2 分批与判据
+## §3 三个难点（v1 §1 的原文，仍然成立）
 
-### N7a — 设备级设置存储（**桌面零影响**）
+**① 切换 = 进程内换一个已打开的数据库。** 启动序列（N2 §2.2）冻结且**每进程只跑一次**（`bootOnce`）；`downloadRuntimeOnce` / `syncContextOnce` / 播放器会话 / 引擎 claim registry 全是一次性闸；expo-sqlite 的 Activity 重建坑正好长在这里。**⇒ 切换即重启，本批不碰热切。**
 
-给手机补上 `lark_config.toml` 的对应物：`<Paths.document>/lark/device.json`，原子替换写入（N2 决策 a 那条路，`writeTextAtomic` 现成）。把 §1.3 表里六个设备级 key 从 `local_metadata` 搬过去，读取器的入参从 `SqliteLike` 换成一个 `DeviceSettingsPort`。
+**② `local_metadata` 里混着设备级的东西**（手机独有的问题）。桌面早就是分层的（`portable/cache-limit.ts:10` 白纸黑字：桌面把 `storage.cache_limit_mb` 放在 `lark_config.toml`——「一个手机没有的文件」）；手机把设备级也塞进了库里，**因为那是当时唯一能写的地方**。归属表见 §4。
 
-| # | 判据 | 归属 |
-|---|---|---|
-| **103** | `git diff` 对 `packages/{gui,daemon,cli}` **零改动**；`packages/core` 只有那六个模块的签名变化，**没有任何桌面调用点**（§1.2 已核实为 0） | 电脑 |
-| **104** | 老库升级：`local_metadata` 里已有的六个 key 被**搬进** `device.json` 并从表里删掉，值一个不差；再次启动不重复搬（单测 + 真机各一次） | 电脑 + 真机 |
-| **105** | `device.json` 缺失 / 是空文件 / 是坏 JSON ⇒ 一律回默认值且**不抛**，与今天 `local_metadata` 缺行时的行为逐条相同（单测） | 电脑 |
-
-### N7b — 多库布局与迁移
-
-`libraries/<key>/` + 一份**索引**（有哪几个工作区、叫什么、当前是哪个、各自绑了谁）。索引与 `device.json` 同层、同写法。
-
-| # | 判据 | 归属 |
-|---|---|---|
-| **106** | 全新安装：建出 `libraries/<key>/`，索引里一条，启动序列照常走完（真机） | 真机 |
-| **107** | **搬家崩溃安全**：现有单库 → 第一个工作区；在搬家的每个断点 kill，重启后都能收敛到「搬完了」或「还没开始」，**永不半途**（单测夹具 + 真机一次） | 电脑 + 真机 |
-| **108** | 两个工作区并存时，A 的曲目/歌单/下载/`sync_changes` 在 B 里**一条都看不见**（单测：两个库句柄，逐表断言） | 电脑 |
-
-### N7c — D16 per-library
-
-| # | 判据 | 归属 |
-|---|---|---|
-| **109** | N2 判据 16a 的四组**逐库复跑**：合规恢复四类数据均未恢复 · 强制半恢复 fail-closed · install_id 不同 fail-closed · 收敛过程各崩溃点（每库一份 intent，**清理只清那一个库**，不波及另一个） | 电脑（夹具）+ 真机一次 |
-| **110** | 一个库被 fail-closed 清掉时，**另一个库毫发无伤**（这是 per-library 化最容易写错的地方） | 电脑 |
-
-### N7d — 切换 UI
-
-| # | 判据 | 归属 |
-|---|---|---|
-| **111** | 设置页能看到全部工作区（名字 + 绑定的账号 + 曲目数），能新建、能切换 | 真机 |
-| **112** | 切换后提示「请重新打开应用」，**下次启动打开的是选中的那个**；不重开应用则**当前库继续正常工作**（不半切） | 真机 |
-| **113** | 切换写的是**索引里的一行**，与当前打开的库无关；写完就算切换成功，即使随后立刻 kill（单测） | 电脑 |
-
-### N7e — 登录时二选一
-
-今天首次绑定必然全量 backfill（把本机曲目推给账号）。本批把它变成一个选择：**「并入这个账号」**（今天的行为）或 **「给这个账号新建一个空工作区」**（本机曲目留在原来的工作区，不上传）。
-
-| # | 判据 | 归属 |
-|---|---|---|
-| **114** | 选「新建工作区」：原工作区的曲目**一条都没被推上去**（`sync_changes` 计数不变），新工作区从零拉 | 电脑 + 真机 |
-| **115** | 选「并入」：与今天的行为逐字节相同（全量 backfill + rebase），N6 会话里量到的 18 首收敛照旧 | 电脑 |
-
-### N7f — 真机会话
-
-| # | 判据 | 归属 |
-|---|---|---|
-| **116** | 一次会话跑完：迁移 → 两个工作区并存 → 切换 → 各自登录不同账号 → 互不可见 → 设置项不再跟着账号跑（缓存上限 / 模型 / 蓝牙歌词开关在切换后**不变**） | 真机 |
+**③ D16 身份门是 per-library 的**，N 个库要 N 份，而**这是全仓「写错会让用户曲库消失」的那段代码**。
 
 ---
 
-## §3 待关闭的决策
+## §4 归属表：哪些跟着设备，哪些跟着工作区
 
-| # | 问题 | 建议 | 理由 |
-|---|---|---|---|
-| **a** | 设备级设置放哪 | **`device.json` + 原子替换** | 它是 `lark_config.toml` 的对应物，不是数据库；`writeTextAtomic` 是 N2 决策 a 已经验过的那条路。第二个 SQLite 是为几个标量付一整套迁移链 |
-| **b** | 怎么切换 | **切换后重开应用** | §1.4；进程内热切要拆五个一次性闸并收干净在途下载、音频会话、SSE、journal claim，而 expo-sqlite 的 Activity 坑就在这 |
-| **c** | 缓存上限口径 | **本批：每库各自；设置页显示「本机 lark 共占用 X」** | 用户原意是控制**手机总占用**，那要跨库清理（要能打开别的库读行）。好消息：清理只**删文件不写库**（`has_file` 是探盘得来的），所以跨库版本是可行的，只是自成一批。**要不要现在就做，请你定** |
-| **d** | 工作区的 key 用什么 | **本地随机 UUID**，名字与绑定信息写在索引里 | 绑定之前还没有 `workspace_id` / `user_id`，用它们当目录名意味着「登录成功那一刻要改目录名」 |
-| **e** | 没登录的那个库怎么算 | **就是一个普通工作区**，只是没有绑定 | 不发明「本地库」这个第二概念；今天的库迁移过去就是它 |
-| **f** | 上限几个工作区 | **不设硬上限**，但新建时提示每个工作区的音频各自占空间 | 硬上限救不了空间，提示才行 |
-| **g** | 删除工作区 | **本批不做** | 危险动作，值得自己的确认流；而「清除应用数据」这条路一直都在 |
+| key | 归属 | 桌面今天在哪 |
+|---|---|---|
+| `cache_limit_mb` | **设备** | `config.storage.cache_limit_mb` ✅已分层 |
+| `llm_url` / `llm_model` / `llm_api_format` | **设备** | `config.llm` ✅（key 在 SecureStore / config，本就设备级）|
+| `now_playing_mode`（蓝牙歌词）| **设备** | 无（桌面不做）|
+| `play_mode` | **设备** | GUI 视图态 |
+| `naming_mode` | **设备** | GUI 弹框记忆 |
+| `sync_allow_insecure` | **设备** | 无（桌面无此开关）|
+| `device_uuid` | **工作区** | 同 |
+| `skybridge_device_id` / `skybridge_token` | **工作区** | 同 |
+| `sync_backfill_done/target_generation` | **工作区** | 同 |
+| `audio_migration_pending` | **工作区** | 同 |
+| `last_playback` | **工作区** | 无 |
+
+✅ **已核实（2026-08-26）**：`readCacheLimitMb` / `readLlmConfig` / `readPlayMode` / `readNamingMode` / `readNowPlayingMode` / `readSyncAllowInsecure` / `readLastPlayback` 在 `packages/daemon`、`packages/gui`、`apps/cli` 里的调用处**各为 0** —— 它们住在 portable，**只有手机在读**。⇒ **N7a 改它们对桌面零影响。**
 
 ---
 
-## §4 参考
+## §5 分批与判据
 
-- 上一批的完整讨论与四个难点：`docs/plans/2026-08-25-phase-b-mobile-n6.md` §6
-- 手机的 nest 布局：`apps/mobile/src/ports/paths.ts`
-- 冻结的启动序列：`apps/mobile/src/boot/sequence.ts`（§2.2 的十二步）
-- D16：N2 子计划 `docs/plans/2026-08-19-phase-b-mobile-n2.md`
+### N7a — 手机的设备级设置层（桌面零影响）
+
+`<Paths.document>/lark/device.json`，原子替换写入（N2 决策 a 那条路）。§4 表里六个设备级 key 从 `local_metadata` 搬过去，读取器入参从 `SqliteLike` 换成 `DeviceSettingsPort`。
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **103** | `git diff` 对 `packages/{gui,daemon,cli}` 零改动；`packages/core` 只有那六个模块的签名变化 | 电脑 |
+| **104** | 已有的六个 key 被搬进 `device.json` 并从 `local_metadata` 删掉，值一个不差；再次启动不重复搬 | 电脑 |
+| **105** | `device.json` 缺失 / 空 / 坏 JSON ⇒ 回默认值且不抛，与今天缺行时逐条相同 | 电脑 |
+
+### N7b — 身份与布局（两端共用的纯函数）
+
+`computeWorkspaceId` + `WORKSPACE_LOCAL` 进 `@lark/shared`；两端 paths 长出 `libraries/<id>/`；索引文件的读写（原子）。
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **106** | `computeWorkspaceId` 与 owl 的定义**逐字节同结果**（同一对 (serverId,userId) 在两个仓算出同一个 32 hex，夹具比对）；非法输入拒绝 | 电脑 |
+| **107** | 索引文件缺失 / 坏 ⇒ 回落到「只有 local，active=local」，**绝不新建或删除任何库** | 电脑 |
+
+### N7c — 桌面接线
+
+resolver 单一收口（daemon boot / GUI 预检 / CLI direct 三方）+ **switch-lock**（照 owl 的三条性质）+ §2.3 的简单迁移 + 设备列表过滤。
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **108** | **迁移崩溃安全**：已绑定的 nest 库 → `libraries/<id>/`，在每个断点 kill，重启都收敛到「搬完」或「没开始」，**永不半途**；没绑定的库不动 | 电脑 |
+| **109** | 三个入口**没有一个**能绕过 resolver 打开旧路径（rg 守卫 + 单测） | 电脑 |
+| **110** | switch-lock：切换在飞时 CLI direct **拒绝**并说明；持有者被 kill 后锁在 TTL 内失效；nonce 不对的释放请求无效 | 电脑 |
+| **111** | 桌面设备列表**只显示 lark**，被滤掉的计数并说明（与手机同一份判定函数） | 电脑 |
+
+### N7d — 手机接线
+
+多库打开（不迁移）+ D16 per-library。
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **112** | N2 判据 16a 四组**逐库复跑**：合规恢复四类均未恢复 · 强制半恢复 fail-closed · install_id 不同 fail-closed · 收敛崩溃点；**每库一份 intent，清理只清那一个库** | 电脑 + 真机一次 |
+| **113** | 一个库被 fail-closed 清掉时，**另一个库毫发无伤** | 电脑 |
+| **114** | 两个工作区并存时，A 的曲目/歌单/下载/`sync_changes` 在 B 里**一条都看不见** | 电脑 |
+
+### N7e — 切换、登录二选一、**文案**
+
+切换 UI（两端）+ 确认框 + 登录时「并入当前曲库 / 给这个账号新建工作区」+ **§0 第五条的文案更新**。
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **115** | 切换：确认框说明要重启；同意才写 active；**不重启则当前库继续正常工作**（不半切）；写的是索引里的一行，写完即使立刻 kill 也算切换成功 | 电脑 + 真机 |
+| **116** | 「新建工作区」：原工作区曲目**一条都没被推上去**（`sync_changes` 计数不变）；「并入」：与今天逐字节相同（全量 backfill + rebase）。**并入一个带同步痕迹的库时给出 owl 那条警告** | 电脑 + 真机 |
+| **117** | 并入是**整库 COPY 不是 move**：并入之后原工作区仍然完整可用 | 电脑 |
+| **118** | 🔴 **文案已更新且不再说假话**：登录表单三段、绑定不匹配的报错、切换确认框——全仓 grep 不到「只能清除应用数据重来 / 重新开始」这类现在为假的话 | 电脑 + 人眼 |
+
+### N7f — 缓存统一口径
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **119** | 设置页分别显示**当前工作区 / 其他工作区**占用，两者之和 = 磁盘上 lark 音频总占用 | 电脑 + 真机 |
+| **120** | 超限时**先清其他工作区里没固定的**，再清当前工作区；**固定的、imported 的、探活不通的一律不动**（R1/R26 逐工作区成立） | 电脑 |
+| **121** | 跨工作区清理**只删文件、不写别的库**（断言：清理前后别的库的 `songs.db` 字节不变） | 电脑 |
+
+### N7g — 验收与会话
+
+| # | 判据 | 归属 |
+|---|---|---|
+| **122** | 🔴 **桌面 accept 全系列**：`accept-gui`(15) · `accept-m5`(22) · `accept-cli`(27) · `accept-sync`(34) · `accept-pack`(28)。本批大改桌面，这一跑**不可省**（也顺带兑现 N1 判据 22 的旧账）| 电脑 |
+| **123** | 真机一次会话：装新版 → 现有库当 local → 新建一个绑另一个账号的工作区 → 切换（重启）→ 互不可见 → **设置项不跟着账号跑**（缓存上限 / 模型 / 蓝牙歌词开关切换后不变）| 真机 |
+
+---
+
+## §6 不做（本批）
+
+- 🔴 **共享曲库**（同一首歌两个工作区各下一份）—— 贵的那一半，代价几乎全在它身上。**重复下载可接受**：没有文件的歌显示「需要下载」、不会静默下载，空间有统一上限兜着（用户 2026-08-26 定）。
+- **热切换**（不重启换库）—— §3①。
+- **删除一个工作区** —— 危险动作，值得自己的确认流；「清除应用数据」那条路一直在。
+- **手机的任何迁移** —— 用户决定（§2.4）。
+- schema 变更 —— 本批不碰（§2.1）。
+
+## §7 参考
+
+- owl：`../owl/packages/core/src/profile/{id,resolver,local-inspect}.ts` · `skybridge/switch-lock.ts` · `config/paths.ts`
+- 上一批的完整讨论：`docs/plans/2026-08-25-phase-b-mobile-n6.md` §6
+- 手机 nest 布局：`apps/mobile/src/ports/paths.ts`；冻结的启动序列：`apps/mobile/src/boot/sequence.ts`
+- D16：`docs/plans/2026-08-19-phase-b-mobile-n2.md`
 - 六个设备级读取器：`packages/core/src/portable/{cache-limit,llm-config,play-mode,naming-mode,now-playing-mode,sync-insecure}.ts`
-- 桌面的两层：`packages/core/src/config/index.ts`（设备级）· `portable/schema.ts` 的 `local_metadata`（曲库级）
+- 桌面两层：`packages/core/src/config/index.ts`（设备级）· `portable/schema.ts` 的 `local_metadata`（工作区级）
+- 要改的文案：`apps/mobile/src/ui/sync-section.tsx`（三段 + 绑定不匹配分支）
