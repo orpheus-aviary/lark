@@ -38,6 +38,7 @@ import {
 } from '@lark/shared';
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { quitApp } from '../../modules/lark-app';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineLogger } from '../downloads/log';
 import { syncContextOnce } from '../sync/context';
@@ -186,19 +187,35 @@ function LoginForm({
       // The password is used once and never stored — forgetting it here is the
       // front end's half of that promise (the desktop does the same).
       setPassword('');
-      const backfill = outcome.login.backfill;
-      const landed =
-        backfill === null
-          ? '已登录。'
-          : `已登录，本机 ${backfill.songs} 首歌 · ${backfill.playlists} 个歌单排队上行。`;
       // The account's library is a different file and this app has the old one
-      // open. Saying nothing would look like a login that did not take: the
-      // song list would not change and nothing would sync (N7e).
+      // open, so this launch has nothing left to do with it: the song list
+      // would not change and nothing would sync. Ending the process is what
+      // opens it, and it is also the answer — reopening into the account's
+      // library says the login worked better than a sentence could (N7g-2).
+      // A FAILED login never gets here, so the app only ever disappears on
+      // success; the form above says so before the password is typed.
+      if (outcome.restartRequired) {
+        // 🔴 ITS OWN CATCH: the login has already succeeded and the workspace
+        // is already built. A failure to close is not a failed login, and
+        // `describeLoginError` below would turn it into one.
+        try {
+          await quitApp();
+          return;
+        } catch {
+          setSaid({
+            ok: true,
+            text: '已登录，这个账号的曲库已经建好了。这次没能自动关闭——完全退出 lark 再打开一次才会切到它上面；在那之前不会开始同步。',
+          });
+          return;
+        }
+      }
+      const backfill = outcome.login.backfill;
       setSaid({
         ok: true,
-        text: outcome.restartRequired
-          ? `${landed}这个账号的曲库已经建好了——完全退出 lark 再打开一次，才会切到它上面；在那之前不会开始同步。`
-          : landed,
+        text:
+          backfill === null
+            ? '已登录。'
+            : `已登录，本机 ${backfill.songs} 首歌 · ${backfill.playlists} 个歌单排队上行。`,
       });
     } catch (err) {
       setSaid({ ok: false, text: describeLoginError(err) });
@@ -226,8 +243,9 @@ function LoginForm({
         同步的是曲目信息——音频不同步，新来的歌显示「需要下载」，播放时再取；两台设备下过同一个视频时会留下两条，删掉一条即可。
       </Text>
       <Text style={styles.note}>
-        账号的曲库建好之后，需要<Text style={styles.strong}>完全退出 lark 再打开</Text>
-        才会切到它上面；在设置页的「曲库」里可以随时切回来。
+        账号的曲库建好之后，<Text style={styles.strong}>lark 会自动关闭一次</Text>
+        ——重新打开就在这个账号的曲库里了（只有登录成功才会关，失败会留在这一页告诉你为什么）。
+        之后在设置页的「曲库」里可以随时切回来。
       </Text>
       {origin === 'claim' && traces && (
         <Text style={styles.failed}>
