@@ -51,7 +51,10 @@ function device(overrides: Partial<SyncDeviceData> = {}): SyncDeviceData {
     id: 'dev-2',
     name: 'studio-mac',
     platform: 'darwin',
-    app_version: '0.2.0',
+    // `lark <version>` is what registration actually writes
+    // (`coordinator/login.ts`), and since N7c it is also what decides whether
+    // a row belongs on this screen at all.
+    app_version: 'lark 0.3.0',
     client_version: '0.1.4',
     created_at: 1_700_000_000_000,
     last_seen_at: 1_700_000_000_000,
@@ -277,6 +280,36 @@ describe('an account that is logged in', () => {
     await user.click(await screen.findByRole('button', { name: '吊销设备 laptop' }));
 
     expect((await screen.findByRole('dialog')).textContent).toContain('这是本机');
+  });
+
+  // Criterion 111. The same skybridge account carries owl's registrations, and
+  // the judgement is `@lark/shared`'s so the two front ends cannot drift.
+  it('shows only lark’s devices, and says how many it is not showing', async () => {
+    devices = [
+      device({ id: 'dev-1', name: 'laptop', app_version: 'lark 0.3.0' }),
+      device({ id: 'dev-2', name: 'owl-cloud', app_version: 'owl 0.5.0' }),
+      device({ id: 'dev-3', name: 'jayncp mac (owl)', app_version: 'owl 0.5.0' }),
+      // Unknown stays: this list is where somebody revokes a device they no
+      // longer trust, and an unprovable row must not be hidden.
+      device({ id: 'dev-4', name: 'something old', app_version: null }),
+    ];
+    useSync.setState({ status: bound });
+    renderTab();
+
+    expect(await screen.findByText(/laptop/)).toBeDefined();
+    expect(screen.getByText(/something old/)).toBeDefined();
+    expect(screen.queryByText(/owl-cloud/)).toBeNull();
+    // Counted and said out loud: those two hold this account's credentials.
+    expect(screen.getByText(/另有 2 台设备/)).toBeDefined();
+  });
+
+  it('says nothing about other tools when there are none', async () => {
+    devices = [device({ id: 'dev-1', name: 'laptop' })];
+    useSync.setState({ status: bound });
+    renderTab();
+
+    expect(await screen.findByText(/laptop/)).toBeDefined();
+    expect(screen.queryByText(/另有/)).toBeNull();
   });
 
   it('says the binding survives a logout', async () => {

@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backupNest } from '../packages/core/dist/index.js';
 import { waitForLibraryReady } from './lib/library-ready.mjs';
+import { libraryDir } from './lib/workspace.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const DAEMON_URL = 'http://127.0.0.1:47100';
@@ -137,8 +138,11 @@ try {
     }
   })();
 
-  const songFile = (id) => join(copy.larkDir, 'songs', id, 'song.m4a');
-  const lyricsFile = (id) => join(copy.larkDir, 'songs', id, 'lyrics.lrc');
+  // The copy's library may sit under `libraries/<id>/` (N7c) — the real nest
+  // is bound, so its copy is too.
+  const libDir = libraryDir(copy.larkDir);
+  const songFile = (id) => join(libDir, 'songs', id, 'song.m4a');
+  const lyricsFile = (id) => join(libDir, 'songs', id, 'lyrics.lrc');
   const songById = async (id) => await data('GET', `/songs/${id}`);
 
   /** Poll a download task to a terminal state. */

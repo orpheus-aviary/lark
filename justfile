@@ -53,6 +53,14 @@ shared-node-free:
 core-portable:
     bash scripts/check-core-portable.sh
 
+# One device, several libraries, and exactly one place that decides which of
+# them a process opens (N7c). Naming `songs.db` anywhere else is how a process
+# comes up on the nest root and shows somebody an empty library.
+
+[group('lint')]
+workspace-chokepoint:
+    bash scripts/check-workspace-chokepoint.sh
+
 # Both Android roots — the N0b platform spike and `apps/mobile` — may reach for
 # exactly three of our packages: portable / shared / the skybridge SDK. Third-
 # party deps are out of this guard's scope on purpose. Widened from spike-only
@@ -91,7 +99,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

@@ -64,6 +64,7 @@ import {
   createLogger,
   isAudioMigrationPending,
   loadConfig,
+  migrateBoundNestIntoWorkspace,
   nodeAudioLanding,
   nodeFileContext,
   paths,
@@ -339,6 +340,45 @@ export async function boot(options: BootOptions = {}): Promise<void> {
       requestStop('signal');
     });
   }
+
+  // ── The one-time workspace migration (N7c, §2.3) ─────────────────────────
+  //
+  // BEFORE `paths.dbPath()` is asked anything, because moving the library is
+  // what changes its answer. It takes its own switch lock and its own writer
+  // lock on the OLD path, resumes an interrupted run from its journal, and
+  // returns without doing anything at all on every device that has already
+  // been through it — which, one launch after this version ships, is all of
+  // them.
+  //
+  // The daemon lock is already held, so no second daemon is in the way, and
+  // `lark --direct` reads the switch lock this takes. Failure aborts the boot:
+  // a library that could not be moved must not then be opened at the path it
+  // was moved away from.
+  try {
+    const migration = migrateBoundNestIntoWorkspace();
+    if (migration.migrated) {
+      lifecycleLog(
+        'info',
+        { id: migration.id, moved: migration.moved, resumed: migration.resumed },
+        'the nest library moved into its workspace',
+      );
+    }
+  } catch (err) {
+    await abortBoot(err);
+    return;
+  }
+  if (stopReason !== null) return finishStop();
+
+  // Which library this process opens, decided once and logged once — a
+  // fall-back to `local` is otherwise a silent empty library (N7c).
+  const active = paths.resolveActiveWorkspace();
+  lifecycleLog(
+    active.fellBack ? 'error' : 'info',
+    { workspace: active.id, requested: active.requested },
+    active.fellBack
+      ? 'the active workspace has no library on disk — opening the local one'
+      : 'active workspace',
+  );
 
   // ── Writer lock, then the first writes of the boot ───────────────────────
   //

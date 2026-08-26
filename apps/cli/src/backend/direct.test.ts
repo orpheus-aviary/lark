@@ -24,7 +24,12 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 // The writer lock needs better-sqlite3, so it lives in the core barrel rather
 // than the zero-native `daemon-control` subpath. Tests may import it directly.
-import { acquireWriterLock } from '@lark/core';
+import {
+  acquireWriterLock,
+  newSwitchLockNonce,
+  releaseSwitchLock,
+  writeSwitchLock,
+} from '@lark/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliError } from '../lib/errors.js';
 import { createDirectBackend } from './direct.js';
@@ -164,6 +169,30 @@ describe('opening the library', () => {
     } finally {
       lock.release();
     }
+  });
+
+  it('refuses BOTH modes while this device is moving a library (N7c)', async () => {
+    // Criterion 110. The window belongs to the one-time migration and to a
+    // login that copies a whole library into a new workspace: in both,
+    // `libraries/<id>/songs.db` exists and is not finished yet.
+    await seed();
+    const nonce = newSwitchLockNonce();
+    writeSwitchLock(nonce);
+    try {
+      expect(await codeOf(() => createDirectBackend({ mode: 'write' }))).toBe(
+        'WORKSPACE_SWITCHING',
+      );
+      // A read takes no lock and writes nothing, and still refuses: half a
+      // library read is still half a library.
+      expect(await codeOf(() => createDirectBackend({ mode: 'read' }))).toBe('WORKSPACE_SWITCHING');
+    } finally {
+      releaseSwitchLock(nonce);
+    }
+
+    // And it is over the moment the lock is gone.
+    await withDirect('read', async (backend) => {
+      expect((await backend.listSongs({})).data).toHaveLength(2);
+    });
   });
 
   it('reads happily while another writer holds the lock', async () => {

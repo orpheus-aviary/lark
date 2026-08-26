@@ -1,5 +1,8 @@
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { WORKSPACES_FILE_NAME, readWorkspaceIndex } from './config/workspaces.js';
+import type { StructuredLogger } from './portable/logger.js';
 import {
   CANONICAL_AUDIO_FILE,
   LEGACY_AUDIO_FILE,
@@ -64,11 +67,10 @@ export function configPath(): string {
  *
  * Not credential material — it holds an id, a label and a server url — so
  * unlike `skybridge.toml` it is 0644 and a nest backup keeps it. The temp
- * prefix is named here for the same reason the others are: the backup has to
- * recognise a file caught mid-rename.
+ * prefix is re-exported here for the same reason the others are named here:
+ * the backup has to recognise a file caught mid-rename.
  */
-export const WORKSPACES_FILE_NAME = 'workspaces.toml';
-export const WORKSPACES_TEMP_PREFIX = '.workspaces.toml.tmp-';
+export { WORKSPACES_FILE_NAME, WORKSPACES_TEMP_PREFIX } from './config/workspaces.js';
 
 export function workspacesPath(): string {
   return join(larkDir(), WORKSPACES_FILE_NAME);
@@ -78,6 +80,62 @@ export function workspacesPath(): string {
 export function librariesDir(): string {
   return join(larkDir(), LIBRARIES_DIR);
 }
+
+/**
+ * skybridge credentials (v0.2, D1/D2): `lark/skybridge.toml`, mode 0600.
+ *
+ * Deliberately NOT part of `lark_config.toml`: that file goes through
+ * `GET /config` and `PATCH /config`, and a bearer token has no business on a
+ * channel whose whole job is to be read and edited. It also has to be
+ * excluded from a nest backup — a backup is disaster recovery, not a clone,
+ * and a second machine restoring one would come up holding this machine's
+ * device identity (§4.5). The temp prefix is named here for the same reason
+ * the skill one is: the backup has to recognise a file caught mid-rename.
+ */
+export const SKYBRIDGE_FILE_NAME = 'skybridge.toml';
+export const SKYBRIDGE_TEMP_PREFIX = '.skybridge.toml.tmp-';
+
+// The names, spelled once each, because two consumers need them: the layout
+// below and the one-time migration that moves them (`workspace-migrate.ts`).
+const DB_FILE = 'songs.db';
+const SONGS_SUBDIR = 'songs';
+const TRASH_SUBDIR = 'trash';
+const RECOVERED_SUBDIR = 'recovered-songs';
+const MIGRATION_BACKUP_SUBDIR = 'migration-backup';
+
+/**
+ * What the one-time migration moves, by basename, in the order it moves them.
+ *
+ * The database FIRST, deliberately: it is the entry whose absence any other
+ * process notices, so once it is at the new home a reader that somehow got
+ * past both locks opens the new library rather than an empty root.
+ *
+ * 🔴 THE WAL SIDECARS ARE NOT HERE, and leaving them out is not an oversight —
+ * it is the fix for a real wedge (N7c). `songs.db-wal` and `songs.db-shm`
+ * belong to one database file, they cannot be renamed together with it
+ * atomically, and ANY read-only connection to a WAL database creates a fresh
+ * pair and does not remove them on close (M6 measured this in the backup). So
+ * a crash mid-move plus one curious reader is enough to make a sidecar exist
+ * at BOTH ends, and a mover that refuses to overwrite would then never
+ * converge. The migration checkpoints the database and closes it instead,
+ * which leaves nothing to move.
+ *
+ * The two lock databases are not here either. They are per-machine fcntl
+ * state, one of them is held while a migration runs, and the rule since M6 is
+ * that a lock file is never deleted — a fresh pair appears at the new home on
+ * first use.
+ */
+export const WORKSPACE_ENTRIES = [
+  DB_FILE,
+  SONGS_SUBDIR,
+  SKYBRIDGE_FILE_NAME,
+  TRASH_SUBDIR,
+  RECOVERED_SUBDIR,
+  MIGRATION_BACKUP_SUBDIR,
+] as const;
+
+/** The sidecars a WAL database keeps beside it. Checkpointed away, never moved. */
+export const DB_SIDECARS = [`${DB_FILE}-wal`, `${DB_FILE}-shm`] as const;
 
 /** Everything one workspace owns. The device's files are deliberately absent. */
 export interface WorkspacePaths {
@@ -97,23 +155,129 @@ export interface WorkspacePaths {
  * an id that reaches a path unvalidated is a traversal, and this one can
  * arrive from a file somebody edited by hand.
  */
-export function workspacePaths(id: string): WorkspacePaths {
+export function workspacePaths(id: string, larkDirPath: string = larkDir()): WorkspacePaths {
   if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
-  const root = id === WORKSPACE_LOCAL ? larkDir() : join(librariesDir(), id);
+  const root = id === WORKSPACE_LOCAL ? larkDirPath : join(larkDirPath, LIBRARIES_DIR, id);
   return {
     root,
-    db: join(root, 'songs.db'),
-    songs: join(root, 'songs'),
-    trash: join(root, 'trash'),
-    recoveredSongs: join(root, 'recovered-songs'),
-    migrationBackup: join(root, 'migration-backup'),
+    db: join(root, DB_FILE),
+    songs: join(root, SONGS_SUBDIR),
+    trash: join(root, TRASH_SUBDIR),
+    recoveredSongs: join(root, RECOVERED_SUBDIR),
+    migrationBackup: join(root, MIGRATION_BACKUP_SUBDIR),
     skybridgeConfig: join(root, SKYBRIDGE_FILE_NAME),
   };
 }
 
-/** SQLite database: `lark/songs.db` (schema lands in M1). */
+// ─── The resolver: which workspace does THIS process open (N7c) ─────────────
+//
+// One chokepoint, and it is the path functions themselves. Every entry point
+// that opens a library — daemon boot, `lark --direct`, the GUI's precheck —
+// reaches it through `dbPath()`, so there is no "old path" left to bypass it
+// to: `lark/songs.db` is reachable only as `workspacePaths(WORKSPACE_LOCAL).db`
+// and `scripts/check-workspace-chokepoint.sh` is what keeps it that way.
+//
+// THE GATE IS TWO QUESTIONS, not owl's three (`workspace-index.ts` says why
+// the third has nothing left to catch):
+//
+//   ① `active` is a workspace id this build understands
+//   ② its `songs.db` is on disk
+//
+// Either one failing means `local`. Falling back rather than failing is the
+// conservative direction and it is worth being explicit about which way that
+// cuts: a device whose real library is under `libraries/` and whose index went
+// missing comes up on an EMPTY local library, which looks alarming and loses
+// nothing — while the alternative, creating a library at the missing path,
+// would put new songs somewhere the user cannot find. Nothing is deleted
+// either way, and `verdict.fellBack` is what the daemon logs so it is a
+// sentence in the log rather than a mystery.
+//
+// CACHED PER NEST, because switching workspaces is a restart (§2.5): the
+// answer cannot change inside a process except when THIS process migrates or
+// switches, and both call `invalidateActiveWorkspace()`. Keyed on `larkDir()`
+// so a test that moves `LARK_NEST_DIR` between assertions gets a fresh answer
+// without reaching for module-state gymnastics — the same promise every other
+// function in this file makes.
+
+export interface ActiveWorkspace {
+  /** The workspace this process opens. Always valid, never absent. */
+  readonly id: string;
+  /** What the index asked for, which is not always what it got. */
+  readonly requested: string;
+  /** True when the request could not be honoured. Somebody should log it. */
+  readonly fellBack: boolean;
+}
+
+let cached: { larkDir: string; active: ActiveWorkspace } | null = null;
+
+function judgeActiveWorkspace(root: string, logger?: StructuredLogger): ActiveWorkspace {
+  const index = readWorkspaceIndex(join(root, WORKSPACES_FILE_NAME), logger);
+  const requested = index.active;
+  if (requested === WORKSPACE_LOCAL) return { id: WORKSPACE_LOCAL, requested, fellBack: false };
+
+  if (existsSync(join(root, LIBRARIES_DIR, requested, DB_FILE))) {
+    return { id: requested, requested, fellBack: false };
+  }
+  logger?.warn(
+    { requested },
+    `the active workspace has no library on disk — opening '${WORKSPACE_LOCAL}' instead`,
+  );
+  return { id: WORKSPACE_LOCAL, requested, fellBack: true };
+}
+
+/**
+ * The same verdict, for a nest that is not this process's.
+ *
+ * `resolveActiveWorkspace()` reads `LARK_NEST_DIR`, which is right for a
+ * daemon and wrong for anything driving two nests at once — the acceptance
+ * harnesses and the two-device e2e both do. Uncached, because the caller owns
+ * the lifetime of whatever it is pointing at.
+ */
+export function activeWorkspaceIn(larkDirPath: string, logger?: StructuredLogger): ActiveWorkspace {
+  return judgeActiveWorkspace(larkDirPath, logger);
+}
+
+/** Where that nest's library actually is. The one-liner every harness wants. */
+export function activeWorkspaceRootIn(larkDirPath: string): string {
+  return workspacePaths(activeWorkspaceIn(larkDirPath).id, larkDirPath).root;
+}
+
+/** The verdict, with the reason attached. Cached for the life of the process. */
+export function resolveActiveWorkspace(logger?: StructuredLogger): ActiveWorkspace {
+  const root = larkDir();
+  if (cached?.larkDir === root) return cached.active;
+  const active = judgeActiveWorkspace(root, logger);
+  cached = { larkDir: root, active };
+  return active;
+}
+
+/**
+ * Forget the verdict.
+ *
+ * TWO real callers, and both of them have just changed the answer: the
+ * one-time migration (§2.3) and a switch that is about to restart anyway.
+ * Tests use it for the third reason — writing an index into a nest they have
+ * already read from.
+ */
+export function invalidateActiveWorkspace(): void {
+  cached = null;
+}
+
+/** Where the active workspace keeps its files. */
+export function activeWorkspacePaths(): WorkspacePaths {
+  return workspacePaths(resolveActiveWorkspace().id);
+}
+
+/**
+ * SQLite database: the ACTIVE workspace's `songs.db`.
+ *
+ * `lark/songs.db` for `local` — where it has always been — and
+ * `lark/libraries/<id>/songs.db` for an account. Every caller that opens the
+ * library goes through here, which is what makes the resolver a chokepoint
+ * rather than a convention.
+ */
 export function dbPath(): string {
-  return join(larkDir(), 'songs.db');
+  return activeWorkspacePaths().db;
 }
 
 /**
@@ -130,6 +294,25 @@ export function pidPath(): string {
   return join(larkDir(), 'daemon.pid');
 }
 
+/**
+ * The workspace-switch lock: `lark/workspace-switch.lock` (N7c).
+ *
+ * Device-level, like the pid file beside it, because what it protects is the
+ * DEVICE's layout: the one-time migration and a login that copies a whole
+ * library into a new workspace both spend seconds with a library half where it
+ * is going. A `lark --direct` in that window would open it.
+ *
+ * The temp suffix is named here for the same reason the others are — a backup
+ * has to recognise a file caught mid-rename, and this one is pure runtime
+ * state that a copy must not carry at all.
+ */
+export const SWITCH_LOCK_FILE_NAME = 'workspace-switch.lock';
+export const SWITCH_LOCK_TEMP_PREFIX = '.workspace-switch.lock.tmp-';
+
+export function switchLockPath(): string {
+  return join(larkDir(), SWITCH_LOCK_FILE_NAME);
+}
+
 /** Log directory: `lark/logs/` */
 export function logsDir(): string {
   return join(larkDir(), 'logs');
@@ -140,9 +323,9 @@ export function larkLogPath(): string {
   return join(logsDir(), 'lark.log');
 }
 
-/** Song payload root: `lark/songs/` — one `<uuid>/` directory per song. */
+/** Song payload root: the active workspace's `songs/`, one `<uuid>/` per song. */
 export function songsDir(): string {
-  return join(larkDir(), 'songs');
+  return activeWorkspacePaths().songs;
 }
 
 // The three file names are declared with the `PathsPort` (N1e, N2d): portable
@@ -172,9 +355,9 @@ export function nodePaths(): PathsPort {
   };
 }
 
-/** Trash staging dir for deleteSong's two-phase delete (R22): `lark/trash/` */
+/** Trash staging dir for deleteSong's two-phase delete (R22): `<workspace>/trash/` */
 export function trashDir(): string {
-  return join(larkDir(), 'trash');
+  return activeWorkspacePaths().trash;
 }
 
 /**
@@ -187,7 +370,7 @@ export function trashDir(): string {
  * pile stays visible rather than becoming a surprise at backup time (§3.6).
  */
 export function recoveredSongsDir(): string {
-  return join(larkDir(), 'recovered-songs');
+  return activeWorkspacePaths().recoveredSongs;
 }
 
 /**
@@ -204,7 +387,7 @@ export function recoveredSongsDir(): string {
  * this layout exists to avoid.
  */
 export function migrationBackupDir(): string {
-  return join(larkDir(), 'migration-backup');
+  return activeWorkspacePaths().migrationBackup;
 }
 
 /** Aviary shared config, the LLM fallback source: `aviary/aviary_config.toml` */
@@ -212,22 +395,8 @@ export function aviaryConfigPath(): string {
   return join(nestDir(), 'aviary', 'aviary_config.toml');
 }
 
-/**
- * skybridge credentials (v0.2, D1/D2): `lark/skybridge.toml`, mode 0600.
- *
- * Deliberately NOT part of `lark_config.toml`: that file goes through
- * `GET /config` and `PATCH /config`, and a bearer token has no business on a
- * channel whose whole job is to be read and edited. It also has to be
- * excluded from a nest backup — a backup is disaster recovery, not a clone,
- * and a second machine restoring one would come up holding this machine's
- * device identity (§4.5). The temp prefix is named here for the same reason
- * the skill one is: the backup has to recognise a file caught mid-rename.
- */
-export const SKYBRIDGE_FILE_NAME = 'skybridge.toml';
-export const SKYBRIDGE_TEMP_PREFIX = '.skybridge.toml.tmp-';
-
 export function skybridgeConfigPath(): string {
-  return join(larkDir(), SKYBRIDGE_FILE_NAME);
+  return activeWorkspacePaths().skybridgeConfig;
 }
 
 /**

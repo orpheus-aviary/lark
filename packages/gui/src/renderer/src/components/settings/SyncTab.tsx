@@ -16,8 +16,14 @@
 //   of as a toast.
 
 import type { SyncDeviceData } from '@lark/shared';
-import { ApiError, authReasonLabel, loginErrorMessage } from '@lark/shared';
-import { useEffect, useState } from 'react';
+import {
+  ApiError,
+  authReasonLabel,
+  hiddenDevicesNote,
+  loginErrorMessage,
+  splitLarkDevices,
+} from '@lark/shared';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../../lib/errors.js';
 import { formatRelativeTime } from '../../lib/format.js';
@@ -213,6 +219,16 @@ export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.El
   const discardFileOp = useSync((s) => s.discardFileOp);
 
   const [pendingRevoke, setPendingRevoke] = useState<SyncDeviceData | null>(null);
+
+  // 🔴 DEVICES ARE PER ACCOUNT, NOT PER WORKSPACE (N7c, criterion 111): the
+  // same skybridge account carries owl's registrations too. The judgement is
+  // `@lark/shared`'s so the two front ends cannot drift — a device the phone
+  // hides and this shows is a device nobody can reason about.
+  const larkOnly = useMemo(
+    () => splitLarkDevices(devices, (device) => device.app_version),
+    [devices],
+  );
+  const hiddenNote = hiddenDevicesNote(larkOnly.hidden);
   const [pendingDiscard, setPendingDiscard] = useState<number | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -301,18 +317,25 @@ export function SyncTab({ draft, update, errorFor }: SyncTabProps): React.JSX.El
       </Section>
 
       {authenticated && (
-        <Section title="设备" hint="同一个账号下的所有设备；吊销后该设备需要重新登录">
+        <Section title="设备" hint="这个账号下 lark 的设备；吊销后该设备需要重新登录">
           <div className="space-y-2 text-xs">
             {devicesError !== null ? (
               <p className="text-muted-foreground">读取设备列表失败：{devicesError}</p>
             ) : devices.length === 0 ? (
               <p className="text-muted-foreground">正在读取设备列表…</p>
             ) : (
-              <ul className="space-y-2">
-                {devices.map((device) => (
-                  <DeviceRow key={device.id} device={device} onRevoke={setPendingRevoke} />
-                ))}
-              </ul>
+              <>
+                {larkOnly.shown.length === 0 ? (
+                  <p className="text-muted-foreground">这个账号下还没有 lark 的设备。</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {larkOnly.shown.map((device) => (
+                      <DeviceRow key={device.id} device={device} onRevoke={setPendingRevoke} />
+                    ))}
+                  </ul>
+                )}
+                {hiddenNote !== null && <p className="text-muted-foreground">{hiddenNote}</p>}
+              </>
             )}
             <Button size="sm" variant="secondary" onClick={() => refreshDevices()}>
               刷新

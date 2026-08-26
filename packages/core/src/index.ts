@@ -42,6 +42,8 @@ export * from './portable/pending.js';
 // Which library this device opens (N7b). The id rules are portable — the
 // phone computes the same ones — and the desktop's index file reader is in
 // `config/workspaces.ts`, which rides on the config subpath.
+export * from './switch-lock.js';
+export * from './workspace-migrate.js';
 export * from './portable/workspace.js';
 export * from './portable/workspace-index.js';
 export * from './migration/preflight.js';

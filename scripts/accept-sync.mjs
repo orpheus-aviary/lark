@@ -44,6 +44,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { backupNest } from '../packages/core/dist/index.js';
 import { waitForLibraryReady } from './lib/library-ready.mjs';
+import { libraryDir } from './lib/workspace.mjs';
 
 const require = createRequire(import.meta.url);
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -174,7 +175,7 @@ function apiFor(baseUrl, larkDir) {
  * opened and closed per question because login is what changes the answer.
  */
 function songsWithCreateChange(larkDir) {
-  const db = require('better-sqlite3')(join(larkDir, 'songs.db'), { readonly: true });
+  const db = require('better-sqlite3')(join(libraryDir(larkDir), 'songs.db'), { readonly: true });
   try {
     const rows = db
       .prepare("SELECT entity_id FROM sync_changes WHERE entity_type = 'song' AND op = 'create'")
@@ -542,7 +543,9 @@ try {
   lark(['daemon'], nestA);
   await waitForDaemon(DAEMON_A);
   const apiA = apiFor(DAEMON_A, larkA);
-  const credentialsA = join(larkA, 'skybridge.toml');
+  // A FUNCTION, not a constant: the library — and its credentials with it —
+  // moves under `libraries/<id>/` at the phase-F restart (N7c).
+  const credentialsA = () => join(libraryDir(larkA), 'skybridge.toml');
 
   // ── C · the transport gate ──
 
@@ -566,8 +569,8 @@ try {
   const noConfirm = loginAt(`http://127.0.0.1:${closedPort}`, nestA, { insecure: true });
   check(
     'C3 · the breaker needs its second act: the flag without --yes sends nothing',
-    noConfirm.code === 2 && codeOf(noConfirm) === 'USAGE_ERROR' && !existsSync(credentialsA),
-    `${noConfirm.code} ${codeOf(noConfirm)}, credentials ${existsSync(credentialsA)}`,
+    noConfirm.code === 2 && codeOf(noConfirm) === 'USAGE_ERROR' && !existsSync(credentialsA()),
+    `${noConfirm.code} ${codeOf(noConfirm)}, credentials ${existsSync(credentialsA())}`,
   );
 
   const confirmed = loginAt(`http://127.0.0.1:${closedPort}`, nestA, {
@@ -644,7 +647,7 @@ try {
     `${loginData?.backfill?.songs}/${unpublished} owed of ${songsBefore.length} songs, device ${loginData?.device_reused ? 'reused' : 'new'}`,
   );
 
-  const mode = statSync(credentialsA).mode & 0o777;
+  const mode = statSync(credentialsA()).mode & 0o777;
   check('B1 · the credential file is 0600', mode === 0o600, `0${mode.toString(8)}`);
 
   const ran = lark(['--json', 'sync', 'run'], nestA);
@@ -664,7 +667,7 @@ try {
 
   const configShown = lark(['sync', 'config-show'], nestA);
   const configJson = lark(['--json', 'sync', 'config-show'], nestA).json?.data;
-  const credentialsText = readFileSync(credentialsA, 'utf8');
+  const credentialsText = readFileSync(credentialsA(), 'utf8');
   const accessToken = /^\s*token\s*=\s*"([^"]+)"/m.exec(credentialsText)?.[1] ?? '';
   const refreshToken = /^\s*refresh_token\s*=\s*"([^"]+)"/m.exec(credentialsText)?.[1] ?? '';
   check(
@@ -830,15 +833,16 @@ try {
     const statusQ = lark(['--json', 'sync', 'status'], nestA).json?.data;
     // The parked directory is `<song_id>-<op_uuid>`: stable per op, so a replay
     // lands in the same place.
-    const recoveredRoot = join(larkA, 'recovered-songs');
+    const libA = libraryDir(larkA);
+    const recoveredRoot = join(libA, 'recovered-songs');
     const parked = existsSync(recoveredRoot)
       ? readdirSync(recoveredRoot, { withFileTypes: true }).filter(
           (entry) => entry.isDirectory() && entry.name.startsWith(quarantineTarget.id),
         )
       : [];
-    const gone = !existsSync(join(larkA, 'songs', quarantineTarget.id, 'song.m4a'));
+    const gone = !existsSync(join(libA, 'songs', quarantineTarget.id, 'song.m4a'));
     const bytes =
-      parked.length === 1 && walk(join(larkA, 'recovered-songs', parked[0].name)).length > 0;
+      parked.length === 1 && walk(join(libA, 'recovered-songs', parked[0].name)).length > 0;
     quarantineOk = statusQ?.quarantined_count >= 1 && bytes && gone;
     quarantineDetail = `quarantined ${statusQ?.quarantined_count}, parked ${parked.map((p) => p.name).join(',') || 'none'}, original gone ${gone}`;
   }
@@ -1040,7 +1044,7 @@ try {
     'B4 · a backup carries the library and never the credentials, at any depth',
     credentialsInBackup.length === 0 &&
       backupFiles.some((path) => path.endsWith('songs.db')) &&
-      existsSync(credentialsA),
+      existsSync(credentialsA()),
     `${backupFiles.length} files, ${credentialsInBackup.length} credential file(s)`,
   );
   rmSync(backup.nestDir, { recursive: true, force: true });
@@ -1056,7 +1060,7 @@ try {
       unbindForced.code === 0 &&
       unbindForced.json?.data?.discarded_changes >= 1 &&
       unbindForced.json?.data?.had_credentials === true &&
-      !existsSync(credentialsA) &&
+      !existsSync(credentialsA()) &&
       afterUnbind?.server_url === '',
     `${codeOf(unbindRefused)} → dropped ${unbindForced.json?.data?.discarded_changes}`,
   );

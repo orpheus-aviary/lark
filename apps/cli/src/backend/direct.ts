@@ -57,6 +57,23 @@ export async function createDirectBackend(options: DirectBackendOptions): Promis
   if (!abi.ok) throw abiError(abi);
 
   const core: Core = await import('@lark/core');
+
+  // Asked BEFORE the path is resolved, because a switch in flight is precisely
+  // "the answer is about to change" (N7c). The window belongs to the one-time
+  // migration and to a login that copies a whole library into a new workspace:
+  // in both, `libraries/<id>/songs.db` exists and is not finished. Read mode
+  // refuses too — it takes no lock and writes nothing, but half a library read
+  // is still half a library.
+  //
+  // Skipped when the caller named a path: that one is a test's or a tool's, and
+  // it never went through the resolver.
+  if (options.dbPath === undefined && core.switchInFlight()) {
+    throw new CliError(
+      'WORKSPACE_SWITCHING',
+      '这台设备正在切换账号工作区（或正在完成一次曲库搬迁）。等它结束再试——通常只要几秒。',
+    );
+  }
+
   const dbPath = options.dbPath ?? core.paths.dbPath();
 
   return options.mode === 'read' ? openForRead(core, dbPath) : openForWrite(core, dbPath);

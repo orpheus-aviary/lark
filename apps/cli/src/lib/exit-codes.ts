@@ -73,6 +73,7 @@ export const LOCAL_CLI_ERROR_CODES = [
   'MIGRATION_RESIDUE',
   'INCOMPATIBLE_DB',
   'SCHEMA_MISMATCH',
+  'WORKSPACE_SWITCHING',
 
   // Resolving a `<name|id>` argument (R25).
   'AMBIGUOUS_SONG',
@@ -195,6 +196,10 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   // is the fix.
   AUDIO_MIGRATION_PENDING: EXIT_REFUSED,
   MIGRATION_BUSY: EXIT_REFUSED,
+  // Another process is moving a whole library into place (N7c). Same family as
+  // the two above: something is there, it refuses, and waiting is the fix —
+  // this one takes seconds.
+  WORKSPACE_SWITCHING: EXIT_REFUSED,
   INCOMPATIBLE_DB: EXIT_REFUSED,
   SCHEMA_MISMATCH: EXIT_REFUSED,
   MIGRATION_RESIDUE: EXIT_REFUSED,

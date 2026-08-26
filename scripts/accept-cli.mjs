@@ -31,6 +31,7 @@ import {
   realpathMissingOk,
 } from '../packages/core/dist/index.js';
 import { waitForLibraryReady } from './lib/library-ready.mjs';
+import { libraryDir } from './lib/workspace.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CLI = join(ROOT, 'apps/cli/dist/index.js');
@@ -259,7 +260,9 @@ try {
   );
   rmSync(pidFile);
 
-  const held = acquireWriterLock({ dbPath: join(copy.larkDir, 'songs.db') });
+  // The copy's library may sit under `libraries/<id>/` (N7c) — the real nest
+  // is bound, so its copy is too.
+  const held = acquireWriterLock({ dbPath: join(libraryDir(copy.larkDir), 'songs.db') });
   const busy = lark(['--direct', 'playlist', 'create', '抢锁'], nest);
   held.release();
   check(

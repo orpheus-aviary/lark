@@ -30,7 +30,6 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parse, stringify } from 'smol-toml';
-import { WORKSPACES_TEMP_PREFIX, workspacesPath } from '../paths.js';
 import type { StructuredLogger } from '../portable/logger.js';
 import {
   DEFAULT_WORKSPACE_INDEX,
@@ -40,14 +39,24 @@ import {
 } from '../portable/workspace-index.js';
 
 /**
+ * The device's workspace index, by name.
+ *
+ * The constants live HERE and not in `paths.ts`, which re-exports them: the
+ * resolver in `paths.ts` calls into this module, so a dependency back the
+ * other way would be a cycle between the two files a boot cannot start
+ * without.
+ */
+export const WORKSPACES_FILE_NAME = 'workspaces.toml';
+export const WORKSPACES_TEMP_PREFIX = '.workspaces.toml.tmp-';
+
+/**
  * The index, or the device that has never switched.
  *
  * Never throws: every entry point calls this before it can open anything, and
  * a boot that dies on a malformed settings file is a boot that cannot be
  * recovered from without a text editor.
  */
-export function readWorkspaceIndex(path?: string, logger?: StructuredLogger): WorkspaceIndex {
-  const filePath = path ?? workspacesPath();
+export function readWorkspaceIndex(filePath: string, logger?: StructuredLogger): WorkspaceIndex {
   if (!existsSync(filePath)) return DEFAULT_WORKSPACE_INDEX;
 
   let parsed: unknown;
@@ -70,8 +79,7 @@ export function readWorkspaceIndex(path?: string, logger?: StructuredLogger): Wo
  * complete index it wants (it just switched, or registered a workspace), and
  * merging would let a replaced `active` outlive its replacement.
  */
-export function writeWorkspaceIndex(index: WorkspaceIndex, path?: string): void {
-  const filePath = path ?? workspacesPath();
+export function writeWorkspaceIndex(index: WorkspaceIndex, filePath: string): void {
   const dir = dirname(filePath);
   mkdirSync(dir, { recursive: true });
 

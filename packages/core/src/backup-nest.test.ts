@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -15,6 +16,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { backupNest } from './backup-nest.js';
 import { createDatabase } from './db/index.js';
+import { invalidateActiveWorkspace } from './paths.js';
 import { createSong } from './portable/library/songs.js';
 
 let nest: string;
@@ -46,6 +48,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllEnvs();
+  invalidateActiveWorkspace();
   await rm(workspace, { recursive: true, force: true });
 });
 
@@ -147,6 +150,35 @@ describe('what lands in the copy', () => {
 
     const copied = join(result.larkDir, 'libraries', '0d37bfbdb385448f80a53bd8ba7e61d3');
     expect(readdirSync(copied).sort()).toEqual(['songs', 'songs.db']);
+  });
+
+  it('backs up an ACTIVE account workspace through sqlite, not by copying (N7c)', async () => {
+    // The migration moves a bound library under `libraries/`, and the backup
+    // has to follow it: the online backup is what makes the copy coherent
+    // while a writer could have been mid-transaction.
+    const id = '0d37bfbdb385448f80a53bd8ba7e61d3';
+    const lark = join(nest, 'lark');
+    const wsDir = join(lark, 'libraries', id);
+    mkdirSync(wsDir, { recursive: true });
+    renameSync(join(lark, 'songs.db'), join(wsDir, 'songs.db'));
+    renameSync(join(lark, 'songs'), join(wsDir, 'songs'));
+    writeFileSync(join(lark, 'workspaces.toml'), `active = "${id}"\n`);
+    // A lock database the workspace grew on its own, at depth. The writer
+    // lock is not faked: the backup takes a real one at this same path while
+    // it runs, so the copy must drop that too.
+    writeFileSync(join(wsDir, 'songs.db.migrate.lock'), '');
+    invalidateActiveWorkspace();
+
+    const result = await backupNest({ target: join(workspace, 'copy'), ...quiet });
+
+    const copied = join(result.larkDir, 'libraries', id);
+    expect(readdirSync(copied).sort()).toEqual(['songs', 'songs.db']);
+    // And it is a real database, written by the backup rather than copied.
+    const db = new BetterSqlite3(join(copied, 'songs.db'), { readonly: true });
+    const names = db.prepare('SELECT name FROM songs').all() as { name: string }[];
+    db.close();
+    expect(names.map((row) => row.name)).toEqual(['第一首']);
+    expect(existsSync(join(result.larkDir, 'songs.db'))).toBe(false);
   });
 
   it('copies the workspace index but not one caught mid-rename (N7b)', async () => {

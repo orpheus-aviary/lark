@@ -21,9 +21,10 @@
 // should not talk to a server. So there is a button.
 
 import { type CoordinatorContext, callSkybridge, requireSession } from '@lark/core/portable';
+import { hiddenDevicesNote, splitLarkDevices } from '@lark/shared';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { canRevoke, larkDevices, revokePrompt } from '../sync/devices';
+import { canRevoke, revokePrompt } from '../sync/devices';
 import { refreshSync } from '../sync/hub';
 import { C, S } from './theme';
 
@@ -52,7 +53,7 @@ export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
       const devices = await callSkybridge('device list', () => session.client.listDevices());
       // Filtered here rather than in the render so the count is taken once,
       // off the answer the server actually gave.
-      const mine = larkDevices(devices);
+      const mine = splitLarkDevices(devices, (device) => device.appVersion);
       setHidden(mine.hidden);
       setRows(
         mine.shown.map((device) => ({
@@ -134,11 +135,8 @@ export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
         </View>
       ))}
       {rows?.length === 0 && <Text style={styles.note}>没有其它设备。</Text>}
-      {hidden > 0 && (
-        <Text style={styles.note}>
-          另有 {hidden} 台设备属于同一账号的其它工具（owl
-          等），这里不显示——它们也持有这个账号的凭证， 要停用请到那个工具里撤销。
-        </Text>
+      {hiddenDevicesNote(hidden) !== null && (
+        <Text style={styles.note}>{hiddenDevicesNote(hidden)}</Text>
       )}
       {failed !== null && <Text style={styles.failed}>{failed}</Text>}
       <Pressable

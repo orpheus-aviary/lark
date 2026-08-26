@@ -20,20 +20,40 @@
 //  4. Runtime state is never copied: the token, the pid file, the logs and the
 //     migration lock belong to the process that made them — and since v0.2 the
 //     skybridge credentials belong to the INSTALL that made them (§4.5).
+//
+// SINCE N7 A NEST HOLDS SEVERAL LIBRARIES, and they are not all copied the
+// same way. The ACTIVE one goes through SQLite's online backup, because it is
+// the one a writer could have been in the middle of; every other workspace is
+// copied file-for-file with its WAL sidecar beside it, which is coherent for
+// the same reason the rest of the nest is — nothing is running. That asymmetry
+// is deliberate rather than an omission: one process opens one workspace, so
+// the others have no writer to freeze.
 
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { backupDatabase } from './db/backup.js';
 import { acquireWriterLock } from './db/writer-lock.js';
 import * as paths from './paths.js';
 
 /** Never copied: state that belongs to a running process, not to the library. */
-export const RUNTIME_ENTRIES = ['daemon-token', 'daemon.pid', 'logs'] as const;
+export const RUNTIME_ENTRIES = [
+  'daemon-token',
+  'daemon.pid',
+  'logs',
+  // Pure runtime state: it names a pid on THIS machine (N7c).
+  paths.SWITCH_LOCK_FILE_NAME,
+] as const;
 
-/** Written by the backup itself, so the raw files are skipped by the copy. */
+/**
+ * Written by the backup itself, so the raw files are skipped by the copy.
+ *
+ * Top-level names, which covers the `local` workspace. An ACTIVE workspace
+ * under `libraries/` is skipped by absolute path in the copy filter instead.
+ */
 const DB_ENTRIES = ['songs.db', 'songs.db-wal', 'songs.db-shm'] as const;
+const DB_SIDECARS = ['-wal', '-shm'] as const;
 
 /**
  * The two lock databases, WITH their sidecars.
@@ -95,7 +115,10 @@ function isSkybridgeArtifact(path: string): boolean {
  * `local`.
  */
 function isWorkspaceIndexTemp(path: string): boolean {
-  return basename(path).startsWith(paths.WORKSPACES_TEMP_PREFIX);
+  const name = basename(path);
+  return (
+    name.startsWith(paths.WORKSPACES_TEMP_PREFIX) || name.startsWith(paths.SWITCH_LOCK_TEMP_PREFIX)
+  );
 }
 
 /** Everything generated or private that a copy must skip, at any depth. */
@@ -194,7 +217,7 @@ export async function backupNest(options: BackupNestOptions = {}): Promise<Backu
 
   // Before the first byte is copied, and before the destination exists: the
   // liveness probe above is a snapshot, and only the lock keeps it true.
-  const writerLock = acquireWriterLock({ dbPath: join(sourceLark, 'songs.db') });
+  const writerLock = acquireWriterLock({ dbPath: paths.dbPath() });
   try {
     return await copyUnderLock(sourceLark, sourceNest, options.target);
   } finally {
@@ -214,6 +237,13 @@ async function copyUnderLock(
     const targetLark = join(created, 'lark');
     await mkdir(targetLark, { recursive: false, mode: 0o700 });
 
+    // The active workspace's database, named the way the copy will name it.
+    // `relative` against the UNRESOLVED lark dir so the two sides are the same
+    // spelling — on macOS one of them is `/var` and the other `/private/var`.
+    const activeDb = paths.dbPath();
+    const activeDbSuffix = relative(paths.larkDir(), activeDb);
+    const activeDbFiles = new Set([activeDb, ...DB_SIDECARS.map((s) => `${activeDb}${s}`)]);
+
     const skip = new Set<string>([...RUNTIME_ENTRIES, ...DB_ENTRIES]);
     const copied: string[] = [];
     for (const entry of await readdir(sourceLark)) {
@@ -221,21 +251,30 @@ async function copyUnderLock(
       await cp(join(sourceLark, entry), join(targetLark, entry), {
         recursive: true,
         preserveTimestamps: true,
-        filter: (source) => !isExcludedArtifact(source),
+        // Lock artefacts are dropped at EVERY depth since N7: a workspace under
+        // `libraries/` grows its own pair, and an fcntl state that belongs to a
+        // process on this machine is meaningless in a copy. The active
+        // database is dropped too — the online backup below writes it.
+        filter: (source) =>
+          !isExcludedArtifact(source) &&
+          !isLockArtifact(basename(source)) &&
+          !activeDbFiles.has(source),
       });
       copied.push(entry);
     }
 
     // Held for the whole copy, not just the backup call: a daemon that starts
     // midway must fail to open the library rather than write into it.
-    const source = new BetterSqlite3(join(sourceLark, 'songs.db'), { fileMustExist: true });
+    const targetDb = join(targetLark, activeDbSuffix);
+    await mkdir(dirname(targetDb), { recursive: true });
+    const source = new BetterSqlite3(activeDb, { fileMustExist: true });
     try {
       source.pragma('locking_mode = EXCLUSIVE');
       // A read does not take the lock (M1: even a RESERVED writer is invisible
       // to one). A same-value write does.
       const version = source.pragma('user_version', { simple: true }) as number;
       source.exec(`BEGIN IMMEDIATE; PRAGMA user_version = ${version}; COMMIT;`);
-      await backupDatabase(source, join(targetLark, 'songs.db'));
+      await backupDatabase(source, targetDb);
     } finally {
       source.close();
     }

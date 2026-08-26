@@ -42,6 +42,7 @@ import {
   ensureDeviceUuid,
   listSongs,
   markBackfillDone,
+  paths,
   readLocalDeviceUuid,
   readSkybridgeDeviceId,
   rebaseLocalKeys,
@@ -172,9 +173,24 @@ function readLogs(daemon: Daemon): string {
     .join('\n');
 }
 
+/**
+ * Where B's library actually is (N7c).
+ *
+ * B logs in, which BINDS its library — and a bound library moves under
+ * `libraries/<id>/` at the next boot, which this suite performs. Asking the
+ * nest rather than assuming the root is the difference between opening the
+ * library and creating an empty one beside it.
+ *
+ * `activeWorkspaceIn` and not `resolveActiveWorkspace`: this process is device
+ * A and has a nest of its own.
+ */
+function libraryDirOf(daemon: Daemon): string {
+  return paths.activeWorkspaceRootIn(daemon.larkDir);
+}
+
 /** B's own database, opened directly — only ever while its daemon is stopped. */
 function openBDatabase(daemon: Daemon): BetterSqlite3.Database {
-  return new BetterSqlite3(join(daemon.larkDir, 'songs.db'));
+  return new BetterSqlite3(join(libraryDirOf(daemon), 'songs.db'));
 }
 
 // ─── Device A: core, in this process ───────────────────
@@ -311,7 +327,7 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
 
     await syncB();
 
-    const lyrics = join(b.larkDir, 'songs', song.id, 'lyrics.lrc');
+    const lyrics = join(libraryDirOf(b), 'songs', song.id, 'lyrics.lrc');
     expect(existsSync(lyrics), `${lyrics} should exist`).toBe(true);
     expect(readFileSync(lyrics, 'utf-8')).toContain('跨设备的歌词');
     // Drained, not merely queued: nothing is left owing after the round.
@@ -342,11 +358,11 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
     await syncA(a);
     await syncB();
 
-    const quarantine = join(b.larkDir, 'recovered-songs');
+    const quarantine = join(libraryDirOf(b), 'recovered-songs');
     const moved = readdirSync(quarantine).filter((name) => name.startsWith(songId));
     expect(moved, 'the audio should have been moved aside').toHaveLength(1);
     expect(existsSync(join(quarantine, moved[0] as string, 'song.m4a'))).toBe(true);
-    expect(existsSync(join(b.larkDir, 'songs', songId, 'song.m4a'))).toBe(false);
+    expect(existsSync(join(libraryDirOf(b), 'songs', songId, 'song.m4a'))).toBe(false);
 
     const before = await api<{ quarantined_count: number }>(b, 'GET', '/sync/status');
     expect(before.data?.quarantined_count).toBeGreaterThan(0);
@@ -379,7 +395,7 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
 
     b = await startDaemon(nestB);
 
-    const lyrics = join(b.larkDir, 'songs', song.id, 'lyrics.lrc');
+    const lyrics = join(libraryDirOf(b), 'songs', song.id, 'lyrics.lrc');
     expect(readFileSync(lyrics, 'utf-8')).toContain('崩溃残留');
     // The ORDER is the invariant, not just the outcome (§3.6). It is read from
     // the log FILE: the daemon prints only its listen line to stdout, and
@@ -400,8 +416,8 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
     // FILE, so the lyrics write cannot create it. (Planting a `staging` arg
     // would not do — v0.2 has no producer for that branch and ignores it.)
     const blocked = [randomUUID(), randomUUID()];
-    mkdirSync(join(b.larkDir, 'songs'), { recursive: true });
-    for (const id of blocked) writeFileSync(join(b.larkDir, 'songs', id), 'not a directory');
+    mkdirSync(join(libraryDirOf(b), 'songs'), { recursive: true });
+    for (const id of blocked) writeFileSync(join(libraryDirOf(b), 'songs', id), 'not a directory');
 
     const db = openBDatabase(b);
     for (const id of blocked) {

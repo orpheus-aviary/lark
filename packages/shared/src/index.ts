@@ -19,6 +19,7 @@ export * from './lrc.js';
 export * from './song-sort.js';
 export * from './download-batch.js';
 export * from './download-labels.js';
+export * from './sync-devices.js';
 export * from './sync-labels.js';
 export * from './now-playing.js';
 export * from './operation-queue.js';

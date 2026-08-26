@@ -1,6 +1,11 @@
 // What the device list is allowed to do to a row, and what it says first
 // (N6c, criterion 93).
 //
+// The "whose device is this" half moved to `@lark/shared`'s `sync-devices.ts`
+// in N7c, when the desktop grew the same list: two front ends that disagree
+// about which devices to show is a device nobody can reason about. What stays
+// here is what only a phone does — the confirmations.
+//
 // Both answers are here rather than in the screen for the usual reason: a
 // device can only ever be shown ONE of the two confirmations — whichever row
 // somebody taps — so "the other one is different" is not a thing a phone can
@@ -9,36 +14,6 @@
 // it deliberately: refusing would be the wrong protection for somebody whose
 // credentials leaked), and it is also the one that surprises, because the
 // consequence lands on the screen you are looking at.
-
-/**
- * Which devices belong on lark's screen (N6c follow-up, 2026-08-26).
- *
- * 🔴 DEVICES ARE PER ACCOUNT, NOT PER WORKSPACE. The same skybridge account
- * carries owl's registrations too, and the real device list on the measurement
- * phone was two owl entries, two lark ones and this one. `appVersion` is the
- * only thing that tells them apart — lark writes `lark <version>` at
- * registration (`coordinator/login.ts:283`), owl writes its own.
- *
- * TWO RULES, and the second one is the careful half:
- *
- *   1. `lark …` is ours. Shown.
- *   2. An UNKNOWN app (`null`) is shown too. It cannot be proven not to be
- *      ours — an older client, a build that predates this convention — and
- *      this list is where somebody goes to revoke a device they no longer
- *      trust. Guessing wrong in that direction hides the thing they came for.
- *
- * What is hidden is COUNTED and said out loud (`hidden`), for the same reason:
- * a device holding this account's credentials is worth knowing about even when
- * its data belongs to another tool. Revoking it there is that tool's job.
- */
-export function larkDevices<T extends { appVersion: string | null }>(
-  rows: readonly T[],
-): { shown: T[]; hidden: number } {
-  const shown = rows.filter(
-    (row) => row.appVersion === null || /^lark(\s|$)/i.test(row.appVersion),
-  );
-  return { shown, hidden: rows.length - shown.length };
-}
 
 /** The parts of a device row these decisions rest on. */
 export interface RevokeTarget {
