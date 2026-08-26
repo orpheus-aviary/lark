@@ -256,6 +256,17 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
 
   {
     method: 'GET',
+    path: API_PATHS.workspaces,
+    description: 'The libraries on this device, and which one is open',
+  },
+  {
+    method: 'POST',
+    path: API_PATHS.workspacesSwitch,
+    description: 'Open a different library at the next launch',
+  },
+
+  {
+    method: 'GET',
     path: API_PATHS.conflicts,
     description: 'Unresolved edit conflicts, with both versions',
   },

@@ -370,7 +370,9 @@ export async function boot(options: BootOptions = {}): Promise<void> {
   if (stopReason !== null) return finishStop();
 
   // Which library this process opens, decided once and logged once — a
-  // fall-back to `local` is otherwise a silent empty library (N7c).
+  // fall-back to `local` is otherwise a silent empty library (N7c). Recorded
+  // on the context (N7e) because a later switch moves what is ACTIVE without
+  // moving what this daemon is serving.
   const active = paths.resolveActiveWorkspace();
   lifecycleLog(
     active.fellBack ? 'error' : 'info',
@@ -481,6 +483,9 @@ export async function boot(options: BootOptions = {}): Promise<void> {
 
     ctx = createAppContext({
       ...CONTEXT_DEFAULTS,
+      // What this process opened, frozen here: a later switch moves the index
+      // and deliberately leaves the resolver alone (N7e).
+      workspace: active.id,
       config,
       port,
       configPath: paths.configPath(),

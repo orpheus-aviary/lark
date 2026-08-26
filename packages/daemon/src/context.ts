@@ -129,6 +129,16 @@ export interface BaseContext {
   shutdownSignal: AbortSignal;
   ackTimeoutMs: number;
   version: string;
+  /**
+   * The workspace whose library this process opened (N7).
+   *
+   * Recorded rather than asked for, and the difference matters: `switchWorkspace`
+   * writes the index and deliberately leaves the resolver's answer alone, so
+   * "what is active" and "what this daemon is serving" diverge from the moment
+   * somebody switches until they restart. A route that reported the former as
+   * the latter would tell a screen it is showing a library it is not.
+   */
+  workspace: string;
   /** Boot phase machine, and the migration pass while there is one (§3.2-3). */
   lifecycle: DaemonLifecycle;
   /**

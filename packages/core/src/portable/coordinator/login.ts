@@ -79,16 +79,62 @@ export interface SyncLoginResult {
   device_stamp: DeviceStampResult | null;
 }
 
+/** Who the server says this is — everything a host needs to pick a library. */
+export interface LoginIdentity {
+  serverId: string;
+  userId: string;
+  /** Normalised, so a host storing it as a label stores the same string. */
+  serverUrl: string;
+}
+
+export interface LoginTarget {
+  /** The context the install runs against, from the binding check onward. */
+  ctx: CoordinatorContext;
+  /** Closed when the install is over, however it ends. */
+  release?: () => void | Promise<void>;
+}
+
+export interface SyncLoginOptions {
+  /**
+   * Which library this login installs into (N7e).
+   *
+   * 🔴 THE SEAM EXISTS BECAUSE THE WORKSPACE ID CANNOT BE KNOWN ANY EARLIER.
+   * It is `sha256(server_id + "\n" + user_id)`, and both halves arrive with the
+   * login response — so a host that keeps one library per account has to be
+   * told the answer here, between the remote login and the first local write.
+   *
+   * That position is also the only safe one. Everything before it has written
+   * nothing; everything after it is about ONE library, and the criteria say
+   * which: a new workspace must leave the current library without a single
+   * extra outbox row (116), and a claimed one must leave it complete and
+   * unbound (117). Neither is reachable if the install binds the library this
+   * process happens to be serving.
+   *
+   * Absent — the phone before N7e, and a re-login into the workspace already
+   * open — means "install here", which is what it has always meant.
+   */
+  resolveTarget?: (identity: LoginIdentity) => Promise<LoginTarget>;
+}
+
 /** Serialized against logout, refresh persistence and unbind (§3.11). */
 export function performSyncLogin(
   ctx: CoordinatorContext,
   input: SyncLoginRequest,
+  options: SyncLoginOptions = {},
 ): Promise<SyncLoginResult> {
-  return ctx.sync.lifecycle(() => install(ctx, input));
+  return ctx.sync.lifecycle(() => install(ctx, input, options));
 }
 
-async function install(ctx: CoordinatorContext, input: SyncLoginRequest): Promise<SyncLoginResult> {
-  const api = ctx.api;
+async function install(
+  baseCtx: CoordinatorContext,
+  input: SyncLoginRequest,
+  options: SyncLoginOptions,
+): Promise<SyncLoginResult> {
+  // The API is the HOST's, always: it is a client, not a library, and the
+  // remote login below happens before any target has been chosen.
+  const api = baseCtx.api;
+  let ctx = baseCtx;
+  let release: (() => void | Promise<void>) | undefined;
   const allowInsecureHttp = input.allow_insecure_http === true;
   const serverUrl = normalizeSyncServerUrl(input.server_url, { allowInsecureHttp });
 
@@ -108,6 +154,19 @@ async function install(ctx: CoordinatorContext, input: SyncLoginRequest): Promis
   let sessionDropped = false;
 
   try {
+    // Everything from here down is about ONE library, and this is where the
+    // host says which. A failure inside `resolveTarget` is a failure after the
+    // remote login, so the compensation below covers it.
+    if (options.resolveTarget !== undefined) {
+      const target = await options.resolveTarget({
+        serverId,
+        userId: auth.user.id,
+        serverUrl,
+      });
+      ctx = target.ctx;
+      release = target.release;
+    }
+
     const binding = readBinding(ctx.db.sqlite);
     if (binding !== null) {
       // The workspace id is not known yet; the transaction below checks it
@@ -238,6 +297,8 @@ async function install(ctx: CoordinatorContext, input: SyncLoginRequest): Promis
     }
     await compensate(ctx, api, auth, registeredDeviceId);
     throw err;
+  } finally {
+    await release?.();
   }
 }
 

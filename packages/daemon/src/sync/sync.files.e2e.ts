@@ -300,12 +300,21 @@ describe.skipIf(serverModule === null)('sync across a real process boundary', ()
 
     nestB = mkdtempSync(join(tmpdir(), 'lark-e2e-b-'));
     b = await startDaemon(nestB);
-    const loggedIn = await api(b, 'POST', '/sync/login', {
+    const loggedIn = await api<{ restart_required: boolean }>(b, 'POST', '/sync/login', {
       server_url: server.baseUrl,
       email,
       password,
     });
     expect(loggedIn.status, `B could not log in: ${loggedIn.error_code ?? ''}`).toBe(200);
+
+    // 🔴 SINCE N7 A LOGIN CAN LAND IN A DIFFERENT LIBRARY. B was serving
+    // `local`; the account's library is `libraries/<id>/`, which the login
+    // built by claiming that one. B goes on serving what it opened until it is
+    // restarted — that is criterion 115's "not half-switched" — so the restart
+    // is part of logging in, and the suite has to do what a person would.
+    expect(loggedIn.data?.restart_required).toBe(true);
+    await stopDaemon(b);
+    b = await startDaemon(nestB);
 
     a = await createLocalDevice(server, email, password);
   }, 120_000);

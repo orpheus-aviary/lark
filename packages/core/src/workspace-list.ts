@@ -19,8 +19,8 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import BetterSqlite3 from 'better-sqlite3';
-import { librariesDir, resolveActiveWorkspace, workspacePaths } from './paths.js';
-import type { WorkspaceIndex } from './portable/workspace-index.js';
+import { librariesDir, workspacePaths } from './paths.js';
+import { type WorkspaceIndex, decideActiveWorkspace } from './portable/workspace-index.js';
 import { WORKSPACE_LOCAL, isAccountWorkspaceId } from './portable/workspace.js';
 
 export interface WorkspaceInspection {
@@ -115,9 +115,14 @@ export function listWorkspaceIds(): string[] {
  * `local` is always in it, with or without a library: it is where a device
  * that has never logged in lives, and where a device that logs out of
  * everything can go back to.
+ *
+ * 🔴 `active` IS WHAT THE NEXT LAUNCH WILL OPEN, read from the index and put
+ * through the same gate a launch would — NOT what this process opened. The two
+ * differ for exactly as long as it takes somebody to restart after a switch,
+ * which is precisely the window a switcher has to be honest about.
  */
 export function listWorkspaces(index: WorkspaceIndex): WorkspaceSummary[] {
-  const active = resolveActiveWorkspace().id;
+  const active = decideActiveWorkspace(index, (id) => existsSync(workspacePaths(id).db)).id;
   return listWorkspaceIds().map((id) => {
     const entry = index.entries[id];
     const inspection = inspectWorkspace(id);

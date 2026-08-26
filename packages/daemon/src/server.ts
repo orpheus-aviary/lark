@@ -20,6 +20,7 @@ import { registerPlaylistRoutes } from './routes/playlists.js';
 import { registerSongRoutes } from './routes/songs.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerSystemRoutes } from './routes/system.js';
+import { registerWorkspaceRoutes } from './routes/workspaces.js';
 import { InvalidRequestError } from './validation.js';
 
 /**
@@ -40,6 +41,7 @@ export function registerAllRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerDownloadRoutes(app, ctx);
   registerCacheRoutes(app, ctx);
   registerSyncRoutes(app, ctx);
+  registerWorkspaceRoutes(app, ctx);
   registerConflictRoutes(app, ctx);
   // Acceptance mode only, and never listed in capabilities (M4 T6).
   if (ctx.acceptance?.debugRoutes === true) registerDebugRoutes(app, ctx);

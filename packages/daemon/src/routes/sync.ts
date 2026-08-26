@@ -44,12 +44,13 @@ import { ok } from '../response.js';
 import {
   buildSyncStatus,
   callSkybridge,
-  performSyncLogin,
   performSyncLogout,
   requireSession,
 } from '../sync/coordinator.js';
+import { performWorkspaceLogin } from '../sync/workspace-login.js';
 import {
   objectBody,
+  optionalEnum,
   queryEnum,
   queryParams,
   requiredSafeInteger,
@@ -59,19 +60,34 @@ import {
 /** Emails and URLs are short; the cap is against a body, not a value. */
 const MAX_FIELD = 512;
 
+/** N7: what a login does when the account has no library here yet. */
+const WORKSPACE_ORIGINS = ['claim', 'fresh'] as const;
+
 export function registerSyncRoutes(app: FastifyInstance, ctx: AppContext): void {
   // POST /sync/login — the whole install sequence (§3.7). The password is used
   // once, right here, and never leaves this function.
   app.post(API_PATHS.syncLogin, async (req, reply) => {
-    const body = objectBody(req.body, ['server_url', 'email', 'password', 'allow_insecure_http']);
-    const result = await performSyncLogin(ctx, {
+    const body = objectBody(req.body, [
+      'server_url',
+      'email',
+      'password',
+      'allow_insecure_http',
+      'workspace_origin',
+    ]);
+    // What to do when the account has NO library on this device yet (N7).
+    // Ignored when it already has one: logging into the same account twice
+    // lands on the same copy, which is what a deterministic id is for.
+    const origin = optionalEnum(body, 'workspace_origin', WORKSPACE_ORIGINS);
+    const outcome = await performWorkspaceLogin(ctx, {
       server_url: requiredString(body, 'server_url', { maxLength: MAX_FIELD }),
       email: requiredString(body, 'email', { maxLength: MAX_FIELD }),
       password: requiredString(body, 'password', { maxLength: MAX_FIELD }),
       ...(body.allow_insecure_http === undefined
         ? {}
         : { allow_insecure_http: body.allow_insecure_http === true }),
+      ...(origin === undefined ? {} : { workspace_origin: origin }),
     });
+    const result = outcome.login;
 
     ok(
       reply,
@@ -83,6 +99,9 @@ export function registerSyncRoutes(app: FastifyInstance, ctx: AppContext): void 
         device_name: result.device_name,
         device_reused: result.device_reused,
         workspace_id: result.workspace_id,
+        local_workspace_id: outcome.workspace_id,
+        local_workspace_created: outcome.workspace_created,
+        restart_required: outcome.restart_required,
         backfill:
           result.backfill === null
             ? null

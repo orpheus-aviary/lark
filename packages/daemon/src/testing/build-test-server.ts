@@ -20,6 +20,7 @@ import {
   createDatabase,
   nodeAudioLanding,
   nodeFileContext,
+  paths,
   realSkybridgeApi,
   resolveLlmConfig,
 } from '@lark/core';
@@ -141,6 +142,9 @@ export interface TestContext extends AppContext {
 /** A complete context over a fresh in-memory database. */
 export function createTestContext(options: TestContextOptions = {}): TestContext {
   const { db, sqlite, portable } = createDatabase({ dbPath: options.dbPath ?? ':memory:' });
+  // What boot records, for the same reason (N7): the workspace this context
+  // opened, which stops being the active one the moment a test switches.
+  const workspace = paths.resolveActiveWorkspace().id;
   const files = nodeFileContext();
   const fatals: unknown[] = [];
   const config = options.config ?? structuredClone(DEFAULT_CONFIG);
@@ -214,6 +218,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
 
   const ctx = createAppContext({
     ...CONTEXT_DEFAULTS,
+    workspace,
     config,
     configPath: options.configPath,
     saveConfigImpl: options.saveConfigImpl,

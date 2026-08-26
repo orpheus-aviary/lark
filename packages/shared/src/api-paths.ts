@@ -46,7 +46,16 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     unknown body keys — a client written against 6 cannot download through
  *     one, which is exactly what a version gate is for.
  */
-export const LOCAL_API_VERSION = 6;
+/*
+ *   7 → the workspace surface (N7). One device can hold several libraries, so
+ *     there is a `GET /workspaces` and a `POST /workspaces/switch`, and
+ *     `POST /sync/login` takes `workspace_origin` and answers with
+ *     `local_workspace_id` / `local_workspace_created` / `restart_required`.
+ *     A 6 daemon rejects `workspace_origin` as an unknown body key, so a
+ *     client written against 7 cannot ask one to put an account's library
+ *     anywhere but the file it is already serving.
+ */
+export const LOCAL_API_VERSION = 7;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {
@@ -102,6 +111,13 @@ export const API_PATHS = {
   syncFileOps: '/sync/file-ops',
   syncFileOpsRetry: '/sync/file-ops/retry',
   syncFileOpsDiscard: '/sync/file-ops/discard',
+
+  // Workspaces (N7). One device, several libraries: `local` where it has
+  // always been, and one per account under `libraries/<id>/`. Switching writes
+  // one line and takes effect at the next launch — which is what makes it
+  // safe, not a limitation (`core/workspace-switch.ts`).
+  workspaces: '/workspaces',
+  workspacesSwitch: '/workspaces/switch',
 
   // Conflicts (v0.2, D4). Records, not merges: LWW already decided, and these
   // let the user put their own version back.

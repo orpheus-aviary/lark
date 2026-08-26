@@ -25,7 +25,7 @@ import {
   readWorkspaceIndex,
   writeWorkspaceIndex,
 } from './config/workspaces.js';
-import { invalidateActiveWorkspace, larkDir, workspacePaths, workspacesPath } from './paths.js';
+import { larkDir, workspacePaths, workspacesPath } from './paths.js';
 import type { StructuredLogger } from './portable/logger.js';
 import { withActiveWorkspace } from './portable/workspace-index.js';
 import { WORKSPACE_LOCAL, isWorkspaceId } from './portable/workspace.js';
@@ -61,10 +61,13 @@ export function switchWorkspace(id: string, logger?: StructuredLogger): SwitchWo
   if (previous === id) return { id, previous, changed: false };
 
   writeWorkspaceIndex(withActiveWorkspace(index, id), path);
-  // Only for THIS process, which is about to be told to restart anyway: what
-  // it changes is the answer a later `paths.dbPath()` would give, and the
-  // caller is the one place that wants that to be true immediately.
-  invalidateActiveWorkspace();
+  // 🔴 AND NOTHING ELSE. In particular the resolver's cache is NOT busted:
+  // it holds which library THIS process opened, and every path in `paths.ts`
+  // hangs off it — `songsDir()`, `trashDir()`, `skybridgeConfigPath()`. Moving
+  // it here would leave a daemon serving one library while writing song files
+  // and credentials into another. That the process keeps working on the old
+  // one until it restarts is criterion 115's "not half-switched", and it is a
+  // property of doing exactly one thing.
   logger?.info({ from: previous, to: id }, 'the active workspace changed — restart to open it');
   return { id, previous, changed: true };
 }

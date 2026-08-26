@@ -944,6 +944,15 @@
   - **`switchWorkspace` 只写一行，别的什么都不做**，这正是它安全的原因：进程继续服务已经打开的那个库（`resolveActiveWorkspace()` 每进程只判一次）。所以「重启才生效」不是功能没做完的托词——§3① 列的四个一次性闸（引擎 claim registry · 同步会话 · 播放器会话 · file-op runtime）加上 expo-sqlite 的 Activity 重建坑，全长在换库这条路上。🔴 **它拒绝指向一个还没有库的工作区**：那样会被门回落到 `local`，得到「看起来切成功了、然后是个空库」——所有失败里最坏的一种，所以「先备库、再翻 active」是唯一存在的顺序。
   - **`listWorkspaces` 列磁盘、用索引装饰**（与 N7b 的「磁盘是事实」一致），并借 owl 的 `hasSyncTraces`——`sync_cursor` / 推过的 change / 存过的 skybridge id——给判据 116 最后那句警告备好判定。⚠️ **如实记一条副作用**：只读连接打开 WAL 库会**新建 `-wal`/`-shm` 且关闭时不删**。那不是改数据，但文件确实会出现；下游都是知道这件事写的（迁移用 checkpoint 而不是搬、备份直接丢掉它们）。
 
+- **N7e-2 daemon 接线：完成（判据 116 · 117 在路由层关闭，测试 3280 + e2e 19）。** 协议 **`LOCAL_API_VERSION` 6 → 7**。
+  - **登录多了一处 seam：`resolveTarget`**（`portable/coordinator/login.ts`）。位置是**远端登录之后、第一次本地写之前**——那也是唯一可能的位置（工作区 id 是 `sha256(server_id + "\n" + user_id)`，两半都随登录响应到达）**和唯一安全的位置**（之前什么都没写，之后全是关于某一个库的）。缺省不传 = 「装在这里」，也就是它一直以来的含义。
+  - **daemon 侧 `performWorkspaceLogin`**：算 id → 已有就直接用、没有就 `prepareWorkspace` → **打开目标库、取它自己的写锁、造一个一次性的 `CoordinatorContext`** → core 的安装序列一个字没改地跑在上面 → 翻 active。**唯一保持原样的情况是「重新登录进已经打开的那个工作区」**：没有第二个库要备，而且 daemon 已经握着那把写锁，再开一个句柄会自己和自己抢。
+  - **一次性 context 的两个刻意选择**：`SyncRuntime({triggers:false})`（这个 runtime 只活一次安装，后台轮次会变成一个进程里的第二个同步器）· **`fileOps` 是一个会抛的绊线**——登录只写 binding/backfill/rebase/device stamp，**不排也不 drain 任何 file effect**；桌面的 `FileEffectRuntime` 用的是模块级的 `recoveredSongsDir()`，那是**活动工作区**的，一旦有人真调它就会隔离到错的库里去。
+  - 🔴 **本批修掉一个自己刚写出来的严重 bug**：`switchWorkspace` 原本会 `invalidateActiveWorkspace()`。那会让**同一个进程后续所有的 `songsDir()` / `trashDir()` / `skybridgeConfigPath()` 指向新工作区，而它服务的还是旧库**——一边播旧库、一边把歌和凭证写进新库。现在它**只写那一行，别的什么都不碰**；缓存就是「这个进程打开了哪个库」，必须冻结到进程结束。**判据 115 的「不半切」正是「只做一件事」的直接结果。**
+  - **由此长出一个区分**：**`serving`（这个 daemon 打开的） ≠ `active`（下次启动会打开的）**，两者从有人切换到他重启为止都不一样，而那恰恰是切换器必须说实话的窗口。`serving` 记在 `AppContext.workspace` 上（boot 与测试 harness 各记一次，不靠「谁先 resolve」这种隐式顺序）；`listWorkspaces` 的 `active` 改成**过一遍索引的门**算出来。
+  - **路由**：`GET /workspaces`（列表 + `serving` + `serving_has_sync_traces`）· `POST /workspaces/switch`（回 `restart_required`）· `POST /sync/login` 收 `workspace_origin` 并回 `local_workspace_id` / `local_workspace_created` / `restart_required`（**`workspace_id` 已经被服务端的 workspace 占了**，所以本机那个只能另起名字）。
+  - 🔴 **e2e 抓到了这条链最真实的一段**：`sync.files.e2e` 里 B 是个真子进程，登录之后**它服务的还是 `local`，而账号的库在 `libraries/<id>/`** ⇒ 歌词落在了测试没看的那个目录里。修法不是改断言而是**照用户会做的做：登录后重启 B**。于是这套 e2e 现在跨真进程边界证了整条路——从 `local` 登录 → 并入建库 → 重启 → 在新工作区里同步、drain、隔离、重启后仍然如实。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。

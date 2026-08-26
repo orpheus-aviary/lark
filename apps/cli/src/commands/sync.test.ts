@@ -131,6 +131,9 @@ describe('sync login', () => {
         },
         rebased_entities: 0,
         device_stamp: 'first-registration',
+        local_workspace_id: 'local',
+        local_workspace_created: false,
+        restart_required: false,
       },
     });
 

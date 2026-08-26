@@ -280,6 +280,66 @@ export interface SyncLoginResultData {
   /** Entities whose unpushed keys were rebased onto the server clock (§3.3). */
   rebased_entities: number;
   device_stamp: 'first-registration' | 'device-changed' | 'unchanged';
+
+  // ── Where the account's library ended up (N7) ────────────────────────────
+  //
+  // `workspace_id` above is the SERVER's — the skybridge workspace this
+  // account syncs through. These three are about THIS device's storage, which
+  // is a different thing that unfortunately wants the same word.
+
+  /** This device's workspace for the account: 32 hex, or `local`. */
+  local_workspace_id: string;
+  /** True when this login created it. */
+  local_workspace_created: boolean;
+  /**
+   * True when the daemon is still serving a different library from the one
+   * this account uses. Switching is one atomic line; opening it is a restart.
+   */
+  restart_required: boolean;
+}
+
+/** What to do when the account has no library on this device yet (N7). */
+export type WorkspaceOriginChoice = 'claim' | 'fresh';
+
+export interface WorkspaceData {
+  /** `local`, or 32 lowercase hex. */
+  id: string;
+  /** Usually the account this workspace belongs to. `''` when unknown. */
+  label: string;
+  /** Where it syncs, for display. `''` for `local`. */
+  server_url: string;
+  /** The one this device opens at launch — not always the one it is serving. */
+  active: boolean;
+  songs: number;
+  playlists: number;
+}
+
+export interface WorkspacesData {
+  workspaces: WorkspaceData[];
+  /**
+   * The workspace this daemon is SERVING right now.
+   *
+   * Equal to the active one except in the window between a switch and the
+   * restart that honours it, which is exactly when a front end has to say
+   * something different.
+   */
+  serving: string;
+  /**
+   * Leftover sync state in the workspace being served — a cursor, a pushed
+   * change, a stored skybridge id (owl's B8).
+   *
+   * Drives the warning on "claim": a library carrying another account's traces
+   * would republish them into a new one.
+   */
+  serving_has_sync_traces: boolean;
+}
+
+export interface WorkspaceSwitchData {
+  id: string;
+  previous: string;
+  changed: boolean;
+  /** Always true when something changed: opening a library is a restart. */
+  restart_required: boolean;
 }
 
 export interface SyncBackfillSummary {
