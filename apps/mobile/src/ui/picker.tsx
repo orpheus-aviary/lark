@@ -36,6 +36,7 @@ import {
   View,
 } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
+import { engineLogger } from '../downloads/log';
 import { type PickRow, eligible, overItemLimit } from '../downloads/selection';
 import { allChosen, chooseAll, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { Chip } from './chip';
@@ -76,7 +77,7 @@ export function Picker<T extends PickRow>({
   const [chosen, setChosen] = useState<ReadonlySet<string>>(() => new Set());
   const [touched, setTouched] = useState(false);
   const [mode, setMode] = useState<DownloadNamingMode>(() =>
-    resolveNamingMode({ remembered: readNamingMode(boot.db.sqlite), hasLlm }),
+    resolveNamingMode({ remembered: readNamingMode(boot.deviceSettings), hasLlm }),
   );
   const [submitting, setSubmitting] = useState(false);
   /** Why the engine would not admit the batch. Nothing was created. */
@@ -100,7 +101,13 @@ export function Picker<T extends PickRow>({
     setMode(next);
     // Remembered on the choice, not on the submission: someone who changed
     // their mind and then closed the app still changed their mind.
-    writeNamingMode(boot.db.sqlite, next);
+    //
+    // A device setting since N7a, so remembering it is a file write. Nothing
+    // waits for it and there is no form to report to — the chip has already
+    // moved, and the worst a failure costs is next launch's default.
+    void writeNamingMode(boot.deviceSettings, next).catch((err: unknown) => {
+      engineLogger.warn({ err: String(err) }, 'could not remember the naming mode');
+    });
   };
 
   const submit = async (): Promise<void> => {

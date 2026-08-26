@@ -1,11 +1,11 @@
 // "Which model does THIS install talk to?" (N4e, §2.2)
 //
-// Three keys in `local_metadata`, beside `device_uuid`, `now_playing_mode`,
-// `play_mode` and `naming_mode`, and for the same reason: per-install
-// preferences, never facts about the library, so they stay out of
-// `sync_changes` (decision h). A phone on a train and a laptop on a desk
-// legitimately point at different endpoints, and a key that entered
-// `sync_changes` would be a key uploaded to a server.
+// Three DEVICE settings (N7a): per-install preferences, never facts about any
+// library, so they stay out of `sync_changes` (decision h) and — since N7,
+// where one phone holds several libraries — out of the libraries themselves.
+// A phone on a train and a laptop on a desk legitimately point at different
+// endpoints; two accounts on one phone do not. The desktop has always kept the
+// same three in `lark_config.toml`'s `[llm]`, a device file.
 //
 // WHAT IS NOT HERE IS THE POINT: `api_key`. The other three are settings; the
 // key is a secret, and on this host it lives in SecureStore
@@ -27,7 +27,7 @@
 // of this install, not to us.
 
 import type { StructuredLogger } from './logger.js';
-import type { SqliteLike } from './sqlite.js';
+import type { DeviceSettingsPort } from './ports/device-settings.js';
 
 export const LLM_URL_KEY = 'llm_url';
 export const LLM_MODEL_KEY = 'llm_model';
@@ -70,28 +70,26 @@ const isApiFormat = (value: unknown): value is LocalLlmApiFormat =>
  * separately would let a caller act on a url from before a save and a model
  * from after it.
  *
- * A missing row is the default and says nothing. A value out of domain is
- * warned about and read as the default — and the row is left exactly as it
- * was, because a read path that "fixes" what it cannot parse is how a
+ * A missing value is the default and says nothing. A value out of domain is
+ * warned about and read as the default — and what is stored is left exactly as
+ * it was, because a read path that "fixes" what it cannot parse is how a
  * downgrade eats a setting.
  */
-export function readLlmEndpoint(sqlite: SqliteLike, logger?: StructuredLogger): LlmEndpoint {
-  const rows = sqlite
-    .prepare('SELECT key, value FROM local_metadata WHERE key IN (?, ?, ?)')
-    .all(LLM_URL_KEY, LLM_MODEL_KEY, LLM_API_FORMAT_KEY) as { key: string; value: string }[];
-  const stored = new Map(rows.map((row) => [row.key, row.value]));
-
-  const format = stored.get(LLM_API_FORMAT_KEY);
+export function readLlmEndpoint(
+  settings: DeviceSettingsPort,
+  logger?: StructuredLogger,
+): LlmEndpoint {
+  const format = settings.get(LLM_API_FORMAT_KEY);
   if (format !== undefined && !isApiFormat(format)) {
     logger?.warn(
       { key: LLM_API_FORMAT_KEY, stored: format },
-      `local_metadata.${LLM_API_FORMAT_KEY} is not a format this build knows — reading it as '${DEFAULT_LLM_API_FORMAT}'`,
+      `${LLM_API_FORMAT_KEY} is not a format this build knows — reading it as '${DEFAULT_LLM_API_FORMAT}'`,
     );
   }
 
   return {
-    url: stored.get(LLM_URL_KEY) ?? '',
-    model: stored.get(LLM_MODEL_KEY) ?? '',
+    url: settings.get(LLM_URL_KEY) ?? '',
+    model: settings.get(LLM_MODEL_KEY) ?? '',
     api_format: isApiFormat(format) ? format : DEFAULT_LLM_API_FORMAT,
   };
 }
@@ -99,24 +97,23 @@ export function readLlmEndpoint(sqlite: SqliteLike, logger?: StructuredLogger): 
 /**
  * Store all three, or none of them.
  *
- * `.immediate()` and not three loose upserts: half a saved endpoint is a new
- * url pointed at an old model, which is a configuration nobody typed and which
- * fails in a way that looks like the provider's fault.
+ * One `set` and not three, which is the port's all-or-nothing promise: half a
+ * saved endpoint is a new url pointed at an old model, which is a
+ * configuration nobody typed and which fails in a way that looks like the
+ * provider's fault.
  *
  * `url` and `model` are trimmed on the way in. A phone keyboard adds a
  * trailing space to a pasted URL often enough that this is not defensive
  * programming, and `model` in particular reaches the request body verbatim —
  * `chatCompletion` trims the url and nothing else.
  */
-export function writeLlmEndpoint(sqlite: SqliteLike, endpoint: LlmEndpoint): void {
-  const upsert = sqlite.prepare(
-    'INSERT INTO local_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-  );
-  sqlite
-    .transaction(() => {
-      upsert.run(LLM_URL_KEY, endpoint.url.trim());
-      upsert.run(LLM_MODEL_KEY, endpoint.model.trim());
-      upsert.run(LLM_API_FORMAT_KEY, endpoint.api_format);
-    })
-    .immediate();
+export function writeLlmEndpoint(
+  settings: DeviceSettingsPort,
+  endpoint: LlmEndpoint,
+): Promise<void> {
+  return settings.set({
+    [LLM_URL_KEY]: endpoint.url.trim(),
+    [LLM_MODEL_KEY]: endpoint.model.trim(),
+    [LLM_API_FORMAT_KEY]: endpoint.api_format,
+  });
 }

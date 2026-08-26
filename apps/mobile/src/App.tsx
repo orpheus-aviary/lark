@@ -102,10 +102,22 @@ export function App() {
         bindPlayer({
           resolveQueue: (queue) => resolveQueue(queue, songsOf(queue.source)),
           readLyrics: (songId) => library.readLyrics(songId),
-          readMode: () => readPlayMode(result.db.sqlite),
-          persistMode: (mode) => writePlayMode(result.db.sqlite, mode),
-          readNowPlayingMode: () => readNowPlayingMode(result.db.sqlite),
-          persistNowPlayingMode: (mode) => writeNowPlayingMode(result.db.sqlite, mode),
+          readMode: () => readPlayMode(result.deviceSettings),
+          // Both persists are device settings since N7a, so both are file
+          // writes now. Fire-and-forget, with the failure logged rather than
+          // dropped: a mode toggle has no form to report back to, and an
+          // unhandled rejection in a player callback takes the app with it.
+          persistMode: (mode) => {
+            void writePlayMode(result.deviceSettings, mode).catch((err: unknown) => {
+              engineLogger.warn({ err: String(err) }, 'could not save the play mode');
+            });
+          },
+          readNowPlayingMode: () => readNowPlayingMode(result.deviceSettings),
+          persistNowPlayingMode: (mode) => {
+            void writeNowPlayingMode(result.deviceSettings, mode).catch((err: unknown) => {
+              engineLogger.warn({ err: String(err) }, 'could not save the now-playing mode');
+            });
+          },
           // The library decides whether a remembered position is still true —
           // `has_file` is a disk probe, so the check is handed in rather than
           // guessed at. A `null` here is every stale case at once, and the

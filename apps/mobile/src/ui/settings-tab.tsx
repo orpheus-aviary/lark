@@ -16,12 +16,12 @@
 
 import {
   type CacheStatus,
+  type DeviceSettingsPort,
   type EvictionSummary,
   LATEST_KNOWN_VERSION,
   LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
   MIB,
-  type SqliteLike,
   isLlmConfigured,
   readCacheLimitMb,
   readLlmEndpoint,
@@ -67,7 +67,7 @@ export function SettingsTab() {
       <SyncSection onConflicts={() => setConflictsOpen(true)} />
       {conflictsOpen && <ConflictsScreen db={boot.db} onClose={() => setConflictsOpen(false)} />}
       <View style={styles.rule} />
-      <Llm sqlite={boot.db.sqlite} />
+      <Llm settings={boot.deviceSettings} />
       <View style={styles.rule} />
       <BluetoothLyrics />
       <View style={styles.rule} />
@@ -112,8 +112,8 @@ interface Said {
  * against (decision f) and what 保存 commits. "Try it before you keep it" is
  * the only comfortable order on a phone, and it needs the draft to be real.
  */
-function Llm({ sqlite }: { sqlite: SqliteLike }) {
-  const [saved, setSaved] = useState(() => readLlmEndpoint(sqlite));
+function Llm({ settings }: { settings: DeviceSettingsPort }) {
+  const [saved, setSaved] = useState(() => readLlmEndpoint(settings));
   const [keyStored, setKeyStored] = useState(() => readApiKey() !== '');
   const [url, setUrl] = useState(saved.url);
   const [model, setModel] = useState(saved.model);
@@ -127,8 +127,16 @@ function Llm({ sqlite }: { sqlite: SqliteLike }) {
   // local llama.cpp endpoint legitimately has none.
   const configured = isLlmConfigured({ ...saved, api_key: '' });
 
-  const save = (): void => {
-    saveLlmEndpoint(sqlite, { url, model, api_format: format });
+  const save = async (): Promise<void> => {
+    // Since N7a the endpoint is a file on this device rather than a row in the
+    // library, so a save can fail the way a file can. Saying so beats a form
+    // that reports success and forgets on the next launch.
+    try {
+      await saveLlmEndpoint(settings, { url, model, api_format: format });
+    } catch (err) {
+      setSaid({ ok: false, text: err instanceof Error ? err.message : '保存失败' });
+      return;
+    }
     if (keyDraft.trim() !== '') {
       saveApiKey(keyDraft);
       setKeyDraft('');
@@ -136,7 +144,7 @@ function Llm({ sqlite }: { sqlite: SqliteLike }) {
     // Read back rather than assume the write won, and show what actually
     // landed: `writeLlmEndpoint` trims, and a person who pasted a URL with a
     // trailing space should see it gone rather than wonder.
-    const next = readLlmEndpoint(sqlite);
+    const next = readLlmEndpoint(settings);
     setSaved(next);
     setUrl(next.url);
     setModel(next.model);
@@ -268,7 +276,7 @@ function Llm({ sqlite }: { sqlite: SqliteLike }) {
         </Pressable>
         <Pressable
           style={[styles.button, styles.buttonPrimary]}
-          onPress={save}
+          onPress={() => void save()}
           accessibilityRole="button"
           accessibilityLabel="保存"
         >
@@ -342,7 +350,7 @@ function Cache() {
   const { view, boot } = useLibrary();
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   /** The saved limit, as this screen last read it BACK from the library. */
-  const [limitMb, setLimitMb] = useState(() => readCacheLimitMb(boot.db.sqlite));
+  const [limitMb, setLimitMb] = useState(() => readCacheLimitMb(boot.deviceSettings));
   const [draft, setDraft] = useState(() => String(limitMb));
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<Said | null>(null);
@@ -357,16 +365,21 @@ function Cache() {
     [view, runtime, limitMb],
   );
 
-  const save = (): void => {
+  const save = async (): Promise<void> => {
     const parsed = Number(draft.trim());
     if (!Number.isSafeInteger(parsed) || parsed < 0) {
       setSaid({ ok: false, text: '请填一个不小于 0 的整数（MB），0 表示不限。' });
       return;
     }
-    writeCacheLimitMb(boot.db.sqlite, parsed);
+    try {
+      await writeCacheLimitMb(boot.deviceSettings, parsed);
+    } catch (err) {
+      setSaid({ ok: false, text: err instanceof Error ? err.message : '保存失败' });
+      return;
+    }
     // Read back rather than assume the write won — the same rule the model
     // form above follows.
-    const saved = readCacheLimitMb(boot.db.sqlite);
+    const saved = readCacheLimitMb(boot.deviceSettings);
     setLimitMb(saved);
     setDraft(String(saved));
     setSaid({ ok: true, text: saved === 0 ? '已保存：不限。' : `已保存：${saved}MB。` });
@@ -417,7 +430,7 @@ function Cache() {
         </View>
         <Pressable
           style={[styles.button, styles.buttonPrimary, styles.buttonNarrow]}
-          onPress={save}
+          onPress={() => void save()}
           accessibilityRole="button"
           accessibilityLabel="保存上限"
         >

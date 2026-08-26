@@ -13,6 +13,7 @@
 //   ⑧ converge, in one transaction      §2.2.2; does NOT touch sync_file_ops
 //   ⑨ ensureDeviceUuid                  same position as the desktop's
 //   ⑩ commit the intent                 SecureStore: committed set, intent cleared
+//  ⑩b adopt the device's settings       N7a: §4's six leave `local_metadata`
 //   ⑪ boot drain (file-op journal)      before anything looks at the song dirs
 //  ⑪b sweep songs/ against the library  after the drain, before the engine
 //   ⑫ hand back the library             services and UI are the caller's
@@ -37,11 +38,13 @@
 // `songs.db`.
 
 import {
+  type DeviceSettingsPort,
   type DrainResult,
   type FileContext,
   FileEffectRuntime,
   type PortableDb,
   type StructuredLogger,
+  adoptDeviceSettings,
   ensureDeviceUuid,
   pendingFileOpSongIds,
   uuid,
@@ -53,8 +56,9 @@ import { libraryExists, probeLibrary } from '../identity/snapshot';
 import { type IdentityDecision, type IdentityPurpose, decideIdentity } from '../identity/state';
 import { commitIdentity, readCommitted, readIntent, writeIntent } from '../identity/store';
 import { createSecureCredentialStore } from '../ports/credentials';
+import { createDeviceSettings } from '../ports/device-settings';
 import { createFileSystem } from '../ports/fs';
-import { createPaths } from '../ports/paths';
+import { createPaths, deviceSettingsFile } from '../ports/paths';
 import { createSongFiles } from '../ports/song-files';
 import { installPortableRuntime } from './runtime';
 import { type SweepReport, sweepSongsStore } from './sweep';
@@ -69,6 +73,14 @@ export interface BootResult {
   /** Present when step ⑧ ran. */
   converged: ConvergeResult | null;
   deviceUuid: string;
+  /**
+   * This phone's settings — the ones that are not any library's (N7a).
+   *
+   * Built here because step ⑩b needs it and because every screen that reads a
+   * setting is downstream of a boot: one loaded copy per process, not one per
+   * component.
+   */
+  deviceSettings: DeviceSettingsPort;
   /**
    * The journal runtime step ⑪ drained, handed on rather than rebuilt.
    *
@@ -223,13 +235,36 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
     if (planned !== null) await commitIdentity(installId);
     crashPoint?.('after-commit');
 
+    // ⑩b The six settings in §4's table belong to this PHONE, not to this
+    // library, and until N7a a library was the only thing this host could
+    // write to. One phone now holds several, so they move out — once per
+    // library, writing `device.json` before deleting the rows so a crash
+    // between the two loses nothing (`portable/device-settings.ts`).
+    //
+    // AFTER the identity gate, deliberately: ⑤–⑩ is one story about which
+    // install owns this library, and a settings move has no business inside
+    // it. Before ⑪ for the ordinary reason — the caller gets a library whose
+    // settings have already finished moving.
+    const files: FileContext = { fs: createFileSystem(), paths: createPaths() };
+    const deviceSettings = createDeviceSettings({
+      // The four lines that touch the disk. They are here rather than in
+      // `ports/device-settings.ts` so that what the file MEANS stays in a file
+      // Node can load (criterion 105).
+      load: () => {
+        const file = deviceSettingsFile();
+        return file.exists ? file.textSync() : null;
+      },
+      save: (text) => files.fs.writeTextAtomic(deviceSettingsFile().uri, text),
+      logger,
+    });
+    await adoptDeviceSettings(db.sqlite, deviceSettings, logger);
+
     // ⑪ boot drain. Every row in the journal is a consequence the database
     // already committed whose file half has not happened yet — a song a peer
     // deleted, lyrics that arrived, a directory to move aside. Anything that
     // judges a song directory against the library would meet a half-finished
     // effect and read it as residue (`portable/sync/file-ops.ts`), so this
     // runs before the caller gets the library, not after.
-    const files: FileContext = { fs: createFileSystem(), paths: createPaths() };
     const fileOps = new FileEffectRuntime({
       sqlite: db.sqlite,
       files,
@@ -257,6 +292,7 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
       decision,
       converged,
       deviceUuid,
+      deviceSettings,
       fileOps,
       drained,
       swept,

@@ -1,14 +1,13 @@
 // Criterion 24 (N4d), the half that does not need a phone: where the choice
 // lives, what an install that has never chosen opens on, and what a value this
-// build does not understand does NOT do to the library.
+// build does not understand does NOT do to what is stored.
 //
 // The other half — that it survives a cold start — is the device's, because
-// what it is really testing there is that the library on disk is the same one
-// the next process opens.
+// what it is really testing there is that the file on disk is the same one the
+// next process reads.
 
-import type BetterSqlite3 from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDatabase } from '../db/index.js';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createMemoryDeviceSettings } from './device-settings.js';
 import type { StructuredLogger } from './logger.js';
 import {
   NAMING_MODE_KEY,
@@ -16,26 +15,21 @@ import {
   resolveNamingMode,
   writeNamingMode,
 } from './naming-mode.js';
+import type { DeviceSettingsPort } from './ports/device-settings.js';
 
-let sqlite: BetterSqlite3.Database;
+let settings: DeviceSettingsPort;
 
 beforeEach(() => {
-  ({ sqlite } = createDatabase({ dbPath: ':memory:' }));
+  settings = createMemoryDeviceSettings();
 });
 
-afterEach(() => {
-  sqlite.close();
+/** A store that fails loudly if a read path writes to it. */
+const readOnly = (value: string): DeviceSettingsPort => ({
+  get: (key) => (key === NAMING_MODE_KEY ? value : undefined),
+  set: () => {
+    throw new Error('the read path wrote');
+  },
 });
-
-const rows = () =>
-  sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').all(NAMING_MODE_KEY) as {
-    value: string;
-  }[];
-
-const put = (value: string) =>
-  sqlite
-    .prepare('INSERT INTO local_metadata (key, value) VALUES (?, ?)')
-    .run(NAMING_MODE_KEY, value);
 
 const warnings: { fields: Record<string, unknown>; msg: string }[] = [];
 const recorder: StructuredLogger = {
@@ -53,55 +47,43 @@ beforeEach(() => {
 
 describe('remembering the choice', () => {
   it('an install that has never chosen says so, rather than guessing', () => {
-    expect(rows()).toHaveLength(0);
-    expect(readNamingMode(sqlite)).toBeNull();
+    expect(readNamingMode(settings)).toBeNull();
   });
 
-  it('round-trips both modes through one row', () => {
-    writeNamingMode(sqlite, 'clean');
-    expect(readNamingMode(sqlite)).toBe('clean');
+  it('round-trips both modes', async () => {
+    await writeNamingMode(settings, 'clean');
+    expect(readNamingMode(settings)).toBe('clean');
 
-    writeNamingMode(sqlite, 'original');
-    expect(readNamingMode(sqlite)).toBe('original');
-    // Upsert, not append: a setting with two values is a setting with none.
-    expect(rows()).toHaveLength(1);
-  });
-
-  it('is in the library, not in process state — a reopen finds it', () => {
-    writeNamingMode(sqlite, 'clean');
-    expect(
-      sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').get(NAMING_MODE_KEY),
-    ).toEqual({ value: 'clean' });
+    await writeNamingMode(settings, 'original');
+    expect(readNamingMode(settings)).toBe('original');
   });
 });
 
 describe('a value this build does not understand', () => {
   for (const junk of ['', ' clean', 'CLEAN', 'cleaned', 'true', '1']) {
-    it(`reads \`${junk}\` as "never chosen" and leaves the row alone`, () => {
-      put(junk);
-      expect(readNamingMode(sqlite, recorder)).toBeNull();
+    it(`reads \`${junk}\` as "never chosen" and leaves it alone`, () => {
+      const store = readOnly(junk);
+      expect(readNamingMode(store, recorder)).toBeNull();
       // The point of the case: the read path is a read path.
-      expect(rows()).toEqual([{ value: junk }]);
+      expect(store.get(NAMING_MODE_KEY)).toBe(junk);
     });
   }
 
   it('says so once, with the value it could not use', () => {
-    put('cleaned');
-    readNamingMode(sqlite, recorder);
+    readNamingMode(readOnly('cleaned'), recorder);
     expect(warnings).toHaveLength(1);
     expect(warnings[0]?.fields).toEqual({ key: NAMING_MODE_KEY, stored: 'cleaned' });
   });
 
-  it('stays quiet on the paths that are not surprising', () => {
-    readNamingMode(sqlite, recorder);
-    writeNamingMode(sqlite, 'clean');
-    readNamingMode(sqlite, recorder);
+  it('stays quiet on the paths that are not surprising', async () => {
+    readNamingMode(settings, recorder);
+    await writeNamingMode(settings, 'clean');
+    readNamingMode(settings, recorder);
     expect(warnings).toHaveLength(0);
   });
 
   it('reads without a logger at all — a boot path may not have one yet', () => {
-    put('nonsense');
-    expect(readNamingMode(sqlite)).toBeNull();
+    expect(readNamingMode(readOnly('nonsense'))).toBeNull();
   });
 });
 
@@ -123,15 +105,5 @@ describe('resolveNamingMode (decision f)', () => {
     // The form disables the chip and says why; moving the choice on the user's
     // behalf would hide that the model, not the preference, is what changed.
     expect(resolveNamingMode({ remembered: 'clean', hasLlm: false })).not.toBe('original');
-  });
-});
-
-describe('the identity domain it belongs to', () => {
-  it('is local, not synced: changing it emits no sync_changes row', () => {
-    const changes = () =>
-      (sqlite.prepare('SELECT count(*) AS n FROM sync_changes').get() as { n: number }).n;
-    const before = changes();
-    writeNamingMode(sqlite, 'clean');
-    expect(changes()).toBe(before);
   });
 });

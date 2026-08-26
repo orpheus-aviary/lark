@@ -1,9 +1,13 @@
 // "Which order does this install play in?" (N3b, decision g)
 //
-// One key in `local_metadata`, beside `device_uuid` and `now_playing_mode` and
-// for the same reason: a PER-INSTALL preference, never a fact about the
-// library, so it stays out of `sync_changes`. A phone on shuffle and a laptop
-// playing a playlist in order are not in disagreement.
+// A DEVICE setting (N7a): a per-install preference, never a fact about any
+// library, so it stays out of `sync_changes` — and, since N7, out of the
+// libraries themselves. A phone on shuffle and a laptop playing a playlist in
+// order are not in disagreement, and neither are two accounts on one phone.
+//
+// It lived in `local_metadata` until N7a, back when a library was the only
+// thing this host could write to; `ports/device-settings.ts` says why that
+// stopped being true.
 //
 // The desktop keeps its own adapter (localStorage, `stores/player.ts`) — the
 // decision n split from N2f, where `song-sort`'s comparators are shared and
@@ -15,32 +19,26 @@
 
 import { type PlayMode, isPlayMode } from '@lark/shared';
 import type { StructuredLogger } from './logger.js';
-import type { SqliteLike } from './sqlite.js';
+import type { DeviceSettingsPort } from './ports/device-settings.js';
 
 export const PLAY_MODE_KEY = 'play_mode';
 
-/** What a library that has never been asked plays in. */
+/** What an install that has never been asked plays in. */
 export const DEFAULT_PLAY_MODE: PlayMode = 'sequential';
 
-export function readPlayMode(sqlite: SqliteLike, logger?: StructuredLogger): PlayMode {
-  const row = sqlite.prepare('SELECT value FROM local_metadata WHERE key = ?').get(PLAY_MODE_KEY) as
-    | { value: string }
-    | undefined;
+export function readPlayMode(settings: DeviceSettingsPort, logger?: StructuredLogger): PlayMode {
+  const stored = settings.get(PLAY_MODE_KEY);
 
-  if (row === undefined) return DEFAULT_PLAY_MODE;
-  if (isPlayMode(row.value)) return row.value;
+  if (stored === undefined) return DEFAULT_PLAY_MODE;
+  if (isPlayMode(stored)) return stored;
 
   logger?.warn(
-    { key: PLAY_MODE_KEY, stored: row.value },
-    `local_metadata.${PLAY_MODE_KEY} is not a mode this build knows — reading it as '${DEFAULT_PLAY_MODE}'`,
+    { key: PLAY_MODE_KEY, stored },
+    `${PLAY_MODE_KEY} is not a mode this build knows — reading it as '${DEFAULT_PLAY_MODE}'`,
   );
   return DEFAULT_PLAY_MODE;
 }
 
-export function writePlayMode(sqlite: SqliteLike, mode: PlayMode): void {
-  sqlite
-    .prepare(
-      'INSERT INTO local_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-    )
-    .run(PLAY_MODE_KEY, mode);
+export function writePlayMode(settings: DeviceSettingsPort, mode: PlayMode): Promise<void> {
+  return settings.set({ [PLAY_MODE_KEY]: mode });
 }

@@ -9,34 +9,32 @@
 //
 // The limit's storage shape is core's (`portable/cache-limit.test.ts`,
 // criterion 50); what is on trial here is that this host reads it at all, per
-// call, in bytes.
+// call, in bytes — from the DEVICE's settings since N7a, not from the library.
 
-import { MIB, type SqliteLike } from '@lark/core/portable';
+import { type DeviceSettingsPort, MIB } from '@lark/core/portable';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createCacheOptions } from './library';
 
-/** `local_metadata`, as much of it as `readCacheLimitMb` touches. */
+/** `device.json`, as much of it as `readCacheLimitMb` touches. */
 let stored: string | undefined;
 let currentSongId: string | null;
 let leased: Set<string>;
 let pending: Set<string>;
 let reads: number;
 
-const sqlite = {
-  prepare: () => ({
-    get: () => {
-      reads += 1;
-      return stored === undefined ? undefined : { value: stored };
-    },
-    run: () => {
-      throw new Error('the read path must not write');
-    },
-  }),
-} as unknown as SqliteLike;
+const settings: DeviceSettingsPort = {
+  get: () => {
+    reads += 1;
+    return stored;
+  },
+  set: () => {
+    throw new Error('the read path must not write');
+  },
+};
 
 const options = () =>
   createCacheOptions({
-    sqlite,
+    settings,
     currentSongId: () => currentSongId,
     hasLease: (songId) => leased.has(songId),
     pendingFileSongIds: () => pending,

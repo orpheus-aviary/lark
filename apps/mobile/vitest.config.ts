@@ -113,6 +113,12 @@
 // "the current device is asked differently" cannot be observed there without
 // revoking something for real.
 
+// `ports/device-settings.ts` joined in N7a, and it is why the four lines that
+// name `device.json` live in the boot sequence instead of in it: criterion 105
+// is about a file that is missing, empty or corrupt, and none of those three
+// states can be arranged on a phone without `adb` in an app-private directory.
+// What is left in the module is the reading, the merge and the write queue.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -122,6 +128,7 @@ export default defineConfig({
       'src/library/batch.test.ts',
       'src/library/import.test.ts',
       'src/player/store.test.ts',
+      'src/ports/device-settings.test.ts',
       'src/ports/events.test.ts',
       'src/sync/devices.test.ts',
       'src/sync/triggers.test.ts',

@@ -204,7 +204,7 @@ export function createDownloadRuntime(
     // not a hot path, and the engine snapshots the answer for the task's
     // lifetime anyway — so a config saved mid-download applies to the next one,
     // which is the only behaviour that can be explained.
-    getLlmConfig: () => readLlmConfig(boot.db.sqlite),
+    getLlmConfig: () => readLlmConfig(boot.deviceSettings),
     timeouts: MOBILE_TIMEOUTS,
     // Without it the engine is NOOP_LOGGER, and "详情见日志" names a log this
     // device does not have — a release build reaches no logcat either, so an
@@ -270,6 +270,7 @@ export function createDownloadRuntime(
 
   cache = createCacheRuntime({
     db: boot.db,
+    settings: boot.deviceSettings,
     files: boot.files,
     engine,
     bilibili,
@@ -284,7 +285,7 @@ export function createDownloadRuntime(
   return {
     engine,
     bilibili,
-    hasLlm: () => hasLlmConfig(boot.db.sqlite),
+    hasLlm: () => hasLlmConfig(boot.deviceSettings),
     foreground,
     cache,
     fileOps: new FileEffectRuntime({

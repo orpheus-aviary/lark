@@ -76,7 +76,7 @@ export async function runReidentifyScenarios(): Promise<ScenarioRow[]> {
   const boot: BootResult = await runBootSequence();
   const { engine, fileOps } = createDownloadRuntime(boot);
   const library = createLibrary(boot, fileOps);
-  const saved = readLlmEndpoint(boot.db.sqlite);
+  const saved = readLlmEndpoint(boot.deviceSettings);
   let songId: string | null = null;
 
   try {
@@ -84,7 +84,7 @@ export async function runReidentifyScenarios(): Promise<ScenarioRow[]> {
       await row('⓪ 这台设备上有模型吗', async () => {
         expect(
           saved.url.trim() !== '' && saved.model.trim() !== '',
-          '这个库里没有模型配置——先装生产构建、在设置页填一遍，' +
+          '这台设备上没有模型配置——先装生产构建、在设置页填一遍，' +
             '并且不要在本套件之前跑任何会重置安装的套件（那会连库带配置一起删掉）',
         );
         return `${saved.api_format} · ${saved.url} · ${saved.model}`;
@@ -114,7 +114,7 @@ export async function runReidentifyScenarios(): Promise<ScenarioRow[]> {
 
     rows.push(
       await row('② 无 LLM → SOURCE_GONE，且说得出怎么修', async () => {
-        writeLlmEndpoint(boot.db.sqlite, emptied(saved));
+        await writeLlmEndpoint(boot.deviceSettings, emptied(saved));
         // The engine reads the config per task (N4e-1), so this takes effect on
         // the next one without rebuilding anything.
         const task = await awaitTask(engine.enqueueRedownload(requireSong(songId)).id);
@@ -129,7 +129,7 @@ export async function runReidentifyScenarios(): Promise<ScenarioRow[]> {
 
     rows.push(
       await row('③ 有 LLM → 重新识别并下成', async () => {
-        writeLlmEndpoint(boot.db.sqlite, saved);
+        await writeLlmEndpoint(boot.deviceSettings, saved);
         const dead = `${subjectVideo().bvid}:${DEAD_CID}`;
         const task = await awaitTask(engine.enqueueRedownload(requireSong(songId)).id);
         expect(
@@ -151,7 +151,7 @@ export async function runReidentifyScenarios(): Promise<ScenarioRow[]> {
       await row('④ 收尾：把这首歌删掉', async () => {
         await library.deleteSong(requireSong(songId));
         songId = null;
-        expect(readLlmEndpoint(boot.db.sqlite).url === saved.url, '模型配置没有还原');
+        expect(readLlmEndpoint(boot.deviceSettings).url === saved.url, '模型配置没有还原');
         return '曲库回到运行前的样子';
       }),
     );
@@ -160,7 +160,7 @@ export async function runReidentifyScenarios(): Promise<ScenarioRow[]> {
     // Belt and braces: ③ restores the endpoint on the happy path, and this
     // catches the one that matters — ② throwing after it emptied the config
     // would otherwise leave the phone looking like it never had a model.
-    writeLlmEndpoint(boot.db.sqlite, saved);
+    await writeLlmEndpoint(boot.deviceSettings, saved);
     boot.handle.closeSync();
   }
 }

@@ -10,6 +10,7 @@
 
 export * from './audio-landing.js';
 export * from './credentials.js';
+export * from './device-settings.js';
 export * from './device.js';
 export * from './events.js';
 export * from './fs.js';

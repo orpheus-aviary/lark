@@ -1,17 +1,18 @@
 // "How did this install name the last song it downloaded?" (N4d, decisions k
 // and f)
 //
-// One key in `local_metadata`, beside `device_uuid`, `now_playing_mode` and
-// `play_mode`, and for the same reason: a PER-INSTALL preference, never a fact
-// about the library, so it stays out of `sync_changes`. The desktop keeps the
-// same choice in localStorage (`gui/lib/naming-mode.ts`) — the decision-n split
-// from N2f, where what must not differ is the MEANING of the two values, and
-// that lives in `@lark/shared`.
+// A DEVICE setting (N7a): a per-install preference, never a fact about any
+// library, so it stays out of `sync_changes` and — since N7, where one phone
+// holds several libraries — out of the libraries themselves. The desktop keeps
+// the same choice in localStorage (`gui/lib/naming-mode.ts`), which is device
+// state by construction; this is the phone's half of the same split. What must
+// not differ is the MEANING of the two values, and that lives in
+// `@lark/shared`.
 //
 // The read path never writes. A value we cannot parse belongs to another build
 // of this install, not to us.
 //
-// WHAT IS DIFFERENT FROM ITS THREE SIBLINGS: reading and defaulting are two
+// WHAT IS DIFFERENT FROM ITS SIBLINGS: reading and defaulting are two
 // functions here, not one. `clean` asks a model for the song and the artist
 // inside a bilibili title, so on an install with no model configured it is not
 // a preference — it is a submission that will be refused before any network
@@ -21,7 +22,7 @@
 
 import { DOWNLOAD_NAMING_MODES, type DownloadNamingMode } from '@lark/shared';
 import type { StructuredLogger } from './logger.js';
-import type { SqliteLike } from './sqlite.js';
+import type { DeviceSettingsPort } from './ports/device-settings.js';
 
 export const NAMING_MODE_KEY = 'naming_mode';
 
@@ -43,30 +44,27 @@ const isNamingMode = (value: unknown): value is DownloadNamingMode =>
  * only the first of them may change its mind when a model appears.
  */
 export function readNamingMode(
-  sqlite: SqliteLike,
+  settings: DeviceSettingsPort,
   logger?: StructuredLogger,
 ): DownloadNamingMode | null {
-  const row = sqlite
-    .prepare('SELECT value FROM local_metadata WHERE key = ?')
-    .get(NAMING_MODE_KEY) as { value: string } | undefined;
+  const stored = settings.get(NAMING_MODE_KEY);
 
-  if (row === undefined) return null;
-  if (isNamingMode(row.value)) return row.value;
+  if (stored === undefined) return null;
+  if (isNamingMode(stored)) return stored;
 
   logger?.warn(
-    { key: NAMING_MODE_KEY, stored: row.value },
-    `local_metadata.${NAMING_MODE_KEY} is not a mode this build knows — falling back to the default`,
+    { key: NAMING_MODE_KEY, stored },
+    `${NAMING_MODE_KEY} is not a mode this build knows — falling back to the default`,
   );
   return null;
 }
 
-/** Remember the choice. Upsert, because the row only exists once someone has chosen. */
-export function writeNamingMode(sqlite: SqliteLike, mode: DownloadNamingMode): void {
-  sqlite
-    .prepare(
-      'INSERT INTO local_metadata (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-    )
-    .run(NAMING_MODE_KEY, mode);
+/** Remember the choice. */
+export function writeNamingMode(
+  settings: DeviceSettingsPort,
+  mode: DownloadNamingMode,
+): Promise<void> {
+  return settings.set({ [NAMING_MODE_KEY]: mode });
 }
 
 /**

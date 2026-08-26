@@ -48,6 +48,19 @@ export function databaseDirectoryUri(): string {
 /** The library file's name inside that directory. */
 export const DATABASE_NAME = 'songs.db';
 
+/**
+ * `<nest>/device.json` — what belongs to the PHONE rather than to a library
+ * (N7a).
+ *
+ * Beside `songs.db` and not inside it, which is the whole point: one phone is
+ * about to hold several libraries (N7), and a cache limit or a model endpoint
+ * that changed with the active account would be a setting nobody touched. The
+ * desktop has always had this file; it is called `lark_config.toml`.
+ */
+export function deviceSettingsFile(): File {
+  return new File(nestDirectory(), 'device.json');
+}
+
 // ─── PathsPort (N2d) ────────────────────────────────────
 //
 // `join` lives here and nowhere else. Portable code names things — "this

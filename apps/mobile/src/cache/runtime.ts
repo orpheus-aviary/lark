@@ -30,6 +30,7 @@ import {
   type BilibiliClient,
   type CacheOptions,
   DEFAULT_TIMEOUTS,
+  type DeviceSettingsPort,
   type DownloadEngine,
   type DownloadTimeouts,
   EvictionScheduler,
@@ -54,6 +55,8 @@ const NEVER_ABORTED = new AbortController().signal;
 
 export interface CacheRuntimeDeps {
   db: PortableDb;
+  /** This phone's settings — the cache limit is one of them (N7a). */
+  settings: DeviceSettingsPort;
   files: FileContext;
   /** The engine, for its claim registry and its pending-file set. */
   engine: DownloadEngine;
@@ -98,7 +101,7 @@ export function createCacheRuntime(deps: CacheRuntimeDeps): CacheRuntime {
 
   const options = (): CacheOptions =>
     createCacheOptions({
-      sqlite: deps.db.sqlite,
+      settings: deps.settings,
       currentSongId: deps.currentSongId,
       hasLease: (songId) => leases.has(songId),
       pendingFileSongIds: () => deps.engine.pendingFileSongIds(),

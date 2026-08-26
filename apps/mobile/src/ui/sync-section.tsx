@@ -20,6 +20,7 @@
 import {
   CodedError,
   type CoordinatorContext,
+  type DeviceSettingsPort,
   type FileEffectRuntime,
   listFileOps,
   performSyncLogin,
@@ -37,6 +38,7 @@ import {
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
+import { engineLogger } from '../downloads/log';
 import { syncContextOnce } from '../sync/context';
 import { refreshSync } from '../sync/hub';
 import { useSyncNow } from '../sync/use-sync';
@@ -77,7 +79,7 @@ export function SyncSection({ onConflicts }: SyncSectionProps) {
       </View>
 
       {status === null || !status.configured || !status.authenticated ? (
-        <LoginForm ctx={ctx} status={status} />
+        <LoginForm ctx={ctx} settings={boot.deviceSettings} status={status} />
       ) : (
         <Signed ctx={ctx} />
       )}
@@ -131,24 +133,34 @@ export function SyncSection({ onConflicts }: SyncSectionProps) {
  */
 function LoginForm({
   ctx,
+  settings,
   status,
-}: { ctx: CoordinatorContext; status: ReturnType<typeof useSyncNow>['status'] }) {
+}: {
+  ctx: CoordinatorContext;
+  /** The plaintext switch is this device's, not this library's (N7a). */
+  settings: DeviceSettingsPort;
+  status: ReturnType<typeof useSyncNow>['status'];
+}) {
   const [url, setUrl] = useState(() => status?.server_url ?? '');
   // The status carries no email — it is not a field a status has, and
   // pre-filling it from credentials would print somebody's address on a
   // screen they only opened to look at a number.
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [insecure, setInsecure] = useState(() => readSyncAllowInsecure(ctx.db.sqlite));
+  const [insecure, setInsecure] = useState(() => readSyncAllowInsecure(settings));
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<Said | null>(null);
 
   const toggleInsecure = useCallback(
     (next: boolean) => {
       setInsecure(next);
-      writeSyncAllowInsecure(ctx.db.sqlite, next);
+      // A device setting since N7a. The switch has already moved; a failed
+      // write costs the next launch's answer, which fails CLOSED.
+      void writeSyncAllowInsecure(settings, next).catch((err: unknown) => {
+        engineLogger.warn({ err: String(err) }, 'could not save the plaintext switch');
+      });
     },
-    [ctx],
+    [settings],
   );
 
   const submit = useCallback(async () => {

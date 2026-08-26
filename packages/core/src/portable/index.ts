@@ -25,6 +25,7 @@ export * from './coordinator/status.js';
 export * from './coordinator/stream.js';
 export * from './cache-limit.js';
 export * from './db-identity.js';
+export * from './device-settings.js';
 export * from './db.js';
 export * from './download/batches.js';
 export * from './download/bilibili.js';

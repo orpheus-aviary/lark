@@ -16,10 +16,10 @@
 
 import {
   type CacheOptions,
+  type DeviceSettingsPort,
   type FileEffectRuntime,
   type LibraryService,
   MIB,
-  type SqliteLike,
   type StructuredLogger,
   createLibraryService,
   readCacheLimitMb,
@@ -62,7 +62,8 @@ export function createLibrary(boot: BootResult, fileOps: FileEffectRuntime): Lib
  * stream to count and never will be one here.
  */
 export interface CacheOptionsDeps {
-  sqlite: SqliteLike;
+  /** Where the limit lives since N7a: this phone, not this library. */
+  settings: DeviceSettingsPort;
   /** The song the player is on, playing or paused. `null` when it has none. */
   currentSongId: () => string | null;
   /** `SongLeaseRegistry.has` — the 60-second window after an ensure-file. */
@@ -75,7 +76,7 @@ export interface CacheOptionsDeps {
 
 export function createCacheOptions(deps: CacheOptionsDeps): CacheOptions {
   return {
-    limitBytes: readCacheLimitMb(deps.sqlite, deps.logger) * MIB,
+    limitBytes: readCacheLimitMb(deps.settings, deps.logger) * MIB,
     isExcluded: (songId) =>
       deps.currentSongId() === songId ||
       deps.hasLease(songId) ||

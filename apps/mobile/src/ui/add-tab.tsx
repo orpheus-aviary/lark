@@ -25,6 +25,7 @@ import type { BatchTargetInput, DownloadNamingMode } from '@lark/shared';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
+import { engineLogger } from '../downloads/log';
 import { type LineSummary, readLines } from '../downloads/multi-line';
 import {
   type KeywordItem,
@@ -149,7 +150,7 @@ export function AddTab() {
   const [text, setText] = useState(() => takeShareDraft() ?? '');
   const { seen, resolving, lines } = useRecognition(text, runtime.bilibili, hasLlm);
   const [mode, setMode] = useState<DownloadNamingMode>(() =>
-    resolveNamingMode({ remembered: readNamingMode(boot.db.sqlite), hasLlm }),
+    resolveNamingMode({ remembered: readNamingMode(boot.deviceSettings), hasLlm }),
   );
   const [playlistId, setPlaylistId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
@@ -177,7 +178,13 @@ export function AddTab() {
     setMode(next);
     // Remembered on the choice, not on the submission: someone who changed
     // their mind and then closed the app still changed their mind.
-    writeNamingMode(boot.db.sqlite, next);
+    //
+    // A device setting since N7a, so remembering it is a file write. Nothing
+    // waits for it and there is no form to report to — the chip has already
+    // moved, and the worst a failure costs is next launch's default.
+    void writeNamingMode(boot.deviceSettings, next).catch((err: unknown) => {
+      engineLogger.warn({ err: String(err) }, 'could not remember the naming mode');
+    });
   };
 
   /** One video or one keyword: queued from here, right now. */

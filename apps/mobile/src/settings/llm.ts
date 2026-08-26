@@ -21,8 +21,8 @@
 
 import {
   DEFAULT_TIMEOUTS,
+  type DeviceSettingsPort,
   type LlmEndpoint,
-  type SqliteLike,
   type StructuredLogger,
   chatCompletion,
   isLlmConfigured,
@@ -47,18 +47,21 @@ export function readApiKey(): string {
 }
 
 /** Endpoint + key, in the shape `chatCompletion` and the engine both take. */
-export function readLlmConfig(sqlite: SqliteLike, logger?: StructuredLogger): LlmConfig {
-  return { ...readLlmEndpoint(sqlite, logger), api_key: readApiKey() };
+export function readLlmConfig(settings: DeviceSettingsPort, logger?: StructuredLogger): LlmConfig {
+  return { ...readLlmEndpoint(settings, logger), api_key: readApiKey() };
 }
 
 /** Is there enough here to call anything? url + model, never the key. */
-export function hasLlmConfig(sqlite: SqliteLike): boolean {
-  return isLlmConfigured(readLlmConfig(sqlite));
+export function hasLlmConfig(settings: DeviceSettingsPort): boolean {
+  return isLlmConfigured(readLlmConfig(settings));
 }
 
-/** Save the three library-held fields. The key is saved separately, below. */
-export function saveLlmEndpoint(sqlite: SqliteLike, endpoint: LlmEndpoint): void {
-  writeLlmEndpoint(sqlite, endpoint);
+/** Save the three device-held fields. The key is saved separately, below. */
+export function saveLlmEndpoint(
+  settings: DeviceSettingsPort,
+  endpoint: LlmEndpoint,
+): Promise<void> {
+  return writeLlmEndpoint(settings, endpoint);
 }
 
 /**
