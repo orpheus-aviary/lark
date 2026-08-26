@@ -1,13 +1,14 @@
 # lark
 
-百灵音乐（TypeScript 版）—— `orpheus-aviary` 项目下的桌面音乐工具：播放、从 bilibili 下载、
-自动配歌词、歌单管理。Electron + Fastify + React，附一个给人和 agent 用的 CLI。
-原 Wails + Go 版归档为 `../lark-go/`。
+百灵音乐（TypeScript 版）—— `orpheus-aviary` 项目下的音乐工具：播放、从 bilibili 下载、
+自动配歌词、歌单管理，多设备同步。**macOS 桌面端**（Electron + Fastify + React）+
+**Android 端**（Expo）+ 一个给人和 agent 用的 CLI。原 Wails + Go 版归档为 `../lark-go/`。
 
 ## 状态
 
-当前版本 **0.3.0**（2026-08-17；首发 0.1.0 在 2026-08-10，0.2.0 在 2026-08-12）。
-- 仅 macOS Apple Silicon（arm64）
+桌面 **0.3.0**（2026-08-17；首发 0.1.0 在 2026-08-10，0.2.0 在 2026-08-12）· Android **0.1.0**（首发）。
+两端版本号各走各的。
+- 桌面仅 macOS Apple Silicon（arm64）；Android 需 8.0 以上
 - GUI 为 ad-hoc 签名（未 notarize），首次运行需绕过 Gatekeeper
 - 无自动更新
 
@@ -43,6 +44,26 @@ v0.3 把曲库统一成 **m4a（AAC）**：下载 bilibili 的 AAC 不再转码�
 
 装完在「设置 → 媒体工具」能看到当前用的是哪一份 ffmpeg。
 
+## Android
+
+手机上的同一个曲库：播放、从 bilibili 下载、歌词、歌单，以及与桌面之间的同步。
+
+**装**：[Releases](https://github.com/orpheus-aviary/lark/releases) 下载 `lark-<version>.apk`，
+点开安装（系统会提示「来自未知来源」，允许一次即可）。**只在 GitHub Release 发，不进应用商店，没有自动更新。**
+
+要知道的几件事：
+
+- **和桌面是两台设备，不是主从。** 各自有本地曲库；登录同一个 skybridge 账号之后，曲目信息、歌单、歌词跨设备同步。
+  **音频本体不同步**——新来的歌显示「需要下载」，点播放时再去取。
+- **一台手机可以有多个曲库。** 没登录的那个叫「本机曲库」，每个登录过的账号各有一个，互相看不见。
+  切换曲库要重开 app（确认之后 lark 会自己关闭，重新打开就在新的曲库里）；首次登录某个账号也一样。
+- **数据在应用私有目录，卸载会一起删掉。** 想留退路，在歌单页把曲库导出成文件——导出的是曲目清单不含音频，导回来会重新下载。
+- **清洗命名用的 LLM 只能在手机的设置页里填**，存这台设备：不从桌面导入，也不参与同步。
+- 同步**只在前台跑**：app 在后台时收不到别的设备的改动，回到前台会补一轮。
+
+与桌面的两处已知差异：**锁屏和车机上只有播放 / 暂停 / 进度**（上一首、下一首在当前 Expo 版本上不可用）；
+**播放队列是按下播放那一刻的快照**，之后改列表不影响正在放的这一轮。
+
 ## CLI
 
 给 agent / 人用的曲库与下载入口，也可以脱离 GUI 单独使用：
@@ -74,9 +95,12 @@ lark skill export           # 导出给 agent 看的说明书
 数据库是 WAL 模式、必须停机后再拷。契约与理由见 `CLAUDE.md`。
 卸载：删 `/Applications/Lark.app` + `~/orpheus-aviary-nest/lark/`。
 
+**Android 的数据不在这里**——它在应用私有目录，只归那台手机，卸载即删。
+
 ## 开发
 
 需 Node 24（`.node-version`）、pnpm ≥ 10、`just`、`rg`、macOS（dmg 打包）。
+另要开发 Android 的话：JDK 17 + Android SDK + `adb`（`just mobile-android-release` 直接构建并装到连着的手机）。
 
 ```bash
 pnpm install
@@ -111,7 +135,7 @@ TOKEN=$(cat ~/orpheus-aviary-nest/lark/daemon-token)
 curl -H "Authorization: Bearer $TOKEN" 127.0.0.1:47100/api/capabilities   # 自描述端点清单
 ```
 
-结构与规范见 `CLAUDE.md`，设计见 `docs/DESIGN.md`，进度见 `PROCESS.md`。
+结构与规范见 `CLAUDE.md`，改代码前的约束见 `docs/INVARIANTS.md`，设计见 `docs/DESIGN.md`，进度见 `PROCESS.md`。
 
 ## License
 
