@@ -22,9 +22,9 @@
 
 import type { CredentialStash, CredentialStore, SkybridgeCredentials } from '@lark/core/portable';
 import { deleteItemAsync, getItem, setItem } from 'expo-secure-store';
+import { CREDENTIALS_KEY, CREDENTIALS_STASH_KEY, workspaceKey } from '../identity/keys';
+import { activeWorkspaceId } from './paths';
 
-const KEY = 'lark.skybridge';
-const STASH_KEY = 'lark.skybridge.stash';
 const OPTIONS = { requireAuthentication: false } as const;
 
 function parse(raw: string | null): SkybridgeCredentials | null {
@@ -57,7 +57,19 @@ function eraseSync(key: string): void {
   });
 }
 
-export function createSecureCredentialStore(): CredentialStore {
+/**
+ * ONE SESSION PER WORKSPACE since N7d.
+ *
+ * Not a refinement — `convergeLibrary` calls `delete()` on the store of the
+ * library it is claiming, so a shared key would mean adopting one workspace
+ * logs the other one out (`identity/keys.ts`, criterion 113). `local` keeps
+ * the unprefixed key, which is why an existing install needs no migration.
+ */
+export function createSecureCredentialStore(
+  workspaceId: string = activeWorkspaceId(),
+): CredentialStore {
+  const KEY = workspaceKey(CREDENTIALS_KEY, workspaceId);
+  const STASH_KEY = workspaceKey(CREDENTIALS_STASH_KEY, workspaceId);
   return {
     read(): SkybridgeCredentials | null {
       return parse(getItem(KEY, OPTIONS));

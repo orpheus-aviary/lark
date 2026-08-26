@@ -24,15 +24,23 @@
 // sequence.
 
 import { deleteItemAsync, getItem, setItem } from 'expo-secure-store';
+import { activeWorkspaceId } from '../ports/paths';
+import { COMMITTED_KEY, INTENT_KEY, workspaceKey } from './keys';
 import type { IdentityIntent, IdentityPurpose } from './state';
 
-const COMMITTED_KEY = 'lark.install_id';
-const INTENT_KEY = 'lark.install_intent';
 const OPTIONS = { requireAuthentication: false } as const;
 
+// ONE PAIR OF KEYS PER WORKSPACE since N7d, and `local` keeps the unprefixed
+// ones so an existing install is not asked to migrate (`keys.ts` says what
+// happens if it were). The default is the workspace this process opened —
+// there is only ever one — and boot passes it explicitly anyway, because a
+// sequence that decides which library to claim should be seen naming it.
+const committedKey = (workspaceId: string): string => workspaceKey(COMMITTED_KEY, workspaceId);
+const intentKey = (workspaceId: string): string => workspaceKey(INTENT_KEY, workspaceId);
+
 /** The identity this install has finished claiming, or `null`. */
-export function readCommitted(): string | null {
-  const value = getItem(COMMITTED_KEY, OPTIONS);
+export function readCommitted(workspaceId: string = activeWorkspaceId()): string | null {
+  const value = getItem(committedKey(workspaceId), OPTIONS);
   return value === null || value === '' ? null : value;
 }
 
@@ -52,8 +60,8 @@ function isPurpose(value: unknown): value is IdentityPurpose {
  * a resumed fresh. The intent buys idempotence (the same id twice), not
  * correctness.
  */
-export function readIntent(): IdentityIntent | null {
-  const raw = getItem(INTENT_KEY, OPTIONS);
+export function readIntent(workspaceId: string = activeWorkspaceId()): IdentityIntent | null {
+  const raw = getItem(intentKey(workspaceId), OPTIONS);
   if (raw === null || raw === '') return null;
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -67,8 +75,11 @@ export function readIntent(): IdentityIntent | null {
 }
 
 /** Step ⑤. Always before the database is opened for writing. */
-export function writeIntent(intent: IdentityIntent): void {
-  setItem(INTENT_KEY, JSON.stringify(intent), OPTIONS);
+export function writeIntent(
+  intent: IdentityIntent,
+  workspaceId: string = activeWorkspaceId(),
+): void {
+  setItem(intentKey(workspaceId), JSON.stringify(intent), OPTIONS);
 }
 
 /**
@@ -78,13 +89,16 @@ export function writeIntent(intent: IdentityIntent): void {
  * intent whose work is already done — and redoing it is idempotent by
  * construction, which is the reason the id travels in the intent at all.
  */
-export async function commitIdentity(installId: string): Promise<void> {
-  setItem(COMMITTED_KEY, installId, OPTIONS);
-  await deleteItemAsync(INTENT_KEY, OPTIONS);
+export async function commitIdentity(
+  installId: string,
+  workspaceId: string = activeWorkspaceId(),
+): Promise<void> {
+  setItem(committedKey(workspaceId), installId, OPTIONS);
+  await deleteItemAsync(intentKey(workspaceId), OPTIONS);
 }
 
 /** Acceptance builds only — the fixtures need a way back to a blank slate. */
-export async function forgetIdentity(): Promise<void> {
-  await deleteItemAsync(COMMITTED_KEY, OPTIONS);
-  await deleteItemAsync(INTENT_KEY, OPTIONS);
+export async function forgetIdentity(workspaceId: string = activeWorkspaceId()): Promise<void> {
+  await deleteItemAsync(committedKey(workspaceId), OPTIONS);
+  await deleteItemAsync(intentKey(workspaceId), OPTIONS);
 }

@@ -44,7 +44,7 @@ import {
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
 import { nowPlaying, usePlayback } from '../player';
-import { nestDirectory } from '../ports/paths';
+import { songsRoot } from '../ports/paths';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
 import { Chip } from './chip';
 import { ConflictsScreen } from './conflicts-screen';
@@ -556,7 +556,7 @@ function EngineErrors() {
 }
 
 function songDirectories(): number {
-  const songs = new Directory(nestDirectory(), 'songs');
+  const songs = songsRoot();
   return songs.exists ? songs.list().filter((entry) => entry instanceof Directory).length : 0;
 }
 

@@ -28,16 +28,41 @@
 #
 # Tests are out of scope: a test that hard-codes a path is testing a path.
 
+#
+# THE PHONE HAS THE SAME RULE, spelled differently (N7d). Its layout is
+# expo `Directory` objects rather than strings, so the thing to guard is who
+# may reach `nestDirectory()` — the DEVICE root. Everything about a library
+# hangs off `libraryDirectory()`, which is the active workspace, and that one
+# function is the whole reason two workspaces cannot see each other's songs.
+
 set -euo pipefail
 
 ALLOWED=(
   "packages/core/src/paths.ts"
   "packages/core/src/backup-nest.ts"
   "packages/core/src/db/fixture-go-db.ts"
+  # The phone's own layout module, and the only place `DATABASE_NAME` is set.
+  "apps/mobile/src/ports/paths.ts"
+)
+
+# Who may name the DEVICE root on the phone.
+NEST_ALLOWED=(
+  "apps/mobile/src/ports/paths.ts"
+  # Acceptance scratch, both of them outside any library: a directory the
+  # harness writes probe files into, and one it drops a generated tone in.
+  "apps/mobile/src/acceptance/fs.ts"
+  "apps/mobile/src/acceptance/playback.ts"
 )
 
 is_allowed() {
   for ok in "${ALLOWED[@]}"; do
+    [ "$1" = "$ok" ] && return 0
+  done
+  return 1
+}
+
+is_nest_allowed() {
+  for ok in "${NEST_ALLOWED[@]}"; do
     [ "$1" = "$ok" ] && return 0
   done
   return 1
@@ -56,7 +81,6 @@ done < <(rg -n --no-heading \
   --glob '!**/node_modules/**' \
   --glob '!*.test.ts' \
   --glob '!**/*.e2e.ts' \
-  --glob '!apps/mobile/**' \
   || true)
 
 if [ -n "$violations" ]; then
@@ -68,4 +92,24 @@ if [ -n "$violations" ]; then
   exit 1
 fi
 
-echo "✓ the library file is named in one place"
+nest_violations=""
+while IFS=: read -r file lineno rest; do
+  [ -n "$file" ] || continue
+  is_nest_allowed "$file" && continue
+  nest_violations="${nest_violations}${file}:${lineno}:${rest}"$'\n'
+done < <(rg -n --no-heading \
+  -e "\\bnestDirectory\\b" \
+  apps/mobile/src \
+  --glob '!*.test.ts' \
+  || true)
+
+if [ -n "$nest_violations" ]; then
+  echo "✗ on the phone, only ports/paths.ts may reach the DEVICE root."
+  echo "  Anything about a library goes through libraryDirectory(), which is"
+  echo "  the active workspace (N7d) — that one function is why two"
+  echo "  workspaces cannot see each other's songs."
+  echo "$nest_violations"
+  exit 1
+fi
+
+echo "✓ the library file is named in one place, on both hosts"

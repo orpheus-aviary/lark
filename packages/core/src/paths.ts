@@ -10,11 +10,11 @@ import {
   type PathsPort,
   assertSongId,
 } from './portable/ports/paths.js';
-import { WORKSPACE_LOCAL, isWorkspaceId } from './portable/workspace.js';
+import { type ActiveWorkspaceVerdict, decideActiveWorkspace } from './portable/workspace-index.js';
+import { LIBRARIES_DIRECTORY, WORKSPACE_LOCAL, workspaceSegments } from './portable/workspace.js';
 
 const NEST_DIR = 'orpheus-aviary-nest';
 const LARK_DIR = 'lark';
-const LIBRARIES_DIR = 'libraries';
 
 /**
  * Root data directory.
@@ -78,7 +78,7 @@ export function workspacesPath(): string {
 
 /** `lark/libraries/` — the parent of every account workspace. */
 export function librariesDir(): string {
-  return join(larkDir(), LIBRARIES_DIR);
+  return join(larkDir(), LIBRARIES_DIRECTORY);
 }
 
 /**
@@ -156,8 +156,9 @@ export interface WorkspacePaths {
  * arrive from a file somebody edited by hand.
  */
 export function workspacePaths(id: string, larkDirPath: string = larkDir()): WorkspacePaths {
-  if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
-  const root = id === WORKSPACE_LOCAL ? larkDirPath : join(larkDirPath, LIBRARIES_DIR, id);
+  // The layout — and the id gate in front of it — is `portable/workspace.ts`'s,
+  // so the phone joins the same segments onto its own idea of a directory.
+  const root = join(larkDirPath, ...workspaceSegments(id));
   return {
     root,
     db: join(root, DB_FILE),
@@ -199,30 +200,24 @@ export function workspacePaths(id: string, larkDirPath: string = larkDir()): Wor
 // without reaching for module-state gymnastics — the same promise every other
 // function in this file makes.
 
-export interface ActiveWorkspace {
-  /** The workspace this process opens. Always valid, never absent. */
-  readonly id: string;
-  /** What the index asked for, which is not always what it got. */
-  readonly requested: string;
-  /** True when the request could not be honoured. Somebody should log it. */
-  readonly fellBack: boolean;
-}
+/** The gate's verdict. The type and the gate itself are portable — the phone
+ * runs the same two questions. */
+export type ActiveWorkspace = ActiveWorkspaceVerdict;
 
 let cached: { larkDir: string; active: ActiveWorkspace } | null = null;
 
 function judgeActiveWorkspace(root: string, logger?: StructuredLogger): ActiveWorkspace {
   const index = readWorkspaceIndex(join(root, WORKSPACES_FILE_NAME), logger);
-  const requested = index.active;
-  if (requested === WORKSPACE_LOCAL) return { id: WORKSPACE_LOCAL, requested, fellBack: false };
-
-  if (existsSync(join(root, LIBRARIES_DIR, requested, DB_FILE))) {
-    return { id: requested, requested, fellBack: false };
-  }
-  logger?.warn(
-    { requested },
-    `the active workspace has no library on disk — opening '${WORKSPACE_LOCAL}' instead`,
+  const verdict = decideActiveWorkspace(index, (id) =>
+    existsSync(join(root, ...workspaceSegments(id), DB_FILE)),
   );
-  return { id: WORKSPACE_LOCAL, requested, fellBack: true };
+  if (verdict.fellBack) {
+    logger?.warn(
+      { requested: verdict.requested },
+      `the active workspace has no library on disk — opening '${WORKSPACE_LOCAL}' instead`,
+    );
+  }
+  return verdict;
 }
 
 /**

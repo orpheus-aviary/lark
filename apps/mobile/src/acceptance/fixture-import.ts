@@ -41,7 +41,7 @@ import { runBootSequence } from '../boot/sequence';
 import { portableDbOf } from '../db/portable-db';
 import { INSTALL_ID_KEY } from '../identity/snapshot';
 import { readCommitted } from '../identity/store';
-import { DATABASE_NAME, nestDirectory, recoveredSongsRoot } from '../ports/paths';
+import { DATABASE_NAME, libraryDirectory, recoveredSongsRoot } from '../ports/paths';
 import type { ScenarioRow } from './d16';
 
 /** Where the driver pushes it. Must match `just mobile-push-fixture`. */
@@ -137,7 +137,7 @@ async function thisInstallsIdentity(): Promise<string> {
 }
 
 function clearedNest(): Directory {
-  const nest = nestDirectory();
+  const nest = libraryDirectory();
   if (!nest.exists) nest.create({ intermediates: true });
   for (const stale of [
     new File(nest, DATABASE_NAME),
@@ -154,7 +154,7 @@ function clearedNest(): Directory {
 
 /** Open the copy directly — not through the boot sequence — and make it ours. */
 function claimImported(installId: string): FixtureImport {
-  const handle = openDatabaseSync(DATABASE_NAME, {}, nestDirectory().uri);
+  const handle = openDatabaseSync(DATABASE_NAME, {}, libraryDirectory().uri);
   try {
     const db = portableDbOf(handle);
     const desktopDeviceUuid =
@@ -172,7 +172,7 @@ function claimImported(installId: string): FixtureImport {
     return {
       songs: rowCount(db, 'songs'),
       playlists: rowCount(db, 'playlists'),
-      songDirectories: directoriesIn(new Directory(nestDirectory(), 'songs')),
+      songDirectories: directoriesIn(new Directory(libraryDirectory(), 'songs')),
       installId,
       desktopDeviceUuid,
     };

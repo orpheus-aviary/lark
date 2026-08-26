@@ -1,5 +1,10 @@
-// Steps ② and ③: read the library's identity and compatibility, writing
-// NOTHING to it.
+// Steps ② and ③: read the ACTIVE workspace's library identity and
+// compatibility, writing NOTHING to it.
+//
+// Since N7d every path here hangs off `libraryDirectory()` rather than the
+// nest: the probe, its copy and the copy's sidecars all live inside the
+// workspace being examined, so a phone holding two libraries probes one of
+// them and leaves the other alone (criterion 113).
 //
 // `SQLiteOpenOptions` has no readonly flag, and opening a WAL database can
 // recover and checkpoint it — a write, during the one moment D16 says nothing
@@ -21,7 +26,7 @@ import { type LibraryVerdict, classifyLibrary } from '@lark/core/portable';
 import { type Directory, File } from 'expo-file-system';
 import { openDatabaseSync } from 'expo-sqlite';
 import { ExpoSqliteShim } from '../db/shim';
-import { DATABASE_NAME, nestDirectory } from '../ports/paths';
+import { DATABASE_NAME, libraryDirectory } from '../ports/paths';
 
 /** The row the mobile client stores its D16 identity in. */
 export const INSTALL_ID_KEY = 'install_id';
@@ -51,8 +56,8 @@ function stat(file: File): FileStat {
 const sameStat = (a: FileStat, b: FileStat): boolean =>
   a.exists === b.exists && a.size === b.size && a.mtime === b.mtime;
 
-const sourceFile = (part: string): File => new File(nestDirectory(), `${DATABASE_NAME}${part}`);
-const copyFile = (part: string): File => new File(nestDirectory(), `${COPY_NAME}${part}`);
+const sourceFile = (part: string): File => new File(libraryDirectory(), `${DATABASE_NAME}${part}`);
+const copyFile = (part: string): File => new File(libraryDirectory(), `${COPY_NAME}${part}`);
 
 const snapshot = (): FileStat[] => PARTS.map((part) => stat(sourceFile(part)));
 const sameSnapshot = (a: FileStat[], b: FileStat[]): boolean =>
@@ -72,7 +77,7 @@ function removeCopy(): void {
 }
 
 function copyParts(): number {
-  const directory: Directory = nestDirectory();
+  const directory: Directory = libraryDirectory();
   let bytes = 0;
   for (const part of PARTS) {
     const source = sourceFile(part);
@@ -121,7 +126,7 @@ export function probeLibrary(options: { tamper?: () => void } = {}): LibraryProb
         throw new FailClosedError('the library changed under the copy twice — refusing to read it');
       }
 
-      const handle = openDatabaseSync(COPY_NAME, {}, nestDirectory().uri);
+      const handle = openDatabaseSync(COPY_NAME, {}, libraryDirectory().uri);
       try {
         const sqlite = new ExpoSqliteShim(handle);
         sqlite.pragma('busy_timeout = 5000');

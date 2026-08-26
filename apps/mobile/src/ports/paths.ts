@@ -20,12 +20,16 @@
 
 import {
   CANONICAL_AUDIO_FILE,
+  DEFAULT_WORKSPACE_INDEX,
   LEGACY_AUDIO_FILE,
+  LIBRARIES_DIRECTORY,
   LYRICS_FILE,
   type PathsPort,
-  WORKSPACE_LOCAL,
+  type WorkspaceIndex,
   assertSongId,
-  isWorkspaceId,
+  decideActiveWorkspace,
+  parseWorkspaceIndex,
+  workspaceSegments,
 } from '@lark/core/portable';
 import { Directory, File, Paths } from 'expo-file-system';
 
@@ -34,20 +38,7 @@ export function nestDirectory(): Directory {
   return new Directory(Paths.document, 'lark');
 }
 
-/**
- * The directory `openDatabaseSync` is given.
- *
- * A `file://` URI, not a POSIX path, and that is fine: expo-sqlite's Android
- * side runs the value through `toUri().path` before opening, and creates the
- * parent directory on the way (`SQLiteModule.kt`'s
- * `ensureDatabasePathExists`). Passing the URI keeps this in the same
- * vocabulary as expo-file-system, which is what every other path here speaks.
- */
-export function databaseDirectoryUri(): string {
-  return nestDirectory().uri;
-}
-
-/** The library file's name inside that directory. */
+/** The library file's name inside a workspace. */
 export const DATABASE_NAME = 'songs.db';
 
 /**
@@ -77,7 +68,7 @@ export function workspacesFile(): File {
 
 /** `<nest>/libraries/` — the parent of every account workspace. */
 export function librariesDirectory(): Directory {
-  return new Directory(nestDirectory(), 'libraries');
+  return new Directory(nestDirectory(), LIBRARIES_DIRECTORY);
 }
 
 /**
@@ -91,8 +82,88 @@ export function librariesDirectory(): Directory {
  * arrive from a file, and a path is not the place to find out it was wrong.
  */
 export function workspaceDirectory(id: string): Directory {
-  if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
-  return id === WORKSPACE_LOCAL ? nestDirectory() : new Directory(librariesDirectory(), id);
+  // The layout — and the id gate in front of it — is `portable/workspace.ts`'s,
+  // the same segments the desktop joins onto `larkDir()`.
+  return new Directory(nestDirectory(), ...workspaceSegments(id));
+}
+
+// ─── Which workspace THIS launch opens (N7d) ────────────
+//
+// The phone's half of the desktop's resolver, and the same two-question gate:
+// `active` is an id this build understands, and its `songs.db` is on disk.
+// Either one failing means `local` — which on a phone that has never switched
+// is also the only answer there has ever been, so the ordinary device pays one
+// `exists` check and nothing else.
+//
+// RESOLVED ONCE PER PROCESS, like everything else about a boot here. Switching
+// is a restart (§2.5) and `bootOnce` already says why that is not a
+// limitation: `downloadRuntimeOnce`, `syncContextOnce`, the player session and
+// the engine's claim registry are all one-shot gates, and a path layer that
+// changed its mind mid-process would have the engine writing into one library
+// while the player read from another.
+//
+// LAZY rather than set by boot, deliberately. A path function that threw
+// "before boot" would be a new class of crash on a screen that merely
+// rendered early, and the file this reads is the same file boot would have
+// read.
+
+let cachedActiveWorkspace: string | null = null;
+
+/** The index on disk, or the phone that has never switched. Never throws. */
+export function readWorkspaceIndexFile(): WorkspaceIndex {
+  const file = workspacesFile();
+  if (!file.exists) return DEFAULT_WORKSPACE_INDEX;
+  try {
+    return parseWorkspaceIndex(JSON.parse(file.textSync()));
+  } catch {
+    // Empty, truncated, or unreadable: the same answer as never having
+    // switched. `workspace-index.ts` says why that is the safe direction.
+    return DEFAULT_WORKSPACE_INDEX;
+  }
+}
+
+function judgeActiveWorkspace(): string {
+  // The gate is `@lark/core/portable`'s — the same two questions the desktop
+  // asks, with only "is the library there" spelled in this host's vocabulary.
+  return decideActiveWorkspace(
+    readWorkspaceIndexFile(),
+    (id) => new File(workspaceDirectory(id), DATABASE_NAME).exists,
+  ).id;
+}
+
+/** The workspace this launch opens. */
+export function activeWorkspaceId(): string {
+  if (cachedActiveWorkspace === null) cachedActiveWorkspace = judgeActiveWorkspace();
+  return cachedActiveWorkspace;
+}
+
+/** Forget it. One real caller: a switch, which restarts the app anyway. */
+export function invalidateActiveWorkspace(): void {
+  cachedActiveWorkspace = null;
+}
+
+/**
+ * The active workspace's root — where the library and its songs are.
+ *
+ * 🔴 EVERYTHING BELOW THIS LINE HANGS OFF HERE, not off `nestDirectory()`.
+ * That is the whole isolation guarantee: two workspaces cannot see each
+ * other's songs because there is one function that says where "here" is.
+ */
+export function libraryDirectory(): Directory {
+  return workspaceDirectory(activeWorkspaceId());
+}
+
+/**
+ * The directory `openDatabaseSync` is given.
+ *
+ * A `file://` URI, not a POSIX path, and that is fine: expo-sqlite's Android
+ * side runs the value through `toUri().path` before opening, and creates the
+ * parent directory on the way (`SQLiteModule.kt`'s
+ * `ensureDatabasePathExists`). Passing the URI keeps this in the same
+ * vocabulary as expo-file-system, which is what every other path here speaks.
+ */
+export function databaseDirectoryUri(): string {
+  return libraryDirectory().uri;
 }
 
 // ─── PathsPort (N2d) ────────────────────────────────────
@@ -133,12 +204,12 @@ const TRASH_DIRECTORY = 'trash';
  * which is what keeps the uuid gate in front of every path.
  */
 export function songsRoot(): Directory {
-  return new Directory(nestDirectory(), SONGS_DIRECTORY);
+  return new Directory(libraryDirectory(), SONGS_DIRECTORY);
 }
 
 /** `trash/` itself. */
 export function trashRoot(): Directory {
-  return new Directory(nestDirectory(), TRASH_DIRECTORY);
+  return new Directory(libraryDirectory(), TRASH_DIRECTORY);
 }
 
 /**
@@ -154,12 +225,12 @@ export function trashRecoveryDirectory(stamp: string): Directory {
 /** `songs/<id>/` — R10 runs before the id becomes a path. Not after. */
 export function songDirectory(id: string): Directory {
   assertSongId(id);
-  return new Directory(nestDirectory(), SONGS_DIRECTORY, id);
+  return new Directory(libraryDirectory(), SONGS_DIRECTORY, id);
 }
 
 /** `recovered-songs/` itself. */
 export function recoveredSongsRoot(): Directory {
-  return new Directory(nestDirectory(), RECOVERED_DIRECTORY);
+  return new Directory(libraryDirectory(), RECOVERED_DIRECTORY);
 }
 
 /**

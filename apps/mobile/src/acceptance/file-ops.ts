@@ -38,7 +38,7 @@ import { type BootResult, runBootSequence } from '../boot/sequence';
 import { createFileSystem } from '../ports/fs';
 import {
   createPaths,
-  nestDirectory,
+  libraryDirectory,
   recoveredSongsDirectory,
   recoveredSongsRoot,
   songDirectory,
@@ -134,7 +134,7 @@ function expect(condition: boolean, message: string): void {
 /** A booted library with nothing in it, and no `recovered-songs/` either. */
 async function freshLibrary(): Promise<BootResult> {
   await resetInstall();
-  for (const stale of [new Directory(nestDirectory(), 'songs'), recoveredSongsRoot()]) {
+  for (const stale of [new Directory(libraryDirectory(), 'songs'), recoveredSongsRoot()]) {
     if (stale.exists) stale.delete();
   }
   return runBootSequence();

@@ -3,6 +3,7 @@
 //   ① installPortableRuntime()          Random + whole-file sha256; without ①
 //                                       every id mint throws, and (N6a) so does
 //                                       reading a playlist file
+//  ①b activeWorkspaceId()               N7d: which of this phone's libraries
 //   ② zero-write reads                  library file · SecureStore · copy-then-open
 //   ③ compatibility verdict (on a copy) §2.4; a refusal writes nothing and does
 //                                       not touch SecureStore
@@ -58,7 +59,7 @@ import { commitIdentity, readCommitted, readIntent, writeIntent } from '../ident
 import { createSecureCredentialStore } from '../ports/credentials';
 import { createDeviceSettings } from '../ports/device-settings';
 import { createFileSystem } from '../ports/fs';
-import { createPaths, deviceSettingsFile } from '../ports/paths';
+import { activeWorkspaceId, createPaths, deviceSettingsFile } from '../ports/paths';
 import { createSongFiles } from '../ports/song-files';
 import { installPortableRuntime } from './runtime';
 import { type SweepReport, sweepSongsStore } from './sweep';
@@ -66,6 +67,13 @@ import { type SweepReport, sweepSongsStore } from './sweep';
 export interface BootResult {
   handle: SQLiteDatabase;
   db: PortableDb;
+  /**
+   * The workspace this process opened (N7d).
+   *
+   * `local` on a phone that has never switched — which is every phone until
+   * somebody logs into a second account.
+   */
+  workspace: string;
   /** The identity this install now holds. */
   installId: string;
   /** What the decision table said, verbatim — the panel and the log print it. */
@@ -184,14 +192,21 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
   // ① Before anything can mint an id.
   installPortableRuntime();
 
+  // ①b Which library this launch opens (N7d). Read before anything else looks
+  // at a path, and passed by hand from here on: every step below is about ONE
+  // workspace, and a sequence that decides which library to claim should be
+  // seen naming it rather than letting a default do it quietly.
+  const workspace = activeWorkspaceId();
+  logger?.info({ workspace }, 'active workspace');
+
   // ② Three zero-write reads. The probe is skipped when there is no library —
   // there is nothing to copy, and the decision does not need one.
   const exists = libraryExists();
   const probe = exists ? probeLibrary() : null; // ③ throws here on an incompatible library
   const decision = decideIdentity({
     libraryExists: exists,
-    committed: readCommitted(),
-    intent: readIntent(),
+    committed: readCommitted(workspace),
+    intent: readIntent(workspace),
     dbInstallId: probe?.installId ?? null,
   });
   logger?.info({ action: decision.action, reason: decision.reason }, 'D16 boot decision');
@@ -199,7 +214,7 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
   // ④ → ⑤
   const planned = plannedIdentity(decision);
   if (planned !== null) {
-    writeIntent({ id: planned.installId, purpose: planned.purpose });
+    writeIntent({ id: planned.installId, purpose: planned.purpose }, workspace);
     crashPoint?.('after-intent');
   }
 
@@ -216,7 +231,7 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
         converged = convergeLibrary({
           db,
           installId: planned.installId,
-          credentials: createSecureCredentialStore(),
+          credentials: createSecureCredentialStore(workspace),
         });
         logger?.warn({ ...converged, installId: planned.installId }, 'converged a foreign library');
       } else {
@@ -231,8 +246,8 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
 
     // ⑩
     crashPoint?.('before-commit');
-    const installId = planned?.installId ?? (readCommitted() as string);
-    if (planned !== null) await commitIdentity(installId);
+    const installId = planned?.installId ?? (readCommitted(workspace) as string);
+    if (planned !== null) await commitIdentity(installId, workspace);
     crashPoint?.('after-commit');
 
     // ⑩b The six settings in §4's table belong to this PHONE, not to this
@@ -288,6 +303,7 @@ export async function runBootSequence(options: BootOptions = {}): Promise<BootRe
     return {
       handle,
       db,
+      workspace,
       installId,
       decision,
       converged,

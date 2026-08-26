@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { StructuredLogger } from './logger.js';
 import {
   DEFAULT_WORKSPACE_INDEX,
+  decideActiveWorkspace,
   parseWorkspaceIndex,
   serializeWorkspaceIndex,
   withActiveWorkspace,
@@ -106,6 +107,55 @@ describe('decoration that cannot be read', () => {
 
   it('does not let a broken entries block move active', () => {
     expect(parseWorkspaceIndex({ active: ID, entries: 'gone' }).active).toBe(ID);
+  });
+});
+
+describe('which workspace a device opens', () => {
+  const never = () => false;
+  const always = () => true;
+
+  it('opens local when that is what the index says, without asking the disk', () => {
+    let asked = 0;
+    const verdict = decideActiveWorkspace(DEFAULT_WORKSPACE_INDEX, () => {
+      asked += 1;
+      return true;
+    });
+    expect(verdict).toEqual({ id: WORKSPACE_LOCAL, requested: WORKSPACE_LOCAL, fellBack: false });
+    // `local` is the nest itself: there is no separate library to look for.
+    expect(asked).toBe(0);
+  });
+
+  it('opens the account workspace when its library is there', () => {
+    const index = parseWorkspaceIndex({ active: ID });
+    expect(decideActiveWorkspace(index, always)).toEqual({
+      id: ID,
+      requested: ID,
+      fellBack: false,
+    });
+  });
+
+  it('falls back to local when the library is not, and says so', () => {
+    const index = parseWorkspaceIndex({ active: ID });
+    expect(decideActiveWorkspace(index, never)).toEqual({
+      id: WORKSPACE_LOCAL,
+      requested: ID,
+      fellBack: true,
+    });
+  });
+
+  it('asks about the workspace it was told to open, and no other', () => {
+    const asked: string[] = [];
+    decideActiveWorkspace(parseWorkspaceIndex({ active: ID }), (id) => {
+      asked.push(id);
+      return false;
+    });
+    expect(asked).toEqual([ID]);
+  });
+
+  it('never opens something an unreadable index named', () => {
+    // The parse already collapsed it to `local`; this pins that the gate
+    // cannot undo that by consulting the disk.
+    expect(decideActiveWorkspace(parseWorkspaceIndex('rubbish'), always).id).toBe(WORKSPACE_LOCAL);
   });
 });
 

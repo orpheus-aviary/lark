@@ -113,6 +113,13 @@
 // "the current device is asked differently" cannot be observed there without
 // revoking something for real.
 
+// `identity/keys.ts` joined in N7d, and it is the only place criterion 113 is
+// decidable: the two stores it names both reach SecureStore and cannot load
+// under Node, while what has to be true — two workspaces never sharing a key,
+// and `local` never moving off the ones an existing install already has — is
+// arithmetic on strings. Getting it wrong means converging one library logs
+// the other out, or reads a committed id belonging to somebody else and wipes.
+
 // `ports/device-settings.ts` joined in N7a, and it is why the four lines that
 // name `device.json` live in the boot sequence instead of in it: criterion 105
 // is about a file that is missing, empty or corrupt, and none of those three
@@ -124,6 +131,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: [
+      'src/identity/keys.test.ts',
       'src/identity/state.test.ts',
       'src/library/batch.test.ts',
       'src/library/import.test.ts',

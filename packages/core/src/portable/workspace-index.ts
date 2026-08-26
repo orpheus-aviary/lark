@@ -116,6 +116,43 @@ export function serializeWorkspaceIndex(index: WorkspaceIndex): Record<string, u
   return { active: index.active, entries: { ...index.entries } };
 }
 
+export interface ActiveWorkspaceVerdict {
+  /** The workspace to open. Always valid, never absent. */
+  readonly id: string;
+  /** What the index asked for, which is not always what it got. */
+  readonly requested: string;
+  /** True when the request could not be honoured. Somebody should log it. */
+  readonly fellBack: boolean;
+}
+
+/**
+ * Which workspace a device opens — the gate, in one place for both hosts.
+ *
+ * TWO QUESTIONS, and owl's third has nothing left to catch here (see the
+ * header): the id is one this build understands, and its library is on disk.
+ * `hasLibrary` is handed in because that is the only part that differs — a
+ * `statSync` on the desktop, an expo `File.exists` on the phone.
+ *
+ * EITHER ONE FAILING MEANS `local`, and it is worth being explicit about which
+ * way that cuts. A device whose real library is under `libraries/` and whose
+ * index went missing comes up on an EMPTY local library: alarming, and it
+ * loses nothing. The other direction — treating the index as gospel and
+ * creating a library at the missing path — would put new songs somewhere the
+ * person cannot find. `fellBack` exists so a host can say which happened,
+ * because from the outside the two look identical.
+ */
+export function decideActiveWorkspace(
+  index: WorkspaceIndex,
+  hasLibrary: (id: string) => boolean,
+): ActiveWorkspaceVerdict {
+  const requested = index.active;
+  if (requested === WORKSPACE_LOCAL) {
+    return { id: WORKSPACE_LOCAL, requested, fellBack: false };
+  }
+  if (hasLibrary(requested)) return { id: requested, requested, fellBack: false };
+  return { id: WORKSPACE_LOCAL, requested, fellBack: true };
+}
+
 /** The index with `id` named. Pure — the caller writes it. */
 export function withWorkspaceEntry(
   index: WorkspaceIndex,

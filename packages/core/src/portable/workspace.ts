@@ -57,6 +57,29 @@ export function isWorkspaceId(id: string): boolean {
   return id === WORKSPACE_LOCAL || isAccountWorkspaceId(id);
 }
 
+/** The directory account workspaces live under, inside a nest. */
+export const LIBRARIES_DIRECTORY = 'libraries';
+
+/**
+ * Where a workspace sits, relative to the nest — the LAYOUT, in one place.
+ *
+ * Empty for `local`, which is what "in place, nothing moved" means and the
+ * whole of the zero-migration story (§2.4). `['libraries', id]` otherwise.
+ *
+ * Both hosts join these onto their own idea of a directory — `node:path` on
+ * the desktop, expo's `Directory` on the phone — so the one thing that must
+ * not differ is which segments there are. A phone that put its workspaces
+ * somewhere else would still isolate them, but a nest copied between the two
+ * would stop being one thing.
+ *
+ * The id gate runs before the segments exist, not after: this value becomes a
+ * real path, and the id can arrive from a file somebody edited.
+ */
+export function workspaceSegments(id: string): readonly string[] {
+  if (!isWorkspaceId(id)) throw new Error(`not a workspace id: ${id}`);
+  return id === WORKSPACE_LOCAL ? [] : [LIBRARIES_DIRECTORY, id];
+}
+
 /**
  * The workspace an account lives in on this device.
  *

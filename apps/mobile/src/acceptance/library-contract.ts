@@ -35,7 +35,7 @@ import {
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { Directory, File } from 'expo-file-system';
 import { type BootResult, runBootSequence } from '../boot/sequence';
-import { nestDirectory, recoveredSongsRoot, songDirectory } from '../ports/paths';
+import { libraryDirectory, recoveredSongsRoot, songDirectory } from '../ports/paths';
 import { createLibrary } from '../services/library';
 import { type ScenarioRow, resetInstall } from './d16';
 
@@ -154,7 +154,7 @@ function subjectFor(boot: BootResult, library: LibraryService): LibrarySubject {
 const HOOKS: LibraryContractHooks = {
   async open(): Promise<LibrarySubject> {
     await resetInstall();
-    for (const stale of [new Directory(nestDirectory(), 'songs'), recoveredSongsRoot()]) {
+    for (const stale of [new Directory(libraryDirectory(), 'songs'), recoveredSongsRoot()]) {
       if (stale.exists) stale.delete();
     }
     const boot = await runBootSequence();

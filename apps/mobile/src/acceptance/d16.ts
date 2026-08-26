@@ -37,7 +37,7 @@ import { portableDbOf } from '../db/portable-db';
 import { INSTALL_ID_KEY } from '../identity/snapshot';
 import { forgetIdentity, readCommitted } from '../identity/store';
 import { createSecureCredentialStore } from '../ports/credentials';
-import { DATABASE_NAME, nestDirectory } from '../ports/paths';
+import { DATABASE_NAME, libraryDirectory } from '../ports/paths';
 
 export interface ScenarioRow {
   name: string;
@@ -55,7 +55,7 @@ export interface ScenarioRow {
  */
 export async function resetInstall(): Promise<void> {
   for (const part of ['', '-wal', '-shm']) {
-    const file = new File(nestDirectory(), `${DATABASE_NAME}${part}`);
+    const file = new File(libraryDirectory(), `${DATABASE_NAME}${part}`);
     if (file.exists) file.delete();
   }
   await forgetIdentity();
@@ -63,7 +63,7 @@ export async function resetInstall(): Promise<void> {
 
 /** Open the library outside the boot sequence, to seed or inspect it. */
 function withLibrary<T>(body: (db: PortableDb) => T): T {
-  const handle = openDatabaseSync(DATABASE_NAME, {}, nestDirectory().uri);
+  const handle = openDatabaseSync(DATABASE_NAME, {}, libraryDirectory().uri);
   try {
     return body(portableDbOf(handle));
   } finally {

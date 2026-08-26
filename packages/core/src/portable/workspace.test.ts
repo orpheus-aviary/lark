@@ -14,6 +14,7 @@ import {
   computeWorkspaceId,
   isAccountWorkspaceId,
   isWorkspaceId,
+  workspaceSegments,
 } from './workspace.js';
 
 /** (server_id, user_id) → id, straight out of owl. */
@@ -85,6 +86,35 @@ describe('input a server could not have sent', () => {
     expect(() => computeWorkspaceId('', 'usr')).toThrow();
     expect(() => computeWorkspaceId('srv', '')).toThrow();
     expect(() => computeWorkspaceId('', '')).toThrow();
+  });
+});
+
+describe('where a workspace sits, relative to the nest', () => {
+  it('puts `local` in place — nothing moved, which is the migration story', () => {
+    expect(workspaceSegments(WORKSPACE_LOCAL)).toEqual([]);
+  });
+
+  it('puts an account under `libraries/<id>`', () => {
+    const id = computeWorkspaceId('srv', 'usr');
+    expect(workspaceSegments(id)).toEqual(['libraries', id]);
+  });
+
+  it('gives two workspaces nowhere in common', () => {
+    // Criterion 114's structural half: A's songs cannot appear in B because
+    // there is one function that says where "here" is, and it answers
+    // differently. Both hosts join these same segments.
+    const a = workspaceSegments(computeWorkspaceId('srv', 'a')).join('/');
+    const b = workspaceSegments(computeWorkspaceId('srv', 'b')).join('/');
+    expect(a).not.toBe(b);
+    expect(a.startsWith(b)).toBe(false);
+    expect(b.startsWith(a)).toBe(false);
+    expect(workspaceSegments(WORKSPACE_LOCAL).join('/')).not.toBe(a);
+  });
+
+  it('refuses an id that is not one, before it becomes a path', () => {
+    for (const bad of ['', '..', '../elsewhere', 'Local', 'libraries']) {
+      expect(() => workspaceSegments(bad)).toThrow();
+    }
   });
 });
 
