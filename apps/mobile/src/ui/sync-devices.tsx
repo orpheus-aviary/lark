@@ -23,7 +23,7 @@
 import { type CoordinatorContext, callSkybridge, requireSession } from '@lark/core/portable';
 import { useCallback, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
-import { canRevoke, revokePrompt } from '../sync/devices';
+import { canRevoke, larkDevices, revokePrompt } from '../sync/devices';
 import { refreshSync } from '../sync/hub';
 import { C, S } from './theme';
 
@@ -39,6 +39,8 @@ interface Row {
 
 export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
   const [rows, setRows] = useState<readonly Row[] | null>(null);
+  /** Other tools' devices on this account — counted, never listed. */
+  const [hidden, setHidden] = useState(0);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
 
@@ -48,8 +50,12 @@ export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
     try {
       const session = requireSession(ctx);
       const devices = await callSkybridge('device list', () => session.client.listDevices());
+      // Filtered here rather than in the render so the count is taken once,
+      // off the answer the server actually gave.
+      const mine = larkDevices(devices);
+      setHidden(mine.hidden);
       setRows(
-        devices.map((device) => ({
+        mine.shown.map((device) => ({
           id: device.id,
           name: device.name,
           platform: device.platform,
@@ -128,6 +134,12 @@ export function SyncDevices({ ctx }: { ctx: CoordinatorContext }) {
         </View>
       ))}
       {rows?.length === 0 && <Text style={styles.note}>没有其它设备。</Text>}
+      {hidden > 0 && (
+        <Text style={styles.note}>
+          另有 {hidden} 台设备属于同一账号的其它工具（owl
+          等），这里不显示——它们也持有这个账号的凭证， 要停用请到那个工具里撤销。
+        </Text>
+      )}
       {failed !== null && <Text style={styles.failed}>{failed}</Text>}
       <Pressable
         style={[styles.button, busy && styles.buttonOff]}

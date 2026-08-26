@@ -5,7 +5,7 @@
 // revoking something for real. Here it costs nothing.
 
 import { describe, expect, it } from 'vitest';
-import { canRevoke, revokePrompt } from './devices';
+import { canRevoke, larkDevices, revokePrompt } from './devices';
 
 const OTHER = { name: 'jay 的 MacBook', isCurrent: false, revokedAt: null };
 const SELF = { name: 'vivo V2408A', isCurrent: true, revokedAt: null };
@@ -38,5 +38,40 @@ describe('revokePrompt', () => {
   it('promises the same thing about the library either way — revoking is not a delete', () => {
     expect(revokePrompt(SELF).message).toContain('曲库');
     expect(revokePrompt(OTHER).message).not.toContain('删');
+  });
+});
+
+describe('larkDevices', () => {
+  // The list the measurement phone actually returned on 2026-08-26.
+  const REAL = [
+    { name: 'owl-cloud@iZbp13vw6ketn1heedyi64Z', appVersion: 'owl 0.5.0' },
+    { name: 'jayncpdeMacBook-Pro.local (owl)', appVersion: 'owl 0.5.0' },
+    { name: 'vivo V2408A', appVersion: 'lark 0.1.0' },
+    { name: 'jayncpdeMacBook-Pro.local', appVersion: 'lark 0.3.0' },
+    { name: 'vivo V2408A', appVersion: 'lark 0.1.0' },
+  ];
+
+  it('keeps lark and counts what it dropped', () => {
+    const { shown, hidden } = larkDevices(REAL);
+
+    expect(shown.map((d) => d.appVersion)).toEqual(['lark 0.1.0', 'lark 0.3.0', 'lark 0.1.0']);
+    // Counted, not silently gone: those two hold this account's credentials.
+    expect(hidden).toBe(2);
+  });
+
+  it('keeps a device whose app is unknown', () => {
+    // The direction that matters: this list is where somebody goes to revoke
+    // a device they no longer trust, so an unprovable row stays visible.
+    const { shown, hidden } = larkDevices([{ appVersion: null }]);
+
+    expect(shown).toHaveLength(1);
+    expect(hidden).toBe(0);
+  });
+
+  it('does not mistake another tool whose name starts with lark', () => {
+    const { shown, hidden } = larkDevices([{ appVersion: 'larkbird 2.0' }]);
+
+    expect(shown).toHaveLength(0);
+    expect(hidden).toBe(1);
   });
 });
