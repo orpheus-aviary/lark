@@ -862,6 +862,15 @@
 - **v1.1 的账已登记**（子计划 §6）：每账号独立工作区**延后**，理由是风险叠加（动 D16 与启动序列，而 N6d 本身就是一次卸载重装）。四个难点：进程内换库 · **`local_metadata` 要先分成设备级/曲库级**（LLM 的 key 在 SecureStore、url/model 在库里，分库会把一份配置劈成两半）· 缓存上限口径 · D16 per-library。**先做 `local_metadata` 分层**是最合适的起点——它对单库版本零影响。
 - 验证：`just check` exit 0 · `just mobile-typecheck` 通过 · `just test` **3104 passed**（mobile 266 → 270）。
 
+**N6d 的电脑半边完成**（签名，**判据 95 · 97 关；96 待真机**）。
+
+- 🔴 **在此之前，`just mobile-android-release` 出的每一个 APK 都是 Android debug key 签的**——Expo 模板默认，而 `android/` 是 CNG 产物不入库 ⇒ **仓里没有任何东西说得出这件事**。现由 `plugins/with-release-signing.js` 接上 `lark-release.jks`：改生成的 `app/build.gradle` 两处（`signingConfigs` 插 `release` · `buildTypes.release` 换 `signingConfig`），**两处都锚在结构上而不是模板注释文字上，锚不到就抛**。
+- **密码一份都没被复制**（决策 g 的原话：不进仓库 / `gradle.properties` / 环境文件 / CI）：**穿过环境的是目录**（`ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR`，Gradle 自动变 project property），**密码由 Gradle 在签名时自己读那个 0600 文件**。
+- 🔴 **降级是真实存在的，靠读产物的守卫兜住**：没有 property 时 release 仍用 debug 配置（不能在配置期拒绝，否则每个 debug 构建和每次全新 clone 都炸），所以 `mobile-android-release` 构建完**当场跑 `just mobile-verify-apk`**。**读产物的守卫骗不过一个没跑起来的插件。**
+- **判据 95 绿 + 反测跑过**：`prebuild --clean` → `assembleRelease` → 证书 `38544c9f…f63d`，与 N0 子计划 §9 逐字符相同；**去掉 property 重建仍然 BUILD SUCCESSFUL**（这就是它危险的地方），产物是 debug key `fac61745…`，校验当场红。校验对**所有签名者去重后**比对。
+- **判据 97 落定：不注册 developer verification**（依据进主计划 D14）——只在 GitHub Release 挂 APK、不进商店，adb 侧载明确豁免，2026-09-30 只覆盖四国参与商店；相关日期仍是 2027 全球扩大，到时再复查。
+- 🔴 **判据 96 的硬前提**：机上现在是 debug 签名，换签名 ⇒ **装不上，必须先卸载**，而卸载会清空私有目录与 SecureStore。顺序：**先同步到待推送 0 → 卸载 → 装签名版 → 重新登录 → 看全量 backfill**。⚠️ **这次装包用 `adb install` 手动来，不走 `expo run:android`**——它遇到签名不一致可能自己提出卸载重装，那会不声不响清掉曲库。
+
 - **N4 全期至此**：N4a–N4h 全部完成，**下一步 N4i**（多选批量 + 行菜单补齐，子计划 `docs/plans/2026-08-24-phase-b-mobile-n4i.md` v1，决策 a–h 待关闭）。🔴 **N4h 记的那条账要更正**：`reidentifySource` **不是**一个按钮（桌面也不是），它在引擎里——`redownload` 与 `ensure-file` 在存下来的 key 探不通时自动调它（`portable/download/engine.ts:824-841`），**而 N4g 把这两条路都给了生产 UI ⇒ 这条账 N4g 已经结清**。桌面「编辑链接…」里的「自动识别」是另一件事（`recognize-url`，不用 LLM），那个才是 N4i 要做的。仍然欠着的三条如实留着：判据 18（6 小时配额无真机证据）· 判据 32 的设备半边 · 判据 31 按标题而非 bvid 比对。
 
 - **N4b 判据 5–14 全部关闭（head `fd38d09`）。** 下一步 **N4c dataSync 前台服务**——子计划已出：`docs/plans/2026-08-21-phase-b-mobile-n4c.md`（**v1 待评审**，三批 N4c-1–3 / 判据 15–22 / 决策 a–j 待关闭）。**开工前必须先答的一件**：`File.downloadFileAsync` 的传输在熄屏时到底跑在哪（§1.6）——答错了整批形状要改（决策 j 的 wake lock 翻面），所以 N4c-1 的第一件事就是量它。

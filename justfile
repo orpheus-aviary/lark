@@ -547,6 +547,14 @@ _jdk17 := `/usr/libexec/java_home -v 17 2>/dev/null || echo ""`
 _android_home := env_var_or_default("ANDROID_HOME", "/opt/homebrew/share/android-commandlinetools")
 _adb := _android_home / "platform-tools/adb"
 _mobile := justfile_directory() / "apps/mobile"
+# lark's own signing key (D14 / N0b-5b). The DIRECTORY travels; the password
+# never does — Gradle reads its 0600 file at signing time, which is what
+# `android-keystore/README.md` says every build does (decision g). Overridable
+# so the drill can point at a copy.
+_keystore_dir := env_var_or_default("LARK_ANDROID_KEYSTORE_DIR", justfile_directory() / "../android-keystore")
+# Public fingerprint of that key, recorded at generation (N0 subplan §9). Not a
+# secret: it is what a Play "limited distribution" registration would carry.
+_release_cert_sha256 := "38:54:4C:9F:69:A3:9E:13:1E:F8:79:C9:EE:C9:61:21:E0:AA:10:96:AD:94:04:7B:14:1F:BD:5E:EC:BA:F6:3D"
 
 # ─── The product app (Phase B N2) ───────────────────────
 
@@ -599,10 +607,17 @@ mobile-android: build-shared build-core
 # and `@lark/core`'s dist is reached through a workspace symlink OUTSIDE them:
 # rebuilding core leaves the task up to date and the APK carries YESTERDAY'S
 # core (MEASURED, N0b-5b). Deleting the bundle is what makes "build" mean it.
+#
+# SIGNED WITH LARK'S KEY since N6d, and VERIFIED right after — not as a
+# ceremony: `plugins/with-release-signing.js` falls back to the debug key when
+# the property is absent (it has to, or every debug build and every fresh clone
+# would break), so the only thing that can tell a signed APK from Expo's
+# default is the artifact itself.
 [group('mobile')]
 mobile-android-release: build-shared build-core
     rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
-    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR="{{_keystore_dir}}" pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
+    just mobile-verify-apk
 
 # The acceptance artifact (decision o②): the SAME package and signing as the
 # product, built with Metro's root redirected to `src/acceptance/`. Not a flag
@@ -616,7 +631,33 @@ mobile-android-release: build-shared build-core
 [group('mobile')]
 mobile-acceptance-release: build-shared build-core
     rm -rf {{_mobile}}/android/app/build/generated/assets/react/release
-    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" LARK_ACCEPTANCE=1 pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
+    JAVA_HOME="{{_jdk17}}" ANDROID_HOME="{{_android_home}}" LARK_ACCEPTANCE=1 ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR="{{_keystore_dir}}" pnpm --filter @lark/mobile exec expo run:android --variant release --no-bundler
+    just mobile-verify-apk
+
+# Criterion 95. Reads the BUILT apk and refuses anything but lark's own
+# certificate — the Android debug key included, which is what an unsigned
+# release looks like and is otherwise indistinguishable from a good one.
+#
+# `apksigner` comes from the build tools; the version is pinned by
+# `expo-build-properties` (36.0.0) rather than by whatever is first on PATH.
+[group('mobile')]
+mobile-verify-apk apk=(_mobile / "android/app/build/outputs/apk/release/app-release.apk"):
+    #!/usr/bin/env bash
+    set -euo pipefail
+    apksigner="$(ls -d {{_android_home}}/build-tools/*/apksigner | sort -V | tail -1)"
+    printed="$("$apksigner" verify --print-certs "{{apk}}")"
+    # Every signer, deduped: one apk signed by two keys would otherwise pass on
+    # whichever line came first.
+    actual="$(echo "$printed" | grep -i 'certificate SHA-256 digest' | awk '{print $NF}' | sort -u | tr '\n' ' ' | sed 's/ $//')"
+    expected="$(echo '{{_release_cert_sha256}}' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+    if [ "$actual" != "$expected" ]; then
+        echo "✗ {{apk}} is signed with the WRONG certificate" >&2
+        echo "    expected $expected" >&2
+        echo "    actual   $actual" >&2
+        echo "  (Android's debug key is the usual answer — check that ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR reached Gradle)" >&2
+        exit 1
+    fi
+    echo "✓ signed with lark's release key ($actual)"
 
 # Criterion 10①, and the only place it can be answered: two real threads and a
 # barrier, in `modules/lark-fs/android/src/androidTest/`. A JS-side poll loop

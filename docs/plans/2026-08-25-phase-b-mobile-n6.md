@@ -231,6 +231,22 @@
 
 **验证**：`just check` exit 0 · `just mobile-typecheck` 通过 · `just test` **3104 passed**（mobile 266 → 270）。**判据 93 的设备半边 · 94 · 102 待真机**（与 92 攒成一次会话）。
 
+### 5.4 N6d 的电脑半边（2026-08-25 完成；**判据 95 · 97 关，96 待真机**）
+
+**① 签名接上了，落点是 config plugin。** `plugins/with-release-signing.js` 改生成的 `app/build.gradle` 两处：`signingConfigs` 里插一个 `release`，`buildTypes.release` 的 `signingConfig` 从 `signingConfigs.debug` 换成条件式。**两处都锚在结构上而不是模板的注释文字上，锚不到就抛** —— Expo 升级把这个文件改了形，应该让构建停下来，而不是悄悄留成 debug 签名。
+
+**② 密码一份都没有被复制。** `android-keystore/README.md`（决策 g）写死了：不进仓库、不进 `gradle.properties`、不进环境文件、不进 CI。所以**穿过环境的是目录**（`ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR`，Gradle 自己会把它变成 project property，不用把 `-P` 穿过 Expo 的 CLI），**密码由 Gradle 在签名时自己读那个 0600 文件** —— 这正是那份 README 早就描述的形状。
+
+**③ 🔴 降级是真实存在的，靠读产物的守卫兜住。** 没有那个 property 时 release 仍用 debug 配置——不能在配置期拒绝，否则每个 debug 构建、每次全新 clone 都会炸。留下的失败模式就是「release APK 被 debug key 签了，而且没人知道」，答案不在插件里：`just mobile-android-release` 设好 property，**构建完当场跑 `just mobile-verify-apk`** 比对证书 SHA-256。**读产物的守卫骗不过一个没跑起来的插件。**
+
+**④ 判据 95 已绿，且反测跑过。** `expo prebuild --clean` 重建 → `assembleRelease` → `apksigner verify --print-certs` 回 `38544c9f…f63d`，与 N0 子计划 §9 记的指纹**逐字符相同**。**反测**：去掉 property 重新 `assembleRelease`，**BUILD SUCCESSFUL**（这就是它危险的地方），产物却是 debug key `fac61745…`，`mobile-verify-apk` 当场红并指出「检查 ORG_GRADLE_PROJECT_LARK_KEYSTORE_DIR 有没有到 Gradle」。校验会把**所有签名者去重后**比对，一个 apk 被两把钥匙签也蒙不过去。
+
+**⑤ 判据 97（developer verification go/no-go）落定：不注册。** 依据写进主计划 D14 那一行：发布形态是**只在 GitHub Release 挂 APK、不进任何商店**，而政策快照里相关的两条都不触发——**adb / 直接侧载明确豁免**，2026-09-30 只覆盖巴西/印尼/新加坡/泰国的**参与商店**（测量设备 SIM 国家 `cn`）。真正相关的日期仍是 **2027 全球扩大**，到时形态没变再复查；注册要交的东西已经齐了（包名 + 证书 SHA-256），所以不是需要提前做的事。
+
+**⑥ 判据 96（卸载重装演练）待真机，且有一条硬前提要先说。** 现在装在手机上的是 **debug key 签的**，新 APK 换了签名 ⇒ **装不上，必须先卸载**，而卸载会连私有目录带 SecureStore 的 install_id / binding 一起清空。所以顺序是死的：**先在手机上「立即同步」到待推送 0 → 再卸载 → 装签名版 → 重新登录 → 看全量 backfill 收敛**。⚠️ **`expo run:android` 遇到签名不一致可能会自己提出卸载重装**——那一步会不声不响地清掉曲库，所以这次装包**用 `adb install` 手动来**，不走 `expo run:android` 的安装。
+
+**验证**：`just check` exit 0 · `just test` **3104 passed**（本批不改产品代码，数字不动）· `just mobile-verify-apk` ✓。
+
 ---
 
 ## §6 v1.1 的账：每账号独立工作区（2026-08-25 用户决定延后）

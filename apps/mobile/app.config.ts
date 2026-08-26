@@ -81,6 +81,10 @@ const config: ExpoConfig = {
       { configureAndroidBackup: false },
     ],
     './plugins/with-backup-rules',
+    // N6d, criterion 95. Expo's template signs the RELEASE build with the
+    // Android debug key and leaves a comment about it; `android/` is generated
+    // and untracked, so the only place that can be fixed is here.
+    './plugins/with-release-signing',
     [
       'expo-build-properties',
       {
