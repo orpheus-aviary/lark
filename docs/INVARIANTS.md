@@ -76,6 +76,7 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 - **启动序列冻结**（N2 §2.2）：零写预检（含兼容性）→ 写 SecureStore intent → 读写打开 → 收敛 → `ensureDeviceUuid` → 提交 intent → boot drain → 服务。
 - 🔴 **每进程只跑一次**（`bootOnce`）——Activity 重建后再开同一个库会崩（expo-sqlite 的 `OnDestroy` 关不掉缓存的库）。
 - 🔴 **由此，「重启才生效」的功能自己关 app 时必须结束进程**：`BackHandler.exitApp()` 只 finish Activity，JS 运行时挂在 Application 上，`bootOnce` 与 `ports/paths.ts` 的缓存都会活下来。用 `modules/lark-app` 的 `quit()`（`finishAndRemoveTask()` + `exitProcess(0)`）。
+- 🔴 **熄屏时 JS 定时器被冻结，而放开它的是「回到前台」不是「屏幕亮」**（0.1.1 实测：`driver.destroy()` 里的 300ms 走了 **63 537ms**；唤醒屏幕后连采 1.7 秒仍冻着，用户解锁才走完）。**播放链路一律用 `modules/lark-app` 的 `nativeDelay`**，守卫 `check-mobile-no-js-timers.sh` 盯着 `src/player/`。别处是判断题，问法是「这个等待在熄屏时还有意义吗」——N4f-2 的服务停止宽限期因此被**删掉**而不是搬去原生。
 - **文件写一律原子替换**——expo-file-system 57 在 Android 上两条路都堵着（`moveSync(overwrite)` 先删目标，`rename` 拒绝已存在），所以有自建的 `modules/lark-fs`。
 - **五个自建原生模块**：`lark-fs`（原子替换）· `lark-audio`（becoming-noisy）· `lark-media`（MMR 时长）· `lark-transfer`（dataSync 前台服务）· `lark-app`（结束进程）。**改它们的原生代码，`pnpm patch` 没用**——SDK 57 的模块消费包内预编译 AAR，要在 `apps/mobile/package.json` 加 `expo.autolinking.buildFromSource`。
 

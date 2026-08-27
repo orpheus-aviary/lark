@@ -2,12 +2,17 @@ package expo.modules.larkapp
 
 import android.os.Handler
 import android.os.Looper
+import expo.modules.kotlin.Promise
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlin.system.exitProcess
 
 /**
- * One function: end this process, the way swiping the app out of Recents does
+ * The app PROCESS, as JS can reach it. Two things, and what they have in
+ * common is that neither is about a file, a player or a service — they are
+ * about the runtime this app happens to be inside.
+ *
+ * ── `quit` — end this process, the way swiping the app out of Recents does
  * (N7g-2).
  *
  * WHY IT IS NATIVE. Switching libraries takes effect at the next launch —
@@ -45,6 +50,31 @@ class LarkAppModule : Module() {
         // close it rather than being shot mid-write.
         exitProcess(0)
       }
+    }
+
+    /**
+     * ── `delay` — a wait a dark screen cannot freeze (0.1.1 ⑪).
+     *
+     * 🔴 MEASURED, 2026-08-26, frozen device: `await sleep(300)` inside the
+     * player's teardown took **63 537ms**. React Native's JS timers ride the
+     * Choreographer, which stops with the display — so the one 300ms wait
+     * between "pause the finished song" and "release it" held the whole
+     * auto-advance until the phone was UNLOCKED. Everything else on that path
+     * was already native and arrived on time: the end-of-song event, the queue
+     * decision, the pause itself.
+     *
+     * A `Handler` on the main looper and not a coroutine, for the same reason
+     * `quit` uses one: it is the primitive this module already depends on, and
+     * a delayed message is delivered by the looper's own queue, which has
+     * nothing to do with whether anything is being drawn.
+     *
+     * NOT CANCELLABLE, deliberately: the one caller waits out a fixed settle,
+     * and the watchdog beside it is idempotent on the JS side. A cancel token
+     * would be a second thing to get wrong for no caller that wants it.
+     */
+    AsyncFunction("delay") { ms: Int, promise: Promise ->
+      Handler(Looper.getMainLooper())
+        .postDelayed({ promise.resolve(null) }, ms.toLong().coerceAtLeast(0L))
     }
   }
 }

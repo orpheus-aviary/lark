@@ -27,6 +27,16 @@
 //
 // A media error stops playback dead and is never retried (M4-6): the spike-era
 // retry loop is how an unkillable request storm gets built.
+//
+// 🔴 NOTHING IN HERE MAY WAIT ON A JS TIMER (0.1.1 ⑪). Both waits below are
+// `nativeDelay`, and that is a correctness requirement rather than a taste:
+// React Native's timers ride the Choreographer and stop when the display does,
+// while this file's whole job — the teardown between one song and the next —
+// runs most often with the phone in a pocket. MEASURED on the frozen device,
+// 2026-08-26: the 300ms settle took 63 537ms and finished only when the screen
+// was unlocked, which is exactly what「锁屏播完一首就停住」was. Everything else
+// on that path was already native and arrived on time.
+// `scripts/check-mobile-no-js-timers.sh` keeps it that way.
 
 import {
   type AudioMetadata,
@@ -34,6 +44,7 @@ import {
   type AudioStatus,
   createAudioPlayer,
 } from 'expo-audio';
+import { nativeDelay } from '../../modules/lark-app';
 
 /** Decision m. Only for "no terminal state ever arrived". */
 export const LOAD_WATCHDOG_MS = 15_000;
@@ -83,8 +94,6 @@ const snapshotOf = (status: AudioStatus): PlaybackSnapshot => ({
   error: status.error,
 });
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 export function createPlayerDriver(): PlayerDriver {
   let player: AudioPlayer | null = null;
   let destroyed = false;
@@ -107,7 +116,7 @@ export function createPlayerDriver(): PlayerDriver {
     // The supported order, measured: pause, let it settle, clear the lock
     // screen, THEN release (spike `playback.ts:247-250,507-510`).
     live.pause();
-    await sleep(PAUSE_SETTLE_MS);
+    await nativeDelay(PAUSE_SETTLE_MS);
     live.clearLockScreenControls();
     live.remove();
   };
@@ -131,19 +140,37 @@ export function createPlayerDriver(): PlayerDriver {
             emit(status);
             settle(status);
           });
-          const watchdog = setTimeout(() => {
-            finish(() =>
-              reject(
-                new PlaybackFailure(`播放器等了 ${LOAD_WATCHDOG_MS / 1000} 秒也没有回应`, false),
-              ),
-            );
-          }, LOAD_WATCHDOG_MS);
+          // A native wait, so a load that hangs behind a locked screen still
+          // gives up — a frozen watchdog is a watchdog that answers only once
+          // somebody looks at the phone. It cannot be cancelled and does not
+          // need to be: `finish` is idempotent, so a late one is a no-op that
+          // costs a resolved promise.
+          void nativeDelay(LOAD_WATCHDOG_MS).then(
+            () => {
+              finish(() =>
+                reject(
+                  new PlaybackFailure(`播放器等了 ${LOAD_WATCHDOG_MS / 1000} 秒也没有回应`, false),
+                ),
+              );
+            },
+            // The rejection arm is not paranoia. Without it a native module
+            // that did not expose `delay` — an autolink that skipped, the
+            // failure mode `check-mobile-native-modules.sh` exists for —
+            // would produce an unhandled rejection and a load with NO
+            // watchdog: a missing defence, which is the class of bug this
+            // repo keeps meeting (`docs/LESSONS.md`, 「缺失不是错误」). Failing
+            // the load says it out loud, on the first song, in words.
+            (err: unknown) => {
+              finish(() =>
+                reject(new PlaybackFailure(`播放器的等待没能建立：${String(err)}`, false)),
+              );
+            },
+          );
 
           let done = false;
           function finish(act: () => void): void {
             if (done) return;
             done = true;
-            clearTimeout(watchdog);
             subscription.remove();
             act();
           }

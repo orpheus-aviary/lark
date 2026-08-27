@@ -82,6 +82,12 @@ mobile-imports:
 mobile-native-modules:
     bash scripts/check-mobile-native-modules.sh
 
+# The playback path may not wait on a JS timer — they stop with the display,
+# and the teardown between two songs runs with the phone in a pocket (0.1.1 ⑪).
+[group('lint')]
+mobile-no-js-timers:
+    bash scripts/check-mobile-no-js-timers.sh
+
 # The launcher icon is declared and its files are there (0.1.1). Android 0.1.0
 # shipped Expo's placeholder, and no offline gate could see it: a missing
 # `icon` is not an error — the template has a default and prebuild uses it
@@ -109,7 +115,7 @@ log-hygiene:
     bash scripts/check-log-hygiene.sh
 
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
+check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
