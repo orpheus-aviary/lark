@@ -217,7 +217,6 @@ export type ImportFileErrorCode =
   | 'INTERNAL_ERROR';
 
 const ENVELOPE_SET: ReadonlySet<string> = new Set(DAEMON_ENVELOPE_ERROR_CODES);
-const TASK_SET: ReadonlySet<string> = new Set(TASK_ERROR_CODES);
 
 /**
  * Narrow an arbitrary string to a registered envelope code.
@@ -231,8 +230,4 @@ export function isDaemonEnvelopeErrorCode(
   code: string | undefined,
 ): code is DaemonEnvelopeErrorCode {
   return code !== undefined && ENVELOPE_SET.has(code);
-}
-
-export function isTaskErrorCode(code: string | undefined): code is TaskErrorCode {
-  return code !== undefined && TASK_SET.has(code);
 }

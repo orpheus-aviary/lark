@@ -64,11 +64,6 @@ export function isAuthFailure(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 401 || err.status === 403);
 }
 
-/** The protocol error code, when the failure carried one. */
-export function skybridgeErrorCode(err: unknown): string | null {
-  return err instanceof ApiError ? String(err.code) : null;
-}
-
 /**
  * Verdicts that mean the stored refresh token is dead: unknown, expired,
  * revoked, or presented after it was rotated (which nukes the whole family).

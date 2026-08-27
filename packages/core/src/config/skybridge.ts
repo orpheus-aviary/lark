@@ -154,9 +154,6 @@ export function deleteSkybridgeCredentials(path?: string): boolean {
   }
 }
 
-/** The old name for `CredentialStash`, kept for the callers that use it. */
-export type SkybridgeStash = CredentialStash;
-
 export function stashSkybridgeCredentials(path?: string): CredentialStash {
   const filePath = path ?? skybridgeConfigPath();
   if (!existsSync(filePath)) {

@@ -1,11 +1,6 @@
 /** The two documents that ship inside the app bundle (M7-9). */
 export type LegalDocument = 'license' | 'notices';
 
-export interface LegalDocuments {
-  readonly license: () => Promise<string | null>;
-  readonly notices: () => Promise<string | null>;
-}
-
 /** The preload bridge surface. Shared by preload (producer) and renderer (consumer). */
 export interface LarkApi {
   /**

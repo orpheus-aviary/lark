@@ -12,7 +12,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { LegalDocument, LegalDocuments } from '../shared/lark-api.js';
+import type { LegalDocument } from '../shared/lark-api.js';
 
 export interface LegalDeps {
   /** `process.resourcesPath` in a packaged app. */
@@ -55,11 +55,4 @@ export async function readLegalDocument(
     }
   }
   return null;
-}
-
-export function legalDocuments(deps: LegalDeps): LegalDocuments {
-  return {
-    license: () => readLegalDocument('license', deps),
-    notices: () => readLegalDocument('notices', deps),
-  };
 }
