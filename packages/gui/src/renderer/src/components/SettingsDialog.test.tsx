@@ -22,6 +22,7 @@ function publicConfig(overrides: Partial<PublicLarkConfig> = {}): PublicLarkConf
     font: { global_font_size: 14, lyrics_font_size: 14 },
     log: { level: 'info', max_size_mb: 10, max_backups: 5 },
     storage: { cache_limit_mb: 0 },
+    playback: { auto_download_next: true },
     sync: { interval_min: 5 },
     ...overrides,
   };

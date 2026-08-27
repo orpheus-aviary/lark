@@ -64,6 +64,13 @@ function number(options: { min: number; integer?: boolean }): FieldValidator {
   };
 }
 
+function boolean(): FieldValidator {
+  return (value, path) => {
+    if (typeof value !== 'boolean') throw invalidConfig(`${path} must be true or false`, path);
+    return value;
+  };
+}
+
 function oneOf(domain: readonly string[]): FieldValidator {
   return (value, path) => {
     if (typeof value !== 'string' || !domain.includes(value)) {
@@ -106,6 +113,7 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
     max_backups: number({ min: 1, integer: true }),
   },
   storage: { cache_limit_mb: number({ min: 0 }) },
+  playback: { auto_download_next: boolean() },
   // Only the cadence is patchable. Server URL, session and device identity are
   // credentials: they live in skybridge.toml and are written by `/sync/login`,
   // never by a config patch (D1/D2).

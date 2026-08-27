@@ -152,6 +152,14 @@ describe('PATCH /config', () => {
     ['sync.interval_min', { sync: { interval_min: 0 } }, 'sync', 'interval_min'],
     ['theme.mode', { theme: { mode: 'sepia' } }, 'theme', 'mode'],
     ['llm.url', { llm: { url: 42 } }, 'llm', 'url'],
+    // The config's first boolean (0.1.1 ⑥). The loader converges a bad value
+    // to the default silently; the API has to say so instead.
+    [
+      'playback.auto_download_next',
+      { playback: { auto_download_next: 'yes' } },
+      'playback',
+      'auto_download_next',
+    ],
   ])('rejects a bad %s that the loader would silently converge', async (_l, payload, s, k) => {
     const res = await patch(payload);
     expect(res.statusCode).toBe(400);

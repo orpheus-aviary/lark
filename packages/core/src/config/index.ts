@@ -52,6 +52,9 @@ export const DEFAULT_CONFIG: LarkConfig = {
   font: { global_font_size: 14, lyrics_font_size: 14 },
   log: { level: 'info', max_size_mb: 10, max_backups: 5 },
   storage: { cache_limit_mb: 0 },
+  // On by default (0.1.1 ⑥): a list that stops because the next song's file is
+  // not here reads as broken, and both hosts can fetch it.
+  playback: { auto_download_next: true },
   sync: { interval_min: 5 },
 };
 
@@ -212,6 +215,7 @@ export function redactConfig(config: LarkConfig): PublicLarkConfig {
       max_backups: config.log.max_backups,
     },
     storage: { cache_limit_mb: config.storage.cache_limit_mb },
+    playback: { auto_download_next: config.playback.auto_download_next },
     sync: { interval_min: config.sync.interval_min },
   };
 }
@@ -273,6 +277,10 @@ function str(v: unknown, dflt: string): string {
   return typeof v === 'string' ? v : dflt;
 }
 
+function bool(v: unknown, dflt: boolean): boolean {
+  return typeof v === 'boolean' ? v : dflt;
+}
+
 function num(v: unknown, dflt: number, opts: { min: number; integer?: boolean }): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return dflt;
   if (opts.integer && !Number.isInteger(v)) return dflt;
@@ -308,6 +316,10 @@ function sanitize(cfg: LarkConfig): LarkConfig {
   cfg.storage.cache_limit_mb = num(cfg.storage.cache_limit_mb, d.storage.cache_limit_mb, {
     min: 0,
   });
+  cfg.playback.auto_download_next = bool(
+    cfg.playback.auto_download_next,
+    d.playback.auto_download_next,
+  );
   cfg.sync.interval_min = num(cfg.sync.interval_min, d.sync.interval_min, {
     min: 1,
     integer: true,

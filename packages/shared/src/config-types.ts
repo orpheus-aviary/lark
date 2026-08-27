@@ -55,6 +55,19 @@ export interface LogConfig {
   max_backups: number;
 }
 
+/**
+ * Playback preferences (0.1.1 ⑥).
+ *
+ * One field, and it is rule 3's second half (`play-queue.ts`): may a song that
+ * simply ran out name a neighbour whose file is not here, and fetch it? On by
+ * default. The rule it feeds is shared with the phone, so the two hosts play a
+ * list the same way — and both read the answer from something the person owns
+ * rather than from a constant.
+ */
+export interface PlaybackConfig {
+  auto_download_next: boolean;
+}
+
 export interface StorageConfig {
   /** Cache limit in MB; 0 = unlimited (no automatic eviction). */
   cache_limit_mb: number;
@@ -104,6 +117,7 @@ export interface LarkConfig {
   font: FontConfig;
   log: LogConfig;
   storage: StorageConfig;
+  playback: PlaybackConfig;
   sync: SyncConfig;
 }
 
@@ -120,6 +134,7 @@ export interface ConfigPatchRequest {
   font?: Partial<FontConfig>;
   log?: Partial<LogConfig>;
   storage?: Partial<StorageConfig>;
+  playback?: Partial<PlaybackConfig>;
   sync?: Partial<SyncConfig>;
 }
 
@@ -142,5 +157,6 @@ export interface PublicLarkConfig {
   font: FontConfig;
   log: LogConfig;
   storage: StorageConfig;
+  playback: PlaybackConfig;
   sync: SyncConfig;
 }

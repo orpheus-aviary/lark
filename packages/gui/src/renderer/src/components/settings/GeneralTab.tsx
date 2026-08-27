@@ -6,6 +6,7 @@ import type { LogLevel, PublicLarkConfig, ThemeMode } from '@lark/shared';
 import { LOG_LEVELS, THEME_MODES } from '@lark/shared';
 import { useMediaTools } from '../../stores/media-tools.js';
 import { Button } from '../ui/button.js';
+import { Checkbox } from '../ui/checkbox.js';
 import { Input } from '../ui/input.js';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select.js';
 import { MigrationBlock } from './MigrationBlock.js';
@@ -80,6 +81,23 @@ export function GeneralTab({
 
   return (
     <>
+      <Section title="播放" hint="这一条和手机版是同一条规则，两端各自记住自己的答案">
+        <label className="flex items-start gap-2 text-sm" htmlFor="auto-download-next">
+          <Checkbox
+            id="auto-download-next"
+            checked={draft.autoDownloadNext}
+            onCheckedChange={(checked) => update({ autoDownloadNext: checked === true })}
+          />
+          <span>
+            自动下载下一首
+            <span className="block text-muted-foreground text-xs">
+              一首歌自然播完时，如果下一首的文件不在本机，就去取回来再播。关掉则跳过它，
+              直接放下一首已经有文件的歌。
+            </span>
+          </span>
+        </label>
+      </Section>
+
       <Section title="LLM" hint="留空的字段会回退到 aviary 的共享配置">
         <Field label="接口地址" htmlFor="llm-url" error={errorFor('llm.url')}>
           <Input

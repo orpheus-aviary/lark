@@ -6,6 +6,7 @@ import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { UI_PLAY_MODE_CYCLE } from '@lark/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MediaElement } from '../player/media.js';
+import { useConfig } from './config.js';
 import { useLibrary } from './library.js';
 import { usePlayer } from './player.js';
 import { useViewPrefs } from './view-prefs.js';
@@ -46,6 +47,28 @@ function song(id: string, overrides: Partial<SongData> = {}): SongData {
     has_file: true,
     ...overrides,
   };
+}
+
+/**
+ * The one config field the player reads (0.1.1 ⑥).
+ *
+ * Spelled out per test rather than defaulted, because the two answers produce
+ * two different queues out of the same list — which is the whole point of the
+ * setting, and the reason `decideNext` takes it as a required input.
+ */
+function setConfig(playback: { auto_download_next: boolean }): void {
+  useConfig.setState({
+    config: {
+      llm: { url: '', model: '', api_format: '', has_api_key: false },
+      window: { width: 1024, height: 768 },
+      theme: { mode: 'system' },
+      font: { global_font_size: 14, lyrics_font_size: 14 },
+      log: { level: 'info', max_size_mb: 10, max_backups: 5 },
+      storage: { cache_limit_mb: 0 },
+      playback,
+      sync: { interval_min: 5 },
+    },
+  });
 }
 
 interface Call {
@@ -261,9 +284,35 @@ describe('ended', () => {
     expect(audio.currentTime).toBe(0);
   });
 
-  it('skips a fileless neighbour instead of stopping, and downloads nothing', async () => {
-    // The no-cascade rule, in the only place it still applies: nobody is
-    // watching a song run out, so nothing here may spend data (N4g-3).
+  it('fetches a fileless neighbour when the setting says a list may spend data', async () => {
+    // 0.1.1 ⑥, and the default: a list that stopped — or skipped — because the
+    // next file is not here reads as broken. The decision and the play have to
+    // agree; a `decideNext` that named the song while `play` refused it would
+    // hand back a song nothing plays.
+    setConfig({ auto_download_next: true });
+    useLibrary.setState({
+      songs: [song('a'), song('gone', { has_file: false }), song('c')],
+    });
+    await usePlayer.getState().play(song('a'));
+    calls.length = 0;
+
+    usePlayer.getState().handleEnded();
+    await flush();
+
+    // Nothing plays yet — `ensureFile` queues the download and the play
+    // happens when it lands, exactly as it does for a click on the row. What
+    // separates this from the old behaviour is that it did NOT skip past it.
+    expect(
+      calls.some((c) => c.method === 'POST' && c.url.endsWith('/songs/gone/ensure-file')),
+    ).toBe(true);
+    expect(usePlayer.getState().currentSong?.id).not.toBe('c');
+  });
+
+  it('skips it and downloads nothing when the setting is off', async () => {
+    // The no-cascade rule, which is what this used to be unconditionally
+    // (N4g-3): nobody is watching a song run out, so nothing here may spend
+    // data. It is a choice now rather than the only answer.
+    setConfig({ auto_download_next: false });
     useLibrary.setState({
       songs: [song('a'), song('gone', { has_file: false }), song('c')],
     });

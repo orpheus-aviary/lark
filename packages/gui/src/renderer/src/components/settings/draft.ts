@@ -22,6 +22,8 @@ export interface Draft {
   globalFontSize: string;
   lyricsFontSize: string;
   cacheLimitMb: number;
+  /** Rule 3's second half (0.1.1 ⑥) — shared with the phone. */
+  autoDownloadNext: boolean;
   syncIntervalMin: number;
   windowWidth: string;
   windowHeight: string;
@@ -41,6 +43,7 @@ export function toDraft(config: PublicLarkConfig): Draft {
     globalFontSize: String(config.font.global_font_size),
     lyricsFontSize: String(config.font.lyrics_font_size),
     cacheLimitMb: config.storage.cache_limit_mb,
+    autoDownloadNext: config.playback.auto_download_next,
     syncIntervalMin: config.sync.interval_min,
     windowWidth: String(config.window.width),
     windowHeight: String(config.window.height),
@@ -78,6 +81,10 @@ export function buildPatch(draft: Draft, config: PublicLarkConfig): ConfigPatchR
 
   if (draft.cacheLimitMb !== config.storage.cache_limit_mb) {
     patch.storage = { cache_limit_mb: draft.cacheLimitMb };
+  }
+
+  if (draft.autoDownloadNext !== config.playback.auto_download_next) {
+    patch.playback = { auto_download_next: draft.autoDownloadNext };
   }
 
   if (draft.syncIntervalMin !== config.sync.interval_min) {

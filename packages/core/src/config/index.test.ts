@@ -98,6 +98,20 @@ describe('loadConfig', () => {
     expect(cfg.log.max_size_mb).toBe(20);
     expect(cfg.log.max_backups).toBe(3);
     expect(cfg.storage).toEqual({ cache_limit_mb: 0 });
+    // A Go-era file has no `[playback]` at all, so the default is what a
+    // library that predates 0.1.1 gets: on.
+    expect(cfg.playback).toEqual({ auto_download_next: true });
+  });
+
+  it('reads a playback flag it does not understand as the default, not as off', () => {
+    // The config's first boolean (0.1.1 ⑥). Converging an unreadable value to
+    // `false` would silently take the feature away from somebody who never
+    // turned it off — the same rule every other field here follows.
+    writeFileSync(cfgPath(), '[playback]\nauto_download_next = "yes"\n');
+    expect(loadConfig(cfgPath()).playback.auto_download_next).toBe(true);
+
+    writeFileSync(cfgPath(), '[playback]\nauto_download_next = false\n');
+    expect(loadConfig(cfgPath()).playback.auto_download_next).toBe(false);
   });
 
   it('tightens an existing 0644 file to 0600 even on a load-only path', () => {
@@ -138,6 +152,7 @@ describe('loadConfig', () => {
       'font',
       'llm',
       'log',
+      'playback',
       'storage',
       'sync',
       'theme',

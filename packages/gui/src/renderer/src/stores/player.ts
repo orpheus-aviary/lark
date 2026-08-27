@@ -49,6 +49,7 @@ import {
 } from '../player/pending.js';
 import { runRecovery } from '../player/recovery.js';
 import { createReporter } from '../player/reporter.js';
+import { useConfig } from './config.js';
 import { useLibrary } from './library.js';
 import { useSession } from './session.js';
 import { useViewPrefs } from './view-prefs.js';
@@ -291,11 +292,16 @@ export const usePlayer = create<PlayerState>((set, get) => {
 
   const advance = async (trigger: QueueTrigger, ctx: OperationContext): Promise<CommandResult> => {
     const songs = orderedSongs();
+    // 0.1.1 ⑥: rule 3's second half is a setting now, and both hosts read it
+    // from something the person owns. `?? true` is the loading window only —
+    // the config arrives once at startup and the default on disk is `true`.
+    const fetchWhenEnded = useConfig.getState().config?.playback.auto_download_next ?? true;
     const decision = decideNext({
       songs,
       currentId: get().currentSong?.id ?? null,
       mode: get().playMode,
       trigger,
+      fetchWhenEnded,
     });
     switch (decision.kind) {
       case 'play': {
@@ -304,10 +310,11 @@ export const usePlayer = create<PlayerState>((set, get) => {
         // Rule 3's finger half (N4g-3): a pressed button may name a song with
         // no file, and `ensureFile` is what turns that into a download that
         // plays when it lands (M5-9's flip, which the row click already used).
-        // A song that ended never names one — `decideNext` skips those — so
-        // this stays false there rather than spending data with nobody
-        // watching.
-        return await ops.play(song, ctx, { ensureFile: trigger !== 'ended' });
+        //
+        // A song that ended names one only when the setting allows it — and
+        // when it does, this has to fetch, or the decision above would hand
+        // back a song the play then refuses (0.1.1 ⑥).
+        return await ops.play(song, ctx, { ensureFile: trigger !== 'ended' || fetchWhenEnded });
       }
       case 'restart':
         return await restartCurrent();
