@@ -18,7 +18,6 @@ import {
   type CacheStatus,
   type DeviceSettingsPort,
   type EvictionSummary,
-  LATEST_KNOWN_VERSION,
   LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
   MIB,
@@ -29,8 +28,6 @@ import {
   writeCacheLimitMb,
 } from '@lark/core/portable';
 import type { NowPlayingMode } from '@lark/shared';
-import { LOCAL_API_VERSION } from '@lark/shared/api-paths';
-import { Directory } from 'expo-file-system';
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
@@ -44,8 +41,7 @@ import {
 } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
-import { nowPlaying, usePlayback } from '../player';
-import { songsRoot } from '../ports/paths';
+import { nowPlaying } from '../player';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
 import { openForeignWorkspaces } from '../workspace/foreign';
 import { Chip } from './chip';
@@ -78,25 +74,18 @@ export function SettingsTab() {
       <View style={styles.rule} />
       <Cache />
       <View style={styles.rule} />
-      <NowPlayingCount />
-      <Field label="曲库" value={`${total} 首`} />
       {/*
-        On DISK, not in the database, and that is the point: deleting a song
-        queues the removal of its directory and drains the journal, so a count
-        that did not fall is a file half of a delete that never happened
-        (criterion 15). Nothing outside the app can see `songs/` — it is
-        app-private — so this is where it becomes observable.
+        0.1.1 ⑫: eight diagnostics went from here — the song-directory count,
+        schema, protocol, the boot verdict, install_id, device_uuid, the boot
+        drain's tally and the Bluetooth-lyrics counter. Every one of them was
+        written for a batch that needed to read a number off a device with no
+        logcat, and every one of them stayed afterwards, so the page a person
+        opens to change one setting was mostly identifiers.
+        WHAT STAYED, and why: the song count, because it is the one number
+        somebody who is not debugging wants; and the error window below, which
+        is still the ONLY way an INTERNAL_ERROR gets off a release build.
       */}
-      <Field label="曲库目录" value={`${songDirectories()} 个`} />
-      <Field label="schema" value={`v${LATEST_KNOWN_VERSION}`} />
-      <Field label="protocol" value={`v${LOCAL_API_VERSION}`} />
-      <Field label="启动判定" value={`${boot.decision.action} · ${boot.decision.reason}`} />
-      <Field label="install_id" value={boot.installId} />
-      <Field label="device_uuid" value={boot.deviceUuid} />
-      <Field
-        label="启动时执行的文件操作"
-        value={`${boot.drained.executed} 条 · ${boot.drained.failed} 失败 · ${boot.drained.skipped} 跳过`}
-      />
+      <Field label="曲库" value={`${total} 首`} />
       <EngineErrors />
     </ScrollView>
   );
@@ -553,47 +542,40 @@ function BluetoothLyrics() {
 }
 
 /**
- * How many times we have handed the system a new title for this song, and how
- * close together two of them ever came (criterion 17).
+ * The raw side of "详情见日志" — on a phone the log is a screen (`downloads/log.ts`).
  *
- * Its own component ON PURPOSE: it subscribes to the playback tick so the
- * number is live, and the tab around it must not — `songDirectories()` lists a
- * directory on disk, and doing that twice a second would be a diagnostics
- * screen that costs more than what it diagnoses.
+ * FOLDED since 0.1.1 ⑫, and unfolding is a tap rather than a scroll past ten
+ * lines of stack frames: this window should be empty forever, and the count is
+ * the whole message when it is. It stays on the page because a release build
+ * reaches no logcat — take it away and an INTERNAL_ERROR becomes unexplainable
+ * by construction, which is the state N4e-2 added it to get out of.
  */
-function NowPlayingCount() {
-  const time = usePlayback((state) => state.currentTime);
-  const { published, minGapMs } = nowPlaying.stats();
-  return (
-    <Field
-      label="蓝牙歌词发送（本首）"
-      value={`${published} 次 · 最短间隔 ${minGapMs ?? '—'} ms · 播放到 ${time.toFixed(1)}s`}
-    />
-  );
-}
-
-/** The raw side of "详情见日志" — on a phone the log is a screen (`downloads/log.ts`). */
 function EngineErrors() {
   const lines = useSyncExternalStore(subscribeEngineErrors, engineErrors);
+  const [open, setOpen] = useState(false);
+  if (lines.length === 0) {
+    return <Field label="最近的错误" value="—" />;
+  }
   return (
     <View style={styles.field}>
-      <Text style={styles.fieldLabel}>最近的错误</Text>
-      {lines.length === 0 ? (
-        <Text style={styles.fieldValue}>—</Text>
-      ) : (
+      <Pressable
+        onPress={() => setOpen((shown) => !shown)}
+        accessibilityRole="button"
+        accessibilityLabel={`最近的错误 ${lines.length} 条`}
+      >
+        <Text style={styles.fieldLabel}>最近的错误</Text>
+        <Text style={styles.fieldValue}>
+          {lines.length} 条 · {open ? '收起' : '展开'}
+        </Text>
+      </Pressable>
+      {open &&
         lines.map((line) => (
           <Text key={line} style={styles.note} selectable>
             {line}
           </Text>
-        ))
-      )}
+        ))}
     </View>
   );
-}
-
-function songDirectories(): number {
-  const songs = songsRoot();
-  return songs.exists ? songs.list().filter((entry) => entry instanceof Directory).length : 0;
 }
 
 function Field({ label, value }: { label: string; value: string }) {
