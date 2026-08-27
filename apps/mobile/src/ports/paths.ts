@@ -154,6 +154,22 @@ export function libraryDirectory(): Directory {
 }
 
 /**
+ * `<workspace>/downloads.json` — which downloads have already happened
+ * (0.1.1 ⑦).
+ *
+ * BESIDE THE LIBRARY, not beside `device.json`: it names songs and playlists
+ * that only mean anything inside one library, so an account's history has no
+ * business showing up under another account's. That also makes deleting a
+ * workspace take its history with it, without anybody writing that down.
+ *
+ * Not a table in `songs.db` for the reason `downloads/history.ts` gives: the
+ * schema is shared with the desktop, and this is a fact about one phone.
+ */
+export function downloadHistoryFile(): File {
+  return new File(libraryDirectory(), 'downloads.json');
+}
+
+/**
  * The directory `openDatabaseSync` is given.
  *
  * A `file://` URI, not a POSIX path, and that is fine: expo-sqlite's Android

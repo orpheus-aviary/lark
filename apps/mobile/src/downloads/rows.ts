@@ -1,51 +1,80 @@
-// Which tasks a list shows, and in which order (N4d-2, decision c).
+// What the download page shows, and in which order (N4d-2 decision c; rebuilt
+// for the persistent history in 0.1.1 ⑦).
 //
 // Its own module rather than a few lines inside `ui/task-list.tsx` because it
 // is the one part of that screen that can be wrong in a way nobody sees: a
 // `FlatList` only renders what fits, so a row sorted off the bottom of the
-// screen is indistinguishable from a row that does not exist. MEASURED, N4d-2:
-// it took a cancelled download that reported 「已取消」 and then could not be
-// found in the list to notice that the order was reversed.
+// screen is indistinguishable from a row that does not exist. MEASURED,
+// N4d-2: it took a cancelled download that reported 「已取消」 and then could
+// not be found in the list to notice that the order was reversed.
 //
-// 🔴 THE ENGINE HANDS BACK INSERTION ORDER — OLDEST FIRST. `snapshot()` is
-// `[...this.#tasks.values()]` over a Map, which is the order things were
-// registered in, NOT the "newest first" the hub's own comment claimed. So a
-// naive `slice(0, 20)` keeps the twenty OLDEST terminal tasks and drops every
-// recent one — the exact opposite of decision c's 「终态只留最近 20 条」.
+// TWO GROUPS, AND THEY COME FROM DIFFERENT PLACES. What is RUNNING is the
+// engine's, in the order it was queued — 🔴 `snapshot()` walks a Map, so that
+// is insertion order and the oldest of them is the one actually running, which
+// is why it lands on top by itself. What has FINISHED is the history's
+// (`downloads/history.ts`), newest first, and it outlives both the engine's
+// 100-task ring and the process.
+//
+// ONE FLAT LIST, not a `SectionList`: the whole page is already one scroll
+// container (0.1.1 ③) and a discriminated row keeps the ordering decidable
+// here, in a file that loads without a device.
 
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { isActive } from './cancel';
+import type { DownloadRecord } from './history';
 
-/** A screen and a bit of the ring. The engine keeps 100; nobody scrolls to them. */
-export const TERMINAL_SHOWN = 20;
+/** Which group a heading belongs to. The buttons on it are the screen's. */
+export type DownloadSection = 'tasks' | 'records';
+
+export type DownloadListRow =
+  | { kind: 'head'; key: string; section: DownloadSection; count: number }
+  | { kind: 'task'; key: string; task: DownloadTaskData }
+  | { kind: 'record'; key: string; record: DownloadRecord }
+  | { kind: 'empty'; key: string; text: string };
 
 /**
- * Active tasks first, in the order they were queued — the one that is running
- * is the oldest of them, so it lands on top by itself — then the terminal ones,
- * most recently finished first.
+ * The page, top to bottom.
  *
- * `finished_at` and not the array order: it is what "recent" means, and a task
- * that somehow lacks one sorts last rather than jumping to the top.
+ * 下载记录 IS HIDDEN WHEN EMPTY, heading and all: its heading carries 清空记录
+ * and 全部重试, and offering either over nothing is two buttons that cannot do
+ * anything. 下载任务 always shows, because "nothing is downloading" is an
+ * answer somebody came to this page for.
  */
-export function orderTaskRows(
+export function downloadListRows(
   tasks: readonly DownloadTaskData[],
-  limit = TERMINAL_SHOWN,
-): DownloadTaskData[] {
-  const terminal = tasks
-    .filter((task) => !isActive(task))
-    .sort((a, b) => (b.finished_at ?? 0) - (a.finished_at ?? 0))
-    .slice(0, limit);
-  return [...tasks.filter(isActive), ...terminal];
+  records: readonly DownloadRecord[],
+): DownloadListRow[] {
+  const active = tasks.filter(isActive);
+  const rows: DownloadListRow[] = [
+    { kind: 'head', key: 'head:tasks', section: 'tasks', count: active.length },
+  ];
+  if (active.length === 0) {
+    rows.push({ kind: 'empty', key: 'empty:tasks', text: '没有正在进行的下载' });
+  } else {
+    for (const task of active) rows.push({ kind: 'task', key: `task:${task.id}`, task });
+  }
+  if (records.length > 0) {
+    rows.push({ kind: 'head', key: 'head:records', section: 'records', count: records.length });
+    for (const record of records) {
+      rows.push({ kind: 'record', key: `record:${record.id}`, record });
+    }
+  }
+  return rows;
+}
+
+/** The failed records, which is what 全部重试 is about. */
+export function failedRecords(records: readonly DownloadRecord[]): readonly DownloadRecord[] {
+  return records.filter((record) => record.state === 'failed');
 }
 
 /**
  * The batch a list should be reporting on: the most recent one (N4f-2).
  *
- * BY `created_at`, NOT BY POSITION, for the same reason the rows above sort by
- * `finished_at`: the engine hands back a Map's insertion order and a screen
- * that read `at(-1)` would be trusting a detail of a registry it does not own.
- * Ties go to the later entry — two batches opened in the same millisecond are
- * one submission's worth of groups, and the phone only ever submits one.
+ * BY `created_at`, NOT BY POSITION: the engine hands back a Map's insertion
+ * order and a screen that read `at(-1)` would be trusting a detail of a
+ * registry it does not own. Ties go to the later entry — two batches opened in
+ * the same millisecond are one submission's worth of groups, and the phone
+ * only ever submits one.
  *
  * "Most recent" rather than "the one the running task is in" (the desktop's
  * rule, `batchProgress`): a phone's list IS the screen, and a line that

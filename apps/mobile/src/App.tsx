@@ -30,6 +30,7 @@ import { StatusBar as RNStatusBar, SafeAreaView, StyleSheet, Text, View } from '
 import { type BootResult, bootOnce } from './boot/sequence';
 import { downloadRuntimeOnce } from './downloads/engine';
 import { bindEnsure } from './downloads/ensure-runtime';
+import { downloadHistoryOnce } from './downloads/history-runtime';
 import { engineLogger } from './downloads/log';
 import { bindPlayer } from './player';
 import { queueFrom, resolveQueue } from './player/queue';
@@ -70,6 +71,13 @@ export function App() {
         // runtime that shares the engine's claims rather than the boot one
         // (`downloads/engine.ts`).
         const runtime = downloadRuntimeOnce(result);
+        // 🔴 HERE AND NOT IN THE SCREEN THAT SHOWS IT (0.1.1 ⑦). The history
+        // subscribes to the hub when it is first built, and a download can
+        // finish without anybody having opened 添加 — tapping a song with no
+        // file starts one from 歌曲, and an ensure-file that failed on the bus
+        // is exactly the thing a record is for. Built lazily, that failure
+        // would go unrecorded because nothing was listening.
+        downloadHistoryOnce(result);
         const library = createLibrary(result, runtime.fileOps);
         // Sync, assembled but not started (N5c): no session, no timers, no
         // socket — the triggers are N5d. It takes the SAME journal runtime the

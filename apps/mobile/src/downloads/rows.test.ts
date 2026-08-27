@@ -1,14 +1,20 @@
-// The bug a screen cannot show you (N4d-2).
+// The bug a screen cannot show you (N4d-2, rebuilt in 0.1.1 ⑦).
 //
 // A `FlatList` renders what fits; a row sorted off the bottom looks exactly
 // like a row that is not there. On the device this cost an afternoon: a
 // cancelled download reported 「已取消」 and then could not be found in the
 // list, because the engine hands back INSERTION ORDER and the screen kept the
 // first twenty — the oldest — instead of the most recent.
+//
+// What the page shows changed in 0.1.1: finished work comes from the
+// persistent history rather than from the engine's ring, so the ordering
+// question moved with it. The same class of bug is still the one to look for
+// — a group that renders in the wrong place, or not at all.
 
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import { TERMINAL_SHOWN, latestBatch, orderTaskRows } from './rows';
+import type { DownloadRecord } from './history';
+import { downloadListRows, failedRecords, latestBatch } from './rows';
 
 function task(
   id: string,
@@ -39,63 +45,86 @@ function task(
   };
 }
 
-const ids = (rows: readonly DownloadTaskData[]) => rows.map((row) => row.id);
+const record = (id: string, patch: Partial<DownloadRecord> = {}): DownloadRecord => ({
+  id,
+  kind: 'download',
+  state: 'succeeded',
+  title: id,
+  artist: null,
+  input: { type: 'url', url: `https://b23.tv/${id}` },
+  playlist_ids: [],
+  song_id: null,
+  error_code: null,
+  error_message: null,
+  finished_at: 1,
+  ...patch,
+});
 
-describe('reading order', () => {
-  it('puts everything still working above everything finished', () => {
-    const rows = orderTaskRows([task('done', 'succeeded', 100), task('now', 'running')]);
-    expect(ids(rows)).toEqual(['now', 'done']);
+const keys = (rows: readonly { key: string }[]) => rows.map((row) => row.key);
+
+describe('the page, top to bottom', () => {
+  it('shows what is running above what has finished', () => {
+    const rows = downloadListRows(
+      [task('now', 'running'), task('done', 'succeeded', 9)],
+      [record('r1')],
+    );
+    expect(keys(rows)).toEqual(['head:tasks', 'task:now', 'head:records', 'record:r1']);
   });
 
-  it('keeps active tasks in the order they were queued', () => {
-    // The running one is the oldest of them, so it lands on top by itself.
-    const rows = orderTaskRows([task('a', 'running'), task('b', 'queued'), task('c', 'queued')]);
-    expect(ids(rows)).toEqual(['a', 'b', 'c']);
+  it('takes finished work from the history and NOT from the engine', () => {
+    // The engine's ring still holds `done`; the page must not draw it twice,
+    // nor draw it at all except through a record.
+    const rows = downloadListRows([task('done', 'succeeded', 9)], []);
+    expect(keys(rows)).toEqual(['head:tasks', 'empty:tasks']);
   });
 
-  it('shows the most recently finished task first — the engine gives OLDEST first', () => {
-    // The engine's `snapshot()` walks a Map, so this array is registration
-    // order. A screen that trusted it showed a cancel from five minutes ago
-    // above the one that just happened.
-    const rows = orderTaskRows([
-      task('oldest', 'succeeded', 100),
-      task('middle', 'failed', 200),
-      task('newest', 'cancelled', 300),
+  it('keeps the queue in the order the engine gave it', () => {
+    // The oldest queued task is the one actually running, so insertion order
+    // puts it on top by itself — reversing here would hide it.
+    const rows = downloadListRows(
+      [task('a', 'running'), task('b', 'queued'), task('c', 'queued')],
+      [],
+    );
+    expect(keys(rows)).toEqual(['head:tasks', 'task:a', 'task:b', 'task:c']);
+  });
+
+  it('keeps records in the order the history gave them', () => {
+    const rows = downloadListRows([], [record('new'), record('old')]);
+    expect(keys(rows)).toEqual([
+      'head:tasks',
+      'empty:tasks',
+      'head:records',
+      'record:new',
+      'record:old',
     ]);
-    expect(ids(rows)).toEqual(['newest', 'middle', 'oldest']);
   });
 
-  it('drops the OLDEST when there are more than fit, never the newest', () => {
-    const many = Array.from({ length: TERMINAL_SHOWN + 5 }, (_, i) =>
-      task(`t${i}`, 'succeeded', i),
-    );
-    const rows = orderTaskRows(many);
-
-    expect(rows).toHaveLength(TERMINAL_SHOWN);
-    // The whole point: the five that fell off are t0..t4, not the recent ones.
-    expect(rows[0]?.id).toBe(`t${TERMINAL_SHOWN + 4}`);
-    expect(ids(rows)).not.toContain('t0');
-    expect(ids(rows)).toContain(`t${TERMINAL_SHOWN + 4}`);
+  it('hides the 下载记录 heading when there is nothing under it', () => {
+    // Its heading carries 清空记录 and 全部重试; over an empty list both are
+    // buttons that cannot do anything.
+    const rows = downloadListRows([task('now', 'running')], []);
+    expect(keys(rows)).not.toContain('head:records');
   });
 
-  it('never drops an active task, however many terminal ones there are', () => {
-    const many = Array.from({ length: TERMINAL_SHOWN + 5 }, (_, i) =>
-      task(`t${i}`, 'succeeded', i),
-    );
-    const rows = orderTaskRows([...many, task('now', 'running')]);
-    expect(rows[0]?.id).toBe('now');
-    expect(rows).toHaveLength(TERMINAL_SHOWN + 1);
+  it('says so when nothing is downloading, rather than showing an empty page', () => {
+    expect(keys(downloadListRows([], []))).toEqual(['head:tasks', 'empty:tasks']);
   });
 
-  it('sorts a task with no finish time last rather than to the top', () => {
-    const rows = orderTaskRows([task('nofinish', 'failed', null), task('real', 'succeeded', 50)]);
-    expect(ids(rows)).toEqual(['real', 'nofinish']);
+  it('counts what is under each heading', () => {
+    const rows = downloadListRows([task('a', 'queued'), task('b', 'queued')], [record('r')]);
+    const heads = rows.filter((row) => row.kind === 'head');
+    expect(heads.map((row) => (row.kind === 'head' ? row.count : -1))).toEqual([2, 1]);
   });
+});
 
-  it('does not mutate what it was given', () => {
-    const given = [task('a', 'succeeded', 1), task('b', 'succeeded', 2)];
-    orderTaskRows(given);
-    expect(ids(given)).toEqual(['a', 'b']);
+describe('failedRecords', () => {
+  it('is what 全部重试 is about, and nothing else', () => {
+    const rows = failedRecords([
+      record('ok'),
+      record('bad', { state: 'failed' }),
+      record('gone', { state: 'cancelled' }),
+    ]);
+    expect(rows.map((row) => row.id)).toEqual(['bad']);
   });
 });
 
