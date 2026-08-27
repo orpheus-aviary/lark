@@ -267,45 +267,50 @@ export function AddTab() {
 
   return (
     <View style={styles.fill}>
-      <View style={styles.form}>
-        <TextInput
-          style={styles.input}
-          value={text}
-          onChangeText={setText}
-          placeholder="粘贴 B 站视频链接，或分享到 lark"
-          placeholderTextColor={C.faint}
-          multiline
-          autoCapitalize="none"
-          autoCorrect={false}
-          accessibilityLabel="链接输入框"
-        />
+      {/* 0.1.1 ③: the form is the LIST's header, so the page has one
+          scrollbar from the input box to the last finished task. An
+          element, never a function — see `TaskList`. */}
+      <TaskList
+        header={
+          <View style={styles.form}>
+            <TextInput
+              style={styles.input}
+              value={text}
+              onChangeText={setText}
+              placeholder="粘贴 B 站视频链接，或分享到 lark"
+              placeholderTextColor={C.faint}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+              accessibilityLabel="链接输入框"
+            />
 
-        <Preview seen={seen} resolving={resolving} lines={lines} />
+            <Preview seen={seen} resolving={resolving} lines={lines} />
 
-        {naming && <Naming mode={mode} hasLlm={hasLlm} onChoose={chooseMode} />}
+            {naming && <Naming mode={mode} hasLlm={hasLlm} onChoose={chooseMode} />}
 
-        {targeting && (
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>存到</Text>
-            <Chip label={targetName} on onPress={() => setPicking(true)} />
+            {targeting && (
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>存到</Text>
+                <Chip label={targetName} on onPress={() => setPicking(true)} />
+              </View>
+            )}
+
+            <Pressable
+              style={[styles.submit, !ready && styles.submitOff]}
+              onPress={() => void submit()}
+              disabled={!ready}
+              accessibilityRole="button"
+              accessibilityLabel="下载"
+            >
+              <Text style={[styles.submitLabel, !ready && styles.submitLabelOff]}>
+                {submitting ? '提交中…' : '下载'}
+              </Text>
+            </Pressable>
+            {failed !== null && <Text style={styles.failed}>{failed}</Text>}
           </View>
-        )}
-
-        <Pressable
-          style={[styles.submit, !ready && styles.submitOff]}
-          onPress={() => void submit()}
-          disabled={!ready}
-          accessibilityRole="button"
-          accessibilityLabel="下载"
-        >
-          <Text style={[styles.submitLabel, !ready && styles.submitLabelOff]}>
-            {submitting ? '提交中…' : '下载'}
-          </Text>
-        </Pressable>
-        {failed !== null && <Text style={styles.failed}>{failed}</Text>}
-      </View>
-
-      <TaskList />
+        }
+      />
 
       <Chooser
         lines={pickingLines ? lines : null}

@@ -17,6 +17,7 @@
 import type { DownloadBatchData } from '@lark/shared';
 import { KIND_LABELS, batchDone, taskLabel, taskTitle } from '@lark/shared';
 import { X } from 'lucide-react-native';
+import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
@@ -33,7 +34,22 @@ import { useDownloads } from '../downloads/use-downloads';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
 
-export function TaskList() {
+/**
+ * 0.1.1 ③: this list is the WHOLE PAGE's scroll container, and `header` is
+ * whatever the page wants above it.
+ *
+ * The add page used to be a fixed form with this list scrolling underneath it,
+ * so a long paste pushed the 下载 button off its own screen with nothing to
+ * scroll. A `ScrollView` around both is not available — nesting a
+ * `VirtualizedList` inside one is exactly the thing React Native refuses — so
+ * the list takes the form instead.
+ *
+ * 🔴 `header` IS AN ELEMENT, NEVER A FUNCTION. `ListHeaderComponent={() => …}`
+ * builds a new component TYPE on every render, which unmounts and remounts the
+ * header — and the header holds a `TextInput`, so every keystroke would drop
+ * the keyboard.
+ */
+export function TaskList({ header }: { header?: ReactNode }) {
   const { boot } = useLibrary();
   const { engine } = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   const { tasks, batches, foreground } = useDownloads();
@@ -46,61 +62,67 @@ export function TaskList() {
   const batch = latestBatch(batches);
 
   return (
-    <View style={styles.fill}>
-      <Warning status={foreground} />
-      <BatchLine batch={batch} />
-      <View style={styles.head}>
-        <Text style={styles.title}>下载任务</Text>
-        {active.length > 0 && (
-          <Pressable
-            style={styles.cancelAll}
-            onPress={() => setSaid(summariseCancels(cancelActive(engine, tasks)))}
-            accessibilityRole="button"
-            accessibilityLabel="全部取消"
-          >
-            <Text style={styles.cancelAllLabel}>全部取消</Text>
-          </Pressable>
-        )}
-      </View>
-      {said !== null && <Text style={styles.said}>{said}</Text>}
-      <FlatList
-        data={rows}
-        keyExtractor={(task) => task.id}
-        style={styles.list}
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowText}>
-              <Text style={styles.name} numberOfLines={1}>
-                {KIND_LABELS[item.kind] === null
-                  ? taskTitle(item)
-                  : `${KIND_LABELS[item.kind]} · ${taskTitle(item)}`}
-              </Text>
-              <Text style={styles.state}>{taskLabel(item)}</Text>
-              {/* The failure's own words. The engine's message is the only
-                  place the reason survives — nothing here can improve on it,
-                  and a generic "下载失败" would delete it. */}
-              {item.error_message !== null && (
-                <Text style={styles.error} numberOfLines={2}>
-                  {item.error_message}
-                </Text>
-              )}
-            </View>
-            {isActive(item) && (
+    <FlatList
+      data={rows}
+      keyExtractor={(task) => task.id}
+      style={styles.fill}
+      // So a tap on 下载 with the keyboard up reaches 下载, while a tap on the
+      // list itself still dismisses it (the settings page's rule).
+      keyboardShouldPersistTaps="handled"
+      ListHeaderComponent={
+        <>
+          {header}
+          <Warning status={foreground} />
+          <BatchLine batch={batch} />
+          <View style={styles.head}>
+            <Text style={styles.title}>下载任务</Text>
+            {active.length > 0 && (
               <Pressable
-                style={styles.cancel}
-                onPress={() => setSaid(describeCancel(cancelOne(engine, item)))}
+                style={styles.cancelAll}
+                onPress={() => setSaid(summariseCancels(cancelActive(engine, tasks)))}
                 accessibilityRole="button"
-                accessibilityLabel={`取消 ${taskTitle(item)}`}
-                hitSlop={8}
+                accessibilityLabel="全部取消"
               >
-                <X size={18} color={C.muted} />
+                <Text style={styles.cancelAllLabel}>全部取消</Text>
               </Pressable>
             )}
           </View>
-        )}
-        ListEmptyComponent={<Text style={styles.empty}>还没有下载任务</Text>}
-      />
-    </View>
+          {said !== null && <Text style={styles.said}>{said}</Text>}
+        </>
+      }
+      renderItem={({ item }) => (
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.name} numberOfLines={1}>
+              {KIND_LABELS[item.kind] === null
+                ? taskTitle(item)
+                : `${KIND_LABELS[item.kind]} · ${taskTitle(item)}`}
+            </Text>
+            <Text style={styles.state}>{taskLabel(item)}</Text>
+            {/* The failure's own words. The engine's message is the only
+                  place the reason survives — nothing here can improve on it,
+                  and a generic "下载失败" would delete it. */}
+            {item.error_message !== null && (
+              <Text style={styles.error} numberOfLines={2}>
+                {item.error_message}
+              </Text>
+            )}
+          </View>
+          {isActive(item) && (
+            <Pressable
+              style={styles.cancel}
+              onPress={() => setSaid(describeCancel(cancelOne(engine, item)))}
+              accessibilityRole="button"
+              accessibilityLabel={`取消 ${taskTitle(item)}`}
+              hitSlop={8}
+            >
+              <X size={18} color={C.muted} />
+            </Pressable>
+          )}
+        </View>
+      )}
+      ListEmptyComponent={<Text style={styles.empty}>还没有下载任务</Text>}
+    />
   );
 }
 
@@ -189,7 +211,6 @@ const styles = StyleSheet.create({
   },
   batchName: { color: C.muted, fontSize: 13, flex: 1 },
   batchCount: { color: C.text, fontSize: 13, fontWeight: '600' },
-  list: { flex: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
