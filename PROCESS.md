@@ -3,21 +3,31 @@
 > **这个文件只写「现在」。** 逐批的历史记录已经归档到 `docs/history/`，索引在下面。
 > 对话以本文件为基准；旧的东西查得到就行，不必读进上下文。
 
-## 当前阶段：**🎉 桌面 0.4.0 + Android 0.1.0 已发布（2026-08-26）**
+## 当前阶段：**Android 0.1.1 —— 首发之后的 UX 修补（开发中）**
 
 | | |
 |---|---|
 | **桌面** | **v0.4.0 已发布**（2026-08-26，tag `v0.4.0`）—— `Lark-0.4.0-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。协议 `LOCAL_API_VERSION` 6 → 7，**曲库不迁移**（schema 仍 v3）。 |
 | **移动** | **Android 0.1.0 已发布**（2026-08-26，tag `android-v0.1.0`）—— `lark-0.1.0.apk`，versionCode 1，minSdk 26。只在 GitHub Release 发，不进商店，无自动更新。 |
-| **测试** | **3317**（`just test`）。`just check` 绿。发版前五套 accept **128/128**，对的就是发出去的那份产物。 |
+| **测试** | **3328**（`just test`）。`just check` 绿（守卫十一条，0.1.1 加了「播放链路禁 JS 定时器」）。桌面五套 accept 的 128/128 仍是 0.4.0 那份产物的成绩。 |
 | **业务代码** | 491 文件 / 49,026 行（`tokei`，口径见 `.tokeignore`）。 |
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
-**下一站：长期使用复盘。** 两端都跑起来之后回头看一次日志——owl 的 0.6.2 就是这么挖出一批同步问题的（游标互相清零藏了三周，因为缺的是**轮次 summary 日志**）。待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
+**这一版是 D2「长期使用复盘」的第一份收成**：用户用了一天，列回来十一条，其中**只有一条是 bug**（锁屏播完不续播），其余是产品形状。子计划与分批 → **`docs/plans/2026-08-26-android-0.1.1.md`**；更早的待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
 
-⚠️ **手机当前状态**：处于**登出**，且 **LLM API Key 随卸载丢失**——从 Release 装上之后要手动补一次（backlog A5）。
+> 📌 发版时要做一次归档提交：把下面 0.4.0 / 0.1.0 那三段移进 `docs/history/`，本文件回到只剩当前阶段。
+
+⚠️ **手机当前状态**：装的是 **0.1.1 开发构建**（2026-08-26 取证那次装的，带临时探针；探针未提交，下一次装包会覆盖掉）。仍处于**登出**，且 **LLM API Key 随卸载丢失**——要手动补一次（backlog A5）。
 
 ### 本阶段记录
+
+- **P2 锁屏续播（⑪，2026-08-27）** —— **先取证再动手**。真机探针（release 构建 + 应用内日志环，debug 装不上去：签名不同，卸载会带走曲库）把链路四步各打一个时间戳：`didJustFinish` 到达 JS +0ms、`decideNext` 判定正确 +55ms、`pause()` +56ms、**`await sleep(300)` 之后 +63 537ms**，解冻后 82ms 内播上下一首。**判断和播放都是对的，卡住的只有那一个 JS 定时器**；而且放开它的是**解锁**，不是屏幕亮（唤醒后连采 1.7 秒仍冻着）。
+  修法：`modules/lark-app` 加原生 `delay(ms)`（主 looper 的 `postDelayed`，与显示无关），`player/driver.ts` 的两个定时器——300ms 拆卸间隔与 15 秒加载看门狗——都换掉。**排除过一个候选修法**：「听状态流等暂停生效」在播完这个场景上不成立，`BaseAudioPlayer.kt:84` 把 `STATE_ENDED` 下的 pause 判为 transient 而不发事件。
+  电脑上唯一能变红的判据是新守卫 `check-mobile-no-js-timers.sh`（`src/player/` 禁 `setTimeout`）——`driver.ts` 自己 import expo-audio，进不了 vitest 白名单。**剩下的证据只有设备能给**，排在 P7 的那一次会话里。
+
+- **P1 界面账（② ③ ④ ⑩ ⑫，2026-08-27）** —— 五条：顶栏的「lark」删掉（状态栏留白留着，那才是挖孔的那一份）· 添加页整页一个滚动条（任务列表成为唯一滚动容器，表单当它的表头，**必须传元素不能传函数**，否则每敲一个字输入框失焦）· 返回键按「多选 → 歌单详情 → 非歌曲 tab → 系统」四级（**优先级是数字不是注册顺序**：React 的 effect 是子先父后，纯 LIFO 会先问外层）· 歌单里的 ⋮ 变成和「歌曲」同一张菜单（多一条移出歌单，且它不再是红色——红只留给不可逆的删除）· 设置页删掉八项调试信息（留「曲库 N 首」与折叠起来的「最近的错误」，后者是 release 构建唯一能看见错误的地方）。
+  顺手修了一个既有的 hooks 顺序 bug：歌单详情的三个 list hook 在 `if (detail === null) return` 下面——别的设备删掉你正打开的歌单时 hook 数量会变、渲染直接崩。要在那儿加 `useBack` 就不能把新 hook 加进同一个坑。
+  `playlists-tab.tsx` 592 行拆成 175 + `playlist-detail.tsx` 456 + `add-songs.tsx` 108。测试 3317 → **3328**。
 
 - **跨仓文档跟进（2026-08-26，backlog A2 关闭）** —— `aviary/docs/{ROADMAP,DESIGN}.md` 与 `.github/profile/README.md` 里 lark 的状态自 0.3.0 起就没动过、也完全没有 Android 这条线。三处都改了，重点不是「多了个 app」而是**这个 app 是什么**：一台有自己曲库、离线可用、登录后双向同步的**设备**，不是遥控器；每账号一个曲库，id 与 owl 的 per-profile 逐字节同结果；两端业务逻辑同一份代码（`@lark/core/portable`），这是它能做小的前提。
 
