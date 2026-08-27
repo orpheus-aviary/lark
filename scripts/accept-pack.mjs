@@ -47,7 +47,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  * Bumping it is the deliberate act — 6 → 7 when N7 added `GET /workspaces` and
  * `POST /workspaces/switch`.
  */
-const EXPECTED_API_VERSION = 7;
+const EXPECTED_API_VERSION = 8;
 const DAEMON_URL = 'http://127.0.0.1:47100';
 const CDP_PORT = 9334;
 

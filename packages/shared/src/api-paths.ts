@@ -55,7 +55,17 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     client written against 7 cannot ask one to put an account's library
  *     anywhere but the file it is already serving.
  */
-export const LOCAL_API_VERSION = 7;
+/*
+ *   8 → 「自动下载下一首」 (0.1.1 ⑥, desktop 0.4.1). The config grew a
+ *     `[playback]` section, and it is the first one a client REQUIRES rather
+ *     than displays: the renderer reads `playback.auto_download_next` on every
+ *     advance, and a 7 daemon does not send it. The other direction is worse
+ *     than missing — `PATCH /config` on a 7 daemon answers `INVALID_CONFIG:
+ *     unknown config section: playback`, so the settings page can offer a
+ *     switch it cannot save. Same shape as 6: a client written against 8
+ *     cannot use its own feature through one.
+ */
+export const LOCAL_API_VERSION = 8;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {

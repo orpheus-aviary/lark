@@ -3,13 +3,13 @@
 > **这个文件只写「现在」。** 逐批的历史记录已经归档到 `docs/history/`，索引在下面。
 > 对话以本文件为基准；旧的东西查得到就行，不必读进上下文。
 
-## 当前阶段：**Android 0.1.1 —— 首发之后的 UX 修补（已发布）**
+## 当前阶段：**Android 0.1.1 + 桌面 0.4.1（均已发布，2026-08-27）**
 
 | | |
 |---|---|
-| **桌面** | **v0.4.0 已发布**（2026-08-26，tag `v0.4.0`）—— `Lark-0.4.0-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。协议 `LOCAL_API_VERSION` 6 → 7，**曲库不迁移**（schema 仍 v3）。 |
+| **桌面** | **v0.4.1 已发布**（2026-08-27，tag `v0.4.1`）—— `Lark-0.4.1-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。0.1.1 ⑥ 的桌面另一半（`playback.auto_download_next`）+ `DOWNLOAD_TIMEOUT`；协议 `LOCAL_API_VERSION` 7 → **8**（0.4.0 的 daemon 不认识 `[playback]`），**曲库不迁移**（schema 仍 v3）。 |
 | **移动** | **Android 0.1.1 已发布**（2026-08-27，tag `android-v0.1.1`）—— `lark-0.1.1.apk`，versionCode 2，minSdk 26，**覆盖安装 0.1.0、曲库不动**（签名相同）。只在 GitHub Release 发，不进商店，无自动更新。 |
-| **测试** | **3410**（`just test`）。`just check` 绿（**守卫十二条**——0.1.1 加了「播放链路禁 JS 定时器」，并补上 `INVARIANTS` §2 一直漏记的图标守卫）。桌面五套 accept 的 128/128 仍是 0.4.0 那份产物的成绩。 |
+| **测试** | **3410**（`just test`）。`just check` 绿（**守卫十二条**——0.1.1 加了「播放链路禁 JS 定时器」，并补上 `INVARIANTS` §2 一直漏记的图标守卫）。桌面五套 accept **128/128** 已对 0.4.1 那份产物复跑。 |
 | **业务代码** | 508 文件 / 50,193 行（`tokei`，口径见 `.tokeignore`）。 |
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
@@ -19,6 +19,10 @@
 ⚠️ **手机当前状态**：装的就是发出去的那份 0.1.1。仍处于**登出**，且 **LLM API Key 随卸载丢失**——要手动补一次（backlog A5）。
 
 ### 本阶段记录
+
+- **桌面 0.4.1 发版（2026-08-27，backlog D1 关闭）** —— 0.1.1 动过桌面（`playback.auto_download_next` 进配置与设置页、`DOWNLOAD_TIMEOUT`、`decideNext` 的 `fetchWhenEnded`），这一版把它发出去。**协议号 7 → 8**：0.4.0 的 daemon 对 `PATCH /config` 里的 `playback` 一节直接答 `INVALID_CONFIG: unknown config section`，而 0.4.1 的设置页要写它——**与当年升到 6 完全同形**（「一个写着新版的客户端没法通过旧 daemon 用自己的功能」），所以按 `api-paths.ts` 那条「Bump on any breaking change」抬号，而不是让 GUI 去兼容一个它一定会遇到的 400。版本号十一处一起动（六个 manifest + 三个常量 + 协议号 + `accept-pack` 的 `EXPECTED_API_VERSION`）。
+  🔴 **门禁抓到一条判据自己的病**（不是产品的）：`accept-gui` 判据 6 在 daemon 重启后等播放位置恢复，而**等待条件分不清「恢复了」和「卡在原地」**——音频元素没丢流时位置根本不掉，循环当场退出，随后那次 seek 打进 GUI 还没重连回来的窗口，答 `409 GUI_OFFLINE`。**三次复现**才敢说不是 flake。它实际测的是「重连比恢复快吗」，而重连是 `subscribeSse` 从 1 秒起的退避——环境不是契约。改成有界重试（20 秒内必须成）后 15/15，且 seek 真的执行了（200，位置 901.7）。
+  五套 accept 对**这一份代码和产物**复跑 **128/128**；单元测试 3410。
 
 - **P8 蓝牙／车机的上一首下一首（⑬，2026-08-27，用户当天追加）** —— 暂停一直是能用的；缺的只有曲目导航，而它是 expo-audio **显式摘掉**的：`AudioMediaSessionCallback.kt` 四行 `.remove(COMMAND_SEEK_TO_{NEXT,PREVIOUS}…)`。
   🔴 **只删那四行不会有任何变化**——Media3 给 controller 的是「session 声明 ∩ **player 报告**」的交集，而 expo-audio 的会话 player 只有一个 media item，ExoPlayer 本来就不报这两条。修法是补一个 `TrackNavigationPlayer`（`ForwardingPlayer`）：**`getAvailableCommands` 和 `isCommandAvailable` 两个都覆写**（后者在 `ForwardingPlayer` 里问的是被包的 player，只改一个会得到「哪里都对、按钮就是死的」），`hasNext/PreviousMediaItem` 为真，四个 seek 方法**不碰 ExoPlayer** 而是发事件——队列在 JS 里，只有宿主知道「下一首」是谁。

@@ -385,11 +385,26 @@ try {
     `t=${recovered.time?.toFixed(1)} (was ${positionBefore.toFixed(1)}) paused=${recovered.paused}`,
   );
   const newAuth = { Authorization: `Bearer ${rotated.token}` };
-  const seekAfter = await fetch(`${DAEMON_URL}/player/seek`, {
-    method: 'POST',
-    headers: { ...newAuth, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ position: 900 }),
-  });
+  // The GUI has to re-register its command channel before any player command
+  // can be executed, and `subscribeSse` reconnects on a backoff that starts at
+  // a second. MEASURED (0.4.1): when the audio element does NOT lose its
+  // stream across the restart, the recovery wait above returns immediately —
+  // the position never dropped — and a single seek fired here lands inside
+  // that window and answers 409 GUI_OFFLINE. That measures how fast a
+  // reconnect happens to be, not what this criterion is about, which is that
+  // the rotated token reaches a GUI and moves it. So: retry while the answer
+  // is "nobody is listening yet", and fail if that is still the answer 20
+  // seconds later.
+  let seekAfter = null;
+  for (let i = 0; i < 20; i++) {
+    seekAfter = await fetch(`${DAEMON_URL}/player/seek`, {
+      method: 'POST',
+      headers: { ...newAuth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ position: 900 }),
+    });
+    if (seekAfter.status !== 409) break;
+    await sleep(1000);
+  }
   await sleep(3000);
   const afterSeek = await cdp.evaluate(audioState);
   check(
