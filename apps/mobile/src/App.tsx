@@ -8,9 +8,9 @@
 //
 // This file now does three things and stops: boot, assemble what the screens
 // are given — the download engine, then the library service that has to share
-// its claim registry — and render the tabs. The boot's verdict moved into 设置,
-// where it is still readable off the device (a release build has no logcat,
-// N0b-3) without being the first thing a person sees.
+// its claim registry — and render the tabs. It draws NOTHING of its own since
+// 0.1.1 ②: the 「lark」 wordmark it used to put across the top cost every tab
+// 60dp to say what the launcher icon and the task switcher already said.
 
 import {
   type LibraryService,
@@ -177,7 +177,6 @@ export function App() {
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar style="light" />
-      <Text style={styles.title}>lark</Text>
 
       {boot.status === 'booting' && <Text style={styles.note}>正在打开曲库…</Text>}
 
@@ -198,17 +197,17 @@ export function App() {
 }
 
 const styles = StyleSheet.create({
-  // `SafeAreaView` is a no-op on Android — it insets for iOS notches only —
-  // so the title drew over the clock until this was here. MEASURED, on the
-  // frozen device.
-  screen: { flex: 1, backgroundColor: C.bg, paddingTop: RNStatusBar.currentHeight ?? 0 },
-  title: {
-    color: C.text,
-    fontSize: 24,
-    fontWeight: '600',
-    paddingHorizontal: S.pad,
-    paddingTop: S.gap,
-    paddingBottom: S.pad,
+  // 🔴 THIS IS THE NOTCH INSET, and it is what survived 0.1.1 ② — the app's
+  // own 「lark」 wordmark went, this did not. `SafeAreaView` is a no-op on
+  // Android (it insets for iOS notches only), so without this line the first
+  // row of every tab draws over the clock. MEASURED, on the frozen device.
+  //
+  // Plus one gap, because the wordmark used to be the thing holding the
+  // content off the status bar and now nothing is.
+  screen: {
+    flex: 1,
+    backgroundColor: C.bg,
+    paddingTop: (RNStatusBar.currentHeight ?? 0) + S.gap,
   },
   note: { color: C.faint, fontSize: 13, paddingHorizontal: S.pad, lineHeight: 20 },
   refusal: { gap: S.gap },
