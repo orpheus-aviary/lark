@@ -12,13 +12,14 @@ const config: ExpoConfig = {
   slug: 'lark',
   // D14's independent APK version line — NOT the desktop's 0.3.0. The two ship
   // separately and a shared number would only ever be a coincidence.
-  version: '0.1.0',
+  version: '0.1.1',
   orientation: 'portrait',
   platforms: ['android'],
   scheme: 'lark',
-  // The launcher icon. Missing until 0.1.1, which shipped Expo's placeholder —
-  // nothing offline could see it, because a missing `icon` is not an error:
-  // the template has a default and prebuild uses it without a word.
+  // The launcher icon. 0.1.0's first upload shipped Expo's placeholder and was
+  // replaced in place the same day — nothing offline could see it, because a
+  // missing `icon` is not an error: the template has a default and prebuild
+  // uses it without a word.
   //
   // Both files are derived from the desktop's
   // `packages/gui/resources/lark-icon-source.png` — the artwork with its opaque
@@ -33,7 +34,7 @@ const config: ExpoConfig = {
     // `…lark.spike` — sharing one would have the first real install inherit
     // the spike's data directory, half-finished SecureStore entries included.
     package: 'com.orpheusaviary.lark',
-    versionCode: 1,
+    versionCode: 2,
     // N3a. POST_NOTIFICATIONS is what makes the media notification VISIBLE on
     // Android 13+ — and on Android 13+ that notification IS the lock screen
     // controls. The foreground service runs either way, so a denied permission

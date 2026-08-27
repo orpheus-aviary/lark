@@ -681,6 +681,13 @@ mobile-acceptance-release: build-shared build-core
 #
 # `apksigner` comes from the build tools; the version is pinned by
 # `expo-build-properties` (36.0.0) rather than by whatever is first on PATH.
+#
+# It also reads the version the apk actually CARRIES and compares it with
+# `app.config.ts`. MEASURED on 0.1.1's release day: `android/` is prebuild
+# output and gitignored, `mobile-android-release` does not re-run prebuild, so
+# bumping the config and building installed an apk that still said 0.1.0 /
+# versionCode 1. Nothing else can notice — the build is legitimate, the
+# signature is right, and no test reads the manifest.
 [group('mobile')]
 mobile-verify-apk apk=(_mobile / "android/app/build/outputs/apk/release/app-release.apk"):
     #!/usr/bin/env bash
@@ -699,6 +706,23 @@ mobile-verify-apk apk=(_mobile / "android/app/build/outputs/apk/release/app-rele
         exit 1
     fi
     echo "✓ signed with lark's release key ($actual)"
+    aapt2="$(ls -d {{_android_home}}/build-tools/*/aapt2 | sort -V | tail -1)"
+    badging="$("$aapt2" dump badging "{{apk}}")"
+    apk_name="$(echo "$badging" | sed -n "1s/.*versionName='\([^']*\)'.*/\1/p")"
+    apk_code="$(echo "$badging" | sed -n "1s/.*versionCode='\([^']*\)'.*/\1/p")"
+    want_name="$(sed -n "s/^  version: '\(.*\)',$/\1/p" {{_mobile}}/app.config.ts)"
+    want_code="$(sed -n "s/^    versionCode: \([0-9]*\),$/\1/p" {{_mobile}}/app.config.ts)"
+    if [ -z "$want_name" ] || [ -z "$want_code" ]; then
+        echo "✗ could not read version / versionCode out of app.config.ts" >&2
+        exit 1
+    fi
+    if [ "$apk_name" != "$want_name" ] || [ "$apk_code" != "$want_code" ]; then
+        echo "✗ {{apk}} carries $apk_name (versionCode $apk_code)" >&2
+        echo "    app.config.ts says $want_name (versionCode $want_code)" >&2
+        echo "  (android/ is prebuild OUTPUT: run \`just mobile-prebuild\` after a version bump, then rebuild)" >&2
+        exit 1
+    fi
+    echo "✓ apk carries $apk_name (versionCode $apk_code), matching app.config.ts"
 
 # Criterion 10①, and the only place it can be answered: two real threads and a
 # barrier, in `modules/lark-fs/android/src/androidTest/`. A JS-side poll loop
