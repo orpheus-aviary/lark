@@ -59,6 +59,7 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 - **流控制器 `portable/coordinator/stream.ts` 两端共用**（借 owl 的两条策略）：`onOpen` 补一轮（**服务器不重放订阅之前的事件**）+ `onFrame` 喂 60 秒看门狗（**半开 socket 一个回调都不触发**）。
 - **能不能跑，问的是 `ctx.sync.session !== null`**，不是「配置里有没有凭证」——401 之后凭证还在，session 没了。
 - **已撤销的设备永远删不掉**：`changes.device_id` 与 `attachments.uploaded_by_device` 是 `ON DELETE RESTRICT`。而且**撤销后再登录会新注册一台**（`resolveDevice` 把「已撤销」当「已消失」，有意如此）⇒ 列表只增。前端**折叠不过滤**。
+- **离开一个账号不会删曲库**——被撤销 / logout / `unbind` 三条路都不删歌，`unbind` 丢的是 outbox 和 tombstone（**以「缺席」表达的东西回不来**）。唯一会动音频的是「别的设备删了这首歌」，且只删 `downloaded`。完整一份见 **`leaving-an-account.md`**。
 
 ## 5 · 每账号独立工作区（N7）
 
@@ -72,6 +73,7 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 6. **跨工作区清理 = 同一个 `runEviction` 指向别人的库**（只 SELECT ⇒ 安全是构造性的），顺序先清其他工作区。
 7. **WAL sidecar 不能跟着搬**（迁移用 checkpoint）。
 8. **登录时给工作区起名**（`label` = 账号，`server_url`），每次登录都写；不写就只能显示「账号曲库 <8 hex>」。
+9. **账号库与 `local` 是两份独立的库**（各有 `songs.db` 和 `songs/`），退出账号不影响 `local`，账号库的音频也不会合并回去。离开账号后各自的下场见 **`leaving-an-account.md`**。
 
 ## 6 · 移动端：启动与文件
 
