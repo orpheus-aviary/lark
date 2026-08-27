@@ -13,10 +13,11 @@
 
 import { syncBadgeView } from '@lark/shared';
 import { useEffect, useState } from 'react';
-import { Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { hasShareDraft, subscribeShareDraft } from '../share/draft';
 import { useSyncNow } from '../sync/use-sync';
 import { AddTab } from './add-tab';
+import { BACK, handleBack, useBack } from './back';
 import { MiniBar } from './minibar';
 import { PlayerScreen } from './player-screen';
 import { PlaylistsTab } from './playlists-tab';
@@ -60,6 +61,29 @@ export function Shell() {
   // not having received it. It deliberately does not TAKE the draft — the page
   // it is switching to has to find it there.
   useEffect(() => subscribeShareDraft(() => setTab('添加')), []);
+  // 0.1.1 ④, and this is the app's ONLY `BackHandler` subscription — every
+  // screen that wants the key registers with `ui/back.ts` instead, so the
+  // order they are asked in is a number rather than an accident of mount
+  // order. Everything else that answers back is a `Modal`, which Android
+  // handles itself through `onRequestClose`.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', handleBack);
+    return () => subscription.remove();
+  }, []);
+  // The outermost layer: back on 歌单/添加/设置 comes home to 歌曲, and back on
+  // 歌曲 is not ours — answering `false` hands it to Android, which puts the
+  // app in the background WITHOUT ending the process. That distinction is the
+  // whole reason `BackHandler.exitApp()` is not here: it finishes the Activity
+  // and leaves the JS runtime alive, so the next launch would skip `bootOnce`
+  // and its caches (`docs/INVARIANTS.md` §6).
+  useBack(
+    tab !== '歌曲',
+    () => {
+      setTab('歌曲');
+      return true;
+    },
+    BACK.tab,
+  );
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>

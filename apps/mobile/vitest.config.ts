@@ -126,6 +126,15 @@
 // states can be arranged on a phone without `adb` in an app-private directory.
 // What is left in the module is the reading, the merge and the write queue.
 
+// `ui/back.ts` joined in 0.1.1 ④, and it is the first `ui/` entry — every other
+// file in that directory renders. This one holds only the ORDER the hardware
+// back key is offered around, which is the part that cannot be checked on a
+// phone: a wrong order looks like "back closed something", and the something
+// it closed is only wrong if you knew what should have gone first. It matters
+// because React runs effects child-first, so the naive stack asks the outer
+// layer first — a bug with no visible symptom until somebody backs out of a
+// selection and lands on another tab.
+
 // `library/song-actions.ts` joined in 0.1.1 ⑩ for the reason `library/batch.ts`
 // did: what a menu OFFERS is a list, and a phone can only show one of them at
 // a time. The bug this replaces was exactly that — the same row's menu had
@@ -156,6 +165,7 @@ export default defineConfig({
       'src/downloads/selection.test.ts',
       'src/services/library.test.ts',
       'src/share/draft.test.ts',
+      'src/ui/back.test.ts',
       'src/library/song-actions.test.ts',
     ],
   },

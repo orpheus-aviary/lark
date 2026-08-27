@@ -8,7 +8,10 @@
 //
 // WHAT DIFFERS FROM THE 歌曲 TAB, and all of it is the playlist:
 //   - playing from here plays THIS playlist as the queue;
-//   - the menu carries one more entry, 移出歌单, which is not a delete.
+//   - the menu carries one more entry, 移出歌单, which is not a delete;
+//   - the back key closes the screen (`ui/back.ts`, `BACK.screen`) — until
+//     0.1.1 it left the app, because this is the one screen in the app that is
+//     not a `Modal` and so had nobody answering for it.
 
 import type { SongData } from '@lark/shared';
 import { Check } from 'lucide-react-native';
@@ -22,6 +25,7 @@ import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
 import { sharePlaylistExport } from '../services/playlist-export';
 import { AddSongs } from './add-songs';
+import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
 import { useLibrary } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
@@ -70,6 +74,18 @@ export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void 
   );
   const picked = useMemo(() => chosenRows(rows, chosen), [rows, chosen]);
   const leaveSelection = useCallback(() => setChosen(new Set()), []);
+
+  // 0.1.1 ④, and it sits INSIDE the screen the shell registers for: a
+  // selection is the innermost layer, so back leaves the selection before it
+  // leaves the playlist.
+  useBack(
+    selecting,
+    () => {
+      leaveSelection();
+      return true;
+    },
+    BACK.selection,
+  );
 
   // The playlist this screen was opened for is gone. Deleting it from here
   // navigates away on its own (below), so what reaches this branch is the

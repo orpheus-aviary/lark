@@ -21,6 +21,7 @@
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { shareLibraryExport } from '../services/playlist-export';
+import { BACK, useBack } from './back';
 import { ImportPlaylistScreen } from './import-playlist';
 import { useLibrary } from './library-context';
 import { PlaylistDetail } from './playlist-detail';
@@ -41,6 +42,18 @@ export function PlaylistsTab({
   openId: string | null;
   onOpen: (id: string | null) => void;
 }) {
+  // 0.1.1 ④. The detail screen is the one screen in this app that is NOT a
+  // `Modal`, so it was the one screen the back key left the app from. It is
+  // registered HERE rather than inside the detail because this is where
+  // "which playlist is open" can be unset.
+  useBack(
+    openId !== null,
+    () => {
+      onOpen(null);
+      return true;
+    },
+    BACK.screen,
+  );
   return openId === null ? (
     <PlaylistList onOpen={onOpen} />
   ) : (

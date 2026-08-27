@@ -38,6 +38,7 @@ import { describeBatch, runBatch } from '../library/batch';
 import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
+import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
 import { useLibrary } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
@@ -95,6 +96,17 @@ export function SongsTab() {
   const rows = useMemo(() => songs.map((song) => ({ ...song, key: song.id })), [songs]);
   const picked = useMemo(() => chosenRows(rows, chosen), [rows, chosen]);
   const leaveSelection = useCallback(() => setChosen(new Set()), []);
+
+  // 0.1.1 ④. The innermost layer this tab has: a selection is a mode you are
+  // IN, and the back key is how a phone leaves a mode.
+  useBack(
+    selecting,
+    () => {
+      leaveSelection();
+      return true;
+    },
+    BACK.selection,
+  );
 
   /**
    * One batch, from the tap to the sentence afterwards (§2.3).
