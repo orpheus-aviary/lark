@@ -32,21 +32,9 @@ import {
   toggleOrder,
   withField,
 } from '@lark/shared';
-import * as Clipboard from 'expo-clipboard';
 import { useCallback, useMemo, useState } from 'react';
-import {
-  FlatList,
-  Linking,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  ToastAndroid,
-  View,
-} from 'react-native';
-import { downloadRuntimeOnce } from '../downloads/engine';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { describeBatch, runBatch } from '../library/batch';
-import { copyableLink, openableLink, refusalFor } from '../library/links';
 import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
@@ -55,13 +43,14 @@ import { useLibrary } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
 import { SelectionBar } from './selection-bar';
 import { Prompt, Sheet, SheetAction } from './sheet';
+import { SongActionsSheet } from './song-actions';
 import { SongRow } from './song-row';
 import { C, S } from './theme';
 
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
 export function SongsTab() {
-  const { library, view, boot, changed } = useLibrary();
+  const { library, view, changed } = useLibrary();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
   const [picking, setPicking] = useState(false);
@@ -144,45 +133,6 @@ export function SongsTab() {
     leaveSelection();
     closeAll();
     changed();
-  };
-
-  const copyLink = (song: SongData): void => {
-    const url = copyableLink(song);
-    if (url === null) {
-      ToastAndroid.show('这首歌没有链接', ToastAndroid.SHORT);
-    } else {
-      void Clipboard.setStringAsync(url);
-      ToastAndroid.show('链接已复制', ToastAndroid.SHORT);
-    }
-    closeAll();
-  };
-
-  /** 🔴 The allowlist is in `library/links.ts` — only http(s) reaches the system. */
-  const openLink = (song: SongData): void => {
-    const url = openableLink(song);
-    if (url === null) {
-      ToastAndroid.show(refusalFor(song) ?? '打不开这个链接', ToastAndroid.SHORT);
-    } else {
-      void Linking.openURL(url).catch(() => {
-        // Nothing on this phone claims http(s), or the system refused. Either
-        // way it is worth a word: a menu item that does nothing reads as broken.
-        ToastAndroid.show('没有应用能打开这个链接', ToastAndroid.SHORT);
-      });
-    }
-    closeAll();
-  };
-
-  /** 重新下载 (criterion 49): the engine answers, and it is the one who speaks. */
-  const redownload = (song: SongData) => {
-    try {
-      downloadRuntimeOnce(boot).engine.enqueueRedownload(song.id);
-      ToastAndroid.show(`正在重新下载《${song.name}》`, ToastAndroid.SHORT);
-    } catch (err) {
-      // A full queue, or a row that went away while the sheet was open. Both
-      // are the engine's sentences, and both are better than a silent tap.
-      ToastAndroid.show(err instanceof Error ? err.message : '没能排上队', ToastAndroid.SHORT);
-    }
-    closeAll();
   };
 
   // Cancelling has to land in the same place as saving. Dropping back to the
@@ -289,33 +239,17 @@ export function SongsTab() {
       )}
 
       {acting !== null && editing === null && confirming === null && addingTo === null && (
-        <Sheet title={acting.name} onClose={closeAll}>
-          <SheetAction label="改歌名" onPress={() => setEditing({ song: acting, field: 'name' })} />
-          <SheetAction
-            label="改歌手"
-            onPress={() => setEditing({ song: acting, field: 'artist' })}
-          />
-          <SheetAction
-            label={acting.pinned ? '取消固定' : '固定'}
-            onPress={() => write(() => library.pinSong(acting.id, !acting.pinned))}
-          />
-          {/*
-            Decision a. A FORCED refetch, which is a different thing from the
-            row's tap: that one fetches only what is missing and then plays it,
-            this one replaces a file that is already there (a bad transfer, a
-            source that has been re-identified since) and plays nothing. Its
-            own dedupe key in the engine, for exactly that reason.
-          */}
-          <SheetAction label="添加到歌单" onPress={() => setAddingTo([acting])} />
-          {/* The link three (the desktop's M5-10 set). Copy takes whatever is
-              stored; open only takes http(s) (`library/links.ts`); changing it
-              is the one that can give a song a link it never had. */}
-          <SheetAction label="复制链接" onPress={() => copyLink(acting)} />
-          <SheetAction label="用 app 打开" onPress={() => openLink(acting)} />
-          <SheetAction label="更改链接" onPress={() => setLinking(acting)} />
-          <SheetAction label="重新下载" onPress={() => redownload(acting)} />
-          <SheetAction label="删除" danger onPress={() => setConfirming(acting)} />
-        </Sheet>
+        <SongActionsSheet
+          song={acting}
+          on={{
+            rename: () => setEditing({ song: acting, field: 'name' }),
+            artist: () => setEditing({ song: acting, field: 'artist' }),
+            playlist: () => setAddingTo([acting]),
+            editLink: () => setLinking(acting),
+            delete: () => setConfirming(acting),
+          }}
+          onClose={closeAll}
+        />
       )}
 
       {confirming !== null && (

@@ -126,6 +126,12 @@
 // states can be arranged on a phone without `adb` in an app-private directory.
 // What is left in the module is the reading, the merge and the write queue.
 
+// `library/song-actions.ts` joined in 0.1.1 ⑩ for the reason `library/batch.ts`
+// did: what a menu OFFERS is a list, and a phone can only show one of them at
+// a time. The bug this replaces was exactly that — the same row's menu had
+// nine entries in 歌曲 and one inside a playlist, and nothing anywhere said
+// they were meant to be the same menu.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -150,6 +156,7 @@ export default defineConfig({
       'src/downloads/selection.test.ts',
       'src/services/library.test.ts',
       'src/share/draft.test.ts',
+      'src/library/song-actions.test.ts',
     ],
   },
 });
