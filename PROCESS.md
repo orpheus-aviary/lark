@@ -14,10 +14,7 @@
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
 **P1–P7 全部完成，0.1.1 已发布（2026-08-27）。** 真机会话十条一次全过，清单在子计划 §7.2。
-> 📌 发版时要做一次归档提交：把下面 0.4.0 / 0.1.0 那三段移进 `docs/history/`，本文件回到只剩当前阶段。
-
 **这一版是 D2「长期使用复盘」的第一份收成**：用户用了一天，列回来十一条，其中**只有一条是 bug**（锁屏播完不续播），其余是产品形状。子计划与分批 → **`docs/plans/2026-08-26-android-0.1.1.md`**；更早的待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
-
 
 ⚠️ **手机当前状态**：装的是 **0.1.1**（真机会话那份产物）。仍处于**登出**，且 **LLM API Key 随卸载丢失**——要手动补一次（backlog A5）。
 
@@ -62,17 +59,6 @@
   顺手修了一个既有的 hooks 顺序 bug：歌单详情的三个 list hook 在 `if (detail === null) return` 下面——别的设备删掉你正打开的歌单时 hook 数量会变、渲染直接崩。要在那儿加 `useBack` 就不能把新 hook 加进同一个坑。
   `playlists-tab.tsx` 592 行拆成 175 + `playlist-detail.tsx` 456 + `add-songs.tsx` 108。测试 3317 → **3328**。
 
-- **跨仓文档跟进（2026-08-26，backlog A2 关闭）** —— `aviary/docs/{ROADMAP,DESIGN}.md` 与 `.github/profile/README.md` 里 lark 的状态自 0.3.0 起就没动过、也完全没有 Android 这条线。三处都改了，重点不是「多了个 app」而是**这个 app 是什么**：一台有自己曲库、离线可用、登录后双向同步的**设备**，不是遥控器；每账号一个曲库，id 与 owl 的 per-profile 逐字节同结果；两端业务逻辑同一份代码（`@lark/core/portable`），这是它能做小的前提。
-
-- **发版（2026-08-26）** —— 桌面 **0.4.0** + Android **0.1.0**，两条版本线各自打 tag（`v0.4.0` / `android-v0.1.0`）。
-  发版前对**这一份代码和产物**复跑五套 accept：`accept-gui` 15 · `accept-m5` 22 · `accept-cli` 27 · `accept-sync` 36 · `accept-pack` 28 = **128/128**；dmg 与 tgz 的 sha256 与 accept-pack 报的逐字节一致，npm registry 回读的 shasum 与本地 tarball 一致。
-  🔴 **门禁抓到一条**：`DAEMON_VERSION` 在其余八处都到 0.4.0 之后还停在 0.3.0——只改源码不够，**dmg 里编译进去的是旧值**，所以重打了包再跑。`accept-pack` §9 读源码比字面量，正是为这个。
-  🔴 **发布约一小时后发现 Android 版没有图标**——`app.config.ts` 里既没有 `icon` 也没有 `adaptiveIcon`，`expo prebuild` 一声不吭地用了模板自带的占位图。**离线的门一个都照不到**：缺失不是错误，tsc / biome / bundle smoke / 原生模块守卫全都只管代码，而这是一个从来没被命名过的资产。已补（图标取自桌面那份源图，前景铺满自适应图标的内侧 72/108 安全区，底色 `#0b332f` 是画面自己的描边色，配方在 `apps/mobile/assets/README.md`），并加了守卫 `check-mobile-icon.sh` 进 `just check`（两种破法都验过红）。**APK 就地换掉、版本号与 versionCode 不变**（0.1.0 / 1 ⇒ 覆盖安装、曲库不丢），Release 说明里如实写了换过、新旧 sha256 都记着。
-  **顺带补了 `just mobile-android-apk`**：`expo run:android` 没有设备就拒绝构建（它是 run 命令，只是顺带构建），而**发版不该依赖手机插没插在这台电脑上**。
-
-- **文档大整理（2026-08-26，A1 的一半）** —— `PROCESS.md` 1145 行 → 归档成五份 + 本文件（52 行）；`CLAUDE.md` 40KB → 6.6KB，从逐批状态改成「常驻规范 + 全是指针的进度段」；新增 `docs/INVARIANTS.md`（**仍然生效的约束**，从 CLAUDE.md 的状态段里提炼）与 `docs/plans/2026-08-26-backlog-before-android-v1.md`（带字母编号的待办 + **E 节「防止重复捡起」**）；新增 `.tokeignore`（`tokei` 只数业务代码：830 文件 / 92k → **491 文件 / 49,026 行**）。**结构照 owl**（`docs/history/<阶段>-shipped.md` + PROCESS 里一张查找表 + backlog 用稳定字母 id）。CLAUDE.md 同时加了一条**测试规范**：不要过度设计测试，上机由用户操作且集中安排。**A1 剩下的一半是面向用户的 `README.md`。**
-- **N7 每账号独立工作区完成（2026-08-26）** —— 判据 103–123 全关。判据 122 是桌面 accept 五套 **128/128**（顺带还清 N1 判据 22 欠了六轮的旧账），判据 123 是一次真机会话（八步里除「第二个账号新建空库」按用户决定不测外全过，**空库 / 要求重新登录 / converge 三种失败一次未现**）。逐批经过见 `docs/history/phase-b-shipped.md`。
-
 ## 历史归档
 
 已走完的阶段的逐批实施记录——经过、判据结果、当时的判断与决策：
@@ -83,6 +69,7 @@
 | **v0.2.0 skybridge 同步**（T0–T6，2026-08-13 发布）+ v0.2.1 | `docs/history/v0.2.0-shipped.md` |
 | **v0.3.0 m4a 统一 + 一次性迁移**（Phase A，2026-08-17 发布） | `docs/history/v0.3.0-shipped.md` |
 | **Phase B Android**（N0 平台 spike → N7 每账号工作区） | `docs/history/phase-b-shipped.md` |
+| **0.4.0 + Android 0.1.0 发版**（2026-08-26，含文档大整理与 N7 收口） | `docs/history/0.4.0-android-0.1.0-shipped.md` |
 | **决策流水**（2026-07 至 2026-08，「当时为什么这么定」） | `docs/history/decisions.md` |
 | 某一批的判据、决策、评审全文 | `docs/plans/<日期>-<里程碑>.md`（路由 `docs/plans/README.md`） |
 
