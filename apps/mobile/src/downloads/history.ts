@@ -84,6 +84,18 @@ export interface DownloadHistory {
   getRecords(): readonly DownloadRecord[];
   /** Fold the engine's snapshot in. Idempotent; fed by every hub refresh. */
   observe(tasks: readonly DownloadTaskData[]): void;
+  /**
+   * Put in rows no task produced (0.1.1 ⑤).
+   *
+   * One caller: a batch that stopped at the cache limit. Those songs never
+   * reached the engine, so without this the limit would be a toast that
+   * scrolls away — and the songs that did not come down would look exactly
+   * like songs nobody asked for.
+   *
+   * BY ID, replacing: tapping 全部下载 twice is one answer about the same
+   * songs, not two.
+   */
+  add(records: readonly DownloadRecord[]): void;
   remove(id: string): void;
   clear(): void;
   /**
@@ -296,6 +308,13 @@ export function createDownloadHistory(deps: DownloadHistoryDeps): DownloadHistor
       }
       if (fresh.length === 0) return;
       commit(ordered([...fresh, ...records], limit));
+    },
+
+    add(incoming) {
+      if (incoming.length === 0) return;
+      const replaced = new Set(incoming.map((record) => record.id));
+      for (const record of incoming) known.add(record.id);
+      commit(ordered([...incoming, ...records.filter((r) => !replaced.has(r.id))], limit));
     },
 
     remove(id) {

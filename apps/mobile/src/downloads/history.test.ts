@@ -135,6 +135,50 @@ describe('observe', () => {
   });
 });
 
+describe('add', () => {
+  const refusal = (id: string, at = 1): DownloadRecord =>
+    ({
+      id: `cache-limit:${id}`,
+      kind: 'ensure-file',
+      state: 'failed',
+      title: id,
+      artist: null,
+      input: { type: 'song', song_id: id },
+      playlist_ids: [],
+      song_id: id,
+      error_code: 'CACHE_LIMIT',
+      error_message: 'no room',
+      finished_at: at,
+    }) as DownloadRecord;
+
+  it('keeps rows that no task produced', () => {
+    const { history } = store();
+    history.add([refusal('a'), refusal('b')]);
+    expect(history.getRecords()).toHaveLength(2);
+  });
+
+  it('replaces its own row rather than stacking a second one', () => {
+    // Tapping 全部下载 twice is one answer about the same songs.
+    const { history } = store();
+    history.add([refusal('a', 1)]);
+    history.add([refusal('a', 2)]);
+    expect(history.getRecords()).toHaveLength(1);
+    expect(history.getRecords()[0]?.finished_at).toBe(2);
+  });
+
+  it('leaves the rows it was not given alone', () => {
+    const { history } = store();
+    history.observe([task({ id: 'downloaded' })]);
+    history.add([refusal('a')]);
+    expect(
+      history
+        .getRecords()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['cache-limit:a', 'downloaded']);
+  });
+});
+
 describe('the file', () => {
   it('survives a round trip', async () => {
     const first = store();
@@ -249,6 +293,22 @@ describe('planRetry', () => {
   it('asks the engine directly for a song it already knows', () => {
     expect(
       planRetry(record({ kind: 'ensure-file', input: { type: 'song', song_id: 's1' } })),
+    ).toEqual({ kind: 'redownload', songId: 's1' });
+  });
+
+  it('sends a cache-limit refusal straight to the engine, past the gate that made it', () => {
+    // 🔴 0.1.1 ⑤: the batch stopped because there is no room, and tapping 重下
+    // IS the decision to go past the limit. The plan has to reach the engine
+    // — anything that consulted the budget again would refuse forever.
+    expect(
+      planRetry(
+        record({
+          kind: 'ensure-file',
+          state: 'failed',
+          error_code: 'CACHE_LIMIT',
+          input: { type: 'song', song_id: 's1' },
+        }),
+      ),
     ).toEqual({ kind: 'redownload', songId: 's1' });
   });
 

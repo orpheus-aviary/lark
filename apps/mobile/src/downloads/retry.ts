@@ -29,6 +29,11 @@
 //                            that refused once usually refuses three times
 //                            while charging for each. 重下 is still there.
 //   `DOWNLOAD_QUEUE_FULL`    a full queue does not empty because we asked.
+//   `CACHE_LIMIT`            🔴 the one that would defeat its own feature: a
+//                            batch stopped BECAUSE there is no room, and an
+//                            automatic retry would walk straight through the
+//                            gate that stopped it. Going past the limit is a
+//                            person's decision (⑤), taken by tapping 重下.
 //   `INTERNAL_ERROR`         by definition nobody knows what it was.
 //
 // NO BACKOFF, and that is a decision rather than an omission: a delay would be

@@ -13,11 +13,21 @@
 //     0.1.1 it left the app, because this is the one screen in the app that is
 //     not a `Modal` and so had nobody answering for it.
 
+import { MIB, readCacheLimitMb } from '@lark/core/portable';
 import type { SongData } from '@lark/shared';
 import { Check } from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { readDeviceUsage } from '../cache/usage';
+import {
+  bytesPerSecondOf,
+  describeBudgetPlan,
+  planWithinBudget,
+  refusedRecord,
+} from '../downloads/budget';
+import { downloadRuntimeOnce } from '../downloads/engine';
 import { ensureController } from '../downloads/ensure-runtime';
+import { downloadHistoryOnce } from '../downloads/history-runtime';
 import { describeBatch, runBatch } from '../library/batch';
 import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { player } from '../player';
@@ -37,7 +47,7 @@ import { C, S } from './theme';
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
 export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
-  const { library, view, changed } = useLibrary();
+  const { library, view, boot, changed } = useLibrary();
   const [renaming, setRenaming] = useState(false);
   const [adding, setAdding] = useState(false);
   const [acting, setActing] = useState<SongData | null>(null);
@@ -122,6 +132,53 @@ export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void 
     ToastAndroid.show(describeBatch(verb, outcome), ToastAndroid.SHORT);
   };
 
+  /**
+   * 全部下载 — as much of this playlist as fits (0.1.1 ⑤).
+   *
+   * 🔴 IT STOPS AT THE CACHE LIMIT AND SAYS SO. It does not make room: the
+   * songs it could not take get a row in 下载记录 carrying the reason, and
+   * going past the limit is a person's decision taken by tapping 重下 there
+   * (`downloads/budget.ts`).
+   *
+   * The measurements are taken HERE, at the moment of the tap, because both
+   * of them move: the disk is walked for what every library on this device
+   * weighs, and what a second of audio costs is measured off the songs that
+   * are already here rather than guessed.
+   */
+  const downloadAll = (): void => {
+    if (detail === null) return;
+    const runtime = downloadRuntimeOnce(boot);
+    const limitMb = readCacheLimitMb(boot.deviceSettings);
+    const usage = readDeviceUsage({
+      statusHere: (options) => view.cacheStatus(options),
+      options: { ...runtime.cache.options(), limitBytes: limitMb * MIB },
+      workspace: boot.workspace,
+    });
+    const plan = planWithinBudget(detail.songs, {
+      usedBytes: usage.usedBytes,
+      limitBytes: limitMb * MIB,
+      // Measured over the WHOLE library rather than this playlist: a list
+      // whose two downloaded songs happen to be short would otherwise set the
+      // price for everything else in it.
+      bytesPerSecond: bytesPerSecondOf(view.songs({}).songs),
+    });
+    for (const song of plan.queue) {
+      try {
+        runtime.engine.enqueueEnsureFile(song.id);
+      } catch (err) {
+        // A full queue, or a song that went away while the tap was in flight.
+        // The engine's own sentence, and the rest of the batch still goes.
+        ToastAndroid.show(err instanceof Error ? err.message : '没能排上队', ToastAndroid.SHORT);
+        break;
+      }
+    }
+    if (plan.refused.length > 0) {
+      const at = Date.now();
+      downloadHistoryOnce(boot).add(plan.refused.map((song) => refusedRecord(song, limitMb, at)));
+    }
+    ToastAndroid.show(describeBudgetPlan(plan), ToastAndroid.SHORT);
+  };
+
   const exportPlaylist = async (): Promise<void> => {
     if (detail === null) return;
     try {
@@ -195,6 +252,14 @@ export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void 
             accessibilityRole="button"
           >
             <Text style={styles.newLabel}>歌单改名</Text>
+          </Pressable>
+          <Pressable
+            style={styles.newButton}
+            onPress={downloadAll}
+            accessibilityRole="button"
+            accessibilityLabel="全部下载"
+          >
+            <Text style={styles.newLabel}>全部下载</Text>
           </Pressable>
           {/* Decision f / criterion 39. Not a save dialog: the file goes to the
             app's cache and the system share sheet carries a grant to it

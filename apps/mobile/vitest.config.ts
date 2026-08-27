@@ -167,6 +167,7 @@ export default defineConfig({
       'src/player/now-playing.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/history.test.ts',
+      'src/downloads/budget.test.ts',
       'src/downloads/cancel.test.ts',
       'src/downloads/ensure.test.ts',
       'src/downloads/multi-line.test.ts',

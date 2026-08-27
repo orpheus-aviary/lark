@@ -21,7 +21,6 @@ import {
   LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
   MIB,
-  cacheStatus,
   isLlmConfigured,
   readCacheLimitMb,
   readLlmEndpoint,
@@ -39,17 +38,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { readDeviceUsage } from '../cache/usage';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
-import {
-  RETRY_LIMITS,
-  type RetryLimit,
-  readRetryLimit,
-  writeRetryLimit,
-} from '../downloads/retry';
+import { RETRY_LIMITS, type RetryLimit, readRetryLimit, writeRetryLimit } from '../downloads/retry';
 import { nowPlaying } from '../player';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
-import { openForeignWorkspaces } from '../workspace/foreign';
 import { Chip } from './chip';
 import { ConflictsScreen } from './conflicts-screen';
 import { useLibrary } from './library-context';
@@ -365,9 +359,7 @@ function AutoRetry({ settings }: { settings: DeviceSettingsPort }) {
           />
         ))}
       </View>
-      {limit === 0 && (
-        <Text style={styles.note}>失败就是失败，记录里点「重下」再试。</Text>
-      )}
+      {limit === 0 && <Text style={styles.note}>失败就是失败，记录里点「重下」再试。</Text>}
     </View>
   );
 }
@@ -410,28 +402,16 @@ function Cache() {
   // screen and every other one. The limit is a device setting, so a figure
   // counting only the first would say this phone is inside a limit it is over
   // — and a drain frees the others FIRST, which is worth saying next to them.
-  const usage = useMemo(() => {
-    const here = view.cacheStatus({ ...runtime.cache.options(), limitBytes: limitMb * MIB });
-    const opened = openForeignWorkspaces(boot.workspace);
-    try {
-      let bytes = 0;
-      let files = 0;
-      for (const workspace of opened.workspaces) {
-        const each = cacheStatus(workspace.files, workspace.db, {
-          limitBytes: 0,
-          isExcluded: () => false,
-          streamCount: () => 0,
-        });
-        bytes += each.used_bytes;
-        files += each.file_count;
-      }
-      return { here, other: { bytes, files } };
-    } finally {
-      opened.close();
-    }
-  }, [view, runtime, limitMb, boot]);
+  const usage = useMemo(
+    () =>
+      readDeviceUsage({
+        statusHere: (options) => view.cacheStatus(options),
+        options: { ...runtime.cache.options(), limitBytes: limitMb * MIB },
+        workspace: boot.workspace,
+      }),
+    [view, runtime, limitMb, boot],
+  );
   const status: CacheStatus = usage.here;
-  const other = usage.other;
 
   const save = async (): Promise<void> => {
     const parsed = Number(draft.trim());
@@ -474,10 +454,10 @@ function Cache() {
         label="当前曲库"
         value={`${mib(status.used_bytes)}（${status.file_count} 个音频文件）`}
       />
-      {other.files > 0 && (
+      {usage.otherFiles > 0 && (
         <Field
           label="其他曲库"
-          value={`${mib(other.bytes)}（${other.files} 个文件，清理时先动这些）`}
+          value={`${mib(usage.otherBytes)}（${usage.otherFiles} 个文件，清理时先动这些）`}
         />
       )}
       {/*

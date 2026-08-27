@@ -42,6 +42,7 @@ describe('shouldRetry', () => {
       'LLM_NOT_CONFIGURED',
       'LLM_FAILED',
       'DOWNLOAD_QUEUE_FULL',
+      'CACHE_LIMIT',
       'INTERNAL_ERROR',
     ]) {
       expect(shouldRetry(code, 1, 3), code).toBe(false);
@@ -50,6 +51,13 @@ describe('shouldRetry', () => {
 
   it('never retries risk control — asking again is what caused it', () => {
     expect(RETRYABLE_CODES.has('BILIBILI_RISK_CONTROL')).toBe(false);
+  });
+
+  it('never retries a cache-limit refusal — it would defeat the gate', () => {
+    // 🔴 The batch stopped BECAUSE there is no room. Retrying by itself walks
+    // through the gate that stopped it, which is the one thing 「到上限就停」
+    // exists to prevent.
+    expect(RETRYABLE_CODES.has('CACHE_LIMIT')).toBe(false);
   });
 
   it('stops at the limit, and 0 turns it off', () => {
