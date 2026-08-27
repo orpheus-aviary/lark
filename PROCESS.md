@@ -3,13 +3,13 @@
 > **这个文件只写「现在」。** 逐批的历史记录已经归档到 `docs/history/`，索引在下面。
 > 对话以本文件为基准；旧的东西查得到就行，不必读进上下文。
 
-## 当前阶段：**Android 0.1.1 + 桌面 0.4.1（均已发布，2026-08-27）**
+## 当前阶段：**Android 0.1.1 + 桌面 0.4.2（均已发布，2026-08-27）**
 
 | | |
 |---|---|
-| **桌面** | **v0.4.1 已发布**（2026-08-27，tag `v0.4.1`）—— `Lark-0.4.1-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。0.1.1 ⑥ 的桌面另一半（`playback.auto_download_next`）+ `DOWNLOAD_TIMEOUT`；协议 `LOCAL_API_VERSION` 7 → **8**（0.4.0 的 daemon 不认识 `[playback]`），**曲库不迁移**（schema 仍 v3）。 |
+| **桌面** | **v0.4.2 已发布**（2026-08-27，tag `v0.4.2`）—— `Lark-0.4.2-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.2`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。一颗多选「下载」（只补缺的音频），**协议未动**（`LOCAL_API_VERSION` 仍 8），曲库不迁移。上一版 v0.4.1 已发布（2026-08-27，tag `v0.4.1`）—— `Lark-0.4.1-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。0.1.1 ⑥ 的桌面另一半（`playback.auto_download_next`）+ `DOWNLOAD_TIMEOUT`；协议 `LOCAL_API_VERSION` 7 → **8**（0.4.0 的 daemon 不认识 `[playback]`），**曲库不迁移**（schema 仍 v3）。 |
 | **移动** | **Android 0.1.1 已发布**（2026-08-27，tag `android-v0.1.1`）—— `lark-0.1.1.apk`，versionCode 2，minSdk 26，**覆盖安装 0.1.0、曲库不动**（签名相同）。只在 GitHub Release 发，不进商店，无自动更新。 |
-| **测试** | **3410**（`just test`）。`just check` 绿（**守卫十二条**——0.1.1 加了「播放链路禁 JS 定时器」，并补上 `INVARIANTS` §2 一直漏记的图标守卫）。桌面五套 accept **128/128** 已对 0.4.1 那份产物复跑。 |
+| **测试** | **3415**（`just test`）。`just check` 绿（**守卫十二条**——0.1.1 加了「播放链路禁 JS 定时器」，并补上 `INVARIANTS` §2 一直漏记的图标守卫）。桌面五套 accept **128/128** 已对 0.4.2 那份产物复跑。 |
 | **业务代码** | 508 文件 / 50,193 行（`tokei`，口径见 `.tokeignore`）。 |
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
@@ -19,6 +19,12 @@
 ⚠️ **手机当前状态**：装的就是发出去的那份 0.1.1。仍处于**登出**，且 **LLM API Key 随卸载丢失**——要手动补一次（backlog A5）。
 
 ### 本阶段记录
+
+- **桌面 0.4.2 发版（2026-08-27）** —— 多选栏加了一颗「下载」：对选中的歌**只补缺的音频**（`POST /songs/:id/ensure-file`），已经在本机的一首都不请求。右键选中多行同一条；单选一行不给这条——一首歌不存在「一半缺一半不缺」，`重新下载` 就是全部答案。
+  **缺的从来不是入口，是语义**：选中之后的批量下载 0.4.0 就有，走的却是 `redownload`（强制重取）——选 200 首会把 180 首好好的文件也重下一遍并原地重写。真实场景（新设备登录账号后补齐曲库，元数据同步了、音频本体从不过同步通道）要的是 ensure-file，而 daemon 那一侧从 M5-8 起就有，只是渲染进程只在播放路径上用过它。
+  **跳过的行进 toast 而不是消失**：「已开始下载 12 首；另有 3 首已在本机」。`batchMessage` 因此多一个 `note`，附在三种形状之后（失败那种也附）——「已开始下载 3 首」对着十二行的选择是句真话，但不说另外九行的下场就读起来像 bug。没有来源标识的歌照旧交给 daemon 答 400，客户端不预判（和 `redownload` 同一条规矩）。
+  **和手机那颗「全部下载」规则不同，是有意的**：手机撞到缓存上限就停下、把剩下的记成失败行；桌面的规则一直是下新删旧（每次下载完成触发 LRU 清理），且默认上限是「不限」。移动端那套预算要走磁盘、按本机 `file_size / duration` 估每秒字节，桌面没有这套基建，也没有理由为一颗按钮造。
+  协议未动（仍是 8），schema 未动（仍是 v3），所以 **0.4.1 的 CLI 和 0.4.2 的 daemon 能互通**。测试 3410 → **3415**（两条判据都验过红：把 `ensureFile` 换成 `redownload`，两个文件当场变红）。五套 accept 对这一份产物 **128/128**——其中 `accept-sync` 跑在一份**登录前形状**的 nest 副本上（本机 `active` 当天已经是账号库 `17436a9a…`，而这套判据默认拿去复制的是未绑定的 `local`：D1 的 `bound === false` 先红，最后 `countSongs` 去开一个没被复制过来的 `lark/songs.db` 崩在 `SQLITE_CANTOPEN`——`backupNest` 只 online-backup 活跃工作区那一份）。
 
 - **桌面 0.4.1 发版（2026-08-27，backlog D1 关闭）** —— [Release v0.4.1](https://github.com/orpheus-aviary/lark/releases/tag/v0.4.1)（bundled，`Lark-0.4.1-arm64.dmg`）+ [`@orpheus-aviary/lark-cli@0.4.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。绑定：tag `v0.4.1` → **`af37b71`**；dmg sha256 `efe352e3189db9c9…`（148,254,310 字节，**验收前后一致，且从 Release 下载回来复校同哈希**）；tgz sha256 `97e78ee6d732ebc0…`，**registry 回读的 `dist.shasum` = 本地 `npm pack` 的 `466660b8…`**。九步照 M7 §3.5 走完。
   0.1.1 动过桌面（`playback.auto_download_next` 进配置与设置页、`DOWNLOAD_TIMEOUT`、`decideNext` 的 `fetchWhenEnded`），这一版把它发出去。**协议号 7 → 8**：0.4.0 的 daemon 对 `PATCH /config` 里的 `playback` 一节直接答 `INVALID_CONFIG: unknown config section`，而 0.4.1 的设置页要写它——**与当年升到 6 完全同形**（「一个写着新版的客户端没法通过旧 daemon 用自己的功能」），所以按 `api-paths.ts` 那条「Bump on any breaking change」抬号，而不是让 GUI 去兼容一个它一定会遇到的 400。版本号十一处一起动（六个 manifest + 三个常量 + 协议号 + `accept-pack` 的 `EXPECTED_API_VERSION`）。

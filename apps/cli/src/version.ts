@@ -2,4 +2,4 @@
 // compares against daemons is `LOCAL_API_VERSION` in `@lark/shared` — this one
 // is display only.
 
-export const CLI_VERSION = '0.4.1';
+export const CLI_VERSION = '0.4.2';
