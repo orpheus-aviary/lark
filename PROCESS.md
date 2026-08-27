@@ -3,20 +3,20 @@
 > **这个文件只写「现在」。** 逐批的历史记录已经归档到 `docs/history/`，索引在下面。
 > 对话以本文件为基准；旧的东西查得到就行，不必读进上下文。
 
-## 当前阶段：**Android 0.1.1 —— 首发之后的 UX 修补（待发版）**
+## 当前阶段：**Android 0.1.1 —— 首发之后的 UX 修补（已发布）**
 
 | | |
 |---|---|
 | **桌面** | **v0.4.0 已发布**（2026-08-26，tag `v0.4.0`）—— `Lark-0.4.0-arm64.dmg` + [`@orpheus-aviary/lark-cli@0.4.0`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。协议 `LOCAL_API_VERSION` 6 → 7，**曲库不迁移**（schema 仍 v3）。 |
-| **移动** | **Android 0.1.1 待发版**（0.1.0 已发布于 2026-08-26）—— 产物已就绪：`lark-0.1.1.apk`，versionCode 2，minSdk 26，**覆盖安装 0.1.0、曲库不动**（签名相同）。**等一次真机复验**（⑬ 动了锁屏那一段）。只在 GitHub Release 发，不进商店，无自动更新。 |
+| **移动** | **Android 0.1.1 已发布**（2026-08-27，tag `android-v0.1.1`）—— `lark-0.1.1.apk`，versionCode 2，minSdk 26，**覆盖安装 0.1.0、曲库不动**（签名相同）。只在 GitHub Release 发，不进商店，无自动更新。 |
 | **测试** | **3410**（`just test`）。`just check` 绿（**守卫十二条**——0.1.1 加了「播放链路禁 JS 定时器」，并补上 `INVARIANTS` §2 一直漏记的图标守卫）。桌面五套 accept 的 128/128 仍是 0.4.0 那份产物的成绩。 |
 | **业务代码** | 508 文件 / 50,193 行（`tokei`，口径见 `.tokeignore`）。 |
 | **设备** | 冻结设备 vivo V2408A / Android 15。数值判据一律 release 构建。 |
 
-**P1–P6 + P8 完成，P7 发版只差一次真机复验。** 2026-08-27 的真机会话十条一次全过，但那是加 ⑬ 之前的产物——⑬ 改的正是锁屏那一段，所以复验要把第 7 条连同新的 11–13 一起走。清单在子计划 §7.2。
+**P1–P8 全部完成，0.1.1 已发布（2026-08-27）。** 真机会话两轮：先是十条一次全过，加了 ⑬ 之后又对**要发出去的那份产物**复验 7（熄屏续播）与新增的 11–13（车机/耳机/通知栏切歌），也全过。清单在子计划 §7.2。
 **这一版是 D2「长期使用复盘」的第一份收成**：用户用了一天，列回来十一条，其中**只有一条是 bug**（锁屏播完不续播），其余是产品形状。子计划与分批 → **`docs/plans/2026-08-26-android-0.1.1.md`**；更早的待办与已决定不做的 → `docs/plans/2026-08-26-backlog-before-android-v1.md`。
 
-⚠️ **手机当前状态**：装的是 0.1.1 真机会话那份产物（**不是**要发的那份，之后又有清理与 ⑬）。仍处于**登出**，且 **LLM API Key 随卸载丢失**——要手动补一次（backlog A5）。
+⚠️ **手机当前状态**：装的就是发出去的那份 0.1.1。仍处于**登出**，且 **LLM API Key 随卸载丢失**——要手动补一次（backlog A5）。
 
 ### 本阶段记录
 
@@ -25,7 +25,7 @@
   **回调不再替 player 做决定**，改成 player 说了算：没 opt-in 的 app 行为逐字不变。`AudioLockScreenOptions` 加 `showNext` / `showPrevious`（默认 false），JS 类型加 `remoteCommand` 事件——补丁对上游是**加法**，将来提 PR 顺手。补丁 26 行 → **453 行、八个文件**。
   **通知按钮加两遍**（session 的 custom layout 一份、Notification 自己的 action 一份）：冻结设备把媒体通知当普通通知画，custom layout 在那台机器上不算数（N3a 的老账）。折叠态三个位置给 **上一首 ｜ 播放/暂停 ｜ 下一首**，±10s 退到展开态。
   app 侧只有一条线：`player/remote.ts` 翻译两套词汇（session 说 `previous`，`decideNext` 说 `prev`），`driver.ts` 多一条 `onRemote`，`store.ts` 接到**和屏幕上按钮同一个 `advance`**。三条判据破法都验过红——其中「被换掉的 driver 不许再动队列」是**第二版**：第一版写成「stop 之后不再听」，破了照样绿（stop 之后队列已空，advance 本来就不做事），是一条空判据。测试 3404 → **3410**。
-  **产物层面另验了一次**：`buildFromSource` 的老坑（改了但预编译 AAR 没变）这次直接查 dex——`TrackNavigationPlayer` 与 `remoteCommand` 都在 `classes3.dex` 里。
+  **产物层面另验了一次**：`buildFromSource` 的老坑（改了但预编译 AAR 没变）这次直接查 dex——`TrackNavigationPlayer` 与 `remoteCommand` 都在 `classes3.dex` 里。真机复验（第二轮，对发出去的那份产物）11–13 与回归的 7 全过。
 
 - **P7 发版（2026-08-27）** —— 顺序照计划：**先抬版本号（0.1.1 / versionCode 2）→ 构建 → 装机 → 上机**，因为真机验的必须是要发出去的那一份产物。**十条判据一次全过。**
   🔴 **差点验错东西**：第一次 `just mobile-android-release` 从头绿到尾——BUILD SUCCESSFUL、装机成功、`✓ signed with lark's release key`——而 `dumpsys package` 读回来仍是 `0.1.0 / versionCode 1`。`apps/mobile/android/` 是 prebuild 的输出且不进 git，而 release 配方不重跑 prebuild ⇒ Gradle 读的是上一轮那份 `build.gradle`。补跑 `just mobile-prebuild` 重建才对，并给 `mobile-verify-apk` 加了**版本比对**（`aapt2 dump badging` 对 `app.config.ts`，三种破法验过红）：**它是发版链路上唯一读产物的门，此前只读证书**。
