@@ -38,13 +38,19 @@ const decide = (
   trigger: QueueTrigger,
   mode: PlayMode,
   currentId: string | null,
-  over: { songs?: readonly SongData[]; random?: () => number } = {},
+  over: {
+    songs?: readonly SongData[];
+    random?: () => number;
+    /** Rule 3's setting. `false` is what every criterion below N4g asserted. */
+    fetchWhenEnded?: boolean;
+  } = {},
 ) =>
   decideNext({
     songs: over.songs ?? QUEUE,
     currentId,
     mode,
     trigger,
+    fetchWhenEnded: over.fetchWhenEnded ?? false,
     random: over.random ?? first,
   });
 
@@ -155,7 +161,13 @@ describe('the neighbour has no file (rule 3, rewritten in N4g-3)', () => {
 
   it('a song that ended skips it — nobody`s finger is on this, so nobody`s data', () => {
     expect(
-      decideNext({ songs: gapped, currentId: 'a', mode: 'sequential', trigger: 'ended' }),
+      decideNext({
+        songs: gapped,
+        currentId: 'a',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'play', songId: 'c' });
   });
 
@@ -163,33 +175,137 @@ describe('the neighbour has no file (rule 3, rewritten in N4g-3)', () => {
     // The whole point of the rewrite: tapping the row would have fetched it,
     // so pressing 下一首 onto the same row must not refuse.
     expect(
-      decideNext({ songs: gapped, currentId: 'a', mode: 'repeat-all', trigger: 'next' }),
+      decideNext({
+        songs: gapped,
+        currentId: 'a',
+        mode: 'repeat-all',
+        trigger: 'next',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'play', songId: 'b' });
     expect(
-      decideNext({ songs: gapped, currentId: 'c', mode: 'sequential', trigger: 'prev' }),
+      decideNext({
+        songs: gapped,
+        currentId: 'c',
+        mode: 'sequential',
+        trigger: 'prev',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'play', songId: 'b' });
   });
 
   it('a song that ended stops only when nothing ahead has a file', () => {
     const none = [song('a'), song('b', { has_file: false }), song('c', { has_file: false })];
     expect(
-      decideNext({ songs: none, currentId: 'a', mode: 'sequential', trigger: 'ended' }),
+      decideNext({
+        songs: none,
+        currentId: 'a',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'stop', reason: 'no-playable' });
     // repeat-all walks all the way round, and the last candidate it considers
     // is the song that just ended — a list loop with one playable song in it.
     expect(
-      decideNext({ songs: none, currentId: 'a', mode: 'repeat-all', trigger: 'ended' }),
+      decideNext({
+        songs: none,
+        currentId: 'a',
+        mode: 'repeat-all',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'play', songId: 'a' });
   });
 
   it('skipping still respects rule 1: sequential does not wrap to find one', () => {
     const tail = [song('a'), song('b'), song('c', { has_file: false })];
     expect(
-      decideNext({ songs: tail, currentId: 'b', mode: 'sequential', trigger: 'ended' }),
+      decideNext({
+        songs: tail,
+        currentId: 'b',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'stop', reason: 'no-playable' });
     expect(
-      decideNext({ songs: tail, currentId: 'b', mode: 'repeat-all', trigger: 'ended' }),
+      decideNext({
+        songs: tail,
+        currentId: 'b',
+        mode: 'repeat-all',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'play', songId: 'a' });
+  });
+
+  it('takes it instead of skipping, when the setting says a list may spend data', () => {
+    // 🔴 0.1.1 ⑥. The SAME queue and the SAME song running out, decided two
+    // ways by one boolean — which is the whole reason the flag is a required
+    // input rather than an option with a default. Skipping plays a list in the
+    // order it happened to be downloaded; taking it plays the list.
+    expect(
+      decideNext({
+        songs: gapped,
+        currentId: 'a',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: true,
+      }),
+    ).toEqual({ kind: 'play', songId: 'b' });
+  });
+
+  it('with the setting on, a list of songs with no files still plays', () => {
+    // Off, this stops dead: nothing ahead has a file. On, the first neighbour
+    // wins and the host fetches it.
+    const none = [song('a'), song('b', { has_file: false }), song('c', { has_file: false })];
+    expect(
+      decideNext({
+        songs: none,
+        currentId: 'a',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: true,
+      }),
+    ).toEqual({ kind: 'play', songId: 'b' });
+  });
+
+  it('the setting reaches shuffle too — otherwise one mode would spend data and another would not', () => {
+    const none = [song('a'), song('b', { has_file: false }), song('c', { has_file: false })];
+    expect(
+      decideNext({
+        songs: none,
+        currentId: 'a',
+        mode: 'shuffle',
+        trigger: 'ended',
+        fetchWhenEnded: true,
+        random: first,
+      }),
+    ).toEqual({ kind: 'play', songId: 'b' });
+    expect(
+      decideNext({
+        songs: none,
+        currentId: 'a',
+        mode: 'shuffle',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+        random: first,
+      }),
+    ).toEqual({ kind: 'stop', reason: 'no-playable' });
+  });
+
+  it('leaves rule 1 alone: sequential still ends at the end of the list', () => {
+    // The setting is about "may it spend data", not about where a list stops.
+    expect(
+      decideNext({
+        songs: gapped,
+        currentId: 'c',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: true,
+      }),
+    ).toEqual({ kind: 'stop', reason: 'end-of-list' });
   });
 
   it('shuffle follows the same split: a press may land on one, an ending may not', () => {
@@ -199,6 +315,7 @@ describe('the neighbour has no file (rule 3, rewritten in N4g-3)', () => {
         currentId: 'a',
         mode: 'shuffle',
         trigger: 'ended',
+        fetchWhenEnded: false,
         random: first,
       }),
     ).toEqual({ kind: 'play', songId: 'c' });
@@ -209,6 +326,7 @@ describe('the neighbour has no file (rule 3, rewritten in N4g-3)', () => {
         currentId: 'a',
         mode: 'shuffle',
         trigger: 'next',
+        fetchWhenEnded: false,
         random: first,
       }),
     ).toEqual({ kind: 'play', songId: 'b' });
@@ -218,7 +336,13 @@ describe('the neighbour has no file (rule 3, rewritten in N4g-3)', () => {
     const unknown = [song('a'), song('b')];
     expect(unknown[1]?.has_file).toBeUndefined();
     expect(
-      decideNext({ songs: unknown, currentId: 'a', mode: 'sequential', trigger: 'ended' }),
+      decideNext({
+        songs: unknown,
+        currentId: 'a',
+        mode: 'sequential',
+        trigger: 'ended',
+        fetchWhenEnded: false,
+      }),
     ).toEqual({ kind: 'play', songId: 'b' });
   });
 });

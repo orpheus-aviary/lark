@@ -25,6 +25,16 @@
 //      nobody's finger on it, so it may not spend anyone's data: the sequence
 //      SKIPS to the next song that has a file.
 //
+//      🔴 SINCE 0.1.1 THAT LAST HALF IS A SETTING, and `fetchWhenEnded` is it.
+//      Turned on — which is the default on both hosts — a song that ran out
+//      may name a neighbour with no file, and the host fetches it exactly as
+//      it would for a button. The setting exists because "may not spend
+//      anyone's data" was decided for a phone on mobile data, and most of the
+//      time somebody listening to a list wants the list to keep playing.
+//      It is a REQUIRED input rather than an option with a default: the two
+//      hosts must not be able to disagree by one of them forgetting to pass
+//      it, which is precisely how a rule ends up meaning two things.
+//
 //      Until N4g this rule was "stop, never skip", inherited from Go: skipping
 //      was said to turn "this song is missing" into "this song does not
 //      exist". What changed is that both hosts can now GET the file back, and
@@ -56,6 +66,12 @@ export interface QueueDecisionInput {
   currentId: string | null;
   mode: PlayMode;
   trigger: QueueTrigger;
+  /**
+   * May a song that ran out name a neighbour with no file? See rule 3.
+   *
+   * Required, and both hosts read it from a setting the person owns.
+   */
+  fetchWhenEnded: boolean;
   /** Injected so `shuffle` is decidable in a test. Defaults to `Math.random`. */
   random?: () => number;
 }
@@ -94,7 +110,7 @@ export function nextPlayMode(mode: PlayMode): PlayMode {
 const playable = (song: SongData): boolean => song.has_file !== false;
 
 export function decideNext(input: QueueDecisionInput): QueueDecision {
-  const { songs, currentId, mode, trigger, random = Math.random } = input;
+  const { songs, currentId, mode, trigger, fetchWhenEnded, random = Math.random } = input;
 
   // Before everything else, including "is it even in the queue": under
   // repeat-one a finished song restarts, full stop.
@@ -118,7 +134,9 @@ export function decideNext(input: QueueDecisionInput): QueueDecision {
     // that, shuffle would refuse on a library whose files have been evicted
     // while sequential happily fetched — the same inconsistency rule 3 exists
     // to remove.
-    const pool = songs.filter((song, i) => i !== index && (trigger === 'next' || playable(song)));
+    const pool = songs.filter(
+      (song, i) => i !== index && (trigger === 'next' || fetchWhenEnded || playable(song)),
+    );
     const pick = pool[Math.floor(random() * pool.length)];
     if (pick === undefined) {
       return trigger === 'ended'
@@ -141,7 +159,10 @@ export function decideNext(input: QueueDecisionInput): QueueDecision {
     const reach = mode === 'sequential' ? songs.length - 1 - index : songs.length;
     for (let ahead = 1; ahead <= reach; ahead += 1) {
       const candidate = songs[(index + ahead) % songs.length] as SongData;
-      if (playable(candidate)) return { kind: 'play', songId: candidate.id };
+      // With the setting on, the FIRST neighbour wins whether or not its file
+      // is here — which is what makes a list play in the order it is written
+      // rather than in the order it happens to have been downloaded.
+      if (fetchWhenEnded || playable(candidate)) return { kind: 'play', songId: candidate.id };
     }
     return { kind: 'stop', reason: 'no-playable' };
   }
