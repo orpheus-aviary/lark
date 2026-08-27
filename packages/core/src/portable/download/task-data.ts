@@ -117,6 +117,15 @@ export function downloadDedupeKey(target: DownloadTarget): string {
 }
 
 /**
+ * The two names a deadline arrives under: `AbortSignal.timeout` raises
+ * `TimeoutError`, an aborted controller raises `AbortError`, and both are
+ * DOMExceptions rather than anything this package defines.
+ */
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
+}
+
+/**
  * Map a thrown value onto a task error code.
  *
  * The explicit cases matter (fifth review ④): batch items skip the route's
@@ -124,12 +133,24 @@ export function downloadDedupeKey(target: DownloadTarget): string {
  * and a catch-all would report it as INTERNAL_ERROR — telling the user "lark
  * broke" about their own typo.
  *
+ * 🔴 AN ABORT REACHING HERE IS A DEADLINE, NEVER A CANCEL (0.1.1 ⑧). The
+ * engine decides that one step earlier: `cancelRequested || stopping` finishes
+ * the task as `cancelled` and never calls this (`engine.ts` `#run`'s catch),
+ * so the only abort left is `withTimeout`'s. Until 0.1.1 it fell through to
+ * the catch-all, which made THE most common failure on a phone — a transfer
+ * that ran out of time — report as 「下载任务出现内部错误」 and, worse, made it
+ * indistinguishable from a bug by anything reading the code. It is now the one
+ * failure the auto-retry is most sure about.
+ *
  * The catch-all message is fixed text. A raw error can carry a SQLite path or
  * an upstream response body, and neither belongs on the wire (fifth review ⑩);
  * the real one goes to the log.
  */
 export function describeTaskError(err: unknown): { code: string; message: string } {
   if (err instanceof CodedError) return { code: err.code, message: err.message };
+  // Before the class checks below: `AbortError` is a DOMException, not one of
+  // ours, and it would otherwise reach the catch-all.
+  if (isAbortError(err)) return { code: 'DOWNLOAD_TIMEOUT', message: '下载超时了' };
   if (err instanceof InvalidSourceError) return { code: 'INVALID_SOURCE', message: err.message };
   // Task-only (mobile): the daemon transcodes, so it never raises this — but a
   // phone download refuses a non-AAC stream and needs the message to survive.

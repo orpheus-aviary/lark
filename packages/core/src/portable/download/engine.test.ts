@@ -1349,6 +1349,20 @@ describe('describeTaskError', () => {
     expect(describeTaskError(new FfmpegError('boom')).code).toBe('FFMPEG_FAILED');
   });
 
+  it('calls a deadline a timeout — an abort down here is never a cancel', () => {
+    // 🔴 The engine finishes a cancelled task as `cancelled` without ever
+    // asking this (`#run`'s catch), so the only abort that gets here is
+    // `withTimeout`'s. Until 0.1.1 it read as INTERNAL_ERROR, which on a phone
+    // meant the most common failure of all reported as a bug in lark.
+    const timeout = new Error('The operation was aborted');
+    timeout.name = 'AbortError';
+    expect(describeTaskError(timeout).code).toBe('DOWNLOAD_TIMEOUT');
+
+    const deadline = new Error('signal timed out');
+    deadline.name = 'TimeoutError';
+    expect(describeTaskError(deadline).code).toBe('DOWNLOAD_TIMEOUT');
+  });
+
   // The message is fixed on purpose: a raw error can carry a SQLite path or an
   // upstream response body, and neither belongs on the wire (fifth review ⑩).
   it('hides an unexpected error behind a fixed message', () => {
