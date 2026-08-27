@@ -1239,6 +1239,31 @@ describe('pendingFileSongIds', () => {
     e.enqueueLyrics(downloaded);
     expect([...e.pendingFileSongIds()]).toEqual([]);
   }, 60_000);
+
+  it('protects a song whose task is still WAITING, not just the one running', async () => {
+    // 🔴 0.1.1 ⑤: 全部下载 puts a whole playlist on the queue at once, so all
+    // but one of those tasks are waiting. A song is only unevictable while
+    // something is about to write its file — and "about to" has to include
+    // the ones that have not started, or a drain triggered mid-batch would
+    // delete the file a queued redownload is on its way to replace.
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    await settleAll(e);
+    const downloaded = taskOf(e, first.id).result?.song_id as string;
+    expect([...e.pendingFileSongIds()]).toEqual([]);
+
+    // Occupy the worker, then queue one behind it. The second never starts.
+    upstream.state.hangAudio = true;
+    const blocker = e.enqueueDownload({ target: videoTarget(2) });
+    const waiting = e.enqueueRedownload(downloaded);
+    expect(taskOf(e, waiting.id).state).toBe('queued');
+    expect([...e.pendingFileSongIds()]).toContain(downloaded);
+
+    e.cancel(blocker.id);
+    e.cancel(waiting.id);
+    await settleAll(e);
+  }, 60_000);
 });
 
 // ─── Events ────────────────────────────────────────────
