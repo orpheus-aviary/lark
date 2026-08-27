@@ -39,6 +39,8 @@ export interface PlayerBinding {
   readLyrics: (songId: string) => Promise<string | null>;
   readMode: () => PlayMode;
   persistMode: (mode: PlayMode) => void;
+  /** 「自动下载下一首」 (0.1.1 ⑥) — `local_metadata`'s `auto_download_next`. */
+  readAutoDownloadNext: () => boolean;
   /** `local_metadata.now_playing_mode` — the Bluetooth lyrics switch (N3d). */
   readNowPlayingMode: () => NowPlayingMode;
   persistNowPlayingMode: (mode: NowPlayingMode) => void;
@@ -76,6 +78,7 @@ export const player = createPlayerStore({
   ensureSession: ensureAudioSession,
   resolveQueue: (queue) => required().resolveQueue(queue),
   readLyrics: (songId) => required().readLyrics(songId),
+  readAutoDownloadNext: () => required().readAutoDownloadNext(),
   persistMode: (mode) => required().persistMode(mode),
   rememberPlayback: (value) => required().rememberPlayback(value),
   touch: (songId) => required().touch(songId),

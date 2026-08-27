@@ -165,6 +165,7 @@ export default defineConfig({
       'src/sync/devices.test.ts',
       'src/sync/triggers.test.ts',
       'src/player/now-playing.test.ts',
+      'src/player/prefetch.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/history.test.ts',
       'src/downloads/budget.test.ts',

@@ -43,6 +43,7 @@ import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
 import { RETRY_LIMITS, type RetryLimit, readRetryLimit, writeRetryLimit } from '../downloads/retry';
 import { nowPlaying } from '../player';
+import { readAutoDownloadNext, writeAutoDownloadNext } from '../player/auto-download';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
 import { Chip } from './chip';
 import { ConflictsScreen } from './conflicts-screen';
@@ -71,6 +72,8 @@ export function SettingsTab() {
       <Llm settings={boot.deviceSettings} />
       <View style={styles.rule} />
       <BluetoothLyrics />
+      <View style={styles.rule} />
+      <AutoDownloadNext settings={boot.deviceSettings} />
       <View style={styles.rule} />
       <AutoRetry settings={boot.deviceSettings} />
       <View style={styles.rule} />
@@ -317,6 +320,45 @@ function LabelledInput({
         secureTextEntry={secureTextEntry}
         {...(keyboardType === undefined ? {} : { keyboardType })}
         accessibilityLabel={label}
+      />
+    </View>
+  );
+}
+
+/**
+ * 「自动下载下一首」 (0.1.1 ⑥).
+ *
+ * The rule is `@lark/shared`'s and the desktop has the same switch, so a list
+ * plays the same way on both. ON by default: the behaviour it replaces —
+ * skipping a song whose file is not here — plays a list in the order things
+ * happened to be downloaded rather than in the order it is written.
+ *
+ * Turning it off is the answer for somebody on metered data, which is who the
+ * original rule was written for.
+ */
+function AutoDownloadNext({ settings }: { settings: DeviceSettingsPort }) {
+  const [on, setOn] = useState(() => readAutoDownloadNext(settings));
+  return (
+    <View style={styles.switchRow}>
+      <View style={styles.switchText}>
+        <Text style={styles.fieldValue}>自动下载下一首</Text>
+        <Text style={styles.note}>
+          一首歌自然播完时，如果下一首的文件不在本机，就先取回来再播——并且会在当前这首还在播的时候
+          就开始取，所以通常听不出停顿。关掉则跳过它，直接放下一首已经有文件的歌。
+          随机播放下不预取：下一首是播完那一刻才抽的。
+        </Text>
+      </View>
+      <Switch
+        value={on}
+        onValueChange={(next) => {
+          setOn(next);
+          void writeAutoDownloadNext(settings, next).catch(() => {
+            // The switch has already moved and there is no form to report to;
+            // a failed write costs the next launch's answer, which is on.
+            setOn(readAutoDownloadNext(settings));
+          });
+        }}
+        accessibilityLabel="自动下载下一首"
       />
     </View>
   );

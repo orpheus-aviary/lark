@@ -34,6 +34,8 @@ import { downloadHistoryOnce } from './downloads/history-runtime';
 import { engineLogger } from './downloads/log';
 import { bindAutoRetry } from './downloads/retry-runtime';
 import { bindPlayer } from './player';
+import { readAutoDownloadNext } from './player/auto-download';
+import { bindPrefetch } from './player/prefetch-runtime';
 import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
 import { useShareIntentBridge } from './share/intent';
@@ -117,6 +119,9 @@ export function App() {
           resolveQueue: (queue) => resolveQueue(queue, songsOf(queue.source)),
           readLyrics: (songId) => library.readLyrics(songId),
           readMode: () => readPlayMode(result.deviceSettings),
+          // 0.1.1 ⑥. Read per advance rather than captured: somebody who turns
+          // it off mid-song means the next song, not the launch after this one.
+          readAutoDownloadNext: () => readAutoDownloadNext(result.deviceSettings, engineLogger),
           // Both persists are device settings since N7a, so both are file
           // writes now. Fire-and-forget, with the failure logged rather than
           // dropped: a mode toggle has no form to report back to, and an
@@ -169,6 +174,15 @@ export function App() {
           // happens to be on screen a minute later has no business replacing
           // it — that rule is for a tap on a row.
           fetchAndPlay: (song, queue) => ensure.request(song, queue, { fixedQueue: true }),
+        });
+        // …and the other half of ⑥: fetch that song while the current one is
+        // still playing, so 下一首 is already here when it arrives. After
+        // `bindPlayer`, because it subscribes to a player that has to be able
+        // to answer `resolveQueue`.
+        bindPrefetch({
+          engine: runtime.engine,
+          songsOf: (queue) => resolveQueue(queue, songsOf(queue.source)),
+          enabled: () => readAutoDownloadNext(result.deviceSettings, engineLogger),
         });
         setBoot({ status: 'ready', result, library });
       })

@@ -73,6 +73,11 @@ export interface PlayerDeps {
   readLyrics: (songId: string) => Promise<string | null>;
   /** `local_metadata.play_mode` (decision g). */
   persistMode: (mode: PlayMode) => void;
+  /**
+   * 「自动下载下一首」 (0.1.1 ⑥) — rule 3's second half, read fresh per
+   * advance so a setting changed mid-song applies to the next one.
+   */
+  readAutoDownloadNext: () => boolean;
   /** `local_metadata.last_playback` (N3f, decision i). */
   rememberPlayback: (value: LastPlayback) => void;
   /**
@@ -338,6 +343,9 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
       currentId: state.song?.id ?? null,
       mode: state.mode,
       trigger,
+      // Only `ended` reads it — a button is a finger and always fetches — but
+      // it is passed always, because `decideNext` refuses to guess (0.1.1 ⑥).
+      fetchWhenEnded: deps.readAutoDownloadNext(),
     });
 
     switch (decision.kind) {

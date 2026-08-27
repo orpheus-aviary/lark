@@ -92,6 +92,15 @@ let sessions: number;
 let library: SongData[];
 let lyrics: Record<string, string | null>;
 let persisted: PlayMode[];
+/**
+ * 「自动下载下一首」 (0.1.1 ⑥).
+ *
+ * `false` here on purpose: every criterion below was written when that was the
+ * only behaviour, and a fixture that flipped them all at once would be a
+ * fixture deciding what they assert. The one test about the setting turns it
+ * on for itself.
+ */
+let autoDownloadNext = false;
 let libraryListeners: Array<() => void>;
 
 /** Every case plays out of the whole library unless it says otherwise. */
@@ -116,6 +125,7 @@ beforeEach(() => {
   library = [song('a'), song('b'), song('c')];
   lyrics = {};
   persisted = [];
+  autoDownloadNext = false;
   remembered = [];
   touched = [];
   fetched = [];
@@ -129,6 +139,7 @@ beforeEach(() => {
     resolveQueue: (queue) => resolveQueue(queue, library),
     readLyrics: async (id) => lyrics[id] ?? null,
     persistMode: (mode) => persisted.push(mode),
+    readAutoDownloadNext: () => autoDownloadNext,
     rememberPlayback: (value) => remembered.push(value),
     touch: (songId) => touched.push(songId),
     fetchAndPlay: (song, queue) => fetched.push({ song, queue }),
@@ -817,5 +828,21 @@ describe('advancing onto a song with no file (N4g-3, decision i)', () => {
 
     expect(fetched).toEqual([]);
     expect(store.getState().song?.id).toBe('c');
+  });
+
+  it('…unless 自动下载下一首 is on, in which case it fetches it (0.1.1 ⑥)', async () => {
+    // The same queue and the same song running out, decided two ways by one
+    // setting. What arrives is the play path the next BUTTON already used —
+    // the queue is handed over fixed, so a list on screen a minute later has
+    // no say in what plays.
+    autoDownloadNext = true;
+    await start();
+    built[0]?.emit({ didJustFinish: true });
+    await settle();
+
+    expect(fetched.map((entry) => entry.song.id)).toEqual(['b']);
+    expect(fetched[0]?.queue).toBe(gapped);
+    // Nothing tried to load a file that is not there.
+    expect(built).toHaveLength(1);
   });
 });
