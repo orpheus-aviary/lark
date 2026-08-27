@@ -1,13 +1,43 @@
+diff --git a/android/src/main/java/expo/modules/audio/AudioRecords.kt b/android/src/main/java/expo/modules/audio/AudioRecords.kt
+index 86880d92fd5b6413e8596e1b2b8ae28f2981addd..47c9339f2235702cdba15b846beb5aa74072aa9d 100644
+--- a/android/src/main/java/expo/modules/audio/AudioRecords.kt
++++ b/android/src/main/java/expo/modules/audio/AudioRecords.kt
+@@ -110,7 +110,12 @@ enum class AndroidAudioEncoder(val value: String) : Enumerable {
+ class AudioLockScreenOptions(
+   @Field val showSeekForward: Boolean,
+   @Field val showSeekBackward: Boolean,
+-  @Field val isLiveStream: Boolean? = null
++  @Field val isLiveStream: Boolean? = null,
++  // lark patch (0.1.1 ⑬): track navigation for a host that owns the queue.
++  // Off by default, so an app that does not ask keeps today's behaviour —
++  // and asking is what puts `TrackNavigationPlayer` in the chain.
++  @Field val showNext: Boolean = false,
++  @Field val showPrevious: Boolean = false
+ ) : Record
+ 
+ enum class InterruptionMode(val value: String) : Enumerable {
 diff --git a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
-index 196a5d57f887c2667a88543bd2f6a80044a044f2..692936ec7847580fcf1789c8f87d2efdbad1aeb9 100644
+index 196a5d57f887c2667a88543bd2f6a80044a044f2..74891aa3b59eb5236304e6899c7b6bf486f990f4 100644
 --- a/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
 +++ b/android/src/main/java/expo/modules/audio/service/AudioControlsService.kt
-@@ -187,8 +187,19 @@ class AudioControlsService : MediaSessionService() {
+@@ -90,6 +90,10 @@ class AudioControlsService : MediaSessionService() {
+ 
+         ACTION_SEEK_FORWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition + SEEK_INTERVAL_MS)
+         ACTION_SEEK_BACKWARD -> currentPlayerRef.seekTo(currentPlayerRef.currentPosition - SEEK_INTERVAL_MS)
++        // lark patch (0.1.1 ⑬): the host owns the queue, so these ask rather
++        // than seek. `emitRemoteCommand` no-ops when the app never opted in.
++        ACTION_NEXT -> emitRemoteCommand(TrackNavigationPlayer.COMMAND_NEXT)
++        ACTION_PREVIOUS -> emitRemoteCommand(TrackNavigationPlayer.COMMAND_PREVIOUS)
+       }
+     }
+ 
+@@ -187,10 +191,29 @@ class AudioControlsService : MediaSessionService() {
  
      val style = MediaStyleNotificationHelper.MediaStyle(session)
  
 -    // Older Android system UI expects explicit notification actions for transport controls.
 -    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+-      val compactViewIndices = mutableListOf<Int>()
 +    // lark patch (N3a, criterion 2). UPSTREAM GATES THIS ON `SDK <= S_V2`, on
 +    // the assumption that Android 13+ always renders media controls from the
 +    // MediaSession. Not every system UI does. On the frozen measurement device
@@ -21,6 +51,403 @@ index 196a5d57f887c2667a88543bd2f6a80044a044f2..692936ec7847580fcf1789c8f87d2efd
 +    // used instead: MediaStyle still points at the session, and a system UI
 +    // that renders from it ignores the actions it does not need.
 +    if (true) {
-       val compactViewIndices = mutableListOf<Int>()
++      // lark patch (0.1.1 ⑬). THE ORDER THEY ARE ADDED IS THE ORDER THEY ARE
++      // DRAWN, and the collapsed notification shows at most three of them.
++      // With track navigation on, those three are previous ｜ play/pause ｜
++      // next: this is a music player, and skipping a song is what somebody
++      // reaches for without looking. ±10s stays one row down, in the expanded
++      // view. Without it, the compact view is upstream's — every action there
++      // is, which is at most three anyway.
        var currentIndex = 0
++      var previousIndex = -1
++      var nextIndex = -1
  
+       if (currentOptions?.showSeekBackward == true) {
+         builder.addAction(
+@@ -200,7 +223,18 @@ class AudioControlsService : MediaSessionService() {
+             buildActionPendingIntent(ACTION_SEEK_BACKWARD)
+           )
+         )
+-        compactViewIndices.add(currentIndex)
++        currentIndex++
++      }
++
++      if (currentOptions?.showPrevious == true) {
++        builder.addAction(
++          NotificationCompat.Action(
++            androidx.media3.session.R.drawable.media3_icon_previous,
++            "Previous",
++            buildActionPendingIntent(ACTION_PREVIOUS)
++          )
++        )
++        previousIndex = currentIndex
+         currentIndex++
+       }
+ 
+@@ -215,9 +249,21 @@ class AudioControlsService : MediaSessionService() {
+           buildActionPendingIntent(if (session.player.isPlaying) ACTION_PAUSE else ACTION_PLAY)
+         )
+       )
+-      compactViewIndices.add(currentIndex)
++      val playPauseIndex = currentIndex
+       currentIndex++
+ 
++      if (currentOptions?.showNext == true) {
++        builder.addAction(
++          NotificationCompat.Action(
++            androidx.media3.session.R.drawable.media3_icon_next,
++            "Next",
++            buildActionPendingIntent(ACTION_NEXT)
++          )
++        )
++        nextIndex = currentIndex
++        currentIndex++
++      }
++
+       if (currentOptions?.showSeekForward == true) {
+         builder.addAction(
+           NotificationCompat.Action(
+@@ -226,7 +272,17 @@ class AudioControlsService : MediaSessionService() {
+             buildActionPendingIntent(ACTION_SEEK_FORWARD)
+           )
+         )
+-        compactViewIndices.add(currentIndex)
++        currentIndex++
++      }
++
++      val compactViewIndices = if (previousIndex < 0 && nextIndex < 0) {
++        (0 until currentIndex).toList()
++      } else {
++        listOfNotNull(
++          previousIndex.takeIf { it >= 0 },
++          playPauseIndex,
++          nextIndex.takeIf { it >= 0 }
++        )
+       }
+ 
+       style.setShowActionsInCompactView(*compactViewIndices.toIntArray())
+@@ -240,6 +296,24 @@ class AudioControlsService : MediaSessionService() {
+     val session = mediaSession ?: return
+     val mediaButtons = mutableListOf<CommandButton>()
+ 
++    // lark patch (0.1.1 ⑬): with track navigation on, previous/next take the
++    // two outer slots and the seek buttons move to the secondary ones. The
++    // system UI that renders from the session decides how many it has room
++    // for, and this is the order to lose them in.
++    val hasTrackNavigation =
++      currentOptions?.showPrevious == true || currentOptions?.showNext == true
++
++    if (currentOptions?.showPrevious == true) {
++      mediaButtons.add(
++        CommandButton.Builder(CommandButton.ICON_PREVIOUS)
++          .setDisplayName("Previous")
++          .setEnabled(true)
++          .setPlayerCommand(Player.COMMAND_SEEK_TO_PREVIOUS)
++          .setSlots(CommandButton.SLOT_BACK)
++          .build()
++      )
++    }
++
+     // Add seek backward button if enabled
+     if (currentOptions?.showSeekBackward == true) {
+       mediaButtons.add(
+@@ -247,7 +321,9 @@ class AudioControlsService : MediaSessionService() {
+           .setDisplayName("Seek Backward")
+           .setEnabled(true)
+           .setSessionCommand(SessionCommand(ACTION_SEEK_BACKWARD, Bundle.EMPTY))
+-          .setSlots(CommandButton.SLOT_BACK)
++          .setSlots(
++            if (hasTrackNavigation) CommandButton.SLOT_BACK_SECONDARY else CommandButton.SLOT_BACK
++          )
+           .build()
+       )
+     }
+@@ -262,6 +338,17 @@ class AudioControlsService : MediaSessionService() {
+         .build()
+     )
+ 
++    if (currentOptions?.showNext == true) {
++      mediaButtons.add(
++        CommandButton.Builder(CommandButton.ICON_NEXT)
++          .setDisplayName("Next")
++          .setEnabled(true)
++          .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT)
++          .setSlots(CommandButton.SLOT_FORWARD)
++          .build()
++      )
++    }
++
+     // Add seek forward button if enabled
+     if (currentOptions?.showSeekForward == true) {
+       mediaButtons.add(
+@@ -269,7 +356,13 @@ class AudioControlsService : MediaSessionService() {
+           .setDisplayName("Seek Forward")
+           .setEnabled(true)
+           .setSessionCommand(SessionCommand(ACTION_SEEK_FORWARD, Bundle.EMPTY))
+-          .setSlots(CommandButton.SLOT_FORWARD)
++          .setSlots(
++            if (hasTrackNavigation) {
++              CommandButton.SLOT_FORWARD_SECONDARY
++            } else {
++              CommandButton.SLOT_FORWARD
++            }
++          )
+           .build()
+       )
+     }
+@@ -322,17 +415,41 @@ class AudioControlsService : MediaSessionService() {
+ 
+   private fun resolveSessionPlayer(player: AudioPlayer, options: AudioLockScreenOptions?): Player {
+     val isLive = options?.isLiveStream ?: player.isLive
+-    if (!isLive) {
+-      return player.ref
++    val source: Player = if (!isLive) {
++      player.ref
++    } else {
++      object : ForwardingPlayer(player.ref) {
++        override fun getAvailableCommands(): Player.Commands {
++          return super.getAvailableCommands().buildUpon()
++            .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
++            .build()
++        }
++      }
+     }
+ 
+-    return object : ForwardingPlayer(player.ref) {
+-      override fun getAvailableCommands(): Player.Commands {
+-        return super.getAvailableCommands().buildUpon()
+-          .remove(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+-          .build()
+-      }
++    // lark patch (0.1.1 ⑬). Only when the app asked: without the wrapper the
++    // one-item player reports no next and no previous, which is upstream's
++    // behaviour exactly.
++    if (options?.showNext != true && options?.showPrevious != true) {
++      return source
++    }
++    return TrackNavigationPlayer(
++      source,
++      hasNext = options.showNext,
++      hasPrevious = options.showPrevious
++    ) { command -> emitRemoteCommand(command) }
++  }
++
++  // lark patch (0.1.1 ⑬). One way out for both paths — a session command and a
++  // notification button are the same request. `emit` is public on SharedObject
++  // and the player IS one, so no new plumbing: the host subscribes with
++  // `player.addListener('remoteCommand', ...)`.
++  private fun emitRemoteCommand(command: String) {
++    val player = currentPlayer ?: return
++    if (!player.isActiveForLockScreen) {
++      return
+     }
++    player.emit(TrackNavigationPlayer.EVENT_REMOTE_COMMAND, mapOf("command" to command))
+   }
+ 
+   private fun setActivePlayerInternal(
+@@ -559,6 +676,13 @@ class AudioControlsService : MediaSessionService() {
+     const val ACTION_SEEK_FORWARD = "expo.modules.audio.action.SEEK_FORWARD"
+     const val ACTION_SEEK_BACKWARD = "expo.modules.audio.action.SEEK_BACKWARD"
+ 
++    // lark patch (0.1.1 ⑬). The notification's OWN buttons, which is what a
++    // system UI that draws a media notification as an ordinary one shows (see
++    // the N3a note in `buildNotification`). They reach the same host event as
++    // the session commands rather than a second path to the same decision.
++    const val ACTION_NEXT = "expo.modules.audio.action.NEXT"
++    const val ACTION_PREVIOUS = "expo.modules.audio.action.PREVIOUS"
++
+     const val SEEK_INTERVAL_MS = 10000L
+   }
+ }
+diff --git a/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt b/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
+index 839aaef12d7699ea1a89037b31849775daa079f4..45e93712ce218ed13fad220d10fae23c06a2f890 100644
+--- a/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
++++ b/android/src/main/java/expo/modules/audio/service/AudioMediaSessionCallback.kt
+@@ -24,11 +24,14 @@ class AudioMediaSessionCallback : MediaSession.Callback {
+             .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+             .add(Player.COMMAND_SEEK_FORWARD)
+             .add(Player.COMMAND_SEEK_BACK)
+-            // Remove track navigation commands
+-            .remove(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+-            .remove(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+-            .remove(Player.COMMAND_SEEK_TO_PREVIOUS)
+-            .remove(Player.COMMAND_SEEK_TO_NEXT)
++            // lark patch (0.1.1 ⑬). UPSTREAM REMOVES THE FOUR TRACK-NAVIGATION
++            // COMMANDS HERE, which makes it impossible for any player to offer
++            // them. Leaving them in is not the same as granting them: Media3
++            // hands a controller the INTERSECTION of this set and what the
++            // player reports, and expo-audio's one-item ExoPlayer reports
++            // neither — so an app that asks for nothing is unchanged, and one
++            // that opts in (`showNext` / `showPrevious`) gets them through
++            // `TrackNavigationPlayer`.
+             .build()
+         )
+         .setAvailableSessionCommands(
+diff --git a/android/src/main/java/expo/modules/audio/service/TrackNavigationPlayer.kt b/android/src/main/java/expo/modules/audio/service/TrackNavigationPlayer.kt
+new file mode 100644
+index 0000000000000000000000000000000000000000..d29d05f863ea59989fa9d497fe4cbd73d48287da
+--- /dev/null
++++ b/android/src/main/java/expo/modules/audio/service/TrackNavigationPlayer.kt
+@@ -0,0 +1,78 @@
++package expo.modules.audio.service
++
++import androidx.media3.common.ForwardingPlayer
++import androidx.media3.common.Player
++import androidx.media3.common.util.UnstableApi
++
++// lark patch (0.1.1 ⑬). Track navigation for a host that owns the queue.
++//
++// expo-audio's session player holds ONE media item — the queue lives in
++// JavaScript — so ExoPlayer reports no next and no previous, and a car stereo,
++// a headset button or a lock screen has nothing to offer. This wrapper says
++// the commands exist and turns them into an EVENT rather than a seek: the host
++// already knows what "next" means for its list, and it is the only thing that
++// does.
++//
++// 🔴 THE COMMAND SET AND `isCommandAvailable` BOTH HAVE TO BE OVERRIDDEN.
++// Media3 gives a controller the intersection of what the session declares and
++// what the PLAYER reports, and `ForwardingPlayer.isCommandAvailable` asks the
++// wrapped player rather than this class's `getAvailableCommands`. Override one
++// and not the other and the buttons stay dead with every log looking right.
++//
++// `hasNextMediaItem` / `hasPreviousMediaItem` are the other half: they are
++// what the legacy PlaybackState — which is what AVRCP actually sees — reads to
++// decide whether SKIP_TO_NEXT is enabled.
++//
++// The seek methods deliberately do NOT touch the wrapped player. There is
++// nothing there to seek to, and a `seekToNextMediaItem()` that quietly did
++// nothing is exactly the failure this exists to prevent.
++@UnstableApi
++internal class TrackNavigationPlayer(
++  player: Player,
++  private val hasNext: Boolean,
++  private val hasPrevious: Boolean,
++  private val onCommand: (String) -> Unit
++) : ForwardingPlayer(player) {
++  override fun getAvailableCommands(): Player.Commands {
++    val commands = super.getAvailableCommands().buildUpon()
++    if (hasNext) {
++      commands.add(Player.COMMAND_SEEK_TO_NEXT).add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
++    }
++    if (hasPrevious) {
++      commands.add(Player.COMMAND_SEEK_TO_PREVIOUS).add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
++    }
++    return commands.build()
++  }
++
++  override fun isCommandAvailable(command: Int): Boolean = when (command) {
++    Player.COMMAND_SEEK_TO_NEXT, Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> hasNext
++    Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> hasPrevious
++    else -> super.isCommandAvailable(command)
++  }
++
++  override fun hasNextMediaItem(): Boolean = hasNext
++
++  override fun hasPreviousMediaItem(): Boolean = hasPrevious
++
++  override fun seekToNext() = emit(hasNext, COMMAND_NEXT)
++
++  override fun seekToNextMediaItem() = emit(hasNext, COMMAND_NEXT)
++
++  override fun seekToPrevious() = emit(hasPrevious, COMMAND_PREVIOUS)
++
++  override fun seekToPreviousMediaItem() = emit(hasPrevious, COMMAND_PREVIOUS)
++
++  private fun emit(enabled: Boolean, command: String) {
++    if (enabled) {
++      onCommand(command)
++    }
++  }
++
++  companion object {
++    const val COMMAND_NEXT = "next"
++    const val COMMAND_PREVIOUS = "previous"
++
++    /** The event an `AudioPlayer` emits to JavaScript, with `{ command }`. */
++    const val EVENT_REMOTE_COMMAND = "remoteCommand"
++  }
++}
+diff --git a/build/AudioConstants.d.ts b/build/AudioConstants.d.ts
+index cfd92ad0ff5765254c4e6db974fe44bce34aad06..b3f2f8d32b0e326ab2c94a979ead3f76c15fabb9 100644
+--- a/build/AudioConstants.d.ts
++++ b/build/AudioConstants.d.ts
+@@ -15,5 +15,15 @@ export type AudioLockScreenOptions = {
+      * and scrub bar, and disable seek controls.
+      */
+     isLiveStream?: boolean;
++    /**
++     * lark patch (0.1.1 ⑬). Whether a next-track button should be displayed, and the
++     * command offered to headsets, car stereos and the lock screen. The request arrives
++     * as a `remoteCommand` event — the host owns the queue. Android only.
++     */
++    showNext?: boolean;
++    /**
++     * lark patch (0.1.1 ⑬). The same thing one track back. Android only.
++     */
++    showPrevious?: boolean;
+ };
+ //# sourceMappingURL=AudioConstants.d.ts.map
+\ No newline at end of file
+diff --git a/build/AudioModule.types.d.ts b/build/AudioModule.types.d.ts
+index f3ae4ee4044d86032cd5c6dbcfee6f905d1ce99f..6fe8878bf5d5c919e2212327f7f571e9aee72dc5 100644
+--- a/build/AudioModule.types.d.ts
++++ b/build/AudioModule.types.d.ts
+@@ -222,6 +222,15 @@ export type AudioEvents = {
+     playbackStatusUpdate(status: AudioStatus): void;
+     /** Fired when audio sampling is enabled and new sample data is available. */
+     audioSampleUpdate(data: AudioSample): void;
++    /**
++     * lark patch (0.1.1 ⑬). Somebody asked for another track from outside the app — a
++     * car stereo, a headset button, the lock screen or the notification. Fired only for
++     * a player that asked for it (`showNext` / `showPrevious`) and only while it owns
++     * the lock screen. Nothing has moved: the host owns the queue. Android only.
++     */
++    remoteCommand(event: {
++        command: 'next' | 'previous';
++    }): void;
+ };
+ export declare class AudioRecorder extends SharedObject<RecordingEvents> {
+     /**
+diff --git a/src/AudioConstants.ts b/src/AudioConstants.ts
+index dcc0452f7cae66b1bfaf77ed211416b092965bd9..bce6ef2ad37524f4cef54033c44561b40fe415f9 100644
+--- a/src/AudioConstants.ts
++++ b/src/AudioConstants.ts
+@@ -16,4 +16,17 @@ export type AudioLockScreenOptions = {
+    * and scrub bar, and disable seek controls.
+    */
+   isLiveStream?: boolean;
++  /**
++   * lark patch (0.1.1 ⑬). Whether a next-track button should be displayed, and
++   * the command offered to headsets, car stereos and the lock screen.
++   *
++   * The player holds one item, so nothing is skipped natively: the request
++   * arrives as a `remoteCommand` event and the host decides what "next" means
++   * for its own queue. Android only.
++   */
++  showNext?: boolean;
++  /**
++   * lark patch (0.1.1 ⑬). The same thing one track back. Android only.
++   */
++  showPrevious?: boolean;
+ };
+diff --git a/src/AudioModule.types.ts b/src/AudioModule.types.ts
+index 7e7537173d067fecef767a03dc0f1860c8aca7ac..901fa725fed71ffe4ba75283298a93f937944d5c 100644
+--- a/src/AudioModule.types.ts
++++ b/src/AudioModule.types.ts
+@@ -280,6 +280,16 @@ export type AudioEvents = {
+   playbackStatusUpdate(status: AudioStatus): void;
+   /** Fired when audio sampling is enabled and new sample data is available. */
+   audioSampleUpdate(data: AudioSample): void;
++  /**
++   * lark patch (0.1.1 ⑬). Somebody asked for another track from outside the
++   * app — a car stereo, a headset button, the lock screen or the notification.
++   *
++   * Only ever fired for a player that asked for it (`showNext` /
++   * `showPrevious` in {@link AudioLockScreenOptions}) and only while that
++   * player owns the lock screen. Nothing has moved when it arrives: the host
++   * owns the queue and decides what happens next. Android only.
++   */
++  remoteCommand(event: { command: 'next' | 'previous' }): void;
+ };
+ 
+ export declare class AudioRecorder extends SharedObject<RecordingEvents> {

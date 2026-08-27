@@ -5,7 +5,7 @@
 // like "sometimes the wrong song plays".
 
 import type { LastPlayback } from '@lark/core/portable';
-import type { PlayMode, SongData } from '@lark/shared';
+import type { PlayMode, QueueTrigger, SongData } from '@lark/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlaybackSnapshot, PlayerDriver } from './driver';
 import { type PlayQueue, resolveQueue } from './queue';
@@ -35,6 +35,8 @@ interface FakeDriver extends PlayerDriver {
   finishLoad(): void;
   failLoad(message: string): void;
   emit(snapshot: Partial<PlaybackSnapshot>): void;
+  /** A car stereo pressed one of the two buttons (0.1.1 ⑬). */
+  remote(trigger: QueueTrigger): void;
 }
 
 const built: FakeDriver[] = [];
@@ -43,6 +45,7 @@ function createFakeDriver(): FakeDriver {
   const log: string[] = [];
   let settle: { ok: () => void; fail: (err: Error) => void } | null = null;
   let listener: ((snapshot: PlaybackSnapshot) => void) | null = null;
+  let remoteListener: ((trigger: QueueTrigger) => void) | null = null;
   let uri: string | null = null;
 
   const driver: FakeDriver = {
@@ -69,8 +72,15 @@ function createFakeDriver(): FakeDriver {
         listener = null;
       };
     },
+    onRemote(fn) {
+      remoteListener = fn;
+      return () => {
+        remoteListener = null;
+      };
+    },
     destroy: async () => void log.push('destroy'),
     finishLoad: () => settle?.ok(),
+    remote: (trigger) => remoteListener?.(trigger),
     failLoad: (message) => settle?.fail(new Error(message)),
     emit: (patch) =>
       listener?.({
@@ -482,6 +492,55 @@ describe('the queue, and what the library does to it', () => {
     await settle();
     built[1]?.finishLoad();
     expect(await decision).toEqual({ kind: 'play', songId: 'b' });
+  });
+});
+
+describe('a request from outside the app (0.1.1 ⑬)', () => {
+  const start = async (id: string): Promise<void> => {
+    const done = store.play(song(id), ALL);
+    await settle();
+    built[built.length - 1]?.finishLoad();
+    await done;
+  };
+
+  it('a car stereo asking for the next track moves the queue', async () => {
+    await start('a');
+    built[0]?.remote('next');
+    await settle();
+    built[1]?.finishLoad();
+    await settle();
+
+    expect(store.getState().song?.id).toBe('b');
+  });
+
+  it('is a BUTTON, not a song running out', async () => {
+    // Rule 1, and the sharpest thing this wiring can get wrong: at the end of
+    // a `sequential` list a song that ENDS stops, while a button wraps —
+    // "pressing a button is an intent and a song running out is not". Sending
+    // the remote press through as `ended` would look right in every other case
+    // and only ever show up here.
+    await start('c');
+    built[0]?.remote('next');
+    await settle();
+    built[1]?.finishLoad();
+    await settle();
+
+    expect(store.getState().song?.id).toBe('a');
+  });
+
+  it('a superseded driver cannot move the queue', async () => {
+    // Every song builds its own driver, and the one being left behind is still
+    // holding whatever the lock screen last handed it. A subscription that
+    // outlived its driver would let the PREVIOUS song's session advance the
+    // queue — once, invisibly, at whatever moment the old session fires.
+    await start('a');
+    const stale = built[0];
+    await start('b');
+    stale?.remote('next');
+    await settle();
+
+    expect(store.getState().song?.id).toBe('b');
+    expect(built).toHaveLength(2);
   });
 });
 

@@ -102,5 +102,6 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 - **上机由用户操作、集中安排**：一个里程碑最多一次会话，AI 只负责 `just mobile-android-release` 装包 + 讲清楚看什么。AI 自己驱动手机只在两种情况——要抓内容（logcat / dumpsys / 截屏比对），或判据要求一段精确流程。
 - **绿不是证据，破了会红才是。** 加一条判据就要能说出它怎么变红；破法选错会得到安静的绿。
 - **判据别把环境当契约**，**「快」是可疑信号**除非同时断言干了活，**判据验过 ≠ 用户点得到**（只在验收构建里有入口的能力，验收永远绿）。
+- **锁屏/车机的上一首下一首靠 `patches/expo-audio@57.0.3.patch`**（0.1.1 ⑬）：expo-audio 自己没有这个能力。曲目导航以 `remoteCommand` 事件到 JS，`player/remote.ts` 翻译成 `decideNext` 的词汇，最后走**和屏幕按钮同一个 `advance`**——不许有第二套「下一首」的算法。改播放器或升级 expo-audio 之后，验的是 **apk 里有没有那两个符号**（`classes*.dex` 里的 `TrackNavigationPlayer` / `remoteCommand`），不是构建日志。
 - **抬了 Android 版本号就必须 `just mobile-prebuild`**：`apps/mobile/android/` 是 prebuild 的输出、不进 git，release 配方不会重跑它。`mobile-verify-apk` 现在同时验**签名**与**版本号**（apk 的 `versionName`/`versionCode` 对 `app.config.ts`），它是发版链路上唯一读产物的门。
 - **五套桌面 accept 是发版门禁**：`accept-gui`(15) · `accept-cli`(27) · `accept-m5`(22，真 bilibili) · `accept-sync`(36，真 server + 两台 daemon + 真 GUI) · `accept-pack`(28，对新构建的 dmg/tgz)。**桌面改过就要复跑。**

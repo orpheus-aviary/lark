@@ -38,6 +38,7 @@
 // on that path was already native and arrived on time.
 // `scripts/check-mobile-no-js-timers.sh` keeps it that way.
 
+import type { QueueTrigger } from '@lark/shared';
 import {
   type AudioMetadata,
   type AudioPlayer,
@@ -45,6 +46,7 @@ import {
   createAudioPlayer,
 } from 'expo-audio';
 import { nativeDelay } from '../../modules/lark-app';
+import { remoteTriggerOf } from './remote';
 
 /** Decision m. Only for "no terminal state ever arrived". */
 export const LOAD_WATCHDOG_MS = 15_000;
@@ -82,6 +84,16 @@ export interface PlayerDriver {
   /** Synchronous (`AudioModule.types.d.ts:180`) — N3d writes lyrics here. */
   updateNowPlaying(meta: AudioMetadata): void;
   subscribe(listener: (snapshot: PlaybackSnapshot) => void): () => void;
+  /**
+   * Somebody asked for another track from OUTSIDE the app (0.1.1 ⑬) — a car
+   * stereo, a headset button, the lock screen or the notification.
+   *
+   * A separate subscription rather than a field on the snapshot: a snapshot is
+   * what the player IS twice a second, and this is a thing that happened once.
+   * Nothing has moved when it arrives — the queue belongs to the host (see
+   * `patches/expo-audio@57.0.3.patch`).
+   */
+  onRemote(listener: (trigger: QueueTrigger) => void): () => void;
   /** pause → settle → clear lock screen → remove. The ONLY teardown. */
   destroy(): Promise<void>;
 }
@@ -98,6 +110,7 @@ export function createPlayerDriver(): PlayerDriver {
   let player: AudioPlayer | null = null;
   let destroyed = false;
   const listeners = new Set<(snapshot: PlaybackSnapshot) => void>();
+  const remoteListeners = new Set<(trigger: QueueTrigger) => void>();
 
   const emit = (status: AudioStatus): void => {
     const snapshot = snapshotOf(status);
@@ -110,6 +123,7 @@ export function createPlayerDriver(): PlayerDriver {
     if (destroyed) return;
     destroyed = true;
     listeners.clear();
+    remoteListeners.clear();
     const live = player;
     player = null;
     if (live === null) return;
@@ -198,13 +212,25 @@ export function createPlayerDriver(): PlayerDriver {
       // (session.ts). Setting it after the load keeps a failed source out of
       // the lock screen entirely.
       //
-      // The two seek buttons are on because ±10s is the only seeking the lock
-      // screen offers here: skip-to-next/previous do not exist in this version
-      // at all (§1.9), and a scrub bar belongs to the system-UI media widget,
-      // which the frozen device does not draw (see `patches/expo-audio`).
+      // All four buttons. ±10s is still the only SEEKING the lock screen
+      // offers — a scrub bar belongs to the system-UI media widget, which the
+      // frozen device does not draw — and since 0.1.1 ⑬ the patch adds track
+      // navigation, which is what a car stereo and a headset button reach for.
+      // ASKING IS WHAT PUTS IT IN THE CHAIN: without these two flags the
+      // session player reports no next and no previous, exactly as upstream
+      // (see `patches/expo-audio@57.0.3.patch`).
       created.setActiveForLockScreen(true, meta, {
         showSeekBackward: true,
         showSeekForward: true,
+        showPrevious: true,
+        showNext: true,
+      });
+      // Attached here rather than at construction: the lock screen is what
+      // sends these, and it only exists from this line on.
+      created.addListener('remoteCommand', (event) => {
+        const trigger = remoteTriggerOf(event);
+        if (trigger === null) return;
+        for (const listener of remoteListeners) listener(trigger);
       });
       // From here the status stream belongs to subscribers rather than to the
       // load, so re-attach it for the lifetime of the player.
@@ -222,6 +248,13 @@ export function createPlayerDriver(): PlayerDriver {
     },
     updateNowPlaying(meta) {
       player?.updateLockScreenMetadata(meta);
+    },
+
+    onRemote(listener) {
+      remoteListeners.add(listener);
+      return () => {
+        remoteListeners.delete(listener);
+      };
     },
 
     subscribe(listener) {

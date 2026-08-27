@@ -150,6 +150,12 @@
 // replacing the bytes, and none of those three can be arranged on a device
 // inside an app-private directory.
 
+// `player/remote.ts` joined in 0.1.1 ⑬, and it is where two vocabularies meet:
+// the media session says `previous`, `decideNext` says `prev`, and the payload
+// comes across a boundary a PATCHED dependency owns. The rule that matters is
+// the one for a command this build does not know — do nothing — and the only
+// way to see it on a phone is to own a car stereo that sends one.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -166,6 +172,7 @@ export default defineConfig({
       'src/sync/triggers.test.ts',
       'src/player/now-playing.test.ts',
       'src/player/prefetch.test.ts',
+      'src/player/remote.test.ts',
       'src/downloads/foreground.test.ts',
       'src/downloads/history.test.ts',
       'src/downloads/budget.test.ts',

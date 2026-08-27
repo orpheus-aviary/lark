@@ -12,7 +12,7 @@ patchedDependencies:
     hash: 9bf61c43fbdeef6ab231e868285b9c2e2e78d2a8f86040dc476015ce171581b7
     path: patches/drizzle-orm@0.38.4.patch
   expo-audio@57.0.3:
-    hash: 3019b5b5ee5cfbf0db9002b6016c6d8a5e0e8d3830d24fb80838f9defe3e34ed
+    hash: 68affcd19cdda4ac663db92a662409baef95bc88553f0adada5bce401b85799f
     path: patches/expo-audio@57.0.3.patch
 
 importers:
@@ -79,7 +79,7 @@ importers:
         version: 57.0.13(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(react-dom@19.2.4(react@19.2.4))(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
       expo-audio:
         specifier: 57.0.3
-        version: 57.0.3(patch_hash=3019b5b5ee5cfbf0db9002b6016c6d8a5e0e8d3830d24fb80838f9defe3e34ed)(expo-asset@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
+        version: 57.0.3(patch_hash=68affcd19cdda4ac663db92a662409baef95bc88553f0adada5bce401b85799f)(expo-asset@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
       expo-build-properties:
         specifier: 57.0.11
         version: 57.0.11(expo@57.0.13)
@@ -344,7 +344,7 @@ importers:
         version: 57.0.13(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(react-dom@19.2.4(react@19.2.4))(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
       expo-audio:
         specifier: 57.0.3
-        version: 57.0.3(patch_hash=3019b5b5ee5cfbf0db9002b6016c6d8a5e0e8d3830d24fb80838f9defe3e34ed)(expo-asset@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
+        version: 57.0.3(patch_hash=68affcd19cdda4ac663db92a662409baef95bc88553f0adada5bce401b85799f)(expo-asset@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)
       expo-build-properties:
         specifier: 57.0.11
         version: 57.0.11(expo@57.0.13)
@@ -9402,7 +9402,7 @@ snapshots:
       - supports-color
       - typescript
 
-  expo-audio@57.0.3(patch_hash=3019b5b5ee5cfbf0db9002b6016c6d8a5e0e8d3830d24fb80838f9defe3e34ed)(expo-asset@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4):
+  expo-audio@57.0.3(patch_hash=68affcd19cdda4ac663db92a662409baef95bc88553f0adada5bce401b85799f)(expo-asset@57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3))(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4):
     dependencies:
       expo: 57.0.13(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(react-dom@19.2.4(react@19.2.4))(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)
       expo-asset: 57.0.11(expo@57.0.13)(react-native@0.86.2(@babel/core@7.29.7)(@types/react@19.2.18)(react@19.2.4))(react@19.2.4)(typescript@5.9.3)

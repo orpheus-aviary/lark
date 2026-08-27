@@ -206,6 +206,7 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
   let state: PlaybackState = IDLE;
   let driver: PlayerDriver | null = null;
   let unsubscribeDriver: (() => void) | null = null;
+  let unsubscribeRemote: (() => void) | null = null;
 
   let intent = 0;
   let wake: Array<() => void> = [];
@@ -237,6 +238,8 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
     driver = null;
     unsubscribeDriver?.();
     unsubscribeDriver = null;
+    unsubscribeRemote?.();
+    unsubscribeRemote = null;
     await live?.destroy();
   };
 
@@ -483,6 +486,13 @@ export function createPlayerStore(deps: PlayerDeps): PlayerStore {
 
         driver = built;
         unsubscribeDriver = built.subscribe(onSnapshot);
+        // 0.1.1 ⑬. A car stereo, a headset button or the lock screen goes
+        // through the SAME `advance` the on-screen buttons do — there is one
+        // set of queue rules (`decideNext`) and no second opinion about what
+        // 下一首 means. Nothing is claimed here that a tap does not claim.
+        unsubscribeRemote = built.onRemote((trigger) => {
+          void advance(trigger);
+        });
         // Seek BEFORE play, so a restored position never plays a second of the
         // beginning first. Both go to the same native player and ExoPlayer
         // orders them itself.
