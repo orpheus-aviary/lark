@@ -32,6 +32,7 @@ import { downloadRuntimeOnce } from './downloads/engine';
 import { bindEnsure } from './downloads/ensure-runtime';
 import { downloadHistoryOnce } from './downloads/history-runtime';
 import { engineLogger } from './downloads/log';
+import { bindAutoRetry } from './downloads/retry-runtime';
 import { bindPlayer } from './player';
 import { queueFrom, resolveQueue } from './player/queue';
 import { createLibrary } from './services/library';
@@ -78,6 +79,11 @@ export function App() {
         // is exactly the thing a record is for. Built lazily, that failure
         // would go unrecorded because nothing was listening.
         downloadHistoryOnce(result);
+        // AFTER the history, and the order is load bearing (0.1.1 ⑧): a retry
+        // removes the record of the attempt it replaces, so that record has to
+        // exist first. Both listen to the same hub, and listeners run in the
+        // order they subscribed.
+        bindAutoRetry(result);
         const library = createLibrary(result, runtime.fileOps);
         // Sync, assembled but not started (N5c): no session, no timers, no
         // socket — the triggers are N5d. It takes the SAME journal runtime the

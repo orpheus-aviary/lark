@@ -13,9 +13,9 @@ const video = {
 function deps(recognised: Recognition, overrides: Partial<ReplayDeps> = {}): ReplayDeps {
   return {
     recognise: vi.fn(async () => recognised),
-    submit: vi.fn(async () => undefined),
-    redownload: vi.fn(),
-    lyrics: vi.fn(),
+    submit: vi.fn(async () => 'new-task'),
+    redownload: vi.fn(() => 'new-task'),
+    lyrics: vi.fn(() => 'new-task'),
     ...overrides,
   };
 }
@@ -23,9 +23,21 @@ function deps(recognised: Recognition, overrides: Partial<ReplayDeps> = {}): Rep
 const submitPlan: RetryPlan = { kind: 'submit', text: 'https://b23.tv/x', playlistIds: ['p1'] };
 
 describe('replay', () => {
+  it('hands back the task id, which is what bounds an automatic retry', async () => {
+    // 🔴 Counting attempts by anything derived — the url, the input — lets a
+    // value that normalises differently reset the count. That is not "one
+    // extra try", it is a loop.
+    const d = deps({ kind: 'video', item: video, extracted: false, expandedFrom: null });
+    expect((await replay(d, submitPlan)).taskId).toBe('new-task');
+  });
+
   it('sends a recognised link back through the add page, with its playlists', async () => {
     const d = deps({ kind: 'video', item: video, extracted: false, expandedFrom: null });
-    expect(await replay(d, submitPlan)).toEqual({ queued: true, message: '已重新排队' });
+    expect(await replay(d, submitPlan)).toEqual({
+      queued: true,
+      message: '已重新排队',
+      taskId: 'new-task',
+    });
     expect(d.submit).toHaveBeenCalledWith(video, ['p1']);
   });
 
@@ -50,7 +62,7 @@ describe('replay', () => {
       deps({ kind: 'refused', message: '这不是一个 B 站链接' }),
       submitPlan,
     );
-    expect(refusal).toEqual({ queued: false, message: '这不是一个 B 站链接' });
+    expect(refusal).toEqual({ queued: false, message: '这不是一个 B 站链接', taskId: null });
 
     const list = await replay(
       deps({
@@ -74,13 +86,17 @@ describe('replay', () => {
         }),
       },
     );
-    expect(await replay(d, submitPlan)).toEqual({ queued: false, message: '下载队列满了' });
+    expect(await replay(d, submitPlan)).toEqual({
+      queued: false,
+      message: '下载队列满了',
+      taskId: null,
+    });
   });
 });
 
 describe('summariseReplays', () => {
-  const ok = { queued: true, message: '已重新排队' };
-  const no = (message: string) => ({ queued: false, message });
+  const ok = { queued: true, message: '已重新排队', taskId: 't' };
+  const no = (message: string) => ({ queued: false, message, taskId: null });
 
   it('counts what went back on the queue', () => {
     expect(summariseReplays([ok, ok])).toBe('已重新排队 2 条');

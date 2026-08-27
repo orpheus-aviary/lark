@@ -172,6 +172,7 @@ export default defineConfig({
       'src/downloads/multi-line.test.ts',
       'src/downloads/preflight.test.ts',
       'src/downloads/replay.test.ts',
+      'src/downloads/retry.test.ts',
       'src/downloads/rows.test.ts',
       'src/downloads/selection.test.ts',
       'src/services/library.test.ts',

@@ -41,6 +41,12 @@ import {
 } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
+import {
+  RETRY_LIMITS,
+  type RetryLimit,
+  readRetryLimit,
+  writeRetryLimit,
+} from '../downloads/retry';
 import { nowPlaying } from '../player';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
 import { openForeignWorkspaces } from '../workspace/foreign';
@@ -71,6 +77,8 @@ export function SettingsTab() {
       <Llm settings={boot.deviceSettings} />
       <View style={styles.rule} />
       <BluetoothLyrics />
+      <View style={styles.rule} />
+      <AutoRetry settings={boot.deviceSettings} />
       <View style={styles.rule} />
       <Cache />
       <View style={styles.rule} />
@@ -316,6 +324,50 @@ function LabelledInput({
         {...(keyboardType === undefined ? {} : { keyboardType })}
         accessibilityLabel={label}
       />
+    </View>
+  );
+}
+
+/**
+ * How many extra goes a failed download gets by itself (0.1.1 ⑧).
+ *
+ * WHICH failures is not a setting and never will be: retrying a dead link or
+ * bilibili's risk control is a worse answer at any count, so the allowlist is
+ * `downloads/retry.ts`'s and the number is the only question left. One by
+ * default — the failure this is for is a connection that dropped for a moment.
+ *
+ * Written on the tap, like the naming chips on the add page: somebody who
+ * changed their mind and then closed the app still changed their mind.
+ */
+function AutoRetry({ settings }: { settings: DeviceSettingsPort }) {
+  const [limit, setLimit] = useState<number>(() => readRetryLimit(settings));
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>下载失败自动重试</Text>
+      <Text style={styles.note}>
+        只重试网络类的失败——超时、连不上、流断了。链接失效、风控、没配模型这些重试多少次都一样，会直接留在下载记录里等你处理。
+      </Text>
+      <View style={styles.row}>
+        {RETRY_LIMITS.map((option) => (
+          <Chip
+            key={option}
+            label={option === 0 ? '不重试' : `${option} 次`}
+            on={limit === option}
+            onPress={() => {
+              setLimit(option);
+              void writeRetryLimit(settings, option as RetryLimit).catch(() => {
+                // The chip has already moved and there is no form to report
+                // to; what a failed write costs is the next launch's answer,
+                // which falls back to one retry.
+                setLimit(readRetryLimit(settings));
+              });
+            }}
+          />
+        ))}
+      </View>
+      {limit === 0 && (
+        <Text style={styles.note}>失败就是失败，记录里点「重下」再试。</Text>
+      )}
     </View>
   );
 }

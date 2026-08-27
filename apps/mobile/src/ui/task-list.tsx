@@ -15,7 +15,6 @@
 // link genuinely has no name until `naming` runs, and inventing one would be
 // worse than showing the URL that was pasted.
 
-import { readNamingMode, resolveNamingMode } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { KIND_LABELS, batchDone, taskLabel, taskTitle } from '@lark/shared';
 import { X } from 'lucide-react-native';
@@ -33,8 +32,8 @@ import { downloadRuntimeOnce } from '../downloads/engine';
 import type { ForegroundStatus } from '../downloads/foreground';
 import { type DownloadRecord, canRetry, planRetry } from '../downloads/history';
 import { downloadHistoryOnce } from '../downloads/history-runtime';
-import { recognise, submitDownload } from '../downloads/preflight';
-import { type ReplayDeps, replay, summariseReplays } from '../downloads/replay';
+import { replay, summariseReplays } from '../downloads/replay';
+import { replayDepsOnce } from '../downloads/replay-runtime';
 import { downloadListRows, failedRecords, latestBatch } from '../downloads/rows';
 import { useDownloads } from '../downloads/use-downloads';
 import { useDownloadHistory } from '../downloads/use-history';
@@ -75,45 +74,10 @@ export function TaskList({ header }: { header?: ReactNode }) {
   const failed = useMemo(() => failedRecords(records), [records]);
   const batch = latestBatch(batches);
 
-  // The add page's own two functions, bound once. A retry goes back through
-  // the SAME recogniser somebody typing the link would meet — one parser, one
-  // set of refusals (`downloads/replay.ts`).
-  const replayDeps: ReplayDeps = useMemo(
-    () => ({
-      recognise: (text) => recognise({ client: runtime.bilibili, hasLlm: runtime.hasLlm }, text),
-      submit: (item, playlistIds) =>
-        submitDownload(
-          {
-            client: runtime.bilibili,
-            hasLlm: runtime.hasLlm,
-            foreground: runtime.foreground,
-            engine: runtime.engine,
-          },
-          {
-            item,
-            // A keyword carries no mode at all — portable refuses one. A video
-            // takes whatever 命名 is chosen NOW: the record does not carry the
-            // mode it was submitted under (`downloads/history.ts` says why),
-            // and today's answer is the honest reading of today's button.
-            namingMode:
-              item.kind === 'keyword'
-                ? undefined
-                : resolveNamingMode({
-                    remembered: readNamingMode(boot.deviceSettings),
-                    hasLlm: runtime.hasLlm(),
-                  }),
-            playlistIds: [...playlistIds],
-          },
-        ).then(() => undefined),
-      redownload: (songId) => {
-        runtime.engine.enqueueRedownload(songId);
-      },
-      lyrics: (songId) => {
-        runtime.engine.enqueueLyrics(songId);
-      },
-    }),
-    [runtime, boot],
-  );
+  // Bound once, in `downloads/replay-runtime.ts`, and shared with the
+  // automatic retry: two callers building the same request out of the same
+  // parts, only one of which is on a screen.
+  const replayDeps = useMemo(() => replayDepsOnce(boot), [boot]);
 
   const retryOne = async (record: DownloadRecord): Promise<void> => {
     setBusy(true);

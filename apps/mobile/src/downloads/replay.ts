@@ -15,13 +15,22 @@
 import type { RetryPlan } from './history';
 import type { KeywordItem, Recognition, VideoItem } from './preflight';
 
+/**
+ * Each of the three enqueues hands back the TASK ID it produced.
+ *
+ * 🔴 That is what bounds the automatic retry (⑧). It counts attempts per
+ * chain, and a chain is only followable if each attempt can name the task the
+ * next one belongs to — key it by anything derived (the url, the input) and a
+ * value that normalises differently on the way round resets the count, which
+ * is not "one extra try" but a loop.
+ */
 export interface ReplayDeps {
   /** The add page's recogniser, already bound to a client. */
   recognise: (text: string) => Promise<Recognition>;
   /** The add page's submit, already bound to the engine and the naming mode. */
-  submit: (item: VideoItem | KeywordItem, playlistIds: readonly string[]) => Promise<void>;
-  redownload: (songId: string) => void;
-  lyrics: (songId: string) => void;
+  submit: (item: VideoItem | KeywordItem, playlistIds: readonly string[]) => Promise<string>;
+  redownload: (songId: string) => string;
+  lyrics: (songId: string) => string;
 }
 
 /**
@@ -34,37 +43,44 @@ export interface ReplayDeps {
 export interface ReplayOutcome {
   queued: boolean;
   message: string;
+  /** The task this became, when it became one. See `ReplayDeps`. */
+  taskId: string | null;
 }
 
 export async function replay(deps: ReplayDeps, plan: RetryPlan): Promise<ReplayOutcome> {
   try {
     if (plan.kind === 'redownload') {
-      deps.redownload(plan.songId);
-      return { queued: true, message: '已重新排队' };
+      return { queued: true, message: '已重新排队', taskId: deps.redownload(plan.songId) };
     }
     if (plan.kind === 'lyrics') {
-      deps.lyrics(plan.songId);
-      return { queued: true, message: '已重新去找歌词' };
+      return { queued: true, message: '已重新去找歌词', taskId: deps.lyrics(plan.songId) };
     }
     const seen = await deps.recognise(plan.text);
     switch (seen.kind) {
       case 'video':
       case 'keyword':
-        await deps.submit(seen.item, plan.playlistIds);
-        return { queued: true, message: '已重新排队' };
+        return {
+          queued: true,
+          message: '已重新排队',
+          taskId: await deps.submit(seen.item, plan.playlistIds),
+        };
       case 'list':
         // A list link never became a task in the first place — it expands into
         // a picker — so this is only reachable if the stored url changed
         // meaning. Say where the choice lives rather than guessing at it.
-        return { queued: false, message: '这是收藏夹或合集，去「添加」页重新挑一次' };
+        return { queued: false, message: '这是收藏夹或合集，去「添加」页重新挑一次', taskId: null };
       case 'refused':
         // portable's own sentence, which already says what is wrong with it.
-        return { queued: false, message: seen.message };
+        return { queued: false, message: seen.message, taskId: null };
       case 'empty':
-        return { queued: false, message: '这条记录里的链接已经认不出来了' };
+        return { queued: false, message: '这条记录里的链接已经认不出来了', taskId: null };
     }
   } catch (err) {
-    return { queued: false, message: err instanceof Error ? err.message : '没能重新排队' };
+    return {
+      queued: false,
+      message: err instanceof Error ? err.message : '没能重新排队',
+      taskId: null,
+    };
   }
 }
 
