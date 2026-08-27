@@ -40,6 +40,15 @@ export function BatchActionBar(): React.JSX.Element {
       {!empty && <span className="shrink-0 text-muted-foreground">已选 {batch.count} 首</span>}
       {batch.busy && <span className="shrink-0 text-muted-foreground">处理中…</span>}
 
+      {/* Only the missing files (ensure-file), never a refetch of the whole
+          selection — the forced one keeps its own name in the row menu. Live
+          whenever anything is selected rather than dead when the selection is
+          all here: the toast says which rows it skipped, and a button that
+          greys itself out on a state the eye has to check row by row reads as
+          broken. */}
+      <Button variant="secondary" size="xs" disabled={idle} onClick={batch.download}>
+        下载
+      </Button>
       <Button variant="secondary" size="xs" disabled={idle} onClick={() => batch.pin(true)}>
         固定
       </Button>

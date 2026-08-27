@@ -373,6 +373,45 @@ describe('the batch action bar shares this row (S3/B-5)', () => {
     expect(screen.getByText('下载音频')).toBeDefined();
   });
 
+  // The 0.4.2 addition. It sits with the rest rather than in the row menu
+  // alone, and it fetches ONLY what is missing.
+  it('offers the selection a download, greyed out with the rest until there is one', async () => {
+    render(<DownloadBar />);
+    const button = (): HTMLElement => screen.getByRole('button', { name: '下载' });
+
+    expect(button().hasAttribute('disabled')).toBe(true);
+
+    useLibrary.setState({
+      songs: [
+        {
+          id: 'song-1',
+          name: '缺文件',
+          artist: '',
+          source_url: null,
+          source_provider: null,
+          source_key: 'BV1',
+          file_origin: 'downloaded',
+          lyrics_offset: 0,
+          duration: 0,
+          pinned: false,
+          created_at: 0,
+          updated_at: 0,
+          has_file: false,
+        },
+      ],
+      selectedIds: ['song-1'],
+    });
+
+    await waitFor(() => expect(button().hasAttribute('disabled')).toBe(false));
+    await userEvent.setup().click(button());
+
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.endsWith('/songs/song-1/ensure-file'))).toBe(true),
+    );
+    // Never the forced one: that would refetch files that are fine.
+    expect(calls.some((c) => c.url.endsWith('/redownload'))).toBe(false);
+  });
+
   it('puts the batch buttons after everything else in the row', () => {
     useLibrary.setState({ selectedIds: ['song-1'] });
     render(<DownloadBar trailing={<button type="button">排序</button>} />);

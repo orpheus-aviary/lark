@@ -77,4 +77,25 @@ describe('batchMessage', () => {
       ok: false,
     });
   });
+
+  // A batch that ran over PART of the selection has to say what happened to
+  // the rest — otherwise "已开始下载 1 首" over twelve rows reads as a bug.
+  it('appends the note to every shape, failures included', () => {
+    const note = '另有 2 首已在本机';
+    expect(
+      batchMessage({ total: 1, ok: 1, failed: 0, firstError: null }, '已开始下载', note).text,
+    ).toBe('已开始下载 1 首；另有 2 首已在本机');
+    expect(
+      batchMessage({ total: 2, ok: 1, failed: 1, firstError: '没有来源' }, '已开始下载', note).text,
+    ).toBe('已开始下载 1 首，1 首失败：没有来源；另有 2 首已在本机');
+    expect(
+      batchMessage({ total: 1, ok: 0, failed: 1, firstError: '没有来源' }, '已开始下载', note).text,
+    ).toBe('已开始下载失败：没有来源；另有 2 首已在本机');
+  });
+
+  it('reads exactly as before when there is no note', () => {
+    expect(batchMessage({ total: 1, ok: 1, failed: 0, firstError: null }, '已固定', '').text).toBe(
+      '已固定 1 首',
+    );
+  });
 });

@@ -79,6 +79,12 @@ interface LibraryState {
   setPinned: (id: string, pinned: boolean) => Promise<void>;
   /** Force a fresh download of the audio, replacing whatever is on disk. */
   redownload: (id: string) => Promise<void>;
+  /**
+   * Fetch the audio only if it is MISSING (M5-8) — the zero-network case for
+   * a song already here. What "download the selection" is built on: a
+   * `redownload` over a selection would re-fetch every file that is fine.
+   */
+  ensureFile: (id: string) => Promise<void>;
   /** Preview what a URL resolves to. Writes NOTHING (R6). */
   recognizeUrl: (id: string, url: string) => Promise<RecognizeUrlData>;
   /**
@@ -212,6 +218,10 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   redownload: async (id) => {
     await request<DownloadTaskAcceptedData>('POST', apiPath.songRedownload(id));
+  },
+
+  ensureFile: async (id) => {
+    await request<DownloadTaskAcceptedData>('POST', apiPath.songEnsureFile(id));
   },
 
   recognizeUrl: async (id, url) => {

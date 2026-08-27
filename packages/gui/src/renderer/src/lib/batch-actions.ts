@@ -42,13 +42,19 @@ export interface BatchMessage {
 /**
  * What to tell the user. `verb` is the past-tense action ("已固定"), used as
  * the stem for all three shapes so a partial batch reads like the whole one.
+ *
+ * `note` is for a batch that did not run over the whole selection — the rows
+ * the caller left out, and why. It is appended to every shape, failures
+ * included: "已开始下载 3 首" over a selection of twelve is a true sentence
+ * that reads like a bug until it says what happened to the other nine.
  */
-export function batchMessage(outcome: BatchOutcome, verb: string): BatchMessage {
+export function batchMessage(outcome: BatchOutcome, verb: string, note?: string): BatchMessage {
   const reason = outcome.firstError === null ? '' : `：${outcome.firstError}`;
-  if (outcome.failed === 0) return { text: `${verb} ${outcome.ok} 首`, ok: true };
-  if (outcome.ok === 0) return { text: `${verb}失败${reason}`, ok: false };
+  const tail = note === undefined || note === '' ? '' : `；${note}`;
+  if (outcome.failed === 0) return { text: `${verb} ${outcome.ok} 首${tail}`, ok: true };
+  if (outcome.ok === 0) return { text: `${verb}失败${reason}${tail}`, ok: false };
   return {
-    text: `${verb} ${outcome.ok} 首，${outcome.failed} 首失败${reason}`,
+    text: `${verb} ${outcome.ok} 首，${outcome.failed} 首失败${reason}${tail}`,
     ok: false,
   };
 }

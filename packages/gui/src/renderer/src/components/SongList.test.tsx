@@ -5,6 +5,7 @@ import type { PlaylistData, SongData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLibrary } from '../stores/library.js';
 import { usePlaylists } from '../stores/playlists.js';
@@ -648,6 +649,46 @@ describe('batch actions from the row menu (S3/B-4)', () => {
     });
   });
 
+  // Not a redownload over the selection: the rows that already have their
+  // file cost nothing and are counted rather than quietly dropped.
+  it('downloads only the rows that are missing a file, and says what it skipped', async () => {
+    useLibrary.setState({
+      songs: [
+        song({ id: 'song-1', name: '第一首', has_file: false }),
+        song({ id: 'song-2', name: '第二首' }),
+        song({ id: 'song-3', name: '第三首' }),
+      ],
+    });
+    const success = vi.spyOn(toast, 'success');
+    const user = userEvent.setup();
+    renderList();
+    await selectTwo(user);
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    await user.click(screen.getByRole('menuitem', { name: '下载 2 首' }));
+
+    await waitFor(() => {
+      const posts = calls.filter((c) => c.method === 'POST' && c.url.endsWith('/ensure-file'));
+      expect(posts.map((c) => c.url.split('/songs/')[1])).toEqual(['song-1/ensure-file']);
+    });
+    await waitFor(() => expect(success).toHaveBeenCalledWith('已开始下载 1 首；另有 1 首已在本机'));
+  });
+
+  it('sends nothing when the whole selection is already here', async () => {
+    const success = vi.spyOn(toast, 'success');
+    const user = userEvent.setup();
+    renderList();
+    await selectTwo(user);
+
+    fireEvent.contextMenu(screen.getByTestId('song-row-song-3'));
+    await screen.findByRole('menu');
+    await user.click(screen.getByRole('menuitem', { name: '下载 2 首' }));
+
+    await waitFor(() => expect(success).toHaveBeenCalledWith('选中的歌都已经在本机了'));
+    expect(calls.some((c) => c.url.endsWith('/ensure-file'))).toBe(false);
+  });
+
   it('does the same for the two lyrics actions', async () => {
     const user = userEvent.setup();
     renderList();
@@ -682,6 +723,8 @@ describe('batch actions from the row menu (S3/B-4)', () => {
 
     expect(screen.queryByText(/已选/)).toBeNull();
     expect(screen.getByRole('menuitem', { name: '固定' })).toBeDefined();
+    // One row cannot be a mixed selection: 重新下载 is the whole answer.
+    expect(screen.queryByRole('menuitem', { name: '下载' })).toBeNull();
   });
 
   it('asks before deleting a selection, and deletes all of it', async () => {

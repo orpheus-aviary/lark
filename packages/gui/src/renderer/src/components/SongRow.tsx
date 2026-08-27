@@ -266,6 +266,11 @@ function SongContextMenu({
             {song.pinned ? '取消固定' : '固定'}
           </ContextMenuItem>
         )}
+        {/* Selection-only, unlike everything else here: for ONE row the two
+            downloads collapse into 重新下载 — a song that has its file needs
+            nothing, and one that does not gets the same fetch either way.
+            The distinction only starts to matter across a mixed selection. */}
+        {many && <ContextMenuItem onSelect={() => batch.download()}>下载{suffix}</ContextMenuItem>}
         <ContextMenuItem onSelect={() => (many ? batch.redownload() : actions.redownload())}>
           重新下载{suffix}
         </ContextMenuItem>
