@@ -20,7 +20,8 @@
 
 ### 本阶段记录
 
-- **桌面 0.4.1 发版（2026-08-27，backlog D1 关闭）** —— 0.1.1 动过桌面（`playback.auto_download_next` 进配置与设置页、`DOWNLOAD_TIMEOUT`、`decideNext` 的 `fetchWhenEnded`），这一版把它发出去。**协议号 7 → 8**：0.4.0 的 daemon 对 `PATCH /config` 里的 `playback` 一节直接答 `INVALID_CONFIG: unknown config section`，而 0.4.1 的设置页要写它——**与当年升到 6 完全同形**（「一个写着新版的客户端没法通过旧 daemon 用自己的功能」），所以按 `api-paths.ts` 那条「Bump on any breaking change」抬号，而不是让 GUI 去兼容一个它一定会遇到的 400。版本号十一处一起动（六个 manifest + 三个常量 + 协议号 + `accept-pack` 的 `EXPECTED_API_VERSION`）。
+- **桌面 0.4.1 发版（2026-08-27，backlog D1 关闭）** —— [Release v0.4.1](https://github.com/orpheus-aviary/lark/releases/tag/v0.4.1)（bundled，`Lark-0.4.1-arm64.dmg`）+ [`@orpheus-aviary/lark-cli@0.4.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli)。绑定：tag `v0.4.1` → **`af37b71`**；dmg sha256 `efe352e3189db9c9…`（148,254,310 字节，**验收前后一致，且从 Release 下载回来复校同哈希**）；tgz sha256 `97e78ee6d732ebc0…`，**registry 回读的 `dist.shasum` = 本地 `npm pack` 的 `466660b8…`**。九步照 M7 §3.5 走完。
+  0.1.1 动过桌面（`playback.auto_download_next` 进配置与设置页、`DOWNLOAD_TIMEOUT`、`decideNext` 的 `fetchWhenEnded`），这一版把它发出去。**协议号 7 → 8**：0.4.0 的 daemon 对 `PATCH /config` 里的 `playback` 一节直接答 `INVALID_CONFIG: unknown config section`，而 0.4.1 的设置页要写它——**与当年升到 6 完全同形**（「一个写着新版的客户端没法通过旧 daemon 用自己的功能」），所以按 `api-paths.ts` 那条「Bump on any breaking change」抬号，而不是让 GUI 去兼容一个它一定会遇到的 400。版本号十一处一起动（六个 manifest + 三个常量 + 协议号 + `accept-pack` 的 `EXPECTED_API_VERSION`）。
   🔴 **门禁抓到一条判据自己的病**（不是产品的）：`accept-gui` 判据 6 在 daemon 重启后等播放位置恢复，而**等待条件分不清「恢复了」和「卡在原地」**——音频元素没丢流时位置根本不掉，循环当场退出，随后那次 seek 打进 GUI 还没重连回来的窗口，答 `409 GUI_OFFLINE`。**三次复现**才敢说不是 flake。它实际测的是「重连比恢复快吗」，而重连是 `subscribeSse` 从 1 秒起的退避——环境不是契约。改成有界重试（20 秒内必须成）后 15/15，且 seek 真的执行了（200，位置 901.7）。
   五套 accept 对**这一份代码和产物**复跑 **128/128**；单元测试 3410。
 
