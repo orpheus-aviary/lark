@@ -37,6 +37,8 @@
 - **C8 · 日志脱敏** —— `downloads/log.ts` 现在带原始错误，也就带泄漏面。判据 30② 与脱敏都按用户决定暂不做。
 - **C9 · 歌词平台内部并发** —— 每平台 1+3 次串行往返，约 0.5–2 秒。记录不改。
 - **C10 · skill 的「agent 实际可调用」验收** —— M6 起挂着，M7 也没做。需要真的让一个 agent 照 `lark skill export` 的说明书跑几条命令。**归用户手动。**
+- **C11 · 移动端选择态脚手架在两个屏幕上重复** —— `songs-tab.tsx` 与 `playlist-detail.tsx` 各有一份 `rows / picked / leaveSelection / useBack(BACK.selection)`（0.1.1 P1 拆分之后才看得见，十行逐字相同）。抽成一个 hook 是对的，**但没在发版前动**：这两块只有 tsc 和真机验得到，而真机刚验过的就是要发出去的那份产物。下一批 UI 工作顺手做。
+- **C12 · 三份 StyleSheet 抄着同一批样式** —— `settings-tab.tsx` / `sync-section.tsx` / `edit-link.tsx` 各有一份 `input` / `button` / `field` / `note`（约二十行逐字相同），`playlist-detail.tsx` 与 `playlists-tab.tsx` 之间还有一份 `newButton`。延后的理由同 C11，做的时候一起做。
 
 ## D. 首发之后
 
@@ -57,5 +59,6 @@
 | **抽 `@orpheus-aviary/daemon-kit`** | ❌ v0.1 就决定直接复制 owl 模式，出现明显重复再重构。至今没有。 |
 | **桌面做蓝牙歌词** | ❌ **整个不做**——`MPNowPlayingInfoCenter → AVRCP` 这一跳查不到 Apple 的任何承诺，而桌面只有 mac 一个 target。 |
 | **`ffmpeg-static` / `@derhuerst/ffprobe-static`** | ✅ **已移除**（其二进制 `--enable-nonfree`，不可再分发）。改自建最小 LGPL profile + `just fetch-ffmpeg` 门禁。**别再装回来。** |
+| **给「只有自己用」的导出摘掉 `export`**（49 处） | ❌ **2026-08-27 决定不做**。发版前的扫描里有 49 个导出没有任何外部引用，但它们绝大多数是**词汇表**（`FILE_OP_KINDS`、`SYNC_ENTITY_TYPES`、`EXIT_*`、`LIBRARY_LIMITS`）或一个包有意留的公开面，摘掉只是把三十个文件搅一遍。**真正死掉的四个已经删了**（0.1.1 P7）。 |
 | **`@dnd-kit` 新架构** | ❌ 走 legacy。新架构依赖 jsdom 缺失的三个浏览器 API，且以未捕获异常炸整个测试文件。 |
 | **设备上做「改→建→验红→还原→再建」的反测** | ✅ **取消**（2026-08-23 测试规模定案）——反测全部搬进单测。代价是失去设备侧「破了会红」的证据，已接受。 |

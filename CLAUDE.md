@@ -27,12 +27,12 @@ scripts/           # 验收套件、依赖方向守卫、设备驱动
 ```
 
 **依赖方向**：`shared ← core ← daemon ← gui`；`cli → shared + core`；`mobile → portable + shared + skybridge SDK`。
-**十条守卫进 `just check`**（分层 · portable 零宿主 · 移动端 import · Metro bundle smoke · 原生模块接线 · 工作区收口 · 日志卫生），逐条见 `docs/INVARIANTS.md` §2。
+**十二条守卫进 `just check`**（分层 · portable 零宿主 · 移动端 import · Metro bundle smoke · 原生模块接线 · 播放链路禁 JS 定时器 · 图标资产 · 工作区收口 · 日志卫生），逐条见 `docs/INVARIANTS.md` §2。
 
 ## 开发命令
 
 ```bash
-just check          # lint + typecheck + 十条守卫 + bundle smoke
+just check          # lint + typecheck + 十二条守卫（含 bundle smoke）
 just test           # 全部测试
 just dev-daemon     # 起 dev daemon
 just cli <args>     # = 对外的 lark
@@ -79,7 +79,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 
 ## 当前进度
 
-**桌面 v0.4.0 + Android 0.1.0 已发布**（2026-08-26，tag `v0.4.0` / `android-v0.1.0`）。测试 3317，`just check` 绿，发版前对发出去的那份产物复跑五套 accept **128/128**。
+**桌面 v0.4.0 已发布**（2026-08-26，tag `v0.4.0`；五套 accept 对那份产物 **128/128**）+ **Android 0.1.1 已发布**（2026-08-27，tag `android-v0.1.1`，versionCode 2）。测试 3404，`just check` 绿。桌面自 0.4.0 之后动过（backlog D1：下一个桌面版要复跑五套 accept）。
 
 **当前状态 + 下一步以 `PROCESS.md` 为准。** 其余入口：
 

@@ -23,7 +23,7 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 
 **`core/portable` 是 core 内部的一层**：一台手机能解析的整个业务图。桌面专有的那半（`db/` · `download/{audio-landing,ffmpeg,resolve,import}` · `sync/file-ops-runtime` · `config/` · `logger/` · `paths.ts` · `media-tools/` · `migration/`）**反向 import 它**，它**不许 import 任何 core**。
 
-**十条守卫进 `just check`**，破了会红：
+**十二条守卫进 `just check`**，破了会红：
 
 | 守卫 | 管什么 |
 |---|---|
@@ -35,6 +35,8 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 | **mobile/spike 只许 import portable/shared/skybridge SDK** | `check-mobile-imports.sh`，管 `apps/mobile` 与 `spikes/mobile-foundation` 两处 |
 | **Metro bundle smoke** | 读 Metro 真建出来的模块图，答 rg 答不了的三件事。**建两个 bundle**（`disableHierarchicalLookup` 下一边绿证明不了另一边）。🔴 **探针必须放在 barrel 够得到的文件里**——孤立文件不在图里，塞什么都是绿的 |
 | **自建原生模块的接线** | `check-mobile-native-modules.sh`：config 声明的类要有 `.kt` · **要有 `android/build.gradle`** · 要有 `index.ts` |
+| **播放链路禁 JS 定时器** | `check-mobile-no-js-timers.sh`：`apps/mobile/src/player/` 里禁 `setTimeout`/`setInterval`。熄屏时 JS 定时器会冻（§6），而播放链路上任何一步靠它都等于「等你下次看手机」。`driver.ts` 自己 import expo-audio，进不了 vitest 白名单——**电脑上只有这条守卫会红** |
+| **图标资产** | `check-mobile-icon.sh`：`app.config.ts` 要声明 `icon` 与 `adaptiveIcon` 且文件在。**缺失不是错误**——没有它 prebuild 会一声不吭用模板占位图，0.1.0 就是这么发出去的 |
 | **工作区收口** | `check-workspace-chokepoint.sh`：只有 `paths.ts` 能拼 `'songs.db'` · 手机上只有 `ports/paths.ts` 能碰 `nestDirectory()` · 全仓禁「清除应用数据重来」这类现在为假的措辞 |
 | **日志卫生** | `check-log-hygiene.sh`：配置与凭证不许原样进日志（log `redactConfig(cfg)`，不是 config 对象）。**有界近似**——变量间接或跨窗口的调用会漏，**红了一定有问题，绿了不代表一定没有**；另两层是 redact 单测与 Public 投影约定 |
 
