@@ -105,6 +105,76 @@ export interface ThemeConfig {
 }
 
 /**
+ * The four desktop-lyrics colour schemes (0.5.0 ⑤).
+ *
+ * A closed domain for the same two-consumer reason as {@link THEME_MODES}:
+ * core's `sanitize` converges an unknown one back to `classic`, the daemon's
+ * `PATCH /config` rejects it. What is frozen HERE is the four names; the
+ * colours themselves are the renderer's, and every scheme owes three of them
+ * — see {@link DesktopLyricsPalette}.
+ */
+export const DESKTOP_LYRICS_PRESETS = ['classic', 'night', 'warm', 'plain'] as const;
+
+export type DesktopLyricsPreset = (typeof DESKTOP_LYRICS_PRESETS)[number];
+
+/**
+ * What a scheme owes, and the reason it is three colours rather than one.
+ *
+ * The window floats over whatever is underneath it — a white document, a dark
+ * editor, a video — so filled text alone is unreadable half the time. An
+ * OUTLINE behind the fill is what makes it legible on both, and the third is
+ * the line that is playing, which is the only thing on that window that means
+ * something on its own.
+ */
+export interface DesktopLyricsPalette {
+  outline: string;
+  fill: string;
+  active: string;
+}
+
+/**
+ * Bounds for the floating lyric window's own numbers.
+ *
+ * They exist because this is the first section whose values are written BACK
+ * by a window rather than typed by a person (0.5.0 P9c): a stale or
+ * hand-edited file must not be able to produce a window nobody can find or
+ * read. `x`/`y` are deliberately unbounded — a second display can be to the
+ * left of the first, which is a negative coordinate and not a mistake.
+ */
+export const DESKTOP_LYRICS_BOUNDS = {
+  fontSize: { min: 12, max: 96 },
+  width: { min: 200 },
+  height: { min: 40 },
+} as const;
+
+/**
+ * The floating lyric window (0.5.0 ⑤).
+ *
+ * ALL OF IT IS CONFIG, geometry included, and that is the M4-12 / M5-2 line
+ * held rather than bent: appearance goes in the config, view state stays in
+ * localStorage. Where a window is and how big it is has been config since
+ * `[window]`, and this one has no localStorage to fall back on anyway — it is
+ * a second renderer with one job.
+ */
+export interface DesktopLyricsConfig {
+  enabled: boolean;
+  /** 1 or 2. Two shows the line after the one playing, dimmed. */
+  lines: 1 | 2;
+  font_size: number;
+  preset: DesktopLyricsPreset;
+  /**
+   * Click-through. The WHOLE window, not a region: macOS gives no finer grain
+   * (electron#23042), and that is also the shape the user asked for — with the
+   * consequence that unlocking has to happen back in the settings page.
+   */
+  locked: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
  * The full on-disk config (`lark/lark_config.toml`). The daemon port is NOT
  * config — 47100 is a constant baked into the renderer CSP. Unknown keys in
  * the file (Go-era `display`/`download`/`daemon` sections, `max_age_days`)
@@ -118,6 +188,7 @@ export interface LarkConfig {
   log: LogConfig;
   storage: StorageConfig;
   playback: PlaybackConfig;
+  desktop_lyrics: DesktopLyricsConfig;
   sync: SyncConfig;
 }
 
@@ -135,6 +206,7 @@ export interface ConfigPatchRequest {
   log?: Partial<LogConfig>;
   storage?: Partial<StorageConfig>;
   playback?: Partial<PlaybackConfig>;
+  desktop_lyrics?: Partial<DesktopLyricsConfig>;
   sync?: Partial<SyncConfig>;
 }
 
@@ -158,5 +230,6 @@ export interface PublicLarkConfig {
   log: LogConfig;
   storage: StorageConfig;
   playback: PlaybackConfig;
+  desktop_lyrics: DesktopLyricsConfig;
   sync: SyncConfig;
 }

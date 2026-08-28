@@ -19,6 +19,9 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
+  DESKTOP_LYRICS_BOUNDS,
+  DESKTOP_LYRICS_PRESETS,
+  type DesktopLyricsPreset,
   LLM_API_FORMATS,
   LOG_LEVELS,
   type LarkConfig,
@@ -55,6 +58,21 @@ export const DEFAULT_CONFIG: LarkConfig = {
   // On by default (0.1.1 ⑥): a list that stops because the next song's file is
   // not here reads as broken, and both hosts can fetch it.
   playback: { auto_download_next: true },
+  // Off, and that is the only sensible default for a window that floats over
+  // everything else on the screen: it appears because somebody asked for it.
+  // The geometry is a starting place — a wide, short strip near the top left
+  // — which P9c's drag then overwrites with wherever they put it.
+  desktop_lyrics: {
+    enabled: false,
+    lines: 1,
+    font_size: 32,
+    preset: 'classic',
+    locked: false,
+    x: 0,
+    y: 0,
+    width: 900,
+    height: 120,
+  },
   sync: { interval_min: 5 },
 };
 
@@ -216,6 +234,7 @@ export function redactConfig(config: LarkConfig): PublicLarkConfig {
     },
     storage: { cache_limit_mb: config.storage.cache_limit_mb },
     playback: { auto_download_next: config.playback.auto_download_next },
+    desktop_lyrics: { ...config.desktop_lyrics },
     sync: { interval_min: config.sync.interval_min },
   };
 }
@@ -273,6 +292,9 @@ const THEME_MODE_SET: ReadonlySet<string> = new Set(THEME_MODES);
 /** …and for `llm.api_format`, which is a closed domain from 0.3.0 (§7 F5). */
 const LLM_API_FORMAT_SET: ReadonlySet<string> = new Set(LLM_API_FORMATS);
 
+/** …and for the desktop lyrics' colour scheme (0.5.0 ⑤). */
+const DESKTOP_LYRICS_PRESET_SET: ReadonlySet<string> = new Set(DESKTOP_LYRICS_PRESETS);
+
 function str(v: unknown, dflt: string): string {
   return typeof v === 'string' ? v : dflt;
 }
@@ -281,10 +303,15 @@ function bool(v: unknown, dflt: boolean): boolean {
   return typeof v === 'boolean' ? v : dflt;
 }
 
-function num(v: unknown, dflt: number, opts: { min: number; integer?: boolean }): number {
+function num(
+  v: unknown,
+  dflt: number,
+  opts: { min?: number; max?: number; integer?: boolean },
+): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return dflt;
   if (opts.integer && !Number.isInteger(v)) return dflt;
-  if (v < opts.min) return dflt;
+  if (opts.min !== undefined && v < opts.min) return dflt;
+  if (opts.max !== undefined && v > opts.max) return dflt;
   return v;
 }
 
@@ -320,6 +347,22 @@ function sanitize(cfg: LarkConfig): LarkConfig {
     cfg.playback.auto_download_next,
     d.playback.auto_download_next,
   );
+  const lyrics = cfg.desktop_lyrics;
+  const dl = d.desktop_lyrics;
+  lyrics.enabled = bool(lyrics.enabled, dl.enabled);
+  lyrics.lines = (num(lyrics.lines, dl.lines, { min: 1, max: 2, integer: true }) === 2 ? 2 : 1) as
+    | 1
+    | 2;
+  lyrics.font_size = num(lyrics.font_size, dl.font_size, DESKTOP_LYRICS_BOUNDS.fontSize);
+  lyrics.preset = (
+    DESKTOP_LYRICS_PRESET_SET.has(lyrics.preset) ? lyrics.preset : dl.preset
+  ) as DesktopLyricsPreset;
+  lyrics.locked = bool(lyrics.locked, dl.locked);
+  // No bound on x/y: a second display can be to the left of the first.
+  lyrics.x = num(lyrics.x, dl.x, { integer: true });
+  lyrics.y = num(lyrics.y, dl.y, { integer: true });
+  lyrics.width = num(lyrics.width, dl.width, { ...DESKTOP_LYRICS_BOUNDS.width, integer: true });
+  lyrics.height = num(lyrics.height, dl.height, { ...DESKTOP_LYRICS_BOUNDS.height, integer: true });
   cfg.sync.interval_min = num(cfg.sync.interval_min, d.sync.interval_min, {
     min: 1,
     integer: true,

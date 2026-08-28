@@ -20,7 +20,15 @@
 // the teardown, which would deadlock against this very request).
 
 import { loadConfig, redactConfig, saveConfig } from '@lark/core';
-import { API_PATHS, LLM_API_FORMATS, LOG_LEVELS, type LarkConfig, THEME_MODES } from '@lark/shared';
+import {
+  API_PATHS,
+  DESKTOP_LYRICS_BOUNDS,
+  DESKTOP_LYRICS_PRESETS,
+  LLM_API_FORMATS,
+  LOG_LEVELS,
+  type LarkConfig,
+  THEME_MODES,
+} from '@lark/shared';
 import type { FastifyInstance } from 'fastify';
 import { scheduleEvictionInBackground } from '../cache.js';
 import type { AppContext } from '../context.js';
@@ -51,7 +59,7 @@ function text(maxLength: number): FieldValidator {
   };
 }
 
-function number(options: { min: number; integer?: boolean }): FieldValidator {
+function number(options: { min?: number; max?: number; integer?: boolean }): FieldValidator {
   return (value, path) => {
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw invalidConfig(`${path} must be a finite number`, path);
@@ -59,7 +67,12 @@ function number(options: { min: number; integer?: boolean }): FieldValidator {
     if (options.integer && !Number.isInteger(value)) {
       throw invalidConfig(`${path} must be an integer`, path);
     }
-    if (value < options.min) throw invalidConfig(`${path} must be >= ${options.min}`, path);
+    if (options.min !== undefined && value < options.min) {
+      throw invalidConfig(`${path} must be >= ${options.min}`, path);
+    }
+    if (options.max !== undefined && value > options.max) {
+      throw invalidConfig(`${path} must be <= ${options.max}`, path);
+    }
     return value;
   };
 }
@@ -114,6 +127,21 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
   },
   storage: { cache_limit_mb: number({ min: 0 }) },
   playback: { auto_download_next: boolean() },
+  // The floating lyric window (0.5.0 ⑤). Geometry is patchable because the
+  // window writes its own back as it is dragged (P9c) — and bounded for the
+  // same reason the loader bounds it: a window nobody can find or read.
+  desktop_lyrics: {
+    enabled: boolean(),
+    lines: number({ min: 1, max: 2, integer: true }),
+    font_size: number({ ...DESKTOP_LYRICS_BOUNDS.fontSize }),
+    preset: oneOf(DESKTOP_LYRICS_PRESETS),
+    locked: boolean(),
+    // No bound: a second display can be to the left of the first.
+    x: number({ integer: true }),
+    y: number({ integer: true }),
+    width: number({ ...DESKTOP_LYRICS_BOUNDS.width, integer: true }),
+    height: number({ ...DESKTOP_LYRICS_BOUNDS.height, integer: true }),
+  },
   // Only the cadence is patchable. Server URL, session and device identity are
   // credentials: they live in skybridge.toml and are written by `/sync/login`,
   // never by a config patch (D1/D2).

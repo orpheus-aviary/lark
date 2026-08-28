@@ -66,6 +66,17 @@ function setConfig(playback: { auto_download_next: boolean }): void {
       log: { level: 'info', max_size_mb: 10, max_backups: 5 },
       storage: { cache_limit_mb: 0 },
       playback,
+      desktop_lyrics: {
+        enabled: false,
+        lines: 1,
+        font_size: 32,
+        preset: 'classic',
+        locked: false,
+        x: 0,
+        y: 0,
+        width: 900,
+        height: 120,
+      },
       sync: { interval_min: 5 },
     },
   });

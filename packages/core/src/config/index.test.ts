@@ -149,6 +149,7 @@ describe('loadConfig', () => {
 
     const pub = redactConfig(cfg);
     expect(Object.keys(pub).sort()).toEqual([
+      'desktop_lyrics',
       'font',
       'llm',
       'log',
@@ -188,6 +189,14 @@ max_backups = 2.5
 [storage]
 cache_limit_mb = -1
 
+[desktop_lyrics]
+enabled = "yes"
+lines = 3
+font_size = 400
+preset = "neon"
+width = 10
+height = 0
+
 [sync]
 interval_min = 0
 `,
@@ -205,6 +214,44 @@ interval_min = 0
     // 0 would mean "sync every zero minutes" — there is no "off" value here,
     // logging out is how you stop syncing.
     expect(cfg.sync).toEqual(DEFAULT_CONFIG.sync);
+    // ⑤ — every one of those is a window that cannot be found or read: a font
+    // four hundred pixels tall, a 10px-wide strip, a colour scheme with no
+    // colours behind it.
+    expect(cfg.desktop_lyrics).toEqual(DEFAULT_CONFIG.desktop_lyrics);
+  });
+
+  // ⑤ — the values a person actually picks survive, including the ones the
+  // window itself writes back as it is dragged.
+  it('keeps a desktop-lyrics section it understands, negative positions and all', () => {
+    writeFileSync(
+      cfgPath(),
+      `
+[desktop_lyrics]
+enabled = true
+lines = 2
+font_size = 44
+preset = "night"
+locked = true
+x = -1720
+y = 40
+width = 1200
+height = 160
+`,
+      'utf-8',
+    );
+    chmodSync(cfgPath(), 0o600);
+    expect(loadConfig(cfgPath()).desktop_lyrics).toEqual({
+      enabled: true,
+      lines: 2,
+      font_size: 44,
+      preset: 'night',
+      locked: true,
+      // A display to the LEFT of the main one. Not a mistake, and not clamped.
+      x: -1720,
+      y: 40,
+      width: 1200,
+      height: 160,
+    });
   });
 
   it('keeps a valid sync interval and defaults to five minutes', () => {

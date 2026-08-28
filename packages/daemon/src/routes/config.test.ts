@@ -275,6 +275,52 @@ describe('a patch that changes a live setting', () => {
     schedule.mockRestore();
   });
 
+  // ⑤ — the same domains the loader converges, rejected here instead. A
+  // caller who asked for something impossible deserves to hear so.
+  it.each([
+    ['a colour scheme nobody wrote', { preset: 'neon' }, 'desktop_lyrics.preset'],
+    ['three lines', { lines: 3 }, 'desktop_lyrics.lines'],
+    ['half a line', { lines: 1.5 }, 'desktop_lyrics.lines'],
+    ['a font nobody could fit on screen', { font_size: 400 }, 'desktop_lyrics.font_size'],
+    ['a font nobody could read', { font_size: 4 }, 'desktop_lyrics.font_size'],
+    ['a window too narrow to hold a line', { width: 10 }, 'desktop_lyrics.width'],
+    ['a window with no height', { height: 0 }, 'desktop_lyrics.height'],
+  ])('refuses %s', async (_label, patchValue, path) => {
+    const res = await patch({ desktop_lyrics: patchValue });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<ApiResponse>().error_code).toBe('INVALID_CONFIG');
+    expect(res.json<ApiResponse>().details).toEqual({ path });
+  });
+
+  it('takes the settings the window itself writes back, negative x included', async () => {
+    const res = await patch({
+      desktop_lyrics: {
+        enabled: true,
+        lines: 2,
+        font_size: 44,
+        preset: 'night',
+        locked: true,
+        // A second display to the LEFT of the main one.
+        x: -1720,
+        y: 40,
+        width: 1200,
+        height: 160,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(loadConfig(configPath).desktop_lyrics).toEqual({
+      enabled: true,
+      lines: 2,
+      font_size: 44,
+      preset: 'night',
+      locked: true,
+      x: -1720,
+      y: 40,
+      width: 1200,
+      height: 160,
+    });
+  });
+
   // Criterion 39: the domain. The client branches on `anthropic` and treats
   // everything else as OpenAI, so an accepted typo talks the wrong protocol.
   it('refuses an api_format outside the three it can speak', async () => {
