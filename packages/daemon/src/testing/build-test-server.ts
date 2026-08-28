@@ -18,6 +18,7 @@ import {
   SyncRuntime,
   createBilibiliClient,
   createDatabase,
+  createDownloadHistory,
   nodeAudioLanding,
   nodeFileContext,
   paths,
@@ -121,6 +122,8 @@ export interface TestContextOptions {
    * behaves the same.
    */
   syncTriggers?: boolean;
+  /** Seed the download record, as a file already on disk would (P8b). */
+  downloadHistory?: string;
   /** Clock and jitter for the trigger tests. */
   syncHandles?: SyncHandlesOptions;
   /**
@@ -161,6 +164,16 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
   // Wired like boot's: engine callbacks are the only event source for the
   // asynchronous half of a download, so a test that asserts on SSE has to see
   // the same translation production uses.
+  // In memory, like the library beside it: a test context owns no nest, and
+  // what these tests are about is the store's behaviour rather than the file.
+  let historyText: string | null = options.downloadHistory ?? null;
+  const downloadHistory = createDownloadHistory({
+    load: () => historyText,
+    save: async (text) => {
+      historyText = text;
+    },
+  });
+
   const downloads = new DownloadEngine({
     store: portable,
     files,
@@ -169,7 +182,8 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     getLlmConfig: () => resolveLlmConfig(ctx.config),
     shutdownSignal: shutdownController.signal,
     callbacks: {
-      onStatus: (task) =>
+      onStatus: (task) => {
+        downloadHistory.observe([task]);
         eventsBus.emit({
           type: 'download:status',
           task_id: task.id,
@@ -180,7 +194,8 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
           total_bytes: task.total_bytes,
           title: task.title,
           artist: task.artist,
-        }),
+        });
+      },
       onSucceeded: (task) => {
         if (task.result !== null) {
           eventsBus.emit({
@@ -253,6 +268,7 @@ export function createTestContext(options: TestContextOptions = {}): TestContext
     cacheLeases: new SongLeaseRegistry(options.cacheLeases),
     cacheScheduler: createEvictionScheduler(ctx),
     downloads,
+    downloadHistory,
     sync: new SyncRuntime({ triggers: options.syncTriggers === true }),
     fileOps: new FileEffectRuntime({
       sqlite,

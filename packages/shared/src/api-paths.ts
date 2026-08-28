@@ -97,6 +97,15 @@ export const API_PATHS = {
   downloadCancel: '/download/cancel',
   downloadCancelAll: '/download/cancel-all',
   downloadTasks: '/download/tasks',
+  /**
+   * What has already finished, kept on disk (0.5.0 ④).
+   *
+   * Beside `/download/tasks` and not folded into it: that one is the engine's
+   * live queue and its ring, this one outlives the process. `DELETE` clears
+   * the record — really clears it, so the row does not come back the next time
+   * a status event mentions a task the engine still holds.
+   */
+  downloadHistory: '/download/history',
   songImport: '/songs/import',
 
   // Cache (M5). `status` is a read; `evict` runs the LRU drain and answers
@@ -151,6 +160,8 @@ export const apiPath = {
 
   // Download pipeline (M3).
   downloadLyrics: (id: string) => `/download/lyrics/${id}`,
+  /** One row of the record, by the task id it came from (0.5.0 ④). */
+  downloadHistoryItem: (taskId: string) => `/download/history/${taskId}`,
   songRecognizeUrl: (id: string) => `/songs/${id}/recognize-url`,
   songRedownload: (id: string) => `/songs/${id}/redownload`,
   /** Fetch the audio only if it is missing (M5-8). */

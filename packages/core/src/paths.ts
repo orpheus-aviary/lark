@@ -11,7 +11,12 @@ import {
   assertSongId,
 } from './portable/ports/paths.js';
 import { type ActiveWorkspaceVerdict, decideActiveWorkspace } from './portable/workspace-index.js';
-import { LIBRARIES_DIRECTORY, WORKSPACE_LOCAL, workspaceSegments } from './portable/workspace.js';
+import {
+  DOWNLOAD_HISTORY_FILE,
+  LIBRARIES_DIRECTORY,
+  WORKSPACE_LOCAL,
+  workspaceSegments,
+} from './portable/workspace.js';
 
 const NEST_DIR = 'orpheus-aviary-nest';
 const LARK_DIR = 'lark';
@@ -152,6 +157,8 @@ export const DB_SIDECARS = [`${DB_FILE}-wal`, `${DB_FILE}-shm`] as const;
 export interface WorkspacePaths {
   root: string;
   db: string;
+  /** `downloads.json` — the finished-download record (0.5.0 P8b). */
+  downloadHistory: string;
   songs: string;
   trash: string;
   recoveredSongs: string;
@@ -173,6 +180,7 @@ export function workspacePaths(id: string, larkDirPath: string = larkDir()): Wor
   return {
     root,
     db: join(root, DB_FILE),
+    downloadHistory: join(root, DOWNLOAD_HISTORY_FILE),
     songs: join(root, SONGS_SUBDIR),
     trash: join(root, TRASH_SUBDIR),
     recoveredSongs: join(root, RECOVERED_SUBDIR),
@@ -284,6 +292,17 @@ export function activeWorkspacePaths(): WorkspacePaths {
  */
 export function dbPath(): string {
   return activeWorkspacePaths().db;
+}
+
+/**
+ * `downloads.json`: the ACTIVE workspace's finished-download record (P8b).
+ *
+ * Through the same chokepoint `dbPath()` uses, and for the same reason — a
+ * second spelling of "where this library keeps its things" is how a process
+ * ends up writing one account's history under another account's library.
+ */
+export function downloadHistoryPath(): string {
+  return activeWorkspacePaths().downloadHistory;
 }
 
 /**

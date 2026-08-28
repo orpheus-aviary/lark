@@ -1,6 +1,7 @@
 import type {
   BilibiliClient,
   DownloadEngine,
+  DownloadHistory,
   FileContext,
   FileEffectRuntime,
   LarkDatabase,
@@ -180,6 +181,14 @@ export interface NormalRuntime {
    * narrows what it can do, it never makes the engine unavailable. */
   downloads: DownloadEngine;
   /**
+   * What has already finished, on disk (0.5.0 P8b).
+   *
+   * Beside the engine rather than inside it: the engine's ring is its own
+   * scheduling memory and ages tasks out, while this is the answer to "what
+   * happened to that download" after the app has been closed and reopened.
+   */
+  downloadHistory: DownloadHistory;
+  /**
    * The skybridge session and everything serialized around it (v0.2 §3.11).
    *
    * Always present, even on an install that has never logged in: "there is no
@@ -237,6 +246,7 @@ const NORMAL_RUNTIME_KEYS = [
   'cacheLeases',
   'cacheScheduler',
   'downloads',
+  'downloadHistory',
   'sync',
   'fileOps',
 ] as const satisfies readonly (keyof NormalRuntime)[];

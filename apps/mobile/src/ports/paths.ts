@@ -21,6 +21,7 @@
 import {
   CANONICAL_AUDIO_FILE,
   DEFAULT_WORKSPACE_INDEX,
+  DOWNLOAD_HISTORY_FILE,
   LEGACY_AUDIO_FILE,
   LIBRARIES_DIRECTORY,
   LYRICS_FILE,
@@ -166,7 +167,7 @@ export function libraryDirectory(): Directory {
  * schema is shared with the desktop, and this is a fact about one phone.
  */
 export function downloadHistoryFile(): File {
-  return new File(libraryDirectory(), 'downloads.json');
+  return new File(libraryDirectory(), DOWNLOAD_HISTORY_FILE);
 }
 
 /**

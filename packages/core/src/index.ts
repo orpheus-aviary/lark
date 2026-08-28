@@ -121,3 +121,4 @@ export * from './portable/download/target.js';
 export * from './portable/download/task-data.js';
 export * from './portable/download/batches.js';
 export * from './portable/download/engine.js';
+export * from './portable/download/history.js';

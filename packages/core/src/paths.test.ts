@@ -101,6 +101,7 @@ describe('the workspace layout (N7b)', () => {
     expect(paths.workspacePaths(id)).toEqual({
       root: `/tmp/nest/lark/libraries/${id}`,
       db: `/tmp/nest/lark/libraries/${id}/songs.db`,
+      downloadHistory: `/tmp/nest/lark/libraries/${id}/downloads.json`,
       songs: `/tmp/nest/lark/libraries/${id}/songs`,
       trash: `/tmp/nest/lark/libraries/${id}/trash`,
       recoveredSongs: `/tmp/nest/lark/libraries/${id}/recovered-songs`,

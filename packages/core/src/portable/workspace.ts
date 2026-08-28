@@ -61,6 +61,20 @@ export function isWorkspaceId(id: string): boolean {
 export const LIBRARIES_DIRECTORY = 'libraries';
 
 /**
+ * `<workspace>/downloads.json` — which downloads have already happened
+ * (0.1.1 ⑦ on the phone, 0.5.0 P8b on the desktop).
+ *
+ * BESIDE THE LIBRARY, not beside the device's own files: it names songs and
+ * playlists that only mean anything inside one library, so an account's
+ * history has no business showing up under another account's — and deleting a
+ * workspace takes its history with it without anybody writing that down.
+ *
+ * Not a table in `songs.db`: the schema is shared between the two hosts and
+ * synced between devices, while this is a fact about ONE of them.
+ */
+export const DOWNLOAD_HISTORY_FILE = 'downloads.json';
+
+/**
  * Where a workspace sits, relative to the nest — the LAYOUT, in one place.
  *
  * Empty for `local`, which is what "in place, nothing moved" means and the

@@ -177,6 +177,21 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     description: 'Snapshot of download tasks and batches',
   },
   {
+    method: 'GET',
+    path: API_PATHS.downloadHistory,
+    description: 'Downloads that have already finished, kept across launches',
+  },
+  {
+    method: 'DELETE',
+    path: API_PATHS.downloadHistory,
+    description: 'Forget every finished download',
+  },
+  {
+    method: 'DELETE',
+    path: apiPath.downloadHistoryItem(':id'),
+    description: 'Forget one finished download',
+  },
+  {
     method: 'POST',
     path: apiPath.downloadLyrics(':id'),
     description: 'Queue a lyrics fetch for a song',

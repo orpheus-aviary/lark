@@ -92,6 +92,7 @@ import {
   installNormalRuntime,
   peekNormalRuntime,
 } from './context.js';
+import { createNodeDownloadHistory } from './download-history.js';
 import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
 import { DaemonLifecycle } from './lifecycle.js';
@@ -524,6 +525,14 @@ export async function boot(options: BootOptions = {}): Promise<void> {
     // the async half of the download pipeline has no route to emit from, so
     // engine lifecycle callbacks ARE the event source (M3-6).
     const buildRuntime = (active: AppContext): NormalRuntime => {
+      // Beside the library this daemon is serving — an account's record has no
+      // business under another account's, and deleting a workspace takes its
+      // history with it (`DOWNLOAD_HISTORY_FILE`).
+      const downloadHistory = createNodeDownloadHistory({
+        path: paths.workspacePaths(active.workspace).downloadHistory,
+        files,
+        logger,
+      });
       const downloads = new DownloadEngine({
         store: portable,
         files,
@@ -535,7 +544,11 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         logger,
         shutdownSignal: shutdownController.signal,
         callbacks: {
-          onStatus: (task) =>
+          onStatus: (task) => {
+            // Every visible change comes through here, terminal ones included,
+            // and the store ignores the rest: `recordOf` answers `null` while
+            // a task is still running.
+            downloadHistory.observe([task]);
             eventsBus.emit({
               type: 'download:status',
               task_id: task.id,
@@ -546,7 +559,8 @@ export async function boot(options: BootOptions = {}): Promise<void> {
               total_bytes: task.total_bytes,
               title: task.title,
               artist: task.artist,
-            }),
+            });
+          },
           onSucceeded: (task) => {
             if (task.result !== null) {
               eventsBus.emit({
@@ -597,6 +611,7 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         cacheLeases: new SongLeaseRegistry(),
         cacheScheduler: createEvictionScheduler(active),
         downloads,
+        downloadHistory,
         sync: new SyncRuntime(),
         // Shares the ENGINE's claim registry: a drain that removes a song's
         // directory and a download replacing that song's audio are exactly the

@@ -296,6 +296,96 @@ describe('POST /download/parse', () => {
   });
 });
 
+// ─── /download/history ─────────────────────────────────
+
+describe('/download/history', () => {
+  const del = async (url: string): Promise<{ statusCode: number; body: string }> => {
+    const res = await app.inject({ method: 'DELETE', url });
+    return { statusCode: res.statusCode, body: res.body };
+  };
+  const get = async (url: string): Promise<{ statusCode: number; body: string }> => {
+    const res = await app.inject({ method: 'GET', url });
+    return { statusCode: res.statusCode, body: res.body };
+  };
+
+  /** Queue one download and wait for it to reach the record. */
+  const finishOne = async (): Promise<string> => {
+    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
+    const taskId = bodyOf(res).data.task_id as string;
+    await vi.waitFor(() => {
+      expect(ctx.downloadHistory.getRecords().map((r) => r.id)).toContain(taskId);
+    });
+    return taskId;
+  };
+
+  it('answers with what has already finished', async () => {
+    const taskId = await finishOne();
+    const res = await get(API_PATHS.downloadHistory);
+
+    expect(res.statusCode).toBe(200);
+    const records = bodyOf(res).data.records as { id: string; state: string }[];
+    expect(records.map((r) => r.id)).toContain(taskId);
+  });
+
+  it('clears the lot', async () => {
+    await finishOne();
+    const res = await del(API_PATHS.downloadHistory);
+
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).data.records).toEqual([]);
+    expect(bodyOf(await get(API_PATHS.downloadHistory)).data.records).toEqual([]);
+  });
+
+  // 🔴 THE RULE THIS ENDPOINT EXISTS TO KEEP. The engine's ring is still
+  // holding that task for the rest of the launch, so a store that re-derived
+  // its rows from a snapshot would put the deleted one straight back on the
+  // next status event — and on a phone that reads as "the row came back and I
+  // do not know why".
+  it('does not put a deleted row back on the next status event', async () => {
+    const taskId = await finishOne();
+    const res = await del(apiPath.downloadHistoryItem(taskId));
+    expect(res.statusCode).toBe(200);
+    expect((bodyOf(res).data.records as { id: string }[]).map((r) => r.id)).not.toContain(taskId);
+
+    // The same task, reported again exactly as the engine would.
+    const snapshot = ctx.downloads.snapshot().tasks.find((task) => task.id === taskId);
+    expect(snapshot).toBeDefined();
+    ctx.downloadHistory.observe([snapshot as NonNullable<typeof snapshot>]);
+
+    const after = bodyOf(await get(API_PATHS.downloadHistory)).data.records as { id: string }[];
+    expect(after.map((r) => r.id)).not.toContain(taskId);
+  });
+
+  it('reads a record written by an earlier launch', async () => {
+    await app.close();
+    await closeTestContext(ctx);
+    ctx = createTestContext({
+      bilibiliBase: upstream.baseUrl,
+      downloadHistory: JSON.stringify([
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          kind: 'download',
+          state: 'failed',
+          title: '上一次启动',
+          artist: null,
+          input: { type: 'keyword', query: '稻香' },
+          playlist_ids: [],
+          song_id: null,
+          error_code: 'X',
+          error_message: 'x',
+          finished_at: 1,
+        },
+      ]),
+    });
+    app = buildTestServer(ctx);
+
+    const records = bodyOf(await get(API_PATHS.downloadHistory)).data.records as {
+      title: string;
+    }[];
+    expect(records.map((r) => r.title)).toEqual(['上一次启动']);
+  });
+});
+
 // ─── POST /download/batch ──────────────────────────────
 
 describe('POST /download/batch', () => {

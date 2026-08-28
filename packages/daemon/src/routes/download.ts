@@ -21,6 +21,7 @@
 // lists is not a request budget — and fail asynchronously instead.
 
 import {
+  type DownloadHistoryData,
   fetchList,
   isLlmConfigured,
   parseSongInput,
@@ -230,6 +231,40 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
 
   app.get(API_PATHS.downloadTasks, async (_req, reply) => {
     ok(reply, ctx.downloads.snapshot());
+  });
+
+  // ─── /download/history ─────────────────────────────────
+
+  /**
+   * What has already finished, from the file rather than the ring (④ / P8b).
+   *
+   * A separate surface from `/download/tasks` because it answers a different
+   * question: that one is what the engine is doing and what it still
+   * remembers, this one is what happened — including in launches that are
+   * over.
+   */
+  app.get(API_PATHS.downloadHistory, async (_req, reply) => {
+    ok(reply, { records: ctx.downloadHistory.getRecords() } satisfies DownloadHistoryData);
+  });
+
+  app.delete(API_PATHS.downloadHistory, async (_req, reply) => {
+    ctx.downloadHistory.clear();
+    ok(reply, { records: [] } satisfies DownloadHistoryData, 'download history cleared');
+  });
+
+  /**
+   * Forget one row.
+   *
+   * 🔴 IT DOES NOT COME BACK, and that is the rule this endpoint exists to
+   * keep: the engine's ring is still holding that task for the rest of the
+   * launch, so a store that re-derived its rows from a snapshot would put the
+   * deleted one back on the next status event. The store remembers every id it
+   * has already decided about, deleted ones included.
+   */
+  app.delete(apiPath.downloadHistoryItem(':id'), async (req, reply) => {
+    const id = pathUuid((req.params as { id: string }).id);
+    ctx.downloadHistory.remove(id);
+    ok(reply, { records: ctx.downloadHistory.getRecords() } satisfies DownloadHistoryData);
   });
 
   // ─── POST /download/lyrics/:id ─────────────────────────

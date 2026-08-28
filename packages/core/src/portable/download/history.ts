@@ -85,6 +85,17 @@ export interface DownloadRecord {
   finished_at: number;
 }
 
+/**
+ * `GET /download/history`'s body (0.5.0 P8b).
+ *
+ * The envelope lives beside the record rather than in `@lark/shared`, because
+ * the record does: this is portable's store, and portable is Node-free by
+ * guard — the renderer reaches it through the same slice the phone links.
+ */
+export interface DownloadHistoryData {
+  records: readonly DownloadRecord[];
+}
+
 export interface DownloadHistoryDeps {
   /** The file's text, or `null` when there is no file. May throw. */
   load: () => string | null;
