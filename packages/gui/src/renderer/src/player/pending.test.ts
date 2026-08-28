@@ -53,6 +53,7 @@ function task(id: string, state: DownloadTaskData['state'], songId: string): Dow
     stage: null,
     revision: 1,
     input: { type: 'song', song_id: songId },
+    origin: { kind: 'song', song_id: songId },
     song_id: songId,
     playlist_ids: [],
     failed_playlist_ids: [],

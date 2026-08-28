@@ -27,6 +27,7 @@ import type {
   DownloadBatchData,
   DownloadBatchGroupInput,
   DownloadNamingMode,
+  DownloadOrigin,
   DownloadStage,
   DownloadTaskData,
   DownloadTaskInput,
@@ -58,7 +59,7 @@ import type { AudioLandingPort, LandedAudio } from '../ports/audio-landing.js';
 import type { FileContext } from '../ports/fs.js';
 import { uuid } from '../runtime/random.js';
 import { playlists, songs } from '../schema.js';
-import { BatchRegistry, resolveBatchTarget, toTarget } from './batches.js';
+import { BatchRegistry, batchOrigin, resolveBatchTarget, toTarget, videoUrl } from './batches.js';
 import { type BilibiliClient, createBilibiliClient } from './bilibili.js';
 import { ClaimRegistry } from './claims.js';
 import { isLlmConfigured } from './llm.js';
@@ -224,10 +225,11 @@ export class DownloadEngine {
       input:
         input.target.kind === 'keyword'
           ? { type: 'keyword', query: input.target.query }
-          : {
-              type: 'url',
-              url: input.url ?? `https://www.bilibili.com/video/${input.target.bvid}`,
-            },
+          : { type: 'url', url: input.url ?? videoUrl(input.target) },
+      origin:
+        input.target.kind === 'keyword'
+          ? { kind: 'keyword', query: input.target.query }
+          : { kind: 'video', url: input.url ?? videoUrl(input.target) },
       playlistIds: targets,
     });
   }
@@ -245,6 +247,7 @@ export class DownloadEngine {
       dedupeKey: key,
       songId,
       input: { type: 'song', song_id: songId },
+      origin: { kind: 'song', song_id: songId },
       playlistIds: [],
     });
   }
@@ -269,6 +272,7 @@ export class DownloadEngine {
       dedupeKey: key,
       songId,
       input: { type: 'song', song_id: songId },
+      origin: { kind: 'song', song_id: songId },
       playlistIds: [],
     });
   }
@@ -296,6 +300,7 @@ export class DownloadEngine {
       dedupeKey: key,
       songId,
       input: { type: 'song', song_id: songId },
+      origin: { kind: 'song', song_id: songId },
       playlistIds: [],
       ...(options.runNext === true ? { runNext: true } : {}),
     });
@@ -313,6 +318,7 @@ export class DownloadEngine {
   enqueueBatches(groups: readonly DownloadBatchGroupInput[]): DownloadBatchData[] {
     const plans = groups.map((group) => ({
       target: group.target,
+      ...(group.source === undefined ? {} : { source: group.source }),
       items: group.items.map((item) => ({ item, key: downloadDedupeKey(toTarget(item)) })),
     }));
 
@@ -387,7 +393,8 @@ export class DownloadEngine {
             input:
               target.kind === 'keyword'
                 ? { type: 'keyword', query: target.query }
-                : { type: 'url', url: `https://www.bilibili.com/video/${target.bvid}` },
+                : { type: 'url', url: videoUrl(target) },
+            origin: batchOrigin(plan.source, target, itemIndex, plan.items.length),
             playlistIds,
           });
         const record = this.#tasks.get(data.id);
@@ -560,6 +567,8 @@ export class DownloadEngine {
     kind: DownloadTaskKind;
     dedupeKey: string;
     input: DownloadTaskInput;
+    /** Required, so a new way to enqueue cannot forget to say where it came from. */
+    origin: DownloadOrigin;
     playlistIds: string[];
     target?: DownloadTarget;
     songId?: string;
@@ -573,6 +582,7 @@ export class DownloadEngine {
       stage: null,
       revision: 1,
       input: seed.input,
+      origin: seed.origin,
       songId: seed.songId ?? null,
       ...this.#songLabel(seed.songId ?? null),
       playlistIds: seed.playlistIds,

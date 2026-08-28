@@ -8,7 +8,7 @@
 // Kept separate from the engine because it is pure record-keeping: no queue,
 // no claims, no worker. The engine tells it what happened.
 
-import type { DownloadBatchData, DownloadBatchGroupInput } from '@lark/shared';
+import type { DownloadBatchData, DownloadBatchGroupInput, DownloadOrigin } from '@lark/shared';
 import { eq } from 'drizzle-orm';
 import type { PortableDrizzle } from '../db.js';
 import { NotFoundError } from '../errors.js';
@@ -89,6 +89,48 @@ function toBatchData(batch: BatchRecord): DownloadBatchData {
 }
 
 /** A request item as the pipeline's target type. */
+/**
+ * The link a video target IS, `?p=` and all.
+ *
+ * 🔴 THE PAGE USED TO GO MISSING HERE. A batch built this string from the bvid
+ * alone while `page` sat right there on the item, so a multi-part video queued
+ * out of a collection recorded — and, on the phone, RE-RAN — as part 1. The
+ * single-link path never had the bug because the route hands it the normalised
+ * url from the parse.
+ */
+export function videoUrl(target: Extract<DownloadTarget, { kind: 'video' }>): string {
+  const base = `https://www.bilibili.com/video/${target.bvid}`;
+  return target.page === null ? base : `${base}?p=${target.page}`;
+}
+
+/**
+ * Where one item of a batch came from (④).
+ *
+ * A group with no `source` is a heap of pasted links or keywords: those have
+ * no list identity, and `index/total` about a heap answers nothing anybody
+ * asked. Inside a real list it is baked in NOW, because the batch registry is
+ * a ring and the record outlives it.
+ */
+export function batchOrigin(
+  source: DownloadBatchGroupInput['source'],
+  target: DownloadTarget,
+  itemIndex: number,
+  total: number,
+): DownloadOrigin {
+  if (target.kind === 'keyword') return { kind: 'keyword', query: target.query };
+  const url = videoUrl(target);
+  if (source === undefined) return { kind: 'video', url };
+  return {
+    kind: 'list',
+    list: source.list,
+    title: source.title,
+    url: source.url,
+    video_url: url,
+    index: itemIndex + 1,
+    total,
+  };
+}
+
 export function toTarget(item: DownloadBatchGroupInput['items'][number]): DownloadTarget {
   return item.kind === 'keyword'
     ? { kind: 'keyword', query: item.query }

@@ -88,6 +88,7 @@ describe('wire shapes (compile-time)', () => {
       stage: null,
       revision: 7,
       input: { type: 'url', url: 'https://www.bilibili.com/video/BV1Ki4y1y7HC' },
+      origin: { kind: 'video', url: 'https://www.bilibili.com/video/BV1Ki4y1y7HC' },
       song_id: 's1',
       playlist_ids: ['p1'],
       failed_playlist_ids: ['p2'],

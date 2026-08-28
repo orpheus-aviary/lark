@@ -55,6 +55,7 @@ function task(
     stage: state === 'running' ? 'downloading' : null,
     revision: 1,
     input,
+    origin: { kind: 'video', url: input.url },
     song_id: null,
     playlist_ids: [],
     failed_playlist_ids: [],

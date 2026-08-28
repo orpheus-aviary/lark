@@ -34,6 +34,7 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
     stage: 'downloading',
     revision: 1,
     input: { type: 'keyword', query: '稻香' },
+    origin: { kind: 'keyword', query: '稻香' },
     song_id: null,
     playlist_ids: [],
     failed_playlist_ids: [],

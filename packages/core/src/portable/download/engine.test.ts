@@ -850,6 +850,85 @@ describe('enqueueBatches', () => {
     expect(batch?.items[0]?.final).toBeNull();
   });
 
+  // ④ — 🔴 THE PAGE USED TO GO MISSING. A batch built its url from the bvid
+  // alone while `page` sat right there on the item, so a multi-part video
+  // queued out of a collection recorded as part 1 — and the phone's 重下,
+  // which replays `input.url`, re-downloaded part 1.
+  it('keeps the part number of a multi-part video in the url it records', () => {
+    const e = build();
+    e.enqueueBatches([
+      {
+        target: { kind: 'all' },
+        items: [{ kind: 'video', bvid: BVID, page: 2, title: null, naming: 'original' }],
+      },
+    ]);
+
+    const [task] = e.snapshot().tasks;
+    expect(task?.input).toEqual({ type: 'url', url: `https://www.bilibili.com/video/${BVID}?p=2` });
+  });
+
+  // ④ — where each item came from, baked in at enqueue: the batch registry is
+  // a ring of 20 and the phone's record outlives it, so「第几条」 cannot be
+  // recomputed later.
+  it('numbers every entry inside the list it came from', () => {
+    const e = build();
+    e.enqueueBatches([
+      {
+        target: { kind: 'all' },
+        source: {
+          list: 'collection',
+          title: '华语经典',
+          url: 'https://space.bilibili.com/1/lists/9',
+        },
+        items: [
+          { kind: 'video', bvid: BVID, page: null, title: null, naming: 'original' },
+          { kind: 'video', bvid: 'BV1xx411c7m2', page: 3, title: null, naming: 'original' },
+        ],
+      },
+    ]);
+
+    expect(e.snapshot().tasks.map((task) => task.origin)).toEqual([
+      {
+        kind: 'list',
+        list: 'collection',
+        title: '华语经典',
+        url: 'https://space.bilibili.com/1/lists/9',
+        video_url: `https://www.bilibili.com/video/${BVID}`,
+        index: 1,
+        total: 2,
+      },
+      {
+        kind: 'list',
+        list: 'collection',
+        title: '华语经典',
+        url: 'https://space.bilibili.com/1/lists/9',
+        video_url: 'https://www.bilibili.com/video/BV1xx411c7m2?p=3',
+        index: 2,
+        total: 2,
+      },
+    ]);
+  });
+
+  // A heap of pasted links is not a list, and `（1/12）` about a heap answers
+  // a question nobody asked.
+  it('gives a group with no list behind it plain video origins', () => {
+    const e = build();
+    e.enqueueBatches([
+      {
+        target: { kind: 'all' },
+        items: [
+          { kind: 'video', bvid: BVID, page: null, title: null, naming: 'original' },
+          { kind: 'keyword', query: '稻香' },
+        ],
+      },
+    ]);
+
+    expect(e.snapshot().tasks.map((task) => task.origin)).toEqual([
+      { kind: 'video', url: `https://www.bilibili.com/video/${BVID}` },
+      { kind: 'keyword', query: '稻香' },
+    ]);
+  });
+
   // 🔴 THE N4f-2 DEVICE CRASH, made cheap (2026-08-24). Every batch submission
   // on Android died in the line this covers: the transaction below called
   // `createPlaylist`, which opens a transaction of its own. Nothing on the

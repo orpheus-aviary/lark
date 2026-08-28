@@ -12,6 +12,7 @@
 // four pure functions.
 
 import type {
+  DownloadOrigin,
   DownloadStage,
   DownloadTaskData,
   DownloadTaskInput,
@@ -68,6 +69,50 @@ export function inputLabel(input: DownloadTaskInput): string {
       return input.query;
     case 'song':
       return '已有歌曲';
+  }
+}
+
+/**
+ * Where this download came from, in one line under its title (④).
+ *
+ * ONE WORDING FOR BOTH ENDS, which is why it is here rather than in either
+ * front end: the desktop and the phone show the same record, and two tables
+ * that drift is exactly what moved the stage labels into this file.
+ */
+export function originLabel(origin: DownloadOrigin): string {
+  switch (origin.kind) {
+    case 'keyword':
+      return `from：${origin.query}`;
+    case 'video':
+      return `from：${origin.url}`;
+    case 'list':
+      return `from：${origin.title}（${origin.index}/${origin.total}）`;
+    case 'song':
+      return 'from：曲库里已有的歌';
+  }
+}
+
+/**
+ * What the copy button puts on the clipboard.
+ *
+ * A LIST ENTRY COPIES ITS OWN VIDEO, not the list it came from: the reason to
+ * reach for this button is a song that came out wrong, and the link that
+ * reproduces it is the video's. The list's own url is on the label above it,
+ * and a second button on that row would crowd it (user's call).
+ *
+ * `null` where there is no link to give — a song that was already in the
+ * library is identified by nothing a clipboard can hold.
+ */
+export function originCopyText(origin: DownloadOrigin): string | null {
+  switch (origin.kind) {
+    case 'keyword':
+      return origin.query;
+    case 'video':
+      return origin.url;
+    case 'list':
+      return origin.video_url;
+    case 'song':
+      return null;
   }
 }
 

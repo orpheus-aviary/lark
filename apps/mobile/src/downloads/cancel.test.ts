@@ -30,6 +30,7 @@ function task(
     stage: state === 'running' ? 'downloading' : null,
     revision: 1,
     input: { type: 'url', url: `https://b23.tv/${id}` },
+    origin: { kind: 'video', url: `https://b23.tv/${id}` },
     song_id: null,
     playlist_ids: [],
     failed_playlist_ids: [],

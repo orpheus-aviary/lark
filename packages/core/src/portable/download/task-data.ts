@@ -6,6 +6,7 @@
 // like from outside.
 
 import type {
+  DownloadOrigin,
   DownloadStage,
   DownloadTaskData,
   DownloadTaskInput,
@@ -42,6 +43,8 @@ export interface TaskRecord {
   stage: DownloadStage | null;
   revision: number;
   input: DownloadTaskInput;
+  /** Who asked for it; see `DownloadOrigin`. Fixed at enqueue, never updated. */
+  origin: DownloadOrigin;
   songId: string | null;
   /** What to call this task in a list; see `DownloadTaskData.title`. */
   title: string | null;
@@ -80,6 +83,7 @@ export function toTaskData(task: TaskRecord): DownloadTaskData {
     stage: task.stage,
     revision: task.revision,
     input: task.input,
+    origin: task.origin,
     song_id: task.songId,
     playlist_ids: [...task.playlistIds],
     failed_playlist_ids: [...task.failedPlaylistIds],

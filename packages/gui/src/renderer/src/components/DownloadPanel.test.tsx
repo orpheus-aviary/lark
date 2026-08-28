@@ -31,6 +31,7 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
     stage: 'downloading',
     revision: 1,
     input: { type: 'url', url: 'https://www.bilibili.com/video/BV1' },
+    origin: { kind: 'video', url: 'https://www.bilibili.com/video/BV1' },
     song_id: null,
     playlist_ids: [],
     failed_playlist_ids: [],

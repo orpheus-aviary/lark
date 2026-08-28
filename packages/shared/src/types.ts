@@ -708,6 +708,41 @@ export type DownloadTaskInput =
   | { type: 'song'; song_id: string };
 
 /**
+ * Where a download was asked for (0.5.0 ④). SEPARATE FROM `DownloadTaskInput`,
+ * which is what to fetch: a video queued from a collection and the same video
+ * queued from a pasted link fetch the identical thing, and the whole question
+ * a download record has to answer afterwards is which of the two happened.
+ *
+ * Baked at enqueue rather than derived later. The engine's batch ring holds
+ * the last few batches; the phone's history file holds two hundred downloads
+ * for as long as somebody keeps the app, so「第几条」 has to survive the ring
+ * that could have computed it.
+ */
+export type DownloadOrigin =
+  /** Typed a song name. `query` is what they typed. */
+  | { kind: 'keyword'; query: string }
+  /** One link. `url` carries `?p=` when the video has parts. */
+  | { kind: 'video'; url: string }
+  /**
+   * One entry out of a favourites folder or a collection.
+   *
+   * `url` is the LIST's own link and `video_url` this entry's — the two are
+   * different questions, and the copy button answers the second one.
+   * `index` is 1-based, for「（3/50）」.
+   */
+  | {
+      kind: 'list';
+      list: 'favorites' | 'collection';
+      title: string;
+      url: string;
+      video_url: string;
+      index: number;
+      total: number;
+    }
+  /** Started from a song already in the library: a redownload, an ensure, lyrics. */
+  | { kind: 'song'; song_id: string };
+
+/**
  * One task's full public state. `revision` increments on every visible change
  * (including ones with no state/stage transition, like a merged playlist
  * target), so a client can drop duplicate `download:status` events by
@@ -721,6 +756,8 @@ export interface DownloadTaskData {
   stage: DownloadStage | null;
   revision: number;
   input: DownloadTaskInput;
+  /** Who asked for it, as opposed to what it fetches (0.5.0 ④). */
+  origin: DownloadOrigin;
   /** Filled once the task binds to a song — on reuse, or after it creates one. */
   song_id: string | null;
   playlist_ids: readonly string[];
@@ -818,6 +855,13 @@ export type DownloadBatchItemInput =
 export interface DownloadBatchGroupInput {
   target: BatchTargetInput;
   items: readonly DownloadBatchItemInput[];
+  /**
+   * The favourites folder or collection these items were picked out of, when
+   * they were (0.5.0 ④). Absent for a group of pasted links or keywords —
+   * those have no list identity, and inventing one would be a lie the download
+   * record then repeats forever.
+   */
+  source?: { list: 'favorites' | 'collection'; title: string; url: string };
 }
 
 /** `POST /download/batch` body. Every group commits, or none does (M3-5). */

@@ -130,6 +130,7 @@ export function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskDat
     stage: null,
     revision: 1,
     input: { type: 'url', url: 'https://www.bilibili.com/video/BV1xx411c7mD' },
+    origin: { kind: 'video', url: 'https://www.bilibili.com/video/BV1xx411c7mD' },
     song_id: null,
     playlist_ids: [],
     failed_playlist_ids: [],

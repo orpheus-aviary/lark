@@ -12,6 +12,8 @@ import {
   STAGE_LABELS,
   STATE_LABELS,
   inputLabel,
+  originCopyText,
+  originLabel,
   taskDescription,
   taskLabel,
   taskTitle,
@@ -31,6 +33,7 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
     stage: 'downloading',
     revision: 1,
     input: { type: 'url', url: 'https://b23.tv/abc' },
+    origin: { kind: 'video', url: 'https://b23.tv/abc' },
     song_id: null,
     playlist_ids: [],
     failed_playlist_ids: [],
@@ -94,6 +97,44 @@ describe('taskDescription', () => {
 
   it('tags the kinds that would otherwise read as the same row twice', () => {
     expect(taskDescription(task({ kind: 'lyrics', title: '莫愁乡' }))).toBe('歌词 莫愁乡');
+  });
+});
+
+// ④ — four ways a download gets asked for, and two questions about each: what
+// the row says, and what the copy button hands over.
+describe('originLabel / originCopyText', () => {
+  it('says the words that were typed, and copies them back', () => {
+    const origin = { kind: 'keyword', query: '周杰伦 稻香' } as const;
+    expect(originLabel(origin)).toBe('from：周杰伦 稻香');
+    expect(originCopyText(origin)).toBe('周杰伦 稻香');
+  });
+
+  it('keeps the part number on a link, both times', () => {
+    const origin = { kind: 'video', url: 'https://www.bilibili.com/video/BV1?p=2' } as const;
+    expect(originLabel(origin)).toBe('from：https://www.bilibili.com/video/BV1?p=2');
+    expect(originCopyText(origin)).toBe('https://www.bilibili.com/video/BV1?p=2');
+  });
+
+  // The label names the LIST; the button copies the one video. Two different
+  // questions, which is why the row has one button and not two.
+  it('counts an entry inside its list, and copies the entry', () => {
+    const origin = {
+      kind: 'list',
+      list: 'collection',
+      title: '华语经典',
+      url: 'https://space.bilibili.com/1/lists/9',
+      video_url: 'https://www.bilibili.com/video/BV3?p=2',
+      index: 3,
+      total: 50,
+    } as const;
+    expect(originLabel(origin)).toBe('from：华语经典（3/50）');
+    expect(originCopyText(origin)).toBe('https://www.bilibili.com/video/BV3?p=2');
+  });
+
+  it('has a name but no link for a song that was already in the library', () => {
+    const origin = { kind: 'song', song_id: 's-1' } as const;
+    expect(originLabel(origin)).toBe('from：曲库里已有的歌');
+    expect(originCopyText(origin)).toBe(null);
   });
 });
 
