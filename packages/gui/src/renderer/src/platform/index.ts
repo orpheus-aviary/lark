@@ -7,6 +7,7 @@
 // jsdom test environment provides a fake `window.larkAPI` in test-setup.
 
 import { defaultDaemonBaseUrl } from '@lark/shared';
+import type { DesktopLyricsMessage } from '../../../shared/desktop-lyrics.js';
 
 export interface PlatformAdapter {
   daemonBaseUrl(): string;
@@ -23,6 +24,12 @@ export interface PlatformAdapter {
   saveExportFile(input: { default_name: string; content: string }): Promise<boolean>;
   /** Reveal the migration backup directory; false when there is nothing to open. */
   openMigrationBackup(): Promise<boolean>;
+  /** Push a frame to the floating lyric window (0.5.0 ⑤). */
+  publishDesktopLyrics(state: DesktopLyricsMessage): void;
+  /** Receive them, in that window. Returns the unsubscribe. */
+  onDesktopLyrics(listener: (state: DesktopLyricsMessage) => void): () => void;
+  /** Heard in the main window: the person closed the lyric window. */
+  onDesktopLyricsClosed(listener: () => void): () => void;
 }
 
 let cached: PlatformAdapter | undefined;
@@ -43,6 +50,9 @@ export function getPlatform(): PlatformAdapter {
     pickJsonFile: () => window.larkAPI.pickJsonFile(),
     saveExportFile: (input) => window.larkAPI.saveExportFile(input),
     openMigrationBackup: () => window.larkAPI.openMigrationBackup(),
+    publishDesktopLyrics: (state) => window.larkAPI.publishDesktopLyrics(state),
+    onDesktopLyrics: (listener) => window.larkAPI.onDesktopLyrics(listener),
+    onDesktopLyricsClosed: (listener) => window.larkAPI.onDesktopLyricsClosed(listener),
   };
   return cached;
 }

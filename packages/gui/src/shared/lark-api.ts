@@ -1,3 +1,5 @@
+import type { DesktopLyricsMessage } from './desktop-lyrics.js';
+
 /** The two documents that ship inside the app bundle (M7-9). */
 export type LegalDocument = 'license' | 'notices';
 
@@ -51,6 +53,24 @@ export interface LarkApi {
    * the honest answer once the backups have been cleared.
    */
   readonly openMigrationBackup: () => Promise<boolean>;
+  /**
+   * Tell main what the floating lyric window should draw (0.5.0 ⑤). Fire and
+   * forget from the MAIN window; there is nothing to wait for and a message
+   * that arrives with no window open is dropped.
+   */
+  readonly publishDesktopLyrics: (state: DesktopLyricsMessage) => void;
+  /**
+   * Subscribe to that, in the LYRIC window. Returns the unsubscribe — the
+   * window is torn down whole, but a subscription that cannot be undone is a
+   * leak waiting for the first person who reloads it in dev.
+   */
+  readonly onDesktopLyrics: (listener: (state: DesktopLyricsMessage) => void) => () => void;
+  /**
+   * The lyric window was closed by the person looking at it (0.5.0 ⑤).
+   * Heard in the MAIN window, which owns the config and writes the answer
+   * down. Returns the unsubscribe.
+   */
+  readonly onDesktopLyricsClosed: (listener: () => void) => () => void;
   /**
    * Relaunch the app so it opens the workspace that is now active (N7e).
    *

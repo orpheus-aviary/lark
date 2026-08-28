@@ -10,9 +10,11 @@ import { loadConfig } from '@lark/core/config';
 import { localTokenPath } from '@lark/core/paths';
 import { defaultDaemonBaseUrl } from '@lark/shared';
 import { type BrowserWindow, app, dialog, ipcMain } from 'electron';
+import type { DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import { saveWindowSize } from './daemon-config.js';
 import { DaemonManager, DaemonStartError } from './daemon-manager.js';
+import { DesktopLyricsController, type DesktopLyricsWindow } from './desktop-lyrics-window.js';
 import { registerDialogIpc } from './dialog-ipc.js';
 import { installMediaProtocol, registerMediaScheme } from './media-protocol.js';
 import { withMediaToolsDir } from './media-tools-dir.js';
@@ -20,7 +22,7 @@ import { ensureNestIdentity, nestDirFromAdditionalData } from './nest.js';
 import { QuitCoordinator } from './quit.js';
 import { WindowMemory } from './window-memory.js';
 import { WindowRef } from './window-ref.js';
-import { createMainWindow } from './window.js';
+import { createDesktopLyricsWindow, createMainWindow } from './window.js';
 
 const { realLarkDir } = ensureNestIdentity();
 
@@ -60,6 +62,35 @@ const manager = new DaemonManager({
 /** Never dereferenced directly — see `window-ref.ts` for why. */
 const windowRef = new WindowRef<BrowserWindow>();
 let windowMemory: WindowMemory | null = null;
+
+/**
+ * The floating lyric window's lifecycle (⑤).
+ *
+ * Built here rather than inside `bootstrap` because the quit path needs it
+ * too: an always-on-top window that outlived the app it belongs to would be a
+ * strip of text nobody can close.
+ */
+const desktopLyrics = new DesktopLyricsController({
+  create: (config) => {
+    const win = createDesktopLyricsWindow(config);
+    const handle: DesktopLyricsWindow = {
+      isDestroyed: () => win.isDestroyed(),
+      destroy: () => win.destroy(),
+      publish: (message) => {
+        if (win.isDestroyed()) return;
+        win.webContents.send(IPC_CHANNELS.desktopLyricsState, message);
+      },
+    };
+    win.on('closed', () => desktopLyrics.noteClosed(handle));
+    return handle;
+  },
+  // Closing it IS turning the feature off (see `desktop-lyrics-window.ts`),
+  // so the answer outlives the launch. The main window owns the config, so it
+  // is the one told; it writes the PATCH.
+  onClosedByUser: () => {
+    windowRef.live()?.webContents.send(IPC_CHANNELS.desktopLyricsClosed);
+  },
+});
 
 /** Take ownership of a window: remember its size, forget it when it is gone. */
 function adoptWindow(win: BrowserWindow): void {
@@ -132,6 +163,15 @@ async function bootstrap(): Promise<void> {
 
   installMediaProtocol({ daemonOrigin: daemonUrl, tokenPath });
 
+  // The floating lyric window (0.5.0 ⑤). Driven entirely by the main window:
+  // it publishes the config AND what is playing in one message, so there is
+  // one opinion about whether that window should exist rather than two
+  // processes reading the same file at different times.
+  ipcMain.on(IPC_CHANNELS.desktopLyricsPublish, (_event, message: DesktopLyricsMessage) => {
+    desktopLyrics.apply(message.config);
+    desktopLyrics.publish(message);
+  });
+
   const { width, height } = windowSize();
   adoptWindow(createMainWindow({ width, height, daemonUrl, tokenPath }));
   // The dialogs open MODAL to the window, so they ask for the live one too.
@@ -173,6 +213,12 @@ const quitCoordinator = new QuitCoordinator({
 });
 
 app.on('before-quit', (event) => {
+  // 🔴 BEFORE ANYTHING ELSE, and this is not tidiness. Electron closes every
+  // window on the way out; a lyric window torn down by that route would report
+  // itself closed, and "closed" means the person turned the feature off — so
+  // quitting the app would silently switch the desktop lyrics off for good.
+  // Taking it down ourselves is what makes that event ours rather than theirs.
+  desktopLyrics.close();
   if (quitCoordinator.handleBeforeQuit()) event.preventDefault();
 });
 

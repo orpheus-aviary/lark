@@ -1,0 +1,66 @@
+/* The floating window's own stylesheet — deliberately NOT the app's.
+ *
+ * `style.css` carries Tailwind, the theme tokens and a painted background;
+ * this window must be transparent everywhere the text is not, so it starts
+ * from nothing. The whole page is four rules. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  /* Nothing here is text to select, and a stray drag-select highlight on a
+     transparent window looks like a rendering fault. */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+#root {
+  height: 100%;
+}
+
+.lyrics-window {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15em;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.lyrics-line {
+  position: relative;
+  margin: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--lyrics-fill);
+}
+
+.lyrics-line-active {
+  color: var(--lyrics-active);
+}
+
+/* The stroked copy sits exactly under the fill. `aria-hidden` on the markup
+   side; here it is taken out of the flow so the two never disagree about
+   where a glyph is. */
+.lyrics-stroke {
+  position: absolute;
+  inset: 0;
+  -webkit-text-stroke: var(--lyrics-stroke) var(--lyrics-outline);
+  color: transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lyrics-fill {
+  position: relative;
+}

@@ -8,6 +8,7 @@ import { SongList } from './components/SongList.js';
 import { StatusBar } from './components/StatusBar.js';
 import { TopBar } from './components/TopBar.js';
 import { Toaster } from './components/ui/sonner.js';
+import { DesktopLyricsBridge } from './desktop-lyrics/DesktopLyricsBridge.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { EventsSubscriber } from './session/EventsSubscriber';
 import { useConfig } from './stores/config.js';
@@ -72,6 +73,7 @@ export function App(): React.JSX.Element {
     <div className="flex h-full flex-col">
       <EventsSubscriber />
       <PlayerHost />
+      <DesktopLyricsBridge />
       <TopBar />
       <InteractionBar />
       <SongList onPlay={(song) => void play(song)} currentSongId={currentSongId} />

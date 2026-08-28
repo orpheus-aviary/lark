@@ -27,4 +27,18 @@ export const IPC_CHANNELS = {
    * the boot sequence owns, and a restart is the only way to do that honestly.
    */
   restartApp: 'app:restart',
+  /**
+   * The main window telling main what the floating lyric window should draw
+   * (0.5.0 ⑤). One way, fire and forget: nothing waits for it, and a message
+   * that arrives after the window closed is simply dropped.
+   */
+  desktopLyricsPublish: 'desktop-lyrics:publish',
+  /** …and main handing that on to the window itself. */
+  desktopLyricsState: 'desktop-lyrics:state',
+  /**
+   * The lyric window went away without anybody asking main to take it — the
+   * person closed it. Closing it IS turning the feature off, so the main
+   * window hears about it and writes `enabled = false` back.
+   */
+  desktopLyricsClosed: 'desktop-lyrics:closed',
 } as const;

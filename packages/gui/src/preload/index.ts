@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { contextBridge, ipcRenderer } from 'electron';
 import { DAEMON_TOKEN_PATH_FLAG, DAEMON_URL_FLAG, argvValue } from '../shared/argv.js';
+import type { DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import type { LarkApi, LegalDocument } from '../shared/lark-api.js';
 import { GUI_VERSION } from '../shared/version.js';
@@ -39,4 +40,23 @@ contextBridge.exposeInMainWorld('larkAPI', {
   openMigrationBackup: () =>
     ipcRenderer.invoke(IPC_CHANNELS.openMigrationBackup) as Promise<boolean>,
   restartApp: () => ipcRenderer.invoke(IPC_CHANNELS.restartApp) as Promise<void>,
+  publishDesktopLyrics: (state: DesktopLyricsMessage) => {
+    ipcRenderer.send(IPC_CHANNELS.desktopLyricsPublish, state);
+  },
+  onDesktopLyricsClosed: (listener: () => void) => {
+    const handler = (): void => listener();
+    ipcRenderer.on(IPC_CHANNELS.desktopLyricsClosed, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.desktopLyricsClosed, handler);
+    };
+  },
+  onDesktopLyrics: (listener: (state: DesktopLyricsMessage) => void) => {
+    // The event object is deliberately not passed on: it carries a `sender`,
+    // and the renderer has no business holding one.
+    const handler = (_event: unknown, state: DesktopLyricsMessage): void => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.desktopLyricsState, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.desktopLyricsState, handler);
+    };
+  },
 } satisfies LarkApi);

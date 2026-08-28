@@ -28,6 +28,9 @@ function defaultLarkApi(): LarkApi {
     readLegal: vi.fn(() => Promise.resolve('MIT License\n\nCopyright (c) test')),
     openMigrationBackup: vi.fn(() => Promise.resolve(true)),
     restartApp: vi.fn(() => Promise.resolve()),
+    publishDesktopLyrics: vi.fn(),
+    onDesktopLyrics: vi.fn(() => () => {}),
+    onDesktopLyricsClosed: vi.fn(() => () => {}),
   };
 }
 

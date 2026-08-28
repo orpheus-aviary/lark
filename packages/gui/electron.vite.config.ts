@@ -99,7 +99,14 @@ export default defineConfig({
     build: {
       outDir: here('out/renderer'),
       rollupOptions: {
-        input: { index: here('src/renderer/index.html') },
+        // TWO ENTRIES since 0.5.0 ⑤: the app, and the floating lyric window.
+        // A second html is the whole of what makes that window a renderer of
+        // its own — and the one thing a unit test cannot see, which is why
+        // `accept-pack` checks the packaged bundle for it.
+        input: {
+          index: here('src/renderer/index.html'),
+          lyrics: here('src/renderer/lyrics.html'),
+        },
       },
     },
   },

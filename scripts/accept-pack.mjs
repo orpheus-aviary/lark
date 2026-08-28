@@ -167,6 +167,18 @@ function judge3(app) {
     `core=${existsSync(core)} daemon=${existsSync(daemon)} node=${existsSync(binding)}`,
   );
 
+  // ⑤ — the floating lyric window is a SECOND renderer entry, and a second
+  // entry is the one thing about it a unit test cannot see: drop it from
+  // `electron.vite.config.ts` and everything still typechecks, still passes,
+  // and ships an app whose lyric window loads nothing.
+  const lyricsHtml = join(appDir, 'out/renderer/lyrics.html');
+  const mainHtml = join(appDir, 'out/renderer/index.html');
+  check(
+    '§3a2 · both renderer entries ship — the app and the desktop lyrics window',
+    existsSync(mainHtml) && existsSync(lyricsHtml),
+    `index=${existsSync(mainHtml)} lyrics=${existsSync(lyricsHtml)}`,
+  );
+
   const license = join(resources, 'LICENSE');
   const notices = join(resources, 'THIRD-PARTY-NOTICES.md');
   check(
