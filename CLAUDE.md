@@ -41,7 +41,7 @@ just mobile-android-release     # 构建 release APK 并 adb 装到冻结设备
 tokei               # 业务代码行数（口径见 .tokeignore）
 ```
 
-验收套件（发版门禁）：`accept-gui` 15 · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` 28。
+验收套件（发版门禁）：`accept-gui` 15 · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` **29**（0.5.0 加了「两个 renderer 入口都进包」——桌面歌词是第二个入口，少打包它只有产物看得见）。
 
 ## 注意事项
 
@@ -79,7 +79,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 
 ## 当前进度
 
-**桌面 v0.4.2 + Android 0.1.1 已发布**（2026-08-27，tag `v0.4.2` / `android-v0.1.1`）。测试 3415，`just check` 绿，五套 accept 对发出去的那份桌面产物 **128/128**。协议 `LOCAL_API_VERSION = 8`（0.4.2 未动）。
+**桌面 v0.5.0 + Android 0.2.0 已发布**（2026-08-28，tag `v0.5.0` / `android-v0.2.0`，同一个 commit `9b359c0`）。测试 **3547**，`just check` 绿（十四条守卫），五套 accept 对发出去的那两份产物 **129/129**。协议 `LOCAL_API_VERSION = 9`（8 → 9：`[desktop_lyrics]` 段 + `POST /download/batch` 的 `source` + 三个 `/download/history` 端点），**schema 仍 v3**。
 
 **当前状态 + 下一步以 `PROCESS.md` 为准。** 其余入口：
 
