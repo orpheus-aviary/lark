@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { LYRIC_LINE_HEIGHT, lyricsPadding, targetOffset } from './lyrics-scroll';
+import {
+  FOLLOWING,
+  FOLLOW_RESUME_MS,
+  type FollowState,
+  LYRIC_LINE_HEIGHT,
+  isFollowing,
+  lineAtCentre,
+  lyricsPadding,
+  onDragBegin,
+  onScrollSettled,
+  onSeek,
+  onTick,
+  targetOffset,
+} from './lyrics-scroll';
 
 const VIEWPORT = 600;
 const LINE = LYRIC_LINE_HEIGHT;
@@ -61,5 +74,73 @@ describe('scrolling the lyrics', () => {
 
   it('has nothing to scroll to when nothing is playing', () => {
     expect(at(40, -1)).toBe(null);
+  });
+});
+
+// ⑦ — the other direction: which line is under the middle of the screen.
+describe('the line at the centre', () => {
+  it('names the line the middle is sitting on', () => {
+    // Scrolled to where line 20 is centred, so that is the line it names.
+    const scroll = targetOffset({
+      tops: tops(40),
+      index: 20,
+      viewportHeight: VIEWPORT,
+      lineHeight: LINE,
+    });
+    expect(lineAtCentre(tops(40), scroll ?? 0, VIEWPORT)).toBe(20);
+  });
+
+  it('agrees with `targetOffset` on every line, which is what makes a tap land', () => {
+    const measured = tops(30);
+    for (let index = 0; index < measured.length; index++) {
+      const scroll = targetOffset({
+        tops: measured,
+        index,
+        viewportHeight: VIEWPORT,
+        lineHeight: LINE,
+      });
+      expect(lineAtCentre(measured, scroll ?? 0, VIEWPORT)).toBe(index);
+    }
+  });
+
+  it('has no answer for a list nothing has measured', () => {
+    expect(lineAtCentre([], 0, VIEWPORT)).toBe(null);
+  });
+});
+
+// The three states, and the one transition that is a product decision.
+describe('following the song, or the finger', () => {
+  const settled = (state: FollowState, now: number): FollowState => onScrollSettled(state, now);
+
+  it('follows until a finger goes down', () => {
+    expect(isFollowing(FOLLOWING)).toBe(true);
+    expect(isFollowing(onDragBegin())).toBe(false);
+  });
+
+  it('waits after the drag, then follows again on its own', () => {
+    const waiting = settled(onDragBegin(), 1000);
+    expect(isFollowing(waiting)).toBe(false);
+    expect(isFollowing(onTick(waiting, 1000 + FOLLOW_RESUME_MS - 1))).toBe(false);
+    expect(isFollowing(onTick(waiting, 1000 + FOLLOW_RESUME_MS))).toBe(true);
+  });
+
+  // An animated `scrollTo` ends in the same event a flick does.
+  it('does not start waiting because the song scrolled the list itself', () => {
+    expect(settled(FOLLOWING, 1000)).toBe(FOLLOWING);
+  });
+
+  it('keeps waiting from the LAST settle, not the first', () => {
+    const first = settled(onDragBegin(), 1000);
+    const second = settled(onDragBegin(), 2000);
+    expect(onTick(first, 1000 + FOLLOW_RESUME_MS).kind).toBe('follow');
+    expect(onTick(second, 1000 + FOLLOW_RESUME_MS).kind).toBe('settling');
+  });
+
+  // The user's call: a tap that seeks does not restart the countdown, it ends
+  // it — the line they picked is the line that is playing now.
+  it('follows again the moment a seek happens, without waiting out the timer', () => {
+    const waiting = settled(onDragBegin(), 1000);
+    expect(isFollowing(onSeek())).toBe(true);
+    expect(isFollowing(onTick(waiting, 1500))).toBe(false);
   });
 });
