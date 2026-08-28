@@ -4,6 +4,7 @@ import type { DownloadTaskData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
@@ -292,6 +293,99 @@ describe('one line of input', () => {
 
     await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'http://evil{Enter}');
     expect(await screen.findByText('无法识别的链接')).toBeDefined();
+  });
+});
+
+// ② — a question that gets dismissed hands the text back to the box it was
+// typed into, rather than eating it.
+describe('an abandoned parse', () => {
+  const twoVideos = () =>
+    jsonResponse({
+      success: true,
+      data: {
+        items: [
+          { kind: 'video', bvid: 'BV1', page: null, url: 'https://www.bilibili.com/video/BV1' },
+          { kind: 'video', bvid: 'BV2', page: null, url: 'https://www.bilibili.com/video/BV2' },
+        ],
+      },
+    });
+
+  const inline = (): HTMLInputElement =>
+    screen.getByLabelText('下载链接或歌曲名称') as HTMLInputElement;
+
+  it('goes back to the one-line box it was typed into', async () => {
+    const user = userEvent.setup();
+    parseResult = twoVideos;
+    render(<DownloadBar />);
+
+    await user.type(inline(), 'BV1 BV2{Enter}');
+    await user.click(await screen.findByRole('button', { name: '返回' }));
+
+    expect(inline().value).toBe('BV1 BV2');
+    // Coming back through the paste dialog would be a second surprise on top
+    // of the first: that is not the box this text was typed into.
+    expect(screen.queryByLabelText('批量下载输入')).toBeNull();
+  });
+
+  it('goes back to the paste box it was pasted into', async () => {
+    const user = userEvent.setup();
+    parseResult = twoVideos;
+    render(<DownloadBar />);
+
+    await user.click(screen.getByRole('button', { name: '批量下载' }));
+    fireEvent.change(await screen.findByLabelText('批量下载输入'), {
+      target: { value: 'BV1\nBV2' },
+    });
+    await user.click(screen.getByRole('button', { name: '解析' }));
+    await user.click(await screen.findByRole('button', { name: '返回' }));
+
+    const reopened = (await screen.findByLabelText('批量下载输入')) as HTMLTextAreaElement;
+    expect(reopened.value).toBe('BV1\nBV2');
+    expect(inline().value).toBe('');
+  });
+
+  // A parse that failed outright never reached a question, but the paste box
+  // has already closed over the text by then.
+  it('hands the text back when nothing was recognised', async () => {
+    const user = userEvent.setup();
+    parseResult = () => jsonResponse({ success: true, data: { items: [] } });
+    const errorToast = vi.spyOn(toast, 'error');
+    render(<DownloadBar />);
+
+    await user.click(screen.getByRole('button', { name: '批量下载' }));
+    fireEvent.change(await screen.findByLabelText('批量下载输入'), {
+      target: { value: 'BV1\nBV2' },
+    });
+    await user.click(screen.getByRole('button', { name: '解析' }));
+
+    const reopened = (await screen.findByLabelText('批量下载输入')) as HTMLTextAreaElement;
+    expect(reopened.value).toBe('BV1\nBV2');
+    // The status line is behind the dialog now, so the reason rides above it.
+    expect(errorToast).toHaveBeenCalledWith('未识别到有效的下载项');
+    errorToast.mockRestore();
+  });
+
+  // The naming question is the other way a parse can be abandoned, and the
+  // user asked for the same answer there.
+  it('comes back when the naming question is cancelled', async () => {
+    const user = userEvent.setup();
+    parseResult = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          items: [
+            { kind: 'video', bvid: 'BV1', page: 2, url: 'https://www.bilibili.com/video/BV1?p=2' },
+          ],
+        },
+      });
+    render(<DownloadBar />);
+
+    await user.type(inline(), 'BV1{Enter}');
+    await screen.findByText('怎么命名？');
+    await user.click(screen.getByRole('button', { name: '取消' }));
+
+    expect(inline().value).toBe('BV1');
+    expect(calls.some((call) => call.url.endsWith('/download/song'))).toBe(false);
   });
 });
 

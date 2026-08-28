@@ -38,6 +38,12 @@ interface Notice {
   error: boolean;
 }
 
+/** Where a parse came from, so an abandoned one can go back there (②). */
+interface ParsedFrom {
+  origin: 'inline' | 'paste';
+  text: string;
+}
+
 interface DownloadBarProps {
   /** Rendered at the end of the input row; the sort control in practice. */
   trailing?: React.ReactNode;
@@ -59,7 +65,13 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [pasteOpen, setPasteOpen] = useState(false);
+  // The paste box is open when its draft is a string; `null` is closed. The
+  // draft exists so an abandoned parse can come back into it (②).
+  const [pasteDraft, setPasteDraft] = useState<string | null>(null);
+  // Which box the text now waiting for an answer was typed into. Both
+  // questions this bar can ask — the naming mode and the batch selection —
+  // used to throw that text away when they were dismissed.
+  const [parsedFrom, setParsedFrom] = useState<ParsedFrom | null>(null);
   const [batchItems, setBatchItems] = useState<readonly ParsedItem[] | null>(null);
   // A lone video link, waiting for its naming answer. Held rather than
   // downloaded immediately because the answer is the user's, not a default.
@@ -82,7 +94,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   /** §4.1: `all` is not a target — the song is only added to the library. */
   const targetPlaylist = playlistId === VIRTUAL_ALL_PLAYLIST_ID ? undefined : playlistId;
 
-  async function submit(text: string): Promise<void> {
+  async function submit(text: string, origin: ParsedFrom['origin']): Promise<void> {
     const input = text.trim();
     if (input === '' || busy) return;
     setBusy(true);
@@ -90,17 +102,22 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
     try {
       const { items } = await parse(input);
       if (items.length === 0) {
-        setNotice({ text: '未识别到有效的下载项', error: true });
+        returnFailedParse({ origin, text: input }, '未识别到有效的下载项');
         return;
       }
       const only = items[0];
       if (items.length === 1 && only?.kind === 'keyword') {
         // A keyword has no title to keep, so there is nothing to ask: the model
         // names it either way, and `naming_mode` on one is refused (§3.6-1).
+        // Nothing to abandon either — it is downloading before anyone could.
+        setParsedFrom(null);
         await downloadSong(only.query, targetPlaylist);
         setValue('');
         return;
       }
+      // The two paths that ASK something both note where the text came from:
+      // whichever question is dismissed, that is what goes back in the box.
+      setParsedFrom({ origin, text: input });
       if (items.length === 1 && only?.kind === 'video') {
         // `input` is the NORMALISED url parse handed back (it keeps `?p=`).
         setPendingVideo(only.url);
@@ -110,7 +127,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
       setBatchItems(items);
       setValue('');
     } catch (err) {
-      setNotice({ text: errorMessage(err), error: true });
+      returnFailedParse({ origin, text: input }, errorMessage(err));
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -129,6 +146,43 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const showsError = notice?.error === true || (!busy && current === null && toolsWarning !== null);
   // A task in `saving` has passed the point where aborting helps (M3 contract).
   const cancellable = current !== null && current.stage !== 'saving' && !isCancelling;
+
+  /**
+   * A parse that never got as far as a question has text to hand back too,
+   * and only the paste box loses it — the inline box is never cleared until
+   * something has been queued.
+   *
+   * The reason moves to a toast for that one, because the reopened dialog
+   * covers the status line: a box that comes back with no explanation reads
+   * as a button that did nothing.
+   */
+  function returnFailedParse(from: ParsedFrom, message: string): void {
+    if (from.origin !== 'paste') {
+      setNotice({ text: message, error: true });
+      return;
+    }
+    setPasteDraft(from.text);
+    toast.error(message);
+  }
+
+  /**
+   * ② — an abandoned parse goes back to the box it was typed into, and only
+   * that box: coming back to the paste dialog after one line was typed inline
+   * is a second surprise on top of the first. What was edited inside the
+   * dismissed dialog is NOT kept — returning means parsing again, and the
+   * items that come back may not be the ones those edits were made on.
+   */
+  function returnToSource(): void {
+    const from = parsedFrom;
+    setParsedFrom(null);
+    if (from === null) return;
+    if (from.origin === 'paste') {
+      setPasteDraft(from.text);
+      return;
+    }
+    setValue(from.text);
+    inputRef.current?.focus();
+  }
 
   /** The second half of `submit` for a video: run once the naming is known. */
   async function startVideo(url: string, naming: DownloadNamingMode): Promise<void> {
@@ -164,7 +218,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
           disabled={busy}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !isComposingKey(e)) void submit(value);
+            if (e.key === 'Enter' && !isComposingKey(e)) void submit(value, 'inline');
           }}
         />
         <Button
@@ -172,7 +226,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
           size="icon-sm"
           aria-label="批量下载"
           title="批量下载"
-          onClick={() => setPasteOpen(true)}
+          onClick={() => setPasteDraft('')}
         >
           <Maximize2 />
         </Button>
@@ -252,16 +306,29 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         <BatchActionBar />
       </div>
 
-      {pasteOpen && (
+      {pasteDraft !== null && (
         <PasteInputModal
-          onClose={() => setPasteOpen(false)}
+          initialText={pasteDraft}
+          onClose={() => setPasteDraft(null)}
           onConfirm={(text) => {
-            setPasteOpen(false);
-            void submit(text);
+            setPasteDraft(null);
+            void submit(text, 'paste');
           }}
         />
       )}
-      {batchItems && <BatchSelectModal items={batchItems} onClose={() => setBatchItems(null)} />}
+      {batchItems && (
+        <BatchSelectModal
+          items={batchItems}
+          onClose={() => {
+            setBatchItems(null);
+            setParsedFrom(null);
+          }}
+          onBack={() => {
+            setBatchItems(null);
+            returnToSource();
+          }}
+        />
+      )}
       <DownloadPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
       <NamingModeDialog
         open={pendingVideo !== null}
@@ -270,10 +337,16 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
         // `null` is "not answered yet", and greying out the option a daemon
         // has not been asked about would be a lie in the other direction.
         llmAvailable={llmAvailable !== false}
-        onCancel={() => setPendingVideo(null)}
+        // Cancelling here is the same accident as backing out of the batch
+        // dialog, so it has the same answer (②'s fourth decision).
+        onCancel={() => {
+          setPendingVideo(null);
+          returnToSource();
+        }}
         onConfirm={(mode) => {
           const url = pendingVideo;
           setPendingVideo(null);
+          setParsedFrom(null);
           if (url === null) return;
           rememberNamingMode(mode);
           void startVideo(url, mode);

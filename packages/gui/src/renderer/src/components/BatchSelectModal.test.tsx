@@ -74,10 +74,14 @@ const video: ParsedItem = {
   url: 'https://www.bilibili.com/video/BV9',
 };
 
-function open(items: readonly ParsedItem[]): { onClose: ReturnType<typeof vi.fn> } {
+function open(items: readonly ParsedItem[]): {
+  onClose: ReturnType<typeof vi.fn>;
+  onBack: ReturnType<typeof vi.fn>;
+} {
   const onClose = vi.fn();
-  render(<BatchSelectModal items={items} onClose={onClose} />);
-  return { onClose };
+  const onBack = vi.fn();
+  render(<BatchSelectModal items={items} onClose={onClose} onBack={onBack} />);
+  return { onClose, onBack };
 }
 
 const batchBody = (): { groups: { target: unknown; items: unknown[] }[] } | undefined =>
@@ -302,5 +306,36 @@ describe('single items', () => {
     expect(calls.filter((call) => call.url.endsWith('/download/song'))).toHaveLength(2);
     expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('已提交 1/3'));
     errorToast.mockRestore();
+  });
+});
+
+// ② — the way out that is not a submission hands the text back rather than
+// dropping it. There is exactly one such button: cancelling outright is a
+// misclick away from a list somebody just pasted.
+describe('backing out', () => {
+  it('offers one way out, and it goes back rather than closing', async () => {
+    const user = userEvent.setup();
+    const { onClose, onBack } = open([video]);
+
+    const buttons = screen
+      .getAllByRole('button')
+      .filter((button) => /^(返回|取消|确认下载)/.test(button.textContent ?? ''));
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      '返回',
+      expect.stringMatching(/^确认下载/),
+    ]);
+
+    await user.click(screen.getByRole('button', { name: '返回' }));
+    expect(onBack).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('treats Escape as backing out too', async () => {
+    const user = userEvent.setup();
+    const { onClose, onBack } = open([video]);
+
+    await user.keyboard('{Escape}');
+    expect(onBack).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

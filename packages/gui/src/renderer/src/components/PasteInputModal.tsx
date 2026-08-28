@@ -13,12 +13,20 @@ import {
 } from './ui/dialog.js';
 
 interface PasteInputModalProps {
+  /** What the box opens with — an abandoned parse comes back through it (②). */
+  initialText: string;
   onConfirm: (text: string) => void;
   onClose: () => void;
 }
 
-export function PasteInputModal({ onConfirm, onClose }: PasteInputModalProps): React.JSX.Element {
-  const [text, setText] = useState('');
+export function PasteInputModal({
+  initialText,
+  onConfirm,
+  onClose,
+}: PasteInputModalProps): React.JSX.Element {
+  // Seeded once. The box is mounted only while it is open, so reopening it is
+  // what re-reads this — there is no re-render that could fight the typing.
+  const [text, setText] = useState(initialText);
 
   return (
     <Dialog

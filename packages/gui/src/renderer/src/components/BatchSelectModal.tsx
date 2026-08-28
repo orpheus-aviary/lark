@@ -84,10 +84,22 @@ function listQuery(
 
 interface BatchSelectModalProps {
   items: readonly ParsedItem[];
+  /** The batch went in — this question is answered and done with. */
   onClose: () => void;
+  /**
+   * Abandoned: the text that produced these items goes back to the box it was
+   * typed into (②). Every way out that is NOT a submission lands here — the
+   * footer button, Escape, a click on the overlay — because losing a pasted
+   * list is the same accident whichever of the three did it.
+   */
+  onBack: () => void;
 }
 
-export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): React.JSX.Element {
+export function BatchSelectModal({
+  items,
+  onClose,
+  onBack,
+}: BatchSelectModalProps): React.JSX.Element {
   const fetchList = useDownloads((s) => s.fetchList);
   const submitBatch = useDownloads((s) => s.submitBatch);
   const downloadSong = useDownloads((s) => s.downloadSong);
@@ -297,7 +309,7 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open) onBack();
       }}
     >
       <DialogContent
@@ -473,8 +485,12 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
 
         <DialogFooter className="items-center">
           {overLimit && <span className="mr-auto text-destructive text-xs">{overLimit}</span>}
-          <Button variant="outline" size="sm" onClick={onClose}>
-            取消
+          {/* 返回, not 取消: the user asked for one button here rather than
+              two, because the accident being guarded against is the misclick
+              that throws a pasted list away. Cancelling is still one more
+              Escape away from the box this returns to. */}
+          <Button variant="outline" size="sm" onClick={onBack}>
+            返回
           </Button>
           <Button
             ref={setConfirmButton}
