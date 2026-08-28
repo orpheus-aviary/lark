@@ -163,6 +163,13 @@
 // the box — have to live somewhere that can be. What breaks if they are wrong
 // is invisible in a screenshot: 存到 quietly back on 仅曲库.
 
+// `ui/lyrics-scroll.ts` joined in 0.5.0 ⑥, and it is the entry whose bug was
+// invisible for the same reason `downloads/rows.ts`'s was: a `ScrollView`
+// clamps at the end of its content and says nothing, so "the last line stops
+// halfway down" and "the scroll was asked for and refused" look identical on a
+// phone. Here the two are a subtraction — the target offset against how far
+// the content actually reaches.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -195,6 +202,7 @@ export default defineConfig({
       'src/share/draft.test.ts',
       'src/ui/back.test.ts',
       'src/ui/add-draft.test.ts',
+      'src/ui/lyrics-scroll.test.ts',
       'src/library/song-actions.test.ts',
     ],
   },

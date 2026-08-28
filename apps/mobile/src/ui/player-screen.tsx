@@ -29,6 +29,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { player, usePlayback } from '../player';
 import { useLibrary } from './library-context';
+import { LYRIC_LINE_HEIGHT, lyricsPadding, targetOffset } from './lyrics-scroll';
 import { skip } from './minibar';
 import { Progress } from './progress';
 import { C, S } from './theme';
@@ -194,8 +195,9 @@ async function back(): Promise<void> {
  * Positions are MEASURED rather than computed from a line height: a long line
  * wraps, and a scroll offset built out of `index * 30` walks further away from
  * the truth with every wrapped line above it. `onLayout` gives the real y of
- * each line, and the view scrolls to put the current one a third of the way
- * down — where the eye already is, rather than at the very top.
+ * each line, and `lyrics-scroll.ts` turns it into an offset that puts that
+ * line in the MIDDLE of the screen — which the last line could not reach until
+ * the padding below it did (⑥).
  */
 function Lyrics({
   lines,
@@ -203,13 +205,34 @@ function Lyrics({
 }: { lines: readonly { time: number; text: string }[]; index: number }) {
   const scroller = useRef<ScrollView | null>(null);
   const tops = useRef<number[]>([]);
+  const measuredFor = useRef(lines);
   const [height, setHeight] = useState(0);
 
+  // ONE effect, so which of the two things happens first is written down
+  // rather than left to the order they were declared in.
+  //
+  // The measurements belong to the song that produced them, and `index` moves
+  // to the new song's first line while the ref still holds the old song's y
+  // values — following those scrolls to wherever a line of the PREVIOUS song
+  // used to be. Dropping them goes back to the top instead, which is where
+  // line 0 sits now that the padding is half a screen; the new numbers arrive
+  // through `onLayout` and the next line to play uses them.
   useEffect(() => {
-    const top = tops.current[index];
-    if (top === undefined || height <= 0) return;
-    scroller.current?.scrollTo({ y: Math.max(0, top - height / 3), animated: true });
-  }, [index, height]);
+    if (measuredFor.current !== lines) {
+      measuredFor.current = lines;
+      tops.current = [];
+      scroller.current?.scrollTo({ y: 0, animated: false });
+      return;
+    }
+    const y = targetOffset({
+      tops: tops.current,
+      index,
+      viewportHeight: height,
+      lineHeight: LYRIC_LINE_HEIGHT,
+    });
+    if (y === null) return;
+    scroller.current?.scrollTo({ y, animated: true });
+  }, [lines, index, height]);
 
   if (lines.length === 0) {
     return (
@@ -223,7 +246,7 @@ function Lyrics({
     <ScrollView
       ref={scroller}
       style={styles.lyrics}
-      contentContainerStyle={styles.lyricsBody}
+      contentContainerStyle={lyricsPadding(height, LYRIC_LINE_HEIGHT)}
       // Android-only, and the point of it: the bar is a POSITION indicator on
       // a screen whose text is scrolling itself. One that appears only while a
       // finger is down tells you where you are exactly when you already know.
@@ -252,8 +275,7 @@ const styles = StyleSheet.create({
   name: { color: C.text, fontSize: 20, marginTop: 8 },
   artist: { color: C.faint, fontSize: 13, marginTop: 4 },
   lyrics: { flex: 1, marginTop: 16 },
-  lyricsBody: { paddingVertical: 12 },
-  lyricLine: { color: C.faint, fontSize: 15, lineHeight: 30, textAlign: 'center' },
+  lyricLine: { color: C.faint, fontSize: 15, lineHeight: LYRIC_LINE_HEIGHT, textAlign: 'center' },
   lyricCurrent: { color: C.active, fontSize: 17 },
   noLyrics: { color: C.faint, fontSize: 14, textAlign: 'center', paddingVertical: 24 },
   offset: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
