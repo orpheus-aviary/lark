@@ -32,7 +32,7 @@ import type {
   LarkEvent,
   ParseResultData,
 } from '@lark/shared';
-import { API_PATHS, ApiError, createDownloadStatusDedupe, request } from '@lark/shared';
+import { API_PATHS, ApiError, apiPath, createDownloadStatusDedupe, request } from '@lark/shared';
 import { create } from 'zustand';
 import { createLane } from '../lib/lanes.js';
 import { reconcilePending, setPendingTaskRefresher } from '../player/pending.js';
@@ -76,6 +76,14 @@ interface DownloadState {
    * row from one window would be the lie.
    */
   clearHistory: () => Promise<void>;
+  /**
+   * Forget ONE row (0.5.0 P8d).
+   *
+   * What a retry does to the record it is re-running: a download occupies one
+   * row, and that row says how the LAST attempt went. Two rows for one song
+   * would be a list that grows every time somebody presses 重下.
+   */
+  forgetHistory: (taskId: string) => Promise<void>;
   parse: (input: string) => Promise<ParseResultData>;
   /**
    * `naming` is required for a video link and refused for a keyword — the
@@ -234,6 +242,11 @@ export const useDownloads = create<DownloadState>((set, get) => ({
   clearHistory: async () => {
     await request<DownloadHistoryData>('DELETE', API_PATHS.downloadHistory);
     set({ history: [] });
+  },
+
+  forgetHistory: async (taskId) => {
+    await request<DownloadHistoryData>('DELETE', apiPath.downloadHistoryItem(taskId));
+    set({ history: get().history.filter((record) => record.id !== taskId) });
   },
 
   parse: async (input) => {

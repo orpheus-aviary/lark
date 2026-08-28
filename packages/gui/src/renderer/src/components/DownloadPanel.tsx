@@ -17,7 +17,7 @@
 // the app was closed had no answer at all. `已结束` now reads the daemon's
 // file, which is where the phone has read it since 0.1.1 ⑦.
 
-import type { DownloadRecord } from '@lark/core/portable';
+import { type DownloadRecord, canRetry, failedRecords, planRetry } from '@lark/core/portable';
 import type { DownloadOrigin, DownloadTaskData, DownloadTaskKind } from '@lark/shared';
 import {
   KIND_LABELS,
@@ -31,10 +31,12 @@ import {
   taskTitle,
 } from '@lark/shared';
 import { Copy, X } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { loadNamingMode } from '../lib/naming-mode.js';
 import { useDownloads } from '../stores/download.js';
+import { useLibrary } from '../stores/library.js';
 import { usePlaylists } from '../stores/playlists.js';
 import { Button } from './ui/button.js';
 import {
@@ -79,7 +81,13 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
   const cancelAll = useDownloads((s) => s.cancelAll);
   const refreshHistory = useDownloads((s) => s.refreshHistory);
   const clearHistory = useDownloads((s) => s.clearHistory);
+  const forgetHistory = useDownloads((s) => s.forgetHistory);
+  const downloadSong = useDownloads((s) => s.downloadSong);
+  const redownload = useLibrary((s) => s.redownload);
+  const redownloadLyrics = useLibrary((s) => s.redownloadLyrics);
   const playlists = usePlaylists((s) => s.playlists);
+  /** One retry at a time, whether it came from a row or from 全部重试. */
+  const [retrying, setRetrying] = useState(false);
 
   const playlistName = (id: string): string =>
     playlists.find((playlist) => playlist.id === id)?.name ?? id;
@@ -99,6 +107,72 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
       await cancel(taskId);
     } catch (err) {
       toast.error(errorMessage(err));
+    }
+  }
+
+  const failed = failedRecords(history);
+
+  /**
+   * Run one record again (P8d).
+   *
+   * The desktop's replay is the easy half of the phone's: `record.input` goes
+   * straight back to the daemon, which owns the recogniser — no local parse,
+   * no second set of refusals.
+   *
+   * 🔴 THE OLD ROW IS DELETED, and only after the daemon has taken the new
+   * task: a download occupies one row, and that row is the LAST attempt. If
+   * the request fails, the row it came from is still there to press again.
+   *
+   * The naming mode is whatever is chosen NOW. A record does not carry one
+   * (`DownloadTaskData` has no such field), and the phone settled this in
+   * 0.1.1 ⑨: a button pressed today means today's answer.
+   */
+  async function runAgain(record: DownloadRecord): Promise<void> {
+    const plan = planRetry(record);
+    if (plan.kind === 'redownload') {
+      await redownload(plan.songId);
+    } else if (plan.kind === 'lyrics') {
+      await redownloadLyrics(plan.songId);
+    } else {
+      // One target, because `POST /download/song` takes one. A record with
+      // several came from requests the engine merged, and the first is the
+      // one this row was created for.
+      await downloadSong(
+        plan.text,
+        plan.playlistIds[0],
+        record.input.type === 'keyword' ? undefined : loadNamingMode(),
+      );
+    }
+    await forgetHistory(record.id);
+  }
+
+  async function onRetry(record: DownloadRecord): Promise<void> {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await runAgain(record);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  /** 全部重试: the failures only, one at a time, and it says how far it got. */
+  async function onRetryAll(): Promise<void> {
+    if (retrying || failed.length === 0) return;
+    setRetrying(true);
+    let done = 0;
+    try {
+      for (const record of failed) {
+        await runAgain(record);
+        done++;
+      }
+      toast.success(`已重新排队 ${done} 个`);
+    } catch (err) {
+      toast.error(`已重新排队 ${done}/${failed.length}：${errorMessage(err)}`);
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -268,11 +342,31 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
           failedPlaylistIds: record.failed_playlist_ids ?? [],
           copyLabel: kind === null ? name : `${kind} ${name}`,
         })}
+        {/* NOT on the successes, and the reason is not that re-fetching one is
+            wrong: the song's own ⋮ menu already carries 重新下载, and a second
+            door to one action is two places to keep in step. `canRetry` is
+            portable's, so this row and the phone's offer it on the same set. */}
+        {canRetry(record) && (
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={retrying}
+            aria-label={`重下 ${name}`}
+            onClick={() => void onRetry(record)}
+          >
+            重下
+          </Button>
+        )}
       </li>
     );
   }
 
-  function section(title: string, count: number, rows: React.ReactNode): React.JSX.Element | null {
+  function section(
+    title: string,
+    count: number,
+    rows: React.ReactNode,
+    action?: React.ReactNode,
+  ): React.JSX.Element | null {
     if (count === 0) return null;
     return (
       <section className="rounded-md border">
@@ -282,6 +376,7 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
               by a screen reader and by a test. */}
           <h3 className="font-medium">{title}</h3>
           <span className="text-muted-foreground text-xs">({count})</span>
+          {action}
         </header>
         <ul className="divide-y">{rows}</ul>
       </section>
@@ -307,7 +402,22 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
           )}
           {section('进行中', running.length, running.map(row))}
           {section('排队中', queued.length, queued.map(row))}
-          {section('已结束', history.length, history.map(recordRow))}
+          {section(
+            '已结束',
+            history.length,
+            history.map(recordRow),
+            failed.length > 0 && (
+              <Button
+                variant="ghost"
+                size="xs"
+                className="ml-auto"
+                disabled={retrying}
+                onClick={() => void onRetryAll()}
+              >
+                全部重试 {failed.length}
+              </Button>
+            ),
+          )}
         </div>
 
         <div className="flex justify-end gap-2">

@@ -62,11 +62,6 @@ export function downloadListRows(
   return rows;
 }
 
-/** The failed records, which is what 全部重试 is about. */
-export function failedRecords(records: readonly DownloadRecord[]): readonly DownloadRecord[] {
-  return records.filter((record) => record.state === 'failed');
-}
-
 /**
  * The batch a list should be reporting on: the most recent one (N4f-2).
  *

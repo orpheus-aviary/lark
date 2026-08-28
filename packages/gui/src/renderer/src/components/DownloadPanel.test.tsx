@@ -13,6 +13,7 @@ import { DownloadPanel } from './DownloadPanel.js';
 interface Call {
   url: string;
   method: string;
+  body?: unknown;
 }
 
 let calls: Call[] = [];
@@ -87,7 +88,11 @@ beforeEach(() => {
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string, init?: RequestInit) => {
-      calls.push({ url, method: init?.method ?? 'GET' });
+      calls.push({
+        url,
+        method: init?.method ?? 'GET',
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+      });
       if (url.endsWith('/download/history')) {
         return Promise.resolve(jsonResponse({ success: true, data: { records: historyResponse } }));
       }
@@ -322,6 +327,99 @@ describe('the record', () => {
 
     expect(screen.getByText('上周下的')).toBeDefined();
     expect(screen.getByRole('heading', { name: '已结束' })).toBeDefined();
+  });
+});
+
+// P8d — asking again, from the record. The same rule the phone uses, out of
+// the same function.
+describe('asking a failed download again', () => {
+  it('offers 重下 on what did not succeed, and not on what did', () => {
+    seedHistory([
+      record({ id: 'ok', title: '成功了', state: 'succeeded' }),
+      record({ id: 'bad', title: '失败了', state: 'failed' }),
+      // A cancel was somebody's decision, and changing your mind back is the
+      // same request as retrying — so the ROW offers it.
+      record({ id: 'stopped', title: '取消了', state: 'cancelled' }),
+    ]);
+    open();
+
+    expect(screen.queryByRole('button', { name: '重下 成功了' })).toBeNull();
+    expect(screen.getByRole('button', { name: '重下 失败了' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '重下 取消了' })).toBeDefined();
+  });
+
+  // …and the SWEEP does not: undoing every cancel at once is not what that
+  // button is for.
+  it('counts only the failures in 全部重试', () => {
+    seedHistory([
+      record({ id: 'ok', state: 'succeeded' }),
+      record({ id: 'bad', state: 'failed' }),
+      record({ id: 'bad2', state: 'failed' }),
+      record({ id: 'stopped', state: 'cancelled' }),
+    ]);
+    open();
+
+    expect(screen.getByRole('button', { name: '全部重试 2' })).toBeDefined();
+  });
+
+  it('has no 全部重试 when nothing failed', () => {
+    seedHistory([record({ id: 'ok', state: 'succeeded' })]);
+    open();
+    expect(screen.queryByRole('button', { name: /全部重试/ })).toBeNull();
+  });
+
+  // One row per download: the row says how the LAST attempt went, so the one
+  // being re-run is deleted — after the daemon has taken the new task.
+  it('queues the input again and drops the row it replaced', async () => {
+    const user = userEvent.setup();
+    seedHistory([
+      record({
+        id: 'bad',
+        title: '失败了',
+        state: 'failed',
+        input: { type: 'keyword', query: '稻香' },
+        origin: { kind: 'keyword', query: '稻香' },
+      }),
+    ]);
+    open();
+
+    await user.click(screen.getByRole('button', { name: '重下 失败了' }));
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: '稻香',
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (call) => call.method === 'DELETE' && call.url.endsWith('/download/history/bad'),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  // A record about a song already in the library goes back through the song's
+  // own endpoint, not through the paste box.
+  it('sends a redownload back to the song it was about', async () => {
+    const user = userEvent.setup();
+    seedHistory([
+      record({
+        id: 'r1',
+        title: '半城烟沙',
+        kind: 'redownload',
+        state: 'failed',
+        input: { type: 'song', song_id: 's1' },
+        origin: { kind: 'song', song_id: 's1' },
+      }),
+    ]);
+    open();
+
+    await user.click(screen.getByRole('button', { name: '重下 半城烟沙' }));
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.endsWith('/songs/s1/redownload'))).toBe(true),
+    );
   });
 });
 

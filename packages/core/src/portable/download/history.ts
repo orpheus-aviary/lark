@@ -276,6 +276,19 @@ export function canRetry(record: DownloadRecord): boolean {
   return record.state !== 'succeeded';
 }
 
+/**
+ * The records 全部重试 is about (0.1.1 ⑦ on the phone, 0.5.0 P8d on the
+ * desktop).
+ *
+ * NARROWER THAN `canRetry`, deliberately: a cancel was somebody's decision,
+ * and undoing every one of them at once is not what that button is for. The
+ * row's own 重下 still offers it, one at a time, which is the difference
+ * between changing your mind and a sweep.
+ */
+export function failedRecords(records: readonly DownloadRecord[]): readonly DownloadRecord[] {
+  return records.filter((record) => record.state === 'failed');
+}
+
 /** A finished task, as a record. `null` for one that is still running. */
 export function recordOf(task: DownloadTaskData): DownloadRecord | null {
   if (!isTerminal(task.state) || !isRecordState(task.state)) return null;
