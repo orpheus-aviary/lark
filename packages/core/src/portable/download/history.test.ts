@@ -6,7 +6,7 @@ import {
   createDownloadHistory,
   planRetry,
   readRecord,
-} from './history';
+} from './history.js';
 
 const task = (patch: Partial<DownloadTaskData> = {}): DownloadTaskData =>
   ({

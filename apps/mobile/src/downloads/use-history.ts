@@ -5,9 +5,9 @@
 // `useSyncExternalStore` compares with `Object.is` and a store that built a
 // fresh array per call would re-render forever.
 
+import type { DownloadRecord } from '@lark/core/portable';
 import { useSyncExternalStore } from 'react';
 import type { BootResult } from '../boot/sequence';
-import type { DownloadRecord } from './history';
 import { downloadHistoryOnce } from './history-runtime';
 
 export function useDownloadHistory(boot: BootResult): readonly DownloadRecord[] {

@@ -31,6 +31,7 @@ export * from './download/batches.js';
 export * from './download/bilibili.js';
 export * from './download/claims.js';
 export * from './download/engine.js';
+export * from './download/history.js';
 export * from './download/link.js';
 export * from './download/llm.js';
 export * from './download/lyrics/kugou.js';

@@ -141,14 +141,11 @@
 // nine entries in 歌曲 and one inside a playlist, and nothing anywhere said
 // they were meant to be the same menu.
 
-// `downloads/history.ts` joined in 0.1.1 ⑦, and what it holds is a rule with
-// no visible half: 清空记录 and 删除一条 must not be undone by the next status
-// event, even though the engine's in-memory ring still holds those tasks for
-// the rest of the launch. On a phone that is "the row came back and I do not
-// know why"; here it is four lines. The file reading is the other half —
-// missing, empty and corrupt each have to read as "no history" WITHOUT
-// replacing the bytes, and none of those three can be arranged on a device
-// inside an app-private directory.
+// `downloads/history.ts` was here from 0.1.1 ⑦ until 0.5.0 P8a, when it moved
+// to `@lark/core/portable` — the desktop needed the same store, and the rules
+// it holds are the reason: 清空记录 and 删除一条 must not be undone by the next
+// status event, even though the engine's ring still holds those tasks for the
+// rest of the launch. Its tests went with it, unchanged.
 
 // `player/remote.ts` joined in 0.1.1 ⑬, and it is where two vocabularies meet:
 // the media session says `previous`, `decideNext` says `prev`, and the payload
@@ -188,7 +185,6 @@ export default defineConfig({
       'src/player/prefetch.test.ts',
       'src/player/remote.test.ts',
       'src/downloads/foreground.test.ts',
-      'src/downloads/history.test.ts',
       'src/downloads/budget.test.ts',
       'src/downloads/cancel.test.ts',
       'src/downloads/ensure.test.ts',

@@ -12,7 +12,7 @@
 // what a run of this DOES is one of four calls, and which one is the part that
 // can be wrong.
 
-import type { RetryPlan } from './history';
+import type { RetryPlan } from '@lark/core/portable';
 import type { KeywordItem, Recognition, VideoItem } from './preflight';
 
 /**

@@ -15,6 +15,7 @@
 // link genuinely has no name until `naming` runs, and inventing one would be
 // worse than showing the URL that was pasted.
 
+import { type DownloadRecord, canRetry, planRetry } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadOrigin, DownloadTaskData } from '@lark/shared';
 import {
   KIND_LABELS,
@@ -38,7 +39,6 @@ import {
 } from '../downloads/cancel';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import type { ForegroundStatus } from '../downloads/foreground';
-import { type DownloadRecord, canRetry, planRetry } from '../downloads/history';
 import { downloadHistoryOnce } from '../downloads/history-runtime';
 import { replay, summariseReplays } from '../downloads/replay';
 import { replayDepsOnce } from '../downloads/replay-runtime';

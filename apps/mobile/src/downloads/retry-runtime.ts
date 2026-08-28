@@ -23,10 +23,9 @@
 // 歌曲 can fail with nobody on the download page, and that is the failure this
 // exists for.
 
+import { planRetry, recordOf } from '@lark/core/portable';
 import type { DownloadTaskData } from '@lark/shared';
 import type { BootResult } from '../boot/sequence';
-import { recordOf } from './history';
-import { planRetry } from './history';
 import { downloadHistoryOnce } from './history-runtime';
 import { downloads } from './hub';
 import { engineLogger } from './log';

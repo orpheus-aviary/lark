@@ -11,9 +11,9 @@
 // question moved with it. The same class of bug is still the one to look for
 // — a group that renders in the wrong place, or not at all.
 
+import type { DownloadRecord } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import type { DownloadRecord } from './history';
 import { downloadListRows, failedRecords, latestBatch } from './rows';
 
 function task(

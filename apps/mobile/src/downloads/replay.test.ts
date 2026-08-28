@@ -1,5 +1,5 @@
+import type { RetryPlan } from '@lark/core/portable';
 import { describe, expect, it, vi } from 'vitest';
-import type { RetryPlan } from './history';
 import type { Recognition } from './preflight';
 import { type ReplayDeps, replay, summariseReplays } from './replay';
 

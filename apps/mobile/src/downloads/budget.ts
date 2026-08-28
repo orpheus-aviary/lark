@@ -19,8 +19,8 @@
 // smaller ones later in the list would make 「下了 7 首」 mean an arbitrary
 // seven, and nobody could tell which.
 
+import type { DownloadRecord } from '@lark/core/portable';
 import type { SongData } from '@lark/shared';
-import type { DownloadRecord } from './history';
 
 /**
  * What a second of audio weighs when this device has nothing to go on: 128

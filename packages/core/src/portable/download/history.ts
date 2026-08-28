@@ -34,7 +34,6 @@
 // fact exists: the song is in the library with no words, no screen mentions
 // it, and 重下 on that row is the only way to ask again.
 
-import type { StructuredLogger } from '@lark/core/portable';
 import type {
   DownloadOrigin,
   DownloadTaskData,
@@ -42,7 +41,10 @@ import type {
   DownloadTaskKind,
 } from '@lark/shared';
 import { DOWNLOAD_LIST_KINDS, DOWNLOAD_TASK_KINDS } from '@lark/shared';
-import { isActive } from './cancel';
+import type { StructuredLogger } from '../logger.js';
+// `isTerminal` rather than the phone's `isActive`: the same predicate, said in
+// the vocabulary of the package this now lives in (0.5.0 P8a).
+import { isTerminal } from './task-data.js';
 
 /**
  * How many finished downloads are kept.
@@ -251,7 +253,7 @@ export function canRetry(record: DownloadRecord): boolean {
 
 /** A finished task, as a record. `null` for one that is still running. */
 export function recordOf(task: DownloadTaskData): DownloadRecord | null {
-  if (isActive(task) || !isRecordState(task.state)) return null;
+  if (!isTerminal(task.state) || !isRecordState(task.state)) return null;
   return {
     id: task.id,
     kind: task.kind,

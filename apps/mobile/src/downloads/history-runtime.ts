@@ -19,10 +19,10 @@
 // finished before anybody opened 添加 was never recorded — and tapping a song
 // with no file starts one from 歌曲.
 
+import { type DownloadHistory, createDownloadHistory } from '@lark/core/portable';
 import type { BootResult } from '../boot/sequence';
 import { createFileSystem } from '../ports/fs';
 import { downloadHistoryFile } from '../ports/paths';
-import { type DownloadHistory, createDownloadHistory } from './history';
 import { downloads } from './hub';
 import { engineLogger } from './log';
 

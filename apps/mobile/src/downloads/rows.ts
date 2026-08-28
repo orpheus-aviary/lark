@@ -19,9 +19,9 @@
 // container (0.1.1 ③) and a discriminated row keeps the ordering decidable
 // here, in a file that loads without a device.
 
+import type { DownloadRecord } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { isActive } from './cancel';
-import type { DownloadRecord } from './history';
 
 /** Which group a heading belongs to. The buttons on it are the screen's. */
 export type DownloadSection = 'tasks' | 'records';
