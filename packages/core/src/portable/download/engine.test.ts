@@ -1098,6 +1098,33 @@ describe('lyrics continuation', () => {
     expect(readFileSync(songLyricsPath(songId), 'utf-8')).toContain('[00:12.34]');
   }, 60_000);
 
+  // 🔴 CANCELLING ONE USED TO REPORT AN OUTAGE. Both halves of this path are
+  // written never to throw — `allSettled` over the platforms, and a selection
+  // step that falls back to a heuristic — so an abort arrived as three failed
+  // platforms and the task ended 「三个歌词源都没有可用结果」. The person who
+  // pressed 取消 was told the internet was down.
+  it('says a cancelled lyrics task was cancelled, not that no platform had one', async () => {
+    const e = build();
+    const { id } = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, id);
+    const songId = taskOf(e, id).result?.song_id as string;
+    await settleAll(e);
+
+    // Slow enough that the cancel lands while the platforms are still out.
+    upstream.state.delayMs = 4000;
+    const lyrics = e.enqueueLyrics(songId, {});
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && taskOf(e, lyrics.id).state !== 'running') {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(taskOf(e, lyrics.id).state).toBe('running');
+
+    e.cancel(lyrics.id);
+    await settle(e, lyrics.id, 12_000);
+
+    expect(taskOf(e, lyrics.id).state).toBe('cancelled');
+  }, 60_000);
+
   it('fails only the lyrics task when no platform has anything', async () => {
     upstream.state.lyrics = { netease: [], qq: [], kugou: [] };
     const e = build();

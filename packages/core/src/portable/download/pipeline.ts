@@ -320,6 +320,16 @@ export async function runLyrics(
     },
   );
 
+  // 🔴 THE ONE PLACE A CANCEL CAN BE HEARD ON THIS PATH. Neither call above
+  // can report one: `collectLyricsCandidates` is an `allSettled` (an aborted
+  // platform lands in `failures` like any other outage) and
+  // `selectLyricsCandidate` never throws (an aborted model falls through to
+  // the heuristic). So cancelling a running lyrics task used to end it as
+  // 「三个歌词源都没有可用结果」 — or, if the platforms had already answered,
+  // to WRITE the lyrics and succeed. Asked here, before either outcome is
+  // decided, and the engine turns the throw into `cancelled`.
+  throwIfAborted(ctx.signal);
+
   if (best === null) {
     const failed = result.failures.map((f) => f.platform).join(', ');
     return {
