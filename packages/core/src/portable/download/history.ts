@@ -79,6 +79,16 @@ export interface DownloadRecord {
    */
   origin?: DownloadOrigin;
   playlist_ids: readonly string[];
+  /**
+   * Targets the song did NOT end up in (M3-7) — the playlist was deleted while
+   * the download ran. A soft failure the desktop's panel says out loud, and
+   * the only place it survives once the task ages out of the engine's ring.
+   *
+   * Optional for the same reason `origin` is: records written before this
+   * existed do not have it, and a missing one means "nothing to report",
+   * which is what was true for almost all of them anyway.
+   */
+  failed_playlist_ids?: readonly string[];
   song_id: string | null;
   error_code: string | null;
   error_message: string | null;
@@ -157,6 +167,9 @@ function readInput(value: unknown): DownloadTaskInput | null {
 
 const orNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
+const readStringList = (value: unknown): readonly string[] =>
+  Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : [];
+
 const isListKind = (value: unknown): value is (typeof DOWNLOAD_LIST_KINDS)[number] =>
   DOWNLOAD_LIST_KINDS.some((kind) => kind === value);
 
@@ -225,9 +238,10 @@ export function readRecord(value: unknown): DownloadRecord | null {
     artist: orNull(row.artist),
     input,
     ...(origin === undefined ? {} : { origin }),
-    playlist_ids: Array.isArray(row.playlist_ids)
-      ? row.playlist_ids.filter((id): id is string => typeof id === 'string')
-      : [],
+    playlist_ids: readStringList(row.playlist_ids),
+    ...(Array.isArray(row.failed_playlist_ids)
+      ? { failed_playlist_ids: readStringList(row.failed_playlist_ids) }
+      : {}),
     song_id: orNull(row.song_id),
     error_code: orNull(row.error_code),
     error_message: orNull(row.error_message),
@@ -274,6 +288,9 @@ export function recordOf(task: DownloadTaskData): DownloadRecord | null {
     input: task.input,
     origin: task.origin,
     playlist_ids: [...task.playlist_ids],
+    ...(task.failed_playlist_ids.length === 0
+      ? {}
+      : { failed_playlist_ids: [...task.failed_playlist_ids] }),
     song_id: task.song_id,
     error_code: task.error_code,
     error_message: task.error_message,

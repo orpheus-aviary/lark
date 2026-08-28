@@ -10,6 +10,9 @@
 // finishes on its own), so the button needs a state between "clicked" and the
 // terminal event that actually confirms it.
 
+// The record and the one predicate over it, from the Node-free slice the phone
+// links (P8a). The renderer is the second host of both.
+import { type DownloadHistoryData, type DownloadRecord, isTerminal } from '@lark/core/portable';
 import type {
   DownloadBatchData,
   DownloadBatchGroupInput,
@@ -35,6 +38,7 @@ import { createLane } from '../lib/lanes.js';
 import { reconcilePending, setPendingTaskRefresher } from '../player/pending.js';
 
 const tasksLane = createLane();
+const historyLane = createLane();
 const dedupe = createDownloadStatusDedupe();
 
 interface DownloadState {
@@ -43,15 +47,15 @@ interface DownloadState {
   /** Tasks the user asked to cancel that have not reached a terminal state. */
   cancelling: readonly string[];
   /**
-   * Terminal tasks the user cleared from the panel (§3.6-3).
+   * What has already finished, from the daemon's FILE (0.5.0 P8b).
    *
-   * Client-side, and deliberately: "clear the record" is about this window's
-   * list, not about the daemon's ring — another window has its own idea of
-   * what it has read, and a shared server-side dismissal would delete history
-   * out from under it.
+   * Not derived from `tasks`: the engine's ring is a launch's memory and ages
+   * out, while this outlives the process — which is the whole of ④'s second
+   * half. 「已结束」 reads this and nothing else.
    */
-  dismissed: readonly string[];
+  history: readonly DownloadRecord[];
   refresh: () => void;
+  refreshHistory: () => void;
   /** Feed one `download:*` event in. */
   applyEvent: (event: LarkEvent) => void;
   /**
@@ -63,8 +67,15 @@ interface DownloadState {
   cancel: (taskId: string) => Promise<void>;
   /** Ask every active task to stop; answers per task (§4-f). */
   cancelAll: () => Promise<DownloadCancelAllData>;
-  /** Move terminal tasks out of the panel. Active ones are never touched. */
-  dismissTerminal: () => void;
+  /**
+   * 清除记录 — really clears it (0.5.0 P8c).
+   *
+   * It used to hide rows in this window, because the only history there was
+   * lived in the daemon's ring and another window had its own idea of what it
+   * had read. Now there is a file, one library has one record, and hiding a
+   * row from one window would be the lie.
+   */
+  clearHistory: () => Promise<void>;
   parse: (input: string) => Promise<ParseResultData>;
   /**
    * `naming` is required for a video link and refused for a keyword — the
@@ -85,7 +96,7 @@ export const useDownloads = create<DownloadState>((set, get) => ({
   tasks: [],
   batches: [],
   cancelling: [],
-  dismissed: [],
+  history: [],
 
   refresh: () => {
     void tasksLane
@@ -115,10 +126,28 @@ export const useDownloads = create<DownloadState>((set, get) => ({
       });
   },
 
+  refreshHistory: () => {
+    void historyLane
+      .run((signal) =>
+        request<DownloadHistoryData>('GET', API_PATHS.downloadHistory, undefined, { signal }),
+      )
+      .then((envelope) => {
+        if (envelope === null || !envelope.data) return;
+        set({ history: envelope.data.records });
+      })
+      .catch(() => {
+        // Same as the snapshot's: the connection indicator speaks for this.
+      });
+  },
+
   applyEvent: (event) => {
     switch (event.type) {
       case 'download:status': {
         if (!dedupe.isFresh(event)) return;
+        // A task that just ended is a new row in the RECORD, which is a file
+        // rather than the snapshot this event patches. The lane coalesces, so
+        // a batch of forty settling at once costs one round trip.
+        if (isTerminal(event.state)) get().refreshHistory();
         const known = get().tasks.some((task) => task.id === event.task_id);
         // An unseen task id means a task appeared while we were not looking —
         // only the snapshot has its input, kind and targets.
@@ -202,11 +231,9 @@ export const useDownloads = create<DownloadState>((set, get) => ({
     }
   },
 
-  dismissTerminal: () => {
-    const terminal = get()
-      .tasks.filter((task) => task.state !== 'queued' && task.state !== 'running')
-      .map((task) => task.id);
-    set({ dismissed: [...new Set([...get().dismissed, ...terminal])] });
+  clearHistory: async () => {
+    await request<DownloadHistoryData>('DELETE', API_PATHS.downloadHistory);
+    set({ history: [] });
   },
 
   parse: async (input) => {

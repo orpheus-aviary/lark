@@ -1,6 +1,7 @@
 // The download panel (§3.6-3 — criterion 30). Three sections, three verbs,
 // and the per-task answer `cancel-all` gives back.
 
+import type { DownloadRecord } from '@lark/core/portable';
 import type { DownloadTaskData } from '@lark/shared';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,9 +12,12 @@ import { DownloadPanel } from './DownloadPanel.js';
 
 interface Call {
   url: string;
+  method: string;
 }
 
 let calls: Call[] = [];
+/** What `GET /download/history` answers — the panel refetches when it opens. */
+let historyResponse: DownloadRecord[] = [];
 let cancelAllResult: unknown = { cancelled: 2, results: [] };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -49,13 +53,44 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
   };
 }
 
+function record(overrides: Partial<DownloadRecord> = {}): DownloadRecord {
+  return {
+    id: 'd1',
+    kind: 'download',
+    state: 'succeeded',
+    title: null,
+    artist: null,
+    input: { type: 'url', url: 'https://www.bilibili.com/video/BV1' },
+    origin: { kind: 'video', url: 'https://www.bilibili.com/video/BV1' },
+    playlist_ids: [],
+    song_id: null,
+    error_code: null,
+    error_message: null,
+    finished_at: 1,
+    ...overrides,
+  };
+}
+
+/**
+ * Seed the record BOTH places: the panel refetches when it opens, so a state
+ * the daemon does not also answer with is wiped a tick later.
+ */
+const seedHistory = (records: readonly DownloadRecord[]): void => {
+  historyResponse = [...records];
+  useDownloads.setState({ history: records });
+};
+
 beforeEach(() => {
   calls = [];
+  historyResponse = [];
   cancelAllResult = { cancelled: 2, results: [] };
   vi.stubGlobal(
     'fetch',
-    vi.fn((url: string) => {
-      calls.push({ url });
+    vi.fn((url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method ?? 'GET' });
+      if (url.endsWith('/download/history')) {
+        return Promise.resolve(jsonResponse({ success: true, data: { records: historyResponse } }));
+      }
       if (url.endsWith('/download/cancel-all')) {
         return Promise.resolve(jsonResponse({ success: true, data: cancelAllResult }));
       }
@@ -65,7 +100,7 @@ beforeEach(() => {
       return Promise.resolve(jsonResponse({ success: true, data: {} }));
     }),
   );
-  useDownloads.setState({ tasks: [], batches: [], cancelling: [], dismissed: [] });
+  useDownloads.setState({ tasks: [], batches: [], cancelling: [], history: [] });
 });
 
 afterEach(() => {
@@ -145,9 +180,10 @@ describe('the three sections', () => {
       tasks: [
         task({ id: 'r', state: 'running', stage: 'downloading' }),
         task({ id: 'q', state: 'queued', stage: null }),
-        task({ id: 'd', state: 'succeeded', stage: null }),
       ],
     });
+    // 已结束 is the daemon's file now, not a filter over the two above.
+    seedHistory([record({ id: 'd' })]);
     open();
 
     expect(screen.getByRole('heading', { name: '进行中' })).toBeDefined();
@@ -194,24 +230,17 @@ describe('what a row is called', () => {
   // — and since both carry the song's name, the name alone makes them the same
   // row twice.
   it('tells a download apart from the lyrics fetch it spawned', () => {
-    const finished = {
-      state: 'succeeded',
-      stage: null,
-      title: '稻香',
-      artist: '周杰伦',
-    } as const;
-    useDownloads.setState({
-      tasks: [
-        task({ id: 'dl', kind: 'download', finished_at: 2, ...finished }),
-        task({
-          id: 'lrc',
-          kind: 'lyrics',
-          input: { type: 'song', song_id: 's1' },
-          finished_at: 3,
-          ...finished,
-        }),
-      ],
-    });
+    seedHistory([
+      record({ id: 'dl', kind: 'download', title: '稻香', artist: '周杰伦' }),
+      record({
+        id: 'lrc',
+        kind: 'lyrics',
+        title: '稻香',
+        artist: '周杰伦',
+        input: { type: 'song', song_id: 's1' },
+        origin: { kind: 'song', song_id: 's1' },
+      }),
+    ]);
     open();
 
     expect(screen.getAllByText('稻香')).toHaveLength(2);
@@ -232,12 +261,12 @@ describe('the order within each section', () => {
   const names = (): string[] =>
     screen.getAllByRole('listitem').map((row) => row.querySelector('p')?.textContent ?? '');
 
-  it('runs the live sections as a queue and the finished one as a log', () => {
+  it('runs the live sections as a queue, and shows the record as it arrives', () => {
     useDownloads.setState({
       tasks: [
         // Deliberately shuffled: the store holds them in arrival order, which
-        // is not the order any of the three sections wants.
-        task({ id: 'f-old', title: 'f-old', state: 'succeeded', stage: null, finished_at: 10 }),
+        // is not the order either live section wants.
+        //
         // A queued task has no `started_at` — that is what makes `created_at`
         // the queue's own order.
         task({
@@ -248,7 +277,6 @@ describe('the order within each section', () => {
           created_at: 40,
           started_at: null,
         }),
-        task({ id: 'f-new', title: 'f-new', state: 'failed', stage: null, finished_at: 30 }),
         task({
           id: 'q-early',
           title: 'q-early',
@@ -261,61 +289,67 @@ describe('the order within each section', () => {
         task({ id: 'r-early', title: 'r-early', state: 'running', started_at: 5 }),
       ],
     });
+    // Newest first, and NOT re-sorted here: `ordered()` in portable decides
+    // that once, for both hosts, and re-deciding it would be a second answer.
+    seedHistory([
+      record({ id: 'f-new', title: 'f-new', finished_at: 30 }),
+      record({ id: 'f-old', title: 'f-old', finished_at: 10 }),
+    ]);
     open();
 
     expect(names()).toEqual(['r-early', 'r-late', 'q-early', 'q-late', 'f-new', 'f-old']);
   });
+});
 
-  it('orders a cancelled task that never finished by when it was submitted', () => {
-    useDownloads.setState({
-      tasks: [
-        task({
-          id: 'a',
-          title: 'a',
-          state: 'cancelled',
-          stage: null,
-          created_at: 1,
-          finished_at: null,
-        }),
-        task({
-          id: 'b',
-          title: 'b',
-          state: 'succeeded',
-          stage: null,
-          created_at: 2,
-          finished_at: 2,
-        }),
-      ],
-    });
+// P8c — 已结束 is the daemon's file, not a filter over the live snapshot.
+describe('the record', () => {
+  it('reads it from the daemon when the panel opens', async () => {
+    seedHistory([record({ id: 'd', title: '上一次启动' })]);
     open();
-    expect(names()).toEqual(['b', 'a']);
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.endsWith('/download/history'))).toBe(true),
+    );
+    expect(screen.getByText('上一次启动')).toBeDefined();
+  });
+
+  // The whole point of the file: this row belongs to no task the engine still
+  // holds, and it is on screen anyway.
+  it('shows a row no live task corresponds to', () => {
+    useDownloads.setState({ tasks: [] });
+    seedHistory([record({ id: 'gone', title: '上周下的', state: 'failed' })]);
+    open();
+
+    expect(screen.getByText('上周下的')).toBeDefined();
+    expect(screen.getByRole('heading', { name: '已结束' })).toBeDefined();
   });
 });
 
 describe('the two verbs', () => {
   // §3.6-3 froze the words: a TASK is cancelled, a RECORD is cleared, and
   // deleting a song is not something this panel offers at all.
-  it('clears records without touching what is still running', async () => {
+  // It used to hide rows in this window, because the only record there was
+  // lived in the engine's ring. There is a file now, so clearing it is a
+  // DELETE — and a row hidden from one window would be the lie.
+  it('clears records for real, without touching what is still running', async () => {
     const user = userEvent.setup();
-    useDownloads.setState({
-      tasks: [
-        task({ id: 'r', state: 'running' }),
-        task({ id: 'd', state: 'succeeded', stage: null }),
-      ],
-    });
+    useDownloads.setState({ tasks: [task({ id: 'r', state: 'running' })] });
+    seedHistory([record({ id: 'd' })]);
     open();
 
     await user.click(screen.getByRole('button', { name: '清除记录' }));
 
-    expect(useDownloads.getState().dismissed).toEqual(['d']);
-    // Nothing was asked of the daemon: the record is this window's.
-    expect(calls).toEqual([]);
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.method === 'DELETE' && call.url.endsWith('/download/history')),
+      ).toBe(true),
+    );
     expect(screen.queryByRole('heading', { name: '已结束' })).toBeNull();
     expect(screen.getByRole('heading', { name: '进行中' })).toBeDefined();
   });
 
   it('disables each button when it has nothing to act on', () => {
-    useDownloads.setState({ tasks: [task({ id: 'd', state: 'succeeded', stage: null })] });
+    seedHistory([record({ id: 'd' })]);
     open();
 
     expect(screen.getByRole('button', { name: '全部取消' }).hasAttribute('disabled')).toBe(true);
