@@ -168,6 +168,9 @@ describe('list groups', () => {
     expect(batchBody()?.groups).toEqual([
       {
         target: { kind: 'new', name: '我的收藏夹' },
+        // ④ — and the name is the one on screen, which is also the playlist's,
+        // so 「from：我的收藏夹」 and the playlist agree.
+        source: { list: 'favorites', title: '我的收藏夹', url: 'https://x/1' },
         items: [
           { kind: 'video', bvid: 'BV1', page: null, title: '第一首', naming: 'clean' },
           { kind: 'video', bvid: 'BV2', page: null, title: '第二首', naming: 'clean' },

@@ -46,6 +46,7 @@ import type {
   FetchListRequest,
   ParsedItem,
 } from '@lark/shared';
+import { listSource } from '@lark/shared';
 import type { ForegroundController } from './foreground';
 import { type ListVideo, overItemLimit } from './selection';
 
@@ -397,6 +398,8 @@ export async function submitBatch(
     target: BatchTargetInput;
     /** Already in wire shape: a keyword carries no naming mode, a video must. */
     items: readonly DownloadBatchItemInput[];
+    /** The list these came out of (④). Absent for pasted lines — a heap is not a list. */
+    source?: DownloadBatchGroupInput['source'];
   },
 ): Promise<void> {
   // The daemon route refuses an empty group too ('each group needs a non-empty
@@ -407,7 +410,13 @@ export async function submitBatch(
   const refusal = overItemLimit(input.items.length);
   if (refusal !== null) throw new Error(refusal);
 
-  const groups: readonly DownloadBatchGroupInput[] = [{ target: input.target, items: input.items }];
+  const groups: readonly DownloadBatchGroupInput[] = [
+    {
+      target: input.target,
+      items: input.items,
+      ...(input.source === undefined ? {} : { source: input.source }),
+    },
+  ];
 
   preflightBatch({ client: deps.client, hasLlm: deps.hasLlm() }, groups);
 
@@ -431,6 +440,8 @@ export async function submitBatch(
 export function submitListBatch(
   deps: SubmitBatchDeps,
   input: {
+    /** The link this list is, so the record can say where a song came from (④). */
+    item: ListItem;
     /** The playlist to create. Blank is the engine's refusal to make, not ours. */
     name: string;
     videos: readonly ListVideo[];
@@ -440,6 +451,7 @@ export function submitListBatch(
 ): Promise<void> {
   return submitBatch(deps, {
     target: { kind: 'new', name: input.name },
+    source: listSource(input.item, input.name),
     items: input.videos.map((video) => ({
       kind: 'video',
       bvid: video.bvid,

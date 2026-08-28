@@ -11,7 +11,7 @@ import type {
   FetchListRequest,
   ParsedItem,
 } from '@lark/shared';
-import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
+import { VIRTUAL_ALL_PLAYLIST_ID, listSource } from '@lark/shared';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
@@ -54,6 +54,8 @@ interface ListVideo {
 interface ListGroup {
   id: string;
   query: FetchListRequest;
+  /** What it was picked out of, for the download record (④). */
+  source: Extract<ParsedItem, { kind: 'favorites' | 'collection' }>;
   title: string;
   /**
    * Checked = keep the list's own titles; unchecked = let the model read a
@@ -127,6 +129,7 @@ export function BatchSelectModal({
       .map((item) => ({
         id: groupId(item),
         query: listQuery(item),
+        source: item,
         title: item.kind === 'favorites' ? '收藏夹' : '合集',
         useOriginalTitle: initialNaming === 'original',
         videos: [],
@@ -250,8 +253,10 @@ export function BatchSelectModal({
     if (activeGroups.length === 0) return;
     const payload: DownloadBatchGroupInput[] = activeGroups.map((group) => ({
       // Every list group creates its own playlist; the editable title is
-      // exactly that name (§4.2).
+      // exactly that name (§4.2) — and, since ④, the name the download record
+      // says these songs came from.
       target: { kind: 'new', name: group.title },
+      source: listSource(group.source, group.title),
       items: group.videos
         .filter((video) => video.checked)
         .map((video) => ({

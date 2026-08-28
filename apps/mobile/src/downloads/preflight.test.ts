@@ -20,6 +20,7 @@ import {
   expandList,
   listLabel,
   recognise,
+  submitBatch,
   submitDownload,
   submitListBatch,
 } from './preflight';
@@ -499,15 +500,31 @@ describe('submitting a list (criterion 33: admission is one answer, execution is
   }
 
   const videos = [listVideo(1), listVideo(2)];
+  const favourites = {
+    kind: 'favorites',
+    media_id: '123',
+    url: 'https://space.bilibili.com/1/favlist?fid=123',
+  } as const;
 
   it('sends ONE group targeting a new playlist, with the list’s own titles', async () => {
     const h = harness();
-    await submitListBatch(h.deps, { name: '我的收藏', videos, namingMode: 'original' });
+    await submitListBatch(h.deps, {
+      item: favourites,
+      name: '我的收藏',
+      videos,
+      namingMode: 'original',
+    });
 
     expect(h.groups).toEqual([
       [
         {
           target: { kind: 'new', name: '我的收藏' },
+          // ④ — the same group shape the desktop sends, down to the field.
+          source: {
+            list: 'favorites',
+            title: '我的收藏',
+            url: 'https://space.bilibili.com/1/favlist?fid=123',
+          },
           items: [
             { kind: 'video', bvid: 'BV1', page: null, title: '第 1 首', naming: 'original' },
             { kind: 'video', bvid: 'BV2', page: null, title: '第 2 首', naming: 'original' },
@@ -518,9 +535,31 @@ describe('submitting a list (criterion 33: admission is one answer, execution is
     expect(h.order).toEqual(['arm', 'enqueue', 'settle']);
   });
 
+  // ④'s other half: pasted lines have no list identity, and inventing one
+  // would put「（1/12）」 on a heap in every record forever.
+  it('sends no source for pasted lines', async () => {
+    const h = harness();
+    await submitBatch(h.deps, {
+      target: { kind: 'all' },
+      items: [{ kind: 'video', bvid: 'BV1', page: 2, title: null, naming: 'original' }],
+    });
+
+    expect(h.groups[0]).toEqual([
+      {
+        target: { kind: 'all' },
+        items: [{ kind: 'video', bvid: 'BV1', page: 2, title: null, naming: 'original' }],
+      },
+    ]);
+  });
+
   it('gives the whole group one naming mode (decision c)', async () => {
     const h = harness(true);
-    await submitListBatch(h.deps, { name: '我的收藏', videos, namingMode: 'clean' });
+    await submitListBatch(h.deps, {
+      item: favourites,
+      name: '我的收藏',
+      videos,
+      namingMode: 'clean',
+    });
 
     const items = (h.groups[0] as { items: { naming: string }[] }[])[0]?.items ?? [];
     expect(items.every((item) => item.naming === 'clean')).toBe(true);
@@ -529,7 +568,7 @@ describe('submitting a list (criterion 33: admission is one answer, execution is
   it('refuses 清洗命名 with no model, before arming anything', async () => {
     const h = harness();
     await expect(
-      submitListBatch(h.deps, { name: '我的收藏', videos, namingMode: 'clean' }),
+      submitListBatch(h.deps, { item: favourites, name: '我的收藏', videos, namingMode: 'clean' }),
     ).rejects.toThrow('批量里有条目要清洗命名');
 
     // Nothing queued AND no notification raised for a submission that never
@@ -541,7 +580,12 @@ describe('submitting a list (criterion 33: admission is one answer, execution is
   it('refuses an empty selection instead of creating an empty playlist', async () => {
     const h = harness();
     await expect(
-      submitListBatch(h.deps, { name: '我的收藏', videos: [], namingMode: 'original' }),
+      submitListBatch(h.deps, {
+        item: favourites,
+        name: '我的收藏',
+        videos: [],
+        namingMode: 'original',
+      }),
     ).rejects.toThrow('还没有勾选任何视频');
     expect(h.order).toEqual([]);
     expect(h.groups).toEqual([]);
@@ -552,7 +596,12 @@ describe('submitting a list (criterion 33: admission is one answer, execution is
     const many = Array.from({ length: DOWNLOAD_BATCH_ITEMS_MAX + 1 }, (_, i) => listVideo(i));
 
     await expect(
-      submitListBatch(h.deps, { name: '大收藏夹', videos: many, namingMode: 'original' }),
+      submitListBatch(h.deps, {
+        item: favourites,
+        name: '大收藏夹',
+        videos: many,
+        namingMode: 'original',
+      }),
     ).rejects.toThrow(`一次最多 ${DOWNLOAD_BATCH_ITEMS_MAX} 个视频`);
     expect(h.order).toEqual([]);
     expect(h.groups).toEqual([]);
@@ -568,7 +617,7 @@ describe('submitting a list (criterion 33: admission is one answer, execution is
     };
 
     await expect(
-      submitListBatch(h.deps, { name: '   ', videos, namingMode: 'original' }),
+      submitListBatch(h.deps, { item: favourites, name: '   ', videos, namingMode: 'original' }),
     ).rejects.toThrow('新歌单名称不能为空');
 
     // The engine is the authority on its own admission rules — this shell does

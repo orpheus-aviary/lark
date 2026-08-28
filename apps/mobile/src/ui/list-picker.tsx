@@ -118,7 +118,7 @@ export function ListPicker({
             foreground: runtime.foreground,
             engine: runtime.engine,
           },
-          { name, videos: chosen, namingMode: mode },
+          { item, name, videos: chosen, namingMode: mode },
         );
         onSubmitted();
       }}

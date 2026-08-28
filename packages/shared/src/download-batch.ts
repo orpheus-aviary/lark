@@ -21,7 +21,7 @@
 // the failures are the task rows' business, and a counter that stalled at 7/10
 // forever would be the batch claiming work is still coming.
 
-import type { DownloadBatchData } from './types.js';
+import type { DownloadBatchData, DownloadBatchGroupInput, ParsedItem } from './types.js';
 
 /** How many of a batch's items have settled — the `n` of `n/total`. */
 export function batchDone(batch: DownloadBatchData): number {
@@ -38,4 +38,24 @@ export function batchProgress(
   );
   if (!batch) return null;
   return { batch, done: batchDone(batch) };
+}
+
+/**
+ * The `source` a list group submits (0.5.0 ④), from the list link and the name
+ * on screen.
+ *
+ * Here rather than in either front end for the reason everything else in this
+ * file is: both ends send the same group, and a second copy of "which title
+ * goes in" is a second answer waiting to happen.
+ *
+ * THE TITLE IS THE ONE THE USER IS LOOKING AT, edited or not. That name also
+ * becomes the playlist, so 「from：X」 and the playlist called X are the same
+ * X — which is the reading somebody has when they go back to ask where a song
+ * came from.
+ */
+export function listSource(
+  item: Extract<ParsedItem, { kind: 'favorites' | 'collection' }>,
+  title: string,
+): NonNullable<DownloadBatchGroupInput['source']> {
+  return { list: item.kind, title, url: item.url };
 }
