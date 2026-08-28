@@ -22,7 +22,7 @@
 import type { BilibiliClient } from '@lark/core/portable';
 import { readNamingMode, resolveNamingMode, writeNamingMode } from '@lark/core/portable';
 import type { BatchTargetInput, DownloadNamingMode } from '@lark/shared';
-import { useEffect, useMemo, useState } from 'react';
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineLogger } from '../downloads/log';
@@ -37,6 +37,7 @@ import {
   submitDownload,
 } from '../downloads/preflight';
 import { subscribeShareDraft, takeShareDraft } from '../share/draft';
+import { type AddDraft, shareArrived, submitted } from './add-draft';
 import { Chip } from './chip';
 import { useLibrary } from './library-context';
 import { LinesPicker } from './lines-picker';
@@ -131,7 +132,14 @@ function useRecognition(
   return { seen, resolving, lines };
 }
 
-export function AddTab() {
+export function AddTab({
+  draft,
+  onDraft,
+}: {
+  /** Lives in the shell, because this page does not (③, `add-draft.ts`). */
+  draft: AddDraft;
+  onDraft: Dispatch<SetStateAction<AddDraft>>;
+}) {
   const { boot, view, changed } = useLibrary();
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   // ONCE PER MOUNT, not once per render (N4e-2). Until N4e-1 this read a
@@ -142,17 +150,12 @@ export function AddTab() {
   // recomputes on every mount; what it drops is the 2nd…Nth read of one mount.
   const hasLlm = useMemo(() => runtime.hasLlm(), [runtime]);
 
-  // Consumed AT MOUNT, because the payload behind it is volatile and this is
-  // the first moment anything can hold it (N4d-3). A share that arrives later
-  // — the app already open on this tab — comes through the subscription below,
-  // since the shell's `setTab('添加')` is a no-op when we are already here and
-  // would never remount this.
-  const [text, setText] = useState(() => takeShareDraft() ?? '');
+  const { text, playlistId } = draft;
+  const setText = (next: string): void => onDraft((prev) => ({ ...prev, text: next }));
   const { seen, resolving, lines } = useRecognition(text, runtime.bilibili, hasLlm);
   const [mode, setMode] = useState<DownloadNamingMode>(() =>
     resolveNamingMode({ remembered: readNamingMode(boot.deviceSettings), hasLlm }),
   );
-  const [playlistId, setPlaylistId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   /** The list whose picker is open. A list is chosen from, not submitted (N4f-2). */
   const [expanding, setExpanding] = useState<ListItem | null>(null);
@@ -165,14 +168,24 @@ export function AddTab() {
   const playlists = view.playlists();
   const targetName = playlists.find((entry) => entry.id === playlistId)?.name ?? LIBRARY_ONLY;
 
-  useEffect(
-    () =>
-      subscribeShareDraft(() => {
-        const shared = takeShareDraft();
-        if (shared !== null) setText(shared);
-      }),
-    [],
-  );
+  // A share is consumed once, by whoever reaches it first, and this page is
+  // the only thing that ever does. `take` runs on mount for one that arrived
+  // BEFORE this page existed — a cold start, or the shell switching tab on
+  // `onNewIntent` — and then on every announcement while it is here, since
+  // `setTab('添加')` is a no-op when we are already on it and would never
+  // remount us.
+  //
+  // Since ③ the draft outlives this page, so the taking hands it UP rather
+  // than into local state; that is also why it can no longer be a `useState`
+  // initialiser (a parent cannot be told anything during our render).
+  useEffect(() => {
+    const take = (): void => {
+      const shared = takeShareDraft();
+      if (shared !== null) onDraft((prev) => shareArrived(prev, shared));
+    };
+    take();
+    return subscribeShareDraft(take);
+  }, [onDraft]);
 
   const chooseMode = (next: DownloadNamingMode): void => {
     setMode(next);
@@ -210,7 +223,9 @@ export function AddTab() {
       // Straight back to the list: the next thing anybody wants to know is
       // whether it is coming down. Clearing the box clears the verdict — the
       // recogniser's empty branch runs on the spot, not after the debounce.
-      setText('');
+      // 存到 stays, because adding three songs to one playlist is three of
+      // these.
+      onDraft(submitted);
       // A queued task has not written a row yet, but a playlist target may have
       // been merged into an existing task — cheap, and it keeps the counts here
       // honest without waiting for the download.
@@ -333,7 +348,7 @@ export function AddTab() {
         onSubmitted={() => {
           setPickingLines(false);
           setExpanding(null);
-          setText('');
+          onDraft(submitted);
           // A playlist may exist now, and tasks certainly do.
           changed();
         }}
@@ -344,7 +359,7 @@ export function AddTab() {
           <SheetAction
             label={LIBRARY_ONLY}
             onPress={() => {
-              setPlaylistId(null);
+              onDraft((prev) => ({ ...prev, playlistId: null }));
               setPicking(false);
             }}
           />
@@ -353,7 +368,7 @@ export function AddTab() {
               key={entry.id}
               label={entry.name}
               onPress={() => {
-                setPlaylistId(entry.id);
+                onDraft((prev) => ({ ...prev, playlistId: entry.id }));
                 setPicking(false);
               }}
             />

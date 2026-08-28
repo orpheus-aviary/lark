@@ -156,6 +156,13 @@
 // the one for a command this build does not know — do nothing — and the only
 // way to see it on a phone is to own a car stereo that sends one.
 
+// `ui/add-draft.ts` joined in 0.5.0 ③ as the second `ui/` entry, for the
+// reason the first one did: the page that holds the draft imports React
+// Native and can never be collected here, so the rules about it — a share
+// replaces the text and only the text, a submission empties the box and only
+// the box — have to live somewhere that can be. What breaks if they are wrong
+// is invisible in a screenshot: 存到 quietly back on 仅曲库.
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -187,6 +194,7 @@ export default defineConfig({
       'src/services/library.test.ts',
       'src/share/draft.test.ts',
       'src/ui/back.test.ts',
+      'src/ui/add-draft.test.ts',
       'src/library/song-actions.test.ts',
     ],
   },

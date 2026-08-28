@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { BackHandler, Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { hasShareDraft, subscribeShareDraft } from '../share/draft';
 import { useSyncNow } from '../sync/use-sync';
+import { type AddDraft, EMPTY_ADD_DRAFT } from './add-draft';
 import { AddTab } from './add-tab';
 import { BACK, handleBack, useBack } from './back';
 import { MiniBar } from './minibar';
@@ -49,6 +50,11 @@ export function Shell() {
   // unmounts the tab, and a detail screen that forgot where it was every time
   // you glanced at 设置 is a screen you stop using.
   const [openPlaylist, setOpenPlaylist] = useState<string | null>(null);
+  // And what 添加 was in the middle of, for the same reason (③). The page
+  // still owns everything DERIVED from the text — what was recognised, which
+  // picker is open, whether a submission is in flight — because none of that
+  // outlives the text it was derived from.
+  const [addDraft, setAddDraft] = useState<AddDraft>(EMPTY_ADD_DRAFT);
   // Two overlays over the same player, and they are INDEPENDENT. One
   // `showing` state made them mutually exclusive, so opening the queue from
   // the full screen closed the full screen — the queue is a thing you consult
@@ -89,7 +95,7 @@ export function Shell() {
       <View style={styles.fill}>
         {tab === '歌曲' && <SongsTab />}
         {tab === '歌单' && <PlaylistsTab openId={openPlaylist} onOpen={setOpenPlaylist} />}
-        {tab === '添加' && <AddTab />}
+        {tab === '添加' && <AddTab draft={addDraft} onDraft={setAddDraft} />}
         {tab === '设置' && <SettingsTab />}
       </View>
       <MiniBar
