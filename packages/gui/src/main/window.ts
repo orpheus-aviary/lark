@@ -122,7 +122,18 @@ export function createDesktopLyricsWindow(
   });
 
   win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // 🔴 `skipTransformProcessType` IS NOT A TUNING KNOB — IT IS THE DIFFERENCE
+  // BETWEEN LARK HAVING A DOCK ICON AND NOT. Electron's macOS implementation
+  // reads `visibleOnFullScreen: true` as "this app is an overlay" and runs
+  // `TransformProcessType(kProcessTransformToUIElementApplication)` on THE
+  // PROCESS, not on this window: the dock icon goes, the menu bar goes, Cmd+Q
+  // goes with it — and nothing transforms it back, because the transform was
+  // never tied to the window that asked for it. Turning the lyrics off does not
+  // undo it; only relaunching does. 0.5.0 shipped without this flag.
+  win.setVisibleOnAllWorkspaces(true, {
+    visibleOnFullScreen: true,
+    skipTransformProcessType: true,
+  });
   win.on('ready-to-show', () => win.showInactive());
 
   // Same containment as the main window: nothing in here may navigate, and a

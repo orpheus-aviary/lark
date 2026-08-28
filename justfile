@@ -132,8 +132,17 @@ gui-ime-guard:
 lyrics-no-drag-region:
     bash scripts/check-lyrics-no-drag-region.sh
 
+# Every `setVisibleOnAllWorkspaces` in the main process passes
+# `skipTransformProcessType: true` (0.5.1 §1). Without it Electron turns the
+# whole process into a UIElement app the moment the lyric window opens: no dock
+# icon, no menu bar, no Cmd+Q, and no way back short of relaunching.
+
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene gui-ime-guard lyrics-no-drag-region spike-media-test
+lyrics-dock-icon:
+    bash scripts/check-lyrics-dock-icon.sh
+
+[group('lint')]
+check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene gui-ime-guard lyrics-no-drag-region lyrics-dock-icon spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────
