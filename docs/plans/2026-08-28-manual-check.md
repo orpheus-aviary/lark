@@ -16,7 +16,7 @@ just backup-nest /tmp/lark-0.5.0-check
 just stop-daemon
 
 # ③ 起开发版，指到副本上
-env LARK_NEST_DIR=/tmp/lark-0.5.0-check/lark just dev
+env LARK_NEST_DIR=/tmp/lark-0.5.0-check just dev
 ```
 
 - 本版 **schema 仍是 v3、无 migration**，但规矩不变：开发期一律副本。
@@ -122,3 +122,12 @@ just mobile-android-release   # 构建 + 装到冻结设备；mobile-verify-apk 
 ## 4 · 记在这里
 
 （发现问题就往下写：现象 / 哪一条 / 复现步骤。修完在子计划 §7 追加修订。）
+
+### ❌ 19 · 悬停不出控制条（2026-08-28，桌面第 3 批）
+
+- **现象**：歌词窗上悬停，控制条（`A-` `A+` `配色` `锁定` `关闭`）和右下角把手都不出现；在歌词附近**右键反而弹出一个菜单**，松开鼠标想去点它又没了。连带 21 的三颗按钮没验成（配色本身在设置页验过，四套都好）。
+- **复现**：勾上「显示桌面歌词」→ 保存 → 鼠标移到歌词窗上。必现。
+- **根因**：`lyrics.css` 的 `.lyrics-draggable { -webkit-app-region: drag; }` 铺在**根节点**上，而 `onMouseEnter` / `onMouseLeave` 挂的正是这个根节点。Chromium 的拖拽区**吞掉全部鼠标事件**（Electron 文档明写），于是 `hovering` 永远是 `false`、控制条永远不渲染；右键那个菜单是 macOS 把这块当标题栏给的窗口菜单。`no-drag` 只能给**已经画出来**的子元素打洞，而这里是先有 hover 才有子元素——鸡生蛋。
+- **单测为什么全绿**：`DesktopLyrics.test.tsx` 在 jsdom 里 `fireEvent.mouseEnter`，而 jsdom 不认识 `-webkit-app-region`。那条判据测的是组件的状态机，不是这块屏幕。
+- **用户另外要的**：悬停有效区域要有一块**浅色矩形**提示——这个窗口除了字什么都看不见，没人知道鼠标该往哪儿放。
+- **同批其余都过**：18 无词显示歌名 · 20 拖动位置持久 · 22 两行 · 23 全屏之上 · 24 锁定两步确认 + 点击穿透 · 25 设置页解锁 · 26 关闭回写 `enabled=false` · 27 Cmd+Q 后重开仍开着 · 28 恢复默认位置。设置项一律**点保存才生效**（含「恢复默认位置」），符合设计。

@@ -27,12 +27,12 @@ scripts/           # 验收套件、依赖方向守卫、设备驱动
 ```
 
 **依赖方向**：`shared ← core ← daemon ← gui`；`cli → shared + core`；`mobile → portable + shared + skybridge SDK`。
-**十二条守卫进 `just check`**（分层 · portable 零宿主 · 移动端 import · Metro bundle smoke · 原生模块接线 · 播放链路禁 JS 定时器 · 图标资产 · 工作区收口 · 日志卫生），逐条见 `docs/INVARIANTS.md` §2。
+**十四条守卫进 `just check`**（分层 · portable 零宿主 · 移动端 import · Metro bundle smoke · 原生模块接线 · 播放链路禁 JS 定时器 · 图标资产 · 工作区收口 · 日志卫生 · 渲染进程 Enter 问输入法 · 桌面歌词窗禁拖拽区），逐条见 `docs/INVARIANTS.md` §2。
 
 ## 开发命令
 
 ```bash
-just check          # lint + typecheck + 十二条守卫（含 bundle smoke）
+just check          # lint + typecheck + 十四条守卫（含 bundle smoke）
 just test           # 全部测试
 just dev-daemon     # 起 dev daemon
 just cli <args>     # = 对外的 lark

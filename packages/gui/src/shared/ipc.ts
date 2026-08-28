@@ -45,4 +45,11 @@ export const IPC_CHANNELS = {
    * arrives here as `{ enabled: false }` like any other change.
    */
   desktopLyricsChange: 'desktop-lyrics:change',
+  /**
+   * The lyric window being dragged or resized by the pointer, from the window
+   * itself. Separate from `desktopLyricsChange` because it is not a patch:
+   * these fly by the dozen while a button is held, and only the geometry the
+   * window comes to rest at is written down (`window.ts` debounces that).
+   */
+  desktopLyricsGesture: 'desktop-lyrics:gesture',
 } as const;

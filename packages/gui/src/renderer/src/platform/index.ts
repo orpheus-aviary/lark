@@ -7,7 +7,11 @@
 // jsdom test environment provides a fake `window.larkAPI` in test-setup.
 
 import { defaultDaemonBaseUrl } from '@lark/shared';
-import type { DesktopLyricsChange, DesktopLyricsMessage } from '../../../shared/desktop-lyrics.js';
+import type {
+  DesktopLyricsChange,
+  DesktopLyricsGesture,
+  DesktopLyricsMessage,
+} from '../../../shared/desktop-lyrics.js';
 
 export interface PlatformAdapter {
   daemonBaseUrl(): string;
@@ -30,6 +34,8 @@ export interface PlatformAdapter {
   onDesktopLyrics(listener: (state: DesktopLyricsMessage) => void): () => void;
   /** From the lyric window: change something about me (0.5.0 ⑤). */
   requestDesktopLyricsChange(change: DesktopLyricsChange): void;
+  /** Drag or resize that window with the pointer, from that window. */
+  sendDesktopLyricsGesture(gesture: DesktopLyricsGesture): void;
   /** Heard in the main window, which owns the config. */
   onDesktopLyricsChange(listener: (change: DesktopLyricsChange) => void): () => void;
 }
@@ -55,6 +61,7 @@ export function getPlatform(): PlatformAdapter {
     publishDesktopLyrics: (state) => window.larkAPI.publishDesktopLyrics(state),
     onDesktopLyrics: (listener) => window.larkAPI.onDesktopLyrics(listener),
     requestDesktopLyricsChange: (change) => window.larkAPI.requestDesktopLyricsChange(change),
+    sendDesktopLyricsGesture: (gesture) => window.larkAPI.sendDesktopLyricsGesture(gesture),
     onDesktopLyricsChange: (listener) => window.larkAPI.onDesktopLyricsChange(listener),
   };
   return cached;

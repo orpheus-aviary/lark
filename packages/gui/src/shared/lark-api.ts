@@ -1,4 +1,8 @@
-import type { DesktopLyricsChange, DesktopLyricsMessage } from './desktop-lyrics.js';
+import type {
+  DesktopLyricsChange,
+  DesktopLyricsGesture,
+  DesktopLyricsMessage,
+} from './desktop-lyrics.js';
 
 /** The two documents that ship inside the app bundle (M7-9). */
 export type LegalDocument = 'license' | 'notices';
@@ -71,6 +75,13 @@ export interface LarkApi {
    * control bar, and closing all arrive as a patch.
    */
   readonly requestDesktopLyricsChange: (change: DesktopLyricsChange) => void;
+  /**
+   * Drag or resize the lyric window with the pointer (0.5.0 §2.5 判据 19).
+   * Fire and forget, many per second while a button is held; main reads the
+   * real cursor, so there is nothing to send but which gesture and which end
+   * of it.
+   */
+  readonly sendDesktopLyricsGesture: (gesture: DesktopLyricsGesture) => void;
   /**
    * Hear those, in the MAIN window, which owns the config and sends the
    * PATCH. Returns the unsubscribe.

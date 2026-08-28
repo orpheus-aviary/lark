@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { contextBridge, ipcRenderer } from 'electron';
 import { DAEMON_TOKEN_PATH_FLAG, DAEMON_URL_FLAG, argvValue } from '../shared/argv.js';
-import type { DesktopLyricsChange, DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
+import type {
+  DesktopLyricsChange,
+  DesktopLyricsGesture,
+  DesktopLyricsMessage,
+} from '../shared/desktop-lyrics.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import type { LarkApi, LegalDocument } from '../shared/lark-api.js';
 import { GUI_VERSION } from '../shared/version.js';
@@ -45,6 +49,9 @@ contextBridge.exposeInMainWorld('larkAPI', {
   },
   requestDesktopLyricsChange: (change: DesktopLyricsChange) => {
     ipcRenderer.send(IPC_CHANNELS.desktopLyricsChange, change);
+  },
+  sendDesktopLyricsGesture: (gesture: DesktopLyricsGesture) => {
+    ipcRenderer.send(IPC_CHANNELS.desktopLyricsGesture, gesture);
   },
   onDesktopLyricsChange: (listener: (change: DesktopLyricsChange) => void) => {
     const handler = (_event: unknown, change: DesktopLyricsChange): void => listener(change);

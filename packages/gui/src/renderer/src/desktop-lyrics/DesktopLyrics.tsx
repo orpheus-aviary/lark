@@ -9,10 +9,19 @@
 // eats into the letterforms and turns thin at the size this window uses; a
 // stroked copy behind an unstroked one gives the whole stroke width outside
 // the glyph, which is what makes white text survive a white background.
+//
+// 🔴 THE WINDOW IS MOVED BY THE POINTER, NOT BY A `-webkit-app-region` REGION.
+// It was a drag region until 判据 19 caught what that costs: a drag region
+// swallows every mouse event over it, so `onMouseEnter` never fired and the
+// control bar below — which is drawn ONLY while the pointer is on the window
+// — could not exist. `no-drag` cannot rescue it either: it punches holes in
+// elements that are already drawn, and the bar is not drawn yet. So a press
+// starts a gesture and main does the moving (`main/desktop-lyrics-gesture.ts`).
 
 import { DESKTOP_LYRICS_BOUNDS, DESKTOP_LYRICS_PRESETS } from '@lark/shared';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  type DesktopLyricsGestureKind,
   type DesktopLyricsMessage,
   desktopLyricsInteraction,
 } from '../../../shared/desktop-lyrics.js';
@@ -28,6 +37,9 @@ export function DesktopLyrics(): React.JSX.Element {
   const [hovering, setHovering] = useState(false);
   /** The lock is two taps: the first one explains what it costs. */
   const [confirmingLock, setConfirmingLock] = useState(false);
+  /** Which gesture the pointer is in the middle of — a ref, because no pixel
+      of this window depends on it and a re-render per mouse move would. */
+  const gestureKind = useRef<DesktopLyricsGestureKind | null>(null);
 
   useEffect(() => getPlatform().onDesktopLyrics(setState), []);
 
@@ -40,6 +52,30 @@ export function DesktopLyrics(): React.JSX.Element {
   const palette = DESKTOP_LYRICS_PALETTES[config.preset];
   const size = config.font_size;
   const change = getPlatform().requestDesktopLyricsChange;
+  const gesture = getPlatform().sendDesktopLyricsGesture;
+
+  const beginGesture = (event: React.PointerEvent, kind: DesktopLyricsGestureKind): void => {
+    // Left button only, and never while another gesture is live: a second
+    // press mid-drag would re-anchor the window under a cursor that is already
+    // somewhere else, and the window would jump.
+    if (!interaction.draggable || event.button !== 0 || gestureKind.current !== null) return;
+    // Captured so the gesture survives the pointer leaving the window — which
+    // it does constantly while resizing, and at the end of any quick drag.
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gestureKind.current = kind;
+    gesture({ kind, phase: 'begin' });
+  };
+  const updateGesture = (): void => {
+    const kind = gestureKind.current;
+    if (kind === null) return;
+    gesture({ kind, phase: 'update' });
+  };
+  const endGesture = (): void => {
+    const kind = gestureKind.current;
+    if (kind === null) return;
+    gestureKind.current = null;
+    gesture({ kind, phase: 'end' });
+  };
 
   return (
     <div
@@ -58,7 +94,18 @@ export function DesktopLyrics(): React.JSX.Element {
         setHovering(false);
         setConfirmingLock(false);
       }}
+      onPointerDown={(event) => beginGesture(event, 'move')}
+      onPointerMove={updateGesture}
+      onPointerUp={endGesture}
+      onPointerCancel={endGesture}
     >
+      {/* Where the window actually is. Everything else on it is transparent,
+          so without this nobody can tell what they are about to grab — or that
+          there is anything to grab at all. It goes on hover, with the controls,
+          for the same reason they do: a permanent panel over somebody's screen
+          is furniture. */}
+      {interaction.controls && hovering && <span className="lyrics-hint" aria-hidden="true" />}
+
       {rows(state).map((row) => (
         <Line key={row.key} text={row.text} active={row.active} />
       ))}
@@ -67,7 +114,9 @@ export function DesktopLyrics(): React.JSX.Element {
           control bar parked permanently over somebody's screen is furniture,
           not a control. */}
       {interaction.controls && hovering && (
-        <div className="lyrics-bar">
+        // A press on a button is not a press on the window — without this,
+        // pressing 「A+」 and twitching would drag the window along with it.
+        <div className="lyrics-bar" onPointerDown={(event) => event.stopPropagation()}>
           {confirmingLock ? (
             <>
               {/* The sentence the user asked to be told, at the moment it
@@ -124,10 +173,20 @@ export function DesktopLyrics(): React.JSX.Element {
         </div>
       )}
 
-      {/* macOS gives a frameless transparent window no visible resize
-          affordance — the edges still work, but nothing says so. This corner
-          is the sign; the resize itself is the platform's. */}
-      {interaction.controls && hovering && <span className="lyrics-grip" aria-hidden="true" />}
+      {/* 🔴 THE GRIP RESIZES THE WINDOW ITSELF. It used to be a sign pointing
+          at the platform's edges, and Electron's own docs say the platform
+          will not oblige: a transparent window is not resizable. So the corner
+          does the work, on the same pointer machinery as the drag. */}
+      {interaction.controls && hovering && (
+        <span
+          className="lyrics-grip"
+          aria-hidden="true"
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            beginGesture(event, 'resize');
+          }}
+        />
+      )}
     </div>
   );
 }

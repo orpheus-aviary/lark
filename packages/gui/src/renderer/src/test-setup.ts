@@ -31,6 +31,7 @@ function defaultLarkApi(): LarkApi {
     publishDesktopLyrics: vi.fn(),
     onDesktopLyrics: vi.fn(() => () => {}),
     requestDesktopLyricsChange: vi.fn(),
+    sendDesktopLyricsGesture: vi.fn(),
     onDesktopLyricsChange: vi.fn(() => () => {}),
   };
 }
@@ -70,6 +71,21 @@ if (!('ResizeObserver' in globalThis)) {
     writable: true,
     value: FakeResizeObserver,
   });
+}
+
+// jsdom implements no PointerEvent at all, so `fireEvent.pointerDown` falls
+// back to a bare `Event` and every mouse property on it — `button` above all —
+// arrives undefined. MouseEvent already carries the whole of what the lyric
+// window's drag reads; only `pointerId` has to be added by hand.
+if (!('PointerEvent' in window)) {
+  class FakePointerEvent extends MouseEvent {
+    readonly pointerId: number;
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+    }
+  }
+  Object.defineProperty(window, 'PointerEvent', { writable: true, value: FakePointerEvent });
 }
 
 // radix-ui components call these on pointer interactions; jsdom has neither.

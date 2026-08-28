@@ -23,6 +23,10 @@ body {
 }
 
 .lyrics-window {
+  /* The bar, the grip and the hint are absolute against THIS, not the page:
+     one positioned ancestor is what keeps them on the window rather than on
+     whatever the initial containing block happens to be. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -36,6 +40,7 @@ body {
 
 .lyrics-line {
   position: relative;
+  z-index: 1;
   margin: 0;
   max-width: 100%;
   white-space: nowrap;
@@ -65,20 +70,38 @@ body {
   position: relative;
 }
 
-/* The whole strip drags the window — except the controls, which have to stay
-   clickable. `-webkit-app-region` is Electron's, and `no-drag` on a child is
-   the only way to punch a hole in a drag region. */
+/* 🔴 NO `-webkit-app-region` ANYWHERE IN THIS FILE, and `just check` holds
+   that (`scripts/check-lyrics-no-drag-region.sh`).
+   A drag region is the obvious way to make a frameless window draggable and it
+   eats every mouse event over itself, so the hover this window's controls hang
+   off of never happened (判据 19). The pointer moves the window instead —
+   `DesktopLyrics.tsx` starts the gesture, main does the arithmetic. What is
+   left here is the sign that it can be grabbed. */
 .lyrics-draggable {
-  -webkit-app-region: drag;
+  cursor: grab;
+  /* The gesture is ours; the browser must not claim the pointer for a scroll
+     or a pinch part-way through a drag. */
+  touch-action: none;
 }
 
-.lyrics-bar,
-.lyrics-grip {
-  -webkit-app-region: no-drag;
+/* Where the window is, shown only while the pointer is on it. Dark scrim under
+   a light edge on purpose: one alone disappears against half the desktops this
+   thing floats over. */
+.lyrics-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  box-sizing: border-box;
+  border: 1px solid #ffffff59;
+  border-radius: 10px;
+  background: #00000047;
+  /* A hint, never a target — every press belongs to the window under it. */
+  pointer-events: none;
 }
 
 .lyrics-bar {
   position: absolute;
+  z-index: 2;
   top: 4px;
   right: 8px;
   display: flex;
@@ -120,6 +143,7 @@ body {
    desktop uses. The window's edges do the actual resizing. */
 .lyrics-grip {
   position: absolute;
+  z-index: 2;
   right: 2px;
   bottom: 2px;
   width: 12px;

@@ -123,8 +123,17 @@ log-hygiene:
 gui-ime-guard:
     bash scripts/check-gui-ime-guard.sh
 
+# The floating lyric window is dragged by the pointer, never by a
+# `-webkit-app-region` region (0.5.0 判据 19). A drag region eats the mouse
+# events its own control bar is hung off of, and no test can see that: jsdom
+# fires hover at anything and vitest stubs CSS imports to an empty string.
+
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene gui-ime-guard spike-media-test
+lyrics-no-drag-region:
+    bash scripts/check-lyrics-no-drag-region.sh
+
+[group('lint')]
+check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene gui-ime-guard lyrics-no-drag-region spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

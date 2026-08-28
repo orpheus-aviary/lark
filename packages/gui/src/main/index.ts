@@ -9,11 +9,16 @@ import { createRequire } from 'node:module';
 import { loadConfig } from '@lark/core/config';
 import { localTokenPath } from '@lark/core/paths';
 import { defaultDaemonBaseUrl } from '@lark/shared';
-import { type BrowserWindow, app, dialog, ipcMain } from 'electron';
-import type { DesktopLyricsChange, DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
+import { type BrowserWindow, app, dialog, ipcMain, screen } from 'electron';
+import type {
+  DesktopLyricsChange,
+  DesktopLyricsGesture,
+  DesktopLyricsMessage,
+} from '../shared/desktop-lyrics.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import { saveWindowSize } from './daemon-config.js';
 import { DaemonManager, DaemonStartError } from './daemon-manager.js';
+import { DesktopLyricsGestures, type GestureTarget } from './desktop-lyrics-gesture.js';
 import { DesktopLyricsController, type DesktopLyricsWindow } from './desktop-lyrics-window.js';
 import { registerDialogIpc } from './dialog-ipc.js';
 import { installMediaProtocol, registerMediaScheme } from './media-protocol.js';
@@ -74,9 +79,23 @@ const requestLyricsChange = (change: DesktopLyricsChange): void => {
   windowRef.live()?.webContents.send(IPC_CHANNELS.desktopLyricsChange, change);
 };
 
+/**
+ * Dragging and resizing that window (判据 19's fix).
+ *
+ * `screen.getCursorScreenPoint()` is the measurement, not the renderer's event
+ * coordinates: main already thinks in the same screen-space units the window's
+ * own bounds are in, so there is no scale factor to get wrong.
+ */
+const lyricsGestures = new DesktopLyricsGestures(() => screen.getCursorScreenPoint());
+
 const desktopLyrics = new DesktopLyricsController({
   create: (config) => {
     const win = createDesktopLyricsWindow(config, requestLyricsChange);
+    const target: GestureTarget = {
+      getBounds: () => win.getBounds(),
+      setBounds: (bounds) => win.setBounds(bounds),
+    };
+    lyricsGestures.attach(target);
     const handle: DesktopLyricsWindow = {
       isDestroyed: () => win.isDestroyed(),
       destroy: () => win.destroy(),
@@ -92,7 +111,10 @@ const desktopLyrics = new DesktopLyricsController({
         win.setIgnoreMouseEvents(ignore, { forward: true });
       },
     };
-    win.on('closed', () => desktopLyrics.noteClosed(handle));
+    win.on('closed', () => {
+      lyricsGestures.detach(target);
+      desktopLyrics.noteClosed(handle);
+    });
     return handle;
   },
   // Closing it IS turning the feature off (see `desktop-lyrics-window.ts`),
@@ -105,6 +127,14 @@ const desktopLyrics = new DesktopLyricsController({
 // has no daemon to talk to.
 ipcMain.on(IPC_CHANNELS.desktopLyricsChange, (_event, change: DesktopLyricsChange) => {
   requestLyricsChange(change);
+});
+
+// Held-button traffic, so it goes straight to the window rather than round
+// through the main renderer's config: what is being asked for here is not a
+// setting, it is where the window is RIGHT NOW. The resting place is written
+// down by `window.ts`'s debounce, off the window's own move/resize events.
+ipcMain.on(IPC_CHANNELS.desktopLyricsGesture, (_event, gesture: DesktopLyricsGesture) => {
+  lyricsGestures.handle(gesture);
 });
 
 /** Take ownership of a window: remember its size, forget it when it is gone. */

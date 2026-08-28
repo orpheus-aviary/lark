@@ -3,11 +3,12 @@
 
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DesktopLyricsMessage } from '../../../shared/desktop-lyrics.js';
+import type { DesktopLyricsGesture, DesktopLyricsMessage } from '../../../shared/desktop-lyrics.js';
 import { DesktopLyrics } from './DesktopLyrics.js';
 
 let publish: ((message: DesktopLyricsMessage) => void) | null = null;
 let changes: unknown[] = [];
+let gestures: DesktopLyricsGesture[] = [];
 
 const message = (
   overrides: Partial<DesktopLyricsMessage['config']> = {},
@@ -36,6 +37,7 @@ const message = (
 beforeEach(() => {
   publish = null;
   changes = [];
+  gestures = [];
   // Replaced wholesale rather than field by field: the bridge is `readonly`
   // on purpose, and `TopBar.test.tsx` set the precedent for standing in for it.
   window.larkAPI = {
@@ -46,6 +48,9 @@ beforeEach(() => {
     }),
     requestDesktopLyricsChange: vi.fn((change: unknown) => {
       changes.push(change);
+    }),
+    sendDesktopLyricsGesture: vi.fn((gesture: DesktopLyricsGesture) => {
+      gestures.push(gesture);
     }),
   };
 });
@@ -138,5 +143,76 @@ describe('the floating lyric window', () => {
     render(<DesktopLyrics />);
     act(() => publish?.({ ...message(), song: null }));
     expect(screen.queryByText('第一句')).toBeNull();
+  });
+});
+
+// 🔴 THE BATCH THIS FILE WAS GREEN THROUGH. Every test above passed while the
+// window's controls were unreachable on a real screen: the root carried
+// a `-webkit-app-region` drag region, which eats the mouse events these tests
+// synthesise — and jsdom has no idea that property means anything. What is
+// testable here is the wiring that replaced it. The stylesheet itself is out
+// of reach from in here — vitest stubs CSS imports to the empty string — so
+// `just check` guards that one (`scripts/check-lyrics-no-drag-region.sh`).
+describe('moving and resizing it with the pointer', () => {
+  it('drags the window from anywhere on it', () => {
+    const window_ = show();
+    fireEvent.pointerDown(window_, { button: 0, pointerId: 1 });
+    fireEvent.pointerMove(window_, { pointerId: 1 });
+    fireEvent.pointerUp(window_, { pointerId: 1 });
+
+    expect(gestures).toEqual([
+      { kind: 'move', phase: 'begin' },
+      { kind: 'move', phase: 'update' },
+      { kind: 'move', phase: 'end' },
+    ]);
+  });
+
+  it('says nothing about a pointer that is merely passing over', () => {
+    const window_ = show();
+    fireEvent.pointerMove(window_, { pointerId: 1 });
+    expect(gestures).toEqual([]);
+  });
+
+  // Pressing 「A+」 and twitching used to take the window along with it.
+  it('does not drag when the press was on a control', () => {
+    show();
+    fireEvent.pointerDown(button('A+'), { button: 0, pointerId: 1 });
+    expect(gestures).toEqual([]);
+  });
+
+  it('resizes from the corner instead of moving', () => {
+    const window_ = show();
+    const grip = window_.querySelector('.lyrics-grip') as HTMLElement;
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 1 });
+    fireEvent.pointerMove(window_, { pointerId: 1 });
+
+    expect(gestures).toEqual([
+      { kind: 'resize', phase: 'begin' },
+      { kind: 'resize', phase: 'update' },
+    ]);
+  });
+
+  // Locked is click-through in main, but the renderer must not be the half
+  // that disagrees: a gesture asked for here would move a window the person
+  // believes they cannot touch.
+  it('starts nothing at all once it is locked', () => {
+    const window_ = show({ locked: true });
+    fireEvent.pointerDown(window_, { button: 0, pointerId: 1 });
+    expect(gestures).toEqual([]);
+  });
+
+  // The user's ask: this window is transparent everywhere the words are not,
+  // so nothing said where it was or what could be grabbed.
+  it('shows where the window is, only while the pointer is on it', () => {
+    const window_ = show();
+    expect(window_.querySelector('.lyrics-hint')).not.toBeNull();
+
+    fireEvent.mouseLeave(window_);
+    expect(window_.querySelector('.lyrics-hint')).toBeNull();
+  });
+
+  it('shows no hint on a locked window — there is nothing to grab', () => {
+    const window_ = show({ locked: true });
+    expect(window_.querySelector('.lyrics-hint')).toBeNull();
   });
 });

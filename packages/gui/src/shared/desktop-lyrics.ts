@@ -74,3 +74,24 @@ export function desktopLyricsInteraction(locked: boolean): DesktopLyricsInteract
  * comes back through here as a patch the main window applies.
  */
 export type DesktopLyricsChange = Partial<DesktopLyricsConfig>;
+
+/** Moving the window, or resizing it from the corner. */
+export type DesktopLyricsGestureKind = 'move' | 'resize';
+
+/**
+ * A pointer gesture on the lyric window (0.5.0 §2.5 判据 19 的修订).
+ *
+ * 🔴 THE WINDOW IS MOVED BY THE POINTER, NOT BY A DRAG REGION. `-webkit-app-
+ * region: drag` is the obvious way to make a frameless window draggable and it
+ * cost this window its control bar: a drag region eats every mouse event over
+ * it, so `mouseenter` never fired and the bar — which only exists while the
+ * pointer is on the window — was never drawn. See `main/desktop-lyrics-
+ * gesture.ts` for the arithmetic; the renderer only says when.
+ *
+ * `end` is not optional bookkeeping: it is what stops the window following the
+ * cursor around the screen after the button comes up.
+ */
+export interface DesktopLyricsGesture {
+  kind: DesktopLyricsGestureKind;
+  phase: 'begin' | 'update' | 'end';
+}
