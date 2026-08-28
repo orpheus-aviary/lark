@@ -34,6 +34,14 @@ describe('prompt interpolation', () => {
     expect(p).toContain('end_time');
   });
 
+  // ⑧ — a duet used to come back with one of its two singers, whichever the
+  // model felt like. Only a real model can show that this reads the way it is
+  // meant to; what a laptop can hold is that the rule is still in the text.
+  it('tells the naming prompt to keep every artist', () => {
+    expect(INFER_SONG_INFO_PROMPT).toContain('多个创作者');
+    expect(INFER_SONG_INFO_PROMPT).toContain('、');
+  });
+
   it('keeps every prompt asking for un-fenced output', () => {
     for (const p of [ANALYZE_PROMPT, INFER_SONG_INFO_PROMPT, BATCH_ANALYZE_PROMPT]) {
       expect(p).toContain('不要markdown代码块');

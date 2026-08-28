@@ -7,6 +7,11 @@
 // pipeline down. Here the regexes decide that (deterministically, offline), so
 // the prompt survives only as the multi-line batch fallback. The text is
 // unchanged; its authority is not.
+//
+// One rule HAS since been added on purpose: `INFER_SONG_INFO_PROMPT` now says
+// what to do when a title names several artists (0.5.0 ⑧). It is a behaviour
+// change rather than a cleanup, and only a real model can show that it reads
+// the way it is meant to.
 
 /** Split one free-form line into `{type, url, song_name, artist, query}`. */
 export const ANALYZE_PROMPT = `你是一个音频下载助手。分析用户输入，判断是URL还是关键词搜索。
@@ -27,6 +32,7 @@ export const INFER_SONG_INFO_PROMPT = `你是一个音频下载助手。根据bi
 - 如果是歌曲：song_name填歌名（去掉MV、官方、完整版等后缀），artist填歌手
 - 如果是其他内容：song_name填节目/视频标题的核心部分，artist填UP主/主播/演员
 - UP主名称可以帮助推断创作者（例如"等什么君Official"说明歌手是"等什么君"）
+- 如果有多个创作者：全部保留，用「、」分隔（例如"周杰伦、费玉清"），顺序按标题里出现的先后
 - 如果无法确定创作者，artist留空`;
 
 /**
