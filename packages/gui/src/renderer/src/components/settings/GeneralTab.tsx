@@ -112,7 +112,10 @@ export function GeneralTab({
         </label>
       </Section>
 
-      <Section title="桌面歌词" hint="悬在别的应用上面的一条歌词；改动和别处一样，点了保存才生效">
+      <Section
+        title="桌面歌词"
+        hint="悬在别的应用上面的一条歌词；行数、字号、配色改了立刻看得见，但要点保存才留下——不保存关掉这一页就变回去"
+      >
         <label className="flex items-start gap-2 text-sm" htmlFor="desktop-lyrics-enabled">
           <Checkbox
             id="desktop-lyrics-enabled"

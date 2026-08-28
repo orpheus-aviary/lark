@@ -28,7 +28,7 @@ import { type SettingsTab, useSettingsUi } from '../stores/settings-ui.js';
 import { useSync } from '../stores/sync.js';
 import { GeneralTab } from './settings/GeneralTab.js';
 import { SyncTab } from './settings/SyncTab.js';
-import { type Draft, buildPatch, toDraft } from './settings/draft.js';
+import { type Draft, buildPatch, followConfig, previewFrom, toDraft } from './settings/draft.js';
 import { Button } from './ui/button.js';
 import {
   Dialog,
@@ -54,10 +54,19 @@ export function SettingsDialog(): React.JSX.Element {
   // second door into this dialog (v0.2 T4), and two components cannot share a
   // `useState`.
   const open = useSettingsUi((s) => s.open);
+  const setLyricsPreview = useSettingsUi((s) => s.setLyricsPreview);
   const setOpen = useSettingsUi((s) => s.setOpen);
   const tab = useSettingsUi((s) => s.tab);
   const setTab = useSettingsUi((s) => s.setTab);
   const [draft, setDraft] = useState<Draft | null>(null);
+  /**
+   * Which fields this visit actually edited (0.5.0 ⑤ 的续).
+   *
+   * A save sends these and nothing else — see `draft.ts`'s header for the bug
+   * that came of asking "what differs from the config" instead — and the
+   * lyric window previews these and nothing else.
+   */
+  const [touched, setTouched] = useState<ReadonlySet<keyof Draft>>(() => new Set());
   const [saving, setSaving] = useState(false);
   /** Field path → message, straight from the daemon's `details.path` (M5-20). */
   const [fieldError, setFieldError] = useState<{ path: string; message: string } | null>(null);
@@ -86,22 +95,39 @@ export function SettingsDialog(): React.JSX.Element {
     watchCache,
   ]);
 
-  // The draft follows the mirror while the dialog is closed, and is left alone
-  // once it is open — a background refresh must not discard what was typed.
+  // The draft follows the config field by field: the ones nobody has touched
+  // on this visit follow it, the ones somebody is editing stay as typed. That
+  // is what lets the lyric window's own control bar — and the position it is
+  // dragged to — show up in the fields that describe it, without a background
+  // refresh throwing away what was half typed.
   useEffect(() => {
     if (config === null) return;
-    setDraft((current) => (current === null ? toDraft(config) : current));
-  }, [config]);
+    setDraft((current) =>
+      current === null ? toDraft(config) : followConfig(current, config, touched),
+    );
+  }, [config, touched]);
+
+  // 🔴 THE PREVIEW IS THE WHOLE OF "UNDO". Nothing was written to show it, so
+  // closing the page without saving needs only to stop saying it — the next
+  // message to the window is built from the saved config again.
+  useEffect(() => {
+    if (!open || draft === null) {
+      setLyricsPreview(null);
+      return;
+    }
+    setLyricsPreview(previewFrom(draft, touched));
+  }, [open, draft, touched, setLyricsPreview]);
 
   const openWith = (next: boolean): void => {
     setOpen(next);
+    setTouched(new Set());
     if (!next) setDraft(null);
     else if (config !== null) setDraft(toDraft(config));
   };
 
   const save = async (): Promise<void> => {
     if (config === null || draft === null) return;
-    const patch = buildPatch(draft, config);
+    const patch = buildPatch(draft, config, touched);
     if (Object.keys(patch).length === 0) {
       openWith(false);
       return;
@@ -124,8 +150,12 @@ export function SettingsDialog(): React.JSX.Element {
   const errorFor = (path: string): string | undefined =>
     fieldError?.path === path ? fieldError.message : undefined;
 
-  const update = (patch: Partial<Draft>): void =>
+  const update = (patch: Partial<Draft>): void => {
     setDraft((current) => (current === null ? current : { ...current, ...patch }));
+    // A new Set every time: zustand and React both compare by identity, and a
+    // mutated one would neither re-render nor re-publish the preview.
+    setTouched((current) => new Set([...current, ...(Object.keys(patch) as (keyof Draft)[])]));
+  };
 
   return (
     <>

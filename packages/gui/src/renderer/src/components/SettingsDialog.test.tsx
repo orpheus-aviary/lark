@@ -4,6 +4,7 @@
 import type { CacheStatusData, PublicLarkConfig } from '@lark/shared';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { act } from 'react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCache } from '../stores/cache.js';
@@ -225,6 +226,43 @@ describe('saving', () => {
     expect(patches()[0]?.body).toEqual({ desktop_lyrics: { x: 0, y: 0 } });
   });
 
+  // 🔴 THE DRAFT IS BUILT WHEN THE PAGE OPENS, AND THE CONFIG KEEPS MOVING —
+  // the lyric window writes its own geometry as it is dragged, and its control
+  // bar writes the size and the scheme. A save that sent everything differing
+  // from the config would send this page's copy of all that back, and the
+  // window would jump to where it was when the page was opened.
+  it('does not send back what the lyric window changed while the page was open', async () => {
+    const user = await open();
+
+    // Dragged somewhere, and 「A+」 pressed on its own control bar.
+    act(() => {
+      config = publicConfig({
+        desktop_lyrics: { ...config.desktop_lyrics, x: 500, y: 300, font_size: 40 },
+      });
+      useConfig.setState({ config });
+    });
+
+    await user.clear(screen.getByLabelText('界面字号'));
+    await user.type(screen.getByLabelText('界面字号'), '16');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toEqual({ font: { global_font_size: 16 } });
+  });
+
+  it('sends nothing at all when only the window moved', async () => {
+    const user = await open();
+    act(() => {
+      config = publicConfig({ desktop_lyrics: { ...config.desktop_lyrics, x: 500, y: 300 } });
+      useConfig.setState({ config });
+    });
+
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(patches()).toHaveLength(0);
+  });
+
   // The daemon answers `details.path`, so the page can mark the field without
   // parsing the English message (M5-20).
   it('marks the offending field from details.path and stays open', async () => {
@@ -359,5 +397,101 @@ describe('the tab it lands on', () => {
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: '常规' }).getAttribute('aria-selected')).toBe('true'),
     );
+  });
+});
+
+// ⑤ 的续 — 行数/字号/配色 選不出来是因为看不见，所以这一节边改边显示。
+// Nothing is written to do it: the page publishes its draft to the window, and
+// closing without saving stops publishing it.
+describe('the desktop lyrics preview', () => {
+  it('shows an edit to the window without writing it', async () => {
+    const user = await open();
+
+    await user.clear(screen.getByLabelText('字号'));
+    await user.type(screen.getByLabelText('字号'), '48');
+
+    expect(useSettingsUi.getState().lyricsPreview).toEqual({ font_size: 48 });
+    expect(patches()).toHaveLength(0);
+  });
+
+  // 🔴 A text field passes through '' and '4' on the way to 48, and previewing
+  // those would flick the window to nothing and then to unreadable.
+  it('waits until the number is a size', async () => {
+    const user = await open();
+
+    await user.clear(screen.getByLabelText('字号'));
+    expect(useSettingsUi.getState().lyricsPreview).toEqual({});
+
+    await user.type(screen.getByLabelText('字号'), '4');
+    expect(useSettingsUi.getState().lyricsPreview).toEqual({});
+  });
+
+  it('stops previewing when the page is closed without saving', async () => {
+    const user = await open();
+
+    await user.clear(screen.getByLabelText('字号'));
+    await user.type(screen.getByLabelText('字号'), '48');
+    await user.click(screen.getByRole('button', { name: '取消' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(useSettingsUi.getState().lyricsPreview).toBeNull();
+    expect(patches()).toHaveLength(0);
+  });
+
+  it('stops previewing once it is saved, so the window follows the config again', async () => {
+    const user = await open();
+
+    await user.clear(screen.getByLabelText('字号'));
+    await user.type(screen.getByLabelText('字号'), '48');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toEqual({ desktop_lyrics: { font_size: 48 } });
+    expect(useSettingsUi.getState().lyricsPreview).toBeNull();
+  });
+});
+
+// ⑤ 的续 — the page and the window describe the same thing, so what happens on
+// one has to be visible on the other.
+const fontSizeField = (): HTMLInputElement => screen.getByLabelText('字号') as HTMLInputElement;
+
+describe('following the window while the page is open', () => {
+  it("shows what the window's own control bar changed", async () => {
+    await open();
+
+    act(() => {
+      config = publicConfig({ desktop_lyrics: { ...config.desktop_lyrics, font_size: 40 } });
+      useConfig.setState({ config });
+    });
+
+    expect(fontSizeField().value).toBe('40');
+  });
+
+  it('shows where the window was dragged to', async () => {
+    await open();
+
+    act(() => {
+      config = publicConfig({ desktop_lyrics: { ...config.desktop_lyrics, x: 500, y: 300 } });
+      useConfig.setState({ config });
+    });
+
+    expect(screen.getByText(/500, 300/)).toBeDefined();
+  });
+
+  // 🔴 The other half, and the reason the page used to ignore the config
+  // outright: a refresh must not take away what somebody is in the middle of
+  // typing. `touched` is what tells the two apart.
+  it('does not overwrite the field somebody is editing', async () => {
+    const user = await open();
+
+    await user.clear(screen.getByLabelText('字号'));
+    await user.type(screen.getByLabelText('字号'), '48');
+    act(() => {
+      config = publicConfig({ desktop_lyrics: { ...config.desktop_lyrics, font_size: 40 } });
+      useConfig.setState({ config });
+    });
+
+    expect(fontSizeField().value).toBe('48');
+    expect(useSettingsUi.getState().lyricsPreview).toEqual({ font_size: 48 });
   });
 });

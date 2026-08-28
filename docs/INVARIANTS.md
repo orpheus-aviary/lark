@@ -50,7 +50,9 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 - **跨进程写互斥**：daemon / `--direct` 写 / backup-nest 三方共守 `songs.db.writer.lock`（常驻 SQLite 锁库，`BEGIN EXCLUSIVE`，kill -9 自动释放，**锁文件永不删**）。锁序冻结 **writer → migrate → 真库 EXCLUSIVE**。读路径不取任何锁。
 - **token**：daemon 生成并原子发布 0600 文件；GUI 每次重读，**不进 URL / DOM / 日志 / 媒体 src**（R21/R29）。
 - **统一响应** `{"success", "data", "message"}`；例外只有 `/audio`（二进制 + Range）、`/lyrics`（text/plain）、`/events`（SSE）。
-- **数据目录** `~/orpheus-aviary-nest/lark/`。canonical 音频 = `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。**schema v3**，协议 `LOCAL_API_VERSION = 7`（**以 `packages/shared/src/api-paths.ts` 为准**）。
+- **数据目录** `~/orpheus-aviary-nest/lark/`。canonical 音频 = `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。**schema v3**，协议 `LOCAL_API_VERSION = 9`（**以 `packages/shared/src/api-paths.ts` 为准**）。
+- **设置页只发「人碰过的字段」**（0.5.0）：草稿在打开那一刻建一次，而配置会在它开着的时候被别的东西改——歌词窗被拖动时自己写几何、它的控制条自己写字号与配色。拿草稿和**当下**配置做 diff，等于把打开那一刻的值写回去（真撞到过：拖完窗口按保存，它弹回原位）。
+- **桌面歌词的实时预览不写盘**（0.5.0）：预览 = 把草稿 publish 给那个窗口，取消 = 不再 publish，所以「不保存就变回去」没有撤销这一步。**可预览的只有 `enabled` / `lines` / `font_size` / `preset`**（`DesktopLyricsPreview` 白名单）——`locked` 不可预览（锁上之后连唯一的解锁开关都点不到），几何不可预览（那是窗口自己写的，两边会打架）。
 
 ## 4 · 同步（skybridge）
 

@@ -95,3 +95,48 @@ export interface DesktopLyricsGesture {
   kind: DesktopLyricsGestureKind;
   phase: 'begin' | 'update' | 'end';
 }
+
+/**
+ * What the settings page may show you before you have saved it (0.5.0 ⑤ 的续)。
+ *
+ * 🔴 ONLY WHAT YOU CAN SEE, and the list is closed on purpose:
+ *
+ * - `locked` is NOT here. Previewing a lock would make the window unclickable
+ *   while the person is still deciding — and this page is the only way back.
+ * - The geometry is NOT here. The window writes its own (it is dragged), and
+ *   a page that previewed a position would fight the window for it.
+ *
+ * Everything else in the section is a thing you cannot choose without looking
+ * at it, which is the whole reason this exists.
+ */
+export type DesktopLyricsPreview = Partial<
+  Pick<DesktopLyricsConfig, 'enabled' | 'lines' | 'font_size' | 'preset'>
+>;
+
+/**
+ * The config the floating window should draw right now.
+ *
+ * 🔴 NOTHING IS WRITTEN TO PREVIEW. The window is drawn from a message the
+ * main window publishes, so showing a draft is a matter of publishing the
+ * draft — and "close without saving" needs no undo, because the next message
+ * is built from the saved config again. A preview that wrote to the config
+ * would need a snapshot, a revert, and an answer for what happens if the app
+ * dies in between.
+ *
+ * Field by field rather than a spread: a spread would carry whatever the
+ * caller put in the object, and the two fields left out of {@link
+ * DesktopLyricsPreview} are left out for a reason.
+ */
+export function previewedDesktopLyrics(
+  saved: DesktopLyricsConfig,
+  preview: DesktopLyricsPreview | null,
+): DesktopLyricsConfig {
+  if (preview === null) return saved;
+  return {
+    ...saved,
+    enabled: preview.enabled ?? saved.enabled,
+    lines: preview.lines ?? saved.lines,
+    font_size: preview.font_size ?? saved.font_size,
+    preset: preview.preset ?? saved.preset,
+  };
+}
