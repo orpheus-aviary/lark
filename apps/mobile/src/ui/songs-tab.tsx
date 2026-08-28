@@ -21,8 +21,8 @@
 // and an unpinned song shows nothing at all. The amber is the OTHER token and
 // stays reserved for the playing row, which lands with the player.
 
+import { readSongSort, writeSongSort } from '@lark/core/portable';
 import {
-  DEFAULT_SORT,
   SORT_FIELDS,
   SORT_FIELD_LABELS,
   type SongData,
@@ -34,6 +34,7 @@ import {
 } from '@lark/shared';
 import { useCallback, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
+import { engineLogger } from '../downloads/log';
 import { describeBatch, runBatch } from '../library/batch';
 import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { queueFrom } from '../player/queue';
@@ -51,13 +52,33 @@ import { C, S } from './theme';
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
 export function SongsTab() {
-  const { library, view, changed } = useLibrary();
+  const { boot, library, view, changed } = useLibrary();
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  // Remembered per device (0.5.0): a library listed by 创建时间 came back in
+  // its own order on every launch, which reads as the setting not sticking.
+  // The search box is deliberately NOT remembered — a filter that survived a
+  // relaunch would look like half a library.
+  const [sort, setSort] = useState<SortState>(() =>
+    readSongSort(boot.deviceSettings, engineLogger),
+  );
   const [picking, setPicking] = useState(false);
   const [acting, setActing] = useState<SongData | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [confirming, setConfirming] = useState<SongData | null>(null);
+
+  /**
+   * The only way the order changes — both buttons and the sheet go through it.
+   *
+   * Nothing waits for the write: the list has already re-sorted, there is no
+   * form to report to, and the worst a failed write costs is next launch's
+   * default (the same terms `add-tab` remembers the naming mode on).
+   */
+  const changeSort = (next: SortState): void => {
+    setSort(next);
+    void writeSongSort(boot.deviceSettings, next).catch((err: unknown) => {
+      engineLogger.warn({ err: String(err) }, 'could not remember the song order');
+    });
+  };
   const [linking, setLinking] = useState<SongData | null>(null);
   /**
    * Which rows are ticked, by song id (`library/selection.ts`).
@@ -196,7 +217,7 @@ export function SongsTab() {
           />
           <Pressable
             style={styles.sortButton}
-            onPress={() => setSort(toggleOrder(sort))}
+            onPress={() => changeSort(toggleOrder(sort))}
             accessibilityRole="button"
           >
             <Text style={styles.sortLabel}>{sortLabel(sort)}</Text>
@@ -242,7 +263,7 @@ export function SongsTab() {
               key={field}
               label={SORT_FIELD_LABELS[field]}
               onPress={() => {
-                setSort(withField(sort, field));
+                changeSort(withField(sort, field));
                 setPicking(false);
               }}
             />

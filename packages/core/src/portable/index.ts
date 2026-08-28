@@ -69,6 +69,7 @@ export * from './now-playing-mode.js';
 export * from './sync-insecure.js';
 export * from './pending.js';
 export * from './play-mode.js';
+export * from './song-sort-pref.js';
 export * from './ports/index.js';
 export * from './runtime/index.js';
 export * from './services/contract/index.js';
