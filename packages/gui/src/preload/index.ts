@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { contextBridge, ipcRenderer } from 'electron';
 import { DAEMON_TOKEN_PATH_FLAG, DAEMON_URL_FLAG, argvValue } from '../shared/argv.js';
-import type { DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
+import type { DesktopLyricsChange, DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import type { LarkApi, LegalDocument } from '../shared/lark-api.js';
 import { GUI_VERSION } from '../shared/version.js';
@@ -43,11 +43,14 @@ contextBridge.exposeInMainWorld('larkAPI', {
   publishDesktopLyrics: (state: DesktopLyricsMessage) => {
     ipcRenderer.send(IPC_CHANNELS.desktopLyricsPublish, state);
   },
-  onDesktopLyricsClosed: (listener: () => void) => {
-    const handler = (): void => listener();
-    ipcRenderer.on(IPC_CHANNELS.desktopLyricsClosed, handler);
+  requestDesktopLyricsChange: (change: DesktopLyricsChange) => {
+    ipcRenderer.send(IPC_CHANNELS.desktopLyricsChange, change);
+  },
+  onDesktopLyricsChange: (listener: (change: DesktopLyricsChange) => void) => {
+    const handler = (_event: unknown, change: DesktopLyricsChange): void => listener(change);
+    ipcRenderer.on(IPC_CHANNELS.desktopLyricsChange, handler);
     return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.desktopLyricsClosed, handler);
+      ipcRenderer.removeListener(IPC_CHANNELS.desktopLyricsChange, handler);
     };
   },
   onDesktopLyrics: (listener: (state: DesktopLyricsMessage) => void) => {

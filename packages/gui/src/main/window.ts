@@ -94,7 +94,13 @@ export function createMainWindow(opts: MainWindowOptions): BrowserWindow {
  * the preload's `daemonUrl` reads `null` here and its token getter has no file
  * to read.
  */
-export function createDesktopLyricsWindow(config: DesktopLyricsConfig): BrowserWindow {
+/** How long after the last drag the window's new place is written down. */
+const LYRICS_BOUNDS_DEBOUNCE_MS = 800;
+
+export function createDesktopLyricsWindow(
+  config: DesktopLyricsConfig,
+  onBounds: (bounds: { x: number; y: number; width: number; height: number }) => void,
+): BrowserWindow {
   const win = new BrowserWindow({
     x: config.x,
     y: config.y,
@@ -128,6 +134,26 @@ export function createDesktopLyricsWindow(config: DesktopLyricsConfig): BrowserW
   win.webContents.on('will-navigate', (event, url) => {
     event.preventDefault();
     openExternalIfSafe(url);
+  });
+
+  // Where it ends up is remembered, on the same terms `window-memory.ts`
+  // remembers the main window's size: debounced, and written through the
+  // daemon rather than to the file — except that this window cannot reach the
+  // daemon, so it hands the numbers to the main window instead.
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const rememberBounds = (): void => {
+    if (timer !== null) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      if (win.isDestroyed()) return;
+      const { x, y, width, height } = win.getBounds();
+      onBounds({ x, y, width, height });
+    }, LYRICS_BOUNDS_DEBOUNCE_MS);
+  };
+  win.on('move', rememberBounds);
+  win.on('resize', rememberBounds);
+  win.on('closed', () => {
+    if (timer !== null) clearTimeout(timer);
   });
 
   const devServerUrl = process.env.ELECTRON_RENDERER_URL;

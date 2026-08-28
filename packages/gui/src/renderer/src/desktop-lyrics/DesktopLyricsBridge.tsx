@@ -1,10 +1,12 @@
 // The main window's end of the floating lyric window (⑤).
 //
-// Renders nothing. It publishes what that window should draw, and hears the
-// one thing it can say back: it was closed.
+// Renders nothing. It publishes what that window should draw, and applies
+// what that window asks for: it has no daemon of its own, so every control on
+// it — and its own position — comes back here as a patch.
 
 import { useEffect } from 'react';
 import { toast } from 'sonner';
+import type { DesktopLyricsChange } from '../../../shared/desktop-lyrics.js';
 import { errorMessage } from '../lib/errors.js';
 import { getPlatform } from '../platform/index.js';
 import { useConfig } from '../stores/config.js';
@@ -18,20 +20,18 @@ export function DesktopLyricsBridge(): null {
 
   useEffect(
     () =>
-      getPlatform().onDesktopLyricsClosed(() => {
+      getPlatform().onDesktopLyricsChange((change: DesktopLyricsChange) => {
         const config = useConfig.getState().config;
-        if (config === null || !config.desktop_lyrics.enabled) return;
-        // ADOPTED FIRST, then written. The publisher's effect fires on every
-        // line, and until the config says otherwise it would keep publishing
-        // `enabled: true` — which reopens the window somebody just closed,
-        // in the gap before the PATCH comes back.
-        adopt({
-          ...config,
-          desktop_lyrics: { ...config.desktop_lyrics, enabled: false },
-        });
-        void patch({ desktop_lyrics: { enabled: false } }).catch((err: unknown) => {
+        if (config === null) return;
+        const next = { ...config.desktop_lyrics, ...change };
+        // ADOPTED FIRST, then written. The publisher fires on every line, and
+        // until the store agrees it would keep publishing the old answer —
+        // which reopens a window somebody just closed, or snaps a window
+        // being dragged back to where it started.
+        adopt({ ...config, desktop_lyrics: next });
+        void patch({ desktop_lyrics: change }).catch((err: unknown) => {
           // The optimistic adopt was a guess; the daemon's answer is the fact.
-          toast.error(`关不掉桌面歌词：${errorMessage(err)}`);
+          toast.error(`桌面歌词没能保存：${errorMessage(err)}`);
           refresh();
         });
       }),

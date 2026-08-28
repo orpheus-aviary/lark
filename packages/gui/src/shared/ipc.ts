@@ -36,9 +36,13 @@ export const IPC_CHANNELS = {
   /** …and main handing that on to the window itself. */
   desktopLyricsState: 'desktop-lyrics:state',
   /**
-   * The lyric window went away without anybody asking main to take it — the
-   * person closed it. Closing it IS turning the feature off, so the main
-   * window hears about it and writes `enabled = false` back.
+   * Something about the lyric window changed at the window itself — it was
+   * dragged, resized, restyled, locked, or closed. It cannot write the config
+   * (no daemon, no token), so the patch travels through main to the MAIN
+   * window, which owns the config and sends the PATCH.
+   *
+   * Closing counts: closing that window IS turning the feature off, and it
+   * arrives here as `{ enabled: false }` like any other change.
    */
-  desktopLyricsClosed: 'desktop-lyrics:closed',
+  desktopLyricsChange: 'desktop-lyrics:change',
 } as const;

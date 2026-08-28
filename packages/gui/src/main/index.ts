@@ -10,7 +10,7 @@ import { loadConfig } from '@lark/core/config';
 import { localTokenPath } from '@lark/core/paths';
 import { defaultDaemonBaseUrl } from '@lark/shared';
 import { type BrowserWindow, app, dialog, ipcMain } from 'electron';
-import type { DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
+import type { DesktopLyricsChange, DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
 import { IPC_CHANNELS } from '../shared/ipc.js';
 import { saveWindowSize } from './daemon-config.js';
 import { DaemonManager, DaemonStartError } from './daemon-manager.js';
@@ -70,15 +70,26 @@ let windowMemory: WindowMemory | null = null;
  * too: an always-on-top window that outlived the app it belongs to would be a
  * strip of text nobody can close.
  */
+const requestLyricsChange = (change: DesktopLyricsChange): void => {
+  windowRef.live()?.webContents.send(IPC_CHANNELS.desktopLyricsChange, change);
+};
+
 const desktopLyrics = new DesktopLyricsController({
   create: (config) => {
-    const win = createDesktopLyricsWindow(config);
+    const win = createDesktopLyricsWindow(config, requestLyricsChange);
     const handle: DesktopLyricsWindow = {
       isDestroyed: () => win.isDestroyed(),
       destroy: () => win.destroy(),
       publish: (message) => {
         if (win.isDestroyed()) return;
         win.webContents.send(IPC_CHANNELS.desktopLyricsState, message);
+      },
+      setIgnoreMouseEvents: (ignore) => {
+        if (win.isDestroyed()) return;
+        // `forward: true` so the window still knows where the pointer is —
+        // without it a locked window could never notice a hover, which is
+        // what the unlocked one uses to show its controls.
+        win.setIgnoreMouseEvents(ignore, { forward: true });
       },
     };
     win.on('closed', () => desktopLyrics.noteClosed(handle));
@@ -87,9 +98,13 @@ const desktopLyrics = new DesktopLyricsController({
   // Closing it IS turning the feature off (see `desktop-lyrics-window.ts`),
   // so the answer outlives the launch. The main window owns the config, so it
   // is the one told; it writes the PATCH.
-  onClosedByUser: () => {
-    windowRef.live()?.webContents.send(IPC_CHANNELS.desktopLyricsClosed);
-  },
+  onClosedByUser: () => requestLyricsChange({ enabled: false }),
+});
+
+// The lyric window's own controls, arriving through main because that window
+// has no daemon to talk to.
+ipcMain.on(IPC_CHANNELS.desktopLyricsChange, (_event, change: DesktopLyricsChange) => {
+  requestLyricsChange(change);
 });
 
 /** Take ownership of a window: remember its size, forget it when it is gone. */

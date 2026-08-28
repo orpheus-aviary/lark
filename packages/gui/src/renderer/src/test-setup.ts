@@ -30,7 +30,8 @@ function defaultLarkApi(): LarkApi {
     restartApp: vi.fn(() => Promise.resolve()),
     publishDesktopLyrics: vi.fn(),
     onDesktopLyrics: vi.fn(() => () => {}),
-    onDesktopLyricsClosed: vi.fn(() => () => {}),
+    requestDesktopLyricsChange: vi.fn(),
+    onDesktopLyricsChange: vi.fn(() => () => {}),
   };
 }
 

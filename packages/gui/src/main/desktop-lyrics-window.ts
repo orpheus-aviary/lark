@@ -14,7 +14,7 @@
 // false` back so the next launch agrees with what the person just did.
 
 import type { DesktopLyricsConfig } from '@lark/shared';
-import type { DesktopLyricsMessage } from '../shared/desktop-lyrics.js';
+import { type DesktopLyricsMessage, desktopLyricsInteraction } from '../shared/desktop-lyrics.js';
 
 /** The slice of a BrowserWindow this needs. */
 export interface DesktopLyricsWindow {
@@ -22,6 +22,14 @@ export interface DesktopLyricsWindow {
   destroy(): void;
   /** Hand the window its next frame. A destroyed window swallows it. */
   publish(state: DesktopLyricsMessage): void;
+  /**
+   * Click-through, whole window (`setIgnoreMouseEvents`).
+   *
+   * 🔴 The half a stylesheet cannot do. A locked window that only stopped
+   * SHOWING its controls would still swallow every click over whatever is
+   * behind it — which is the exact complaint locking exists to answer.
+   */
+  setIgnoreMouseEvents(ignore: boolean): void;
 }
 
 export interface DesktopLyricsDeps {
@@ -55,9 +63,17 @@ export class DesktopLyricsController {
       this.close();
       return;
     }
-    if (this.#alive() !== null) return;
+    const existing = this.#alive();
+    if (existing !== null) {
+      // Everything else about the window is redrawn from the message; this one
+      // is a property of the window itself, so it is applied on every pass
+      // rather than only when it is built.
+      existing.setIgnoreMouseEvents(desktopLyricsInteraction(config.locked).clickThrough);
+      return;
+    }
     const window = this.#deps.create(config);
     this.#window = window;
+    window.setIgnoreMouseEvents(desktopLyricsInteraction(config.locked).clickThrough);
     if (this.#last !== null) window.publish(this.#last);
   }
 

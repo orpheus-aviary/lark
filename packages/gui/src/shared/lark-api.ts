@@ -1,4 +1,4 @@
-import type { DesktopLyricsMessage } from './desktop-lyrics.js';
+import type { DesktopLyricsChange, DesktopLyricsMessage } from './desktop-lyrics.js';
 
 /** The two documents that ship inside the app bundle (M7-9). */
 export type LegalDocument = 'license' | 'notices';
@@ -66,11 +66,16 @@ export interface LarkApi {
    */
   readonly onDesktopLyrics: (listener: (state: DesktopLyricsMessage) => void) => () => void;
   /**
-   * The lyric window was closed by the person looking at it (0.5.0 ⑤).
-   * Heard in the MAIN window, which owns the config and writes the answer
-   * down. Returns the unsubscribe.
+   * Ask for something about the lyric window to change (0.5.0 ⑤) — from the
+   * LYRIC window, which has no daemon of its own. Dragging, resizing, the
+   * control bar, and closing all arrive as a patch.
    */
-  readonly onDesktopLyricsClosed: (listener: () => void) => () => void;
+  readonly requestDesktopLyricsChange: (change: DesktopLyricsChange) => void;
+  /**
+   * Hear those, in the MAIN window, which owns the config and sends the
+   * PATCH. Returns the unsubscribe.
+   */
+  readonly onDesktopLyricsChange: (listener: (change: DesktopLyricsChange) => void) => () => void;
   /**
    * Relaunch the app so it opens the workspace that is now active (N7e).
    *

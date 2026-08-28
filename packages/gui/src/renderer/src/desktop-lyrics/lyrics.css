@@ -64,3 +64,67 @@ body {
 .lyrics-fill {
   position: relative;
 }
+
+/* The whole strip drags the window — except the controls, which have to stay
+   clickable. `-webkit-app-region` is Electron's, and `no-drag` on a child is
+   the only way to punch a hole in a drag region. */
+.lyrics-draggable {
+  -webkit-app-region: drag;
+}
+
+.lyrics-bar,
+.lyrics-grip {
+  -webkit-app-region: no-drag;
+}
+
+.lyrics-bar {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #000000b3;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.lyrics-bar button {
+  border: 0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  background: #ffffff26;
+  color: #fafafa;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.lyrics-bar button:hover:not(:disabled) {
+  background: #ffffff40;
+}
+
+.lyrics-bar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.lyrics-bar-note {
+  color: #fafafa;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* Two stacked chevrons in the corner, the shape every resize grip on this
+   desktop uses. The window's edges do the actual resizing. */
+.lyrics-grip {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, transparent 0 45%, #ffffffaa 45% 60%, transparent 60% 100%),
+    linear-gradient(135deg, transparent 0 70%, #ffffffaa 70% 85%, transparent 85% 100%);
+  cursor: nwse-resize;
+}

@@ -38,3 +38,39 @@ export interface DesktopLyricsMessage {
   index: number;
   playing: boolean;
 }
+
+/**
+ * What the window lets a mouse do (0.5.0 ⑤).
+ *
+ * ONE ANSWER, READ BY BOTH ENDS. Main turns `clickThrough` into
+ * `setIgnoreMouseEvents`, the renderer turns the other two into a drag region
+ * and a control bar — and the failure mode of two answers is the one worth
+ * preventing: a window that LOOKS locked and still swallows every click over
+ * whatever is behind it.
+ *
+ * 🔴 LOCKING IS THE WHOLE WINDOW, not a region. macOS has no finer grain
+ * (electron#23042), and that is also the shape asked for — with the
+ * consequence that once it is locked, nothing on this window can unlock it.
+ * The only way back is the settings page, and both the button that locks it
+ * and that page have to say so.
+ */
+export interface DesktopLyricsInteraction {
+  clickThrough: boolean;
+  draggable: boolean;
+  controls: boolean;
+}
+
+export function desktopLyricsInteraction(locked: boolean): DesktopLyricsInteraction {
+  return locked
+    ? { clickThrough: true, draggable: false, controls: false }
+    : { clickThrough: false, draggable: true, controls: true };
+}
+
+/**
+ * What the lyric window asks the main window to change about it.
+ *
+ * It cannot write the config itself — it has no daemon URL and no token (see
+ * `main/window.ts`) — so every control on it, and the window's own position,
+ * comes back through here as a patch the main window applies.
+ */
+export type DesktopLyricsChange = Partial<DesktopLyricsConfig>;

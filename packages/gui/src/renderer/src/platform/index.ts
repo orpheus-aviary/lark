@@ -7,7 +7,7 @@
 // jsdom test environment provides a fake `window.larkAPI` in test-setup.
 
 import { defaultDaemonBaseUrl } from '@lark/shared';
-import type { DesktopLyricsMessage } from '../../../shared/desktop-lyrics.js';
+import type { DesktopLyricsChange, DesktopLyricsMessage } from '../../../shared/desktop-lyrics.js';
 
 export interface PlatformAdapter {
   daemonBaseUrl(): string;
@@ -28,8 +28,10 @@ export interface PlatformAdapter {
   publishDesktopLyrics(state: DesktopLyricsMessage): void;
   /** Receive them, in that window. Returns the unsubscribe. */
   onDesktopLyrics(listener: (state: DesktopLyricsMessage) => void): () => void;
-  /** Heard in the main window: the person closed the lyric window. */
-  onDesktopLyricsClosed(listener: () => void): () => void;
+  /** From the lyric window: change something about me (0.5.0 ⑤). */
+  requestDesktopLyricsChange(change: DesktopLyricsChange): void;
+  /** Heard in the main window, which owns the config. */
+  onDesktopLyricsChange(listener: (change: DesktopLyricsChange) => void): () => void;
 }
 
 let cached: PlatformAdapter | undefined;
@@ -52,7 +54,8 @@ export function getPlatform(): PlatformAdapter {
     openMigrationBackup: () => window.larkAPI.openMigrationBackup(),
     publishDesktopLyrics: (state) => window.larkAPI.publishDesktopLyrics(state),
     onDesktopLyrics: (listener) => window.larkAPI.onDesktopLyrics(listener),
-    onDesktopLyricsClosed: (listener) => window.larkAPI.onDesktopLyricsClosed(listener),
+    requestDesktopLyricsChange: (change) => window.larkAPI.requestDesktopLyricsChange(change),
+    onDesktopLyricsChange: (listener) => window.larkAPI.onDesktopLyricsChange(listener),
   };
   return cached;
 }

@@ -32,6 +32,7 @@ function harness() {
   const built: {
     window: DesktopLyricsWindow;
     published: DesktopLyricsMessage[];
+    ignoreMouse: boolean[];
     destroyed: boolean;
   }[] = [];
   const onClosedByUser = vi.fn();
@@ -39,6 +40,7 @@ function harness() {
     create: () => {
       const entry = {
         published: [] as DesktopLyricsMessage[],
+        ignoreMouse: [] as boolean[],
         destroyed: false,
         window: {} as DesktopLyricsWindow,
       };
@@ -48,6 +50,7 @@ function harness() {
           entry.destroyed = true;
         },
         publish: (state) => entry.published.push(state),
+        setIgnoreMouseEvents: (ignore) => entry.ignoreMouse.push(ignore),
       };
       built.push(entry);
       return entry.window;
@@ -134,6 +137,30 @@ describe('the desktop lyrics window', () => {
     h.controller.noteClosed(h.built[0]?.window as DesktopLyricsWindow);
     h.controller.apply(CONFIG);
     expect(h.built).toHaveLength(2);
+  });
+
+  // 🔴 The half a stylesheet cannot do: a locked window that only stopped
+  // SHOWING its controls would still swallow every click over what is behind
+  // it, which is the exact complaint locking exists to answer.
+  it('makes a locked window click through', () => {
+    const h = harness();
+    h.controller.apply({ ...CONFIG, locked: true });
+    expect(h.built[0]?.ignoreMouse).toEqual([true]);
+  });
+
+  it('takes the click-through off again when it is unlocked', () => {
+    const h = harness();
+    h.controller.apply({ ...CONFIG, locked: true });
+    h.controller.apply(CONFIG);
+    expect(h.built[0]?.ignoreMouse).toEqual([true, false]);
+  });
+
+  it('applies the lock to a window that was already open', () => {
+    const h = harness();
+    h.controller.apply(CONFIG);
+    h.controller.apply({ ...CONFIG, locked: true });
+    expect(h.built).toHaveLength(1);
+    expect(h.built[0]?.ignoreMouse.at(-1)).toBe(true);
   });
 
   // A window destroyed under us — a crashed renderer, a devtools reload — is
