@@ -2,7 +2,7 @@
 
 import type { DownloadTaskData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDownloads } from '../stores/download.js';
@@ -87,6 +87,37 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// ① — the Enter that picks an IME candidate belongs to the input method. The
+// bug the user hit: 「青花瓷」 went to bilibili as `qinghuaci`.
+describe('input method', () => {
+  it('does not submit while a candidate window is open', async () => {
+    render(<DownloadBar />);
+    const input = screen.getByLabelText('下载链接或歌曲名称');
+
+    fireEvent.change(input, { target: { value: 'qinghuaci' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+
+    await Promise.resolve();
+    expect(calls.some((call) => call.url.endsWith('/download/parse'))).toBe(false);
+  });
+
+  it('submits the word once the composition is over', async () => {
+    parseResult = () =>
+      jsonResponse({ success: true, data: { items: [{ kind: 'keyword', query: '青花瓷' }] } });
+    render(<DownloadBar />);
+    const input = screen.getByLabelText('下载链接或歌曲名称');
+
+    fireEvent.change(input, { target: { value: '青花瓷' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: false });
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: '青花瓷',
+      }),
+    );
+  });
 });
 
 describe('one line of input', () => {

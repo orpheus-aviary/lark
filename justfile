@@ -114,8 +114,17 @@ cli-no-daemon-gui:
 log-hygiene:
     bash scripts/check-log-hygiene.sh
 
+# Every Enter handler in the renderer asks the input method first (0.5.0 ①).
+# Chromium reports `key === 'Enter'` for the key that picks an IME candidate,
+# so an unguarded handler submits the pinyin — which is how all five of them
+# behaved before this guard existed.
+
 [group('lint')]
-check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene spike-media-test
+gui-ime-guard:
+    bash scripts/check-gui-ime-guard.sh
+
+[group('lint')]
+check: lint typecheck core-no-daemon-electron core-portable workspace-chokepoint daemon-no-gui-electron cli-no-daemon-gui shared-node-free mobile-imports mobile-native-modules mobile-no-js-timers mobile-icon mobile-typecheck mobile-bundle-smoke log-hygiene gui-ime-guard spike-media-test
     @echo "All checks passed."
 
 # ─── Test ───────────────────────────────────────────────

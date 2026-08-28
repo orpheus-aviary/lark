@@ -15,6 +15,7 @@ import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { isComposingKey } from '../lib/ime.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
@@ -392,7 +393,7 @@ export function BatchSelectModal({ items, onClose }: BatchSelectModalProps): Rea
                         setEditing(null);
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') e.currentTarget.blur();
+                        if (e.key === 'Enter' && !isComposingKey(e)) e.currentTarget.blur();
                         else if (e.key === 'Escape') setEditing(null);
                       }}
                     />

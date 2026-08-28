@@ -17,6 +17,7 @@ import { ListChecks, Loader2, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { isComposingKey } from '../lib/ime.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { activeTask, useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
@@ -163,7 +164,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
           disabled={busy}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') void submit(value);
+            if (e.key === 'Enter' && !isComposingKey(e)) void submit(value);
           }}
         />
         <Button

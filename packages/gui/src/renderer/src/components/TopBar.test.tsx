@@ -2,7 +2,7 @@
 
 import type { PlaylistData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID } from '@lark/shared';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useLibrary } from '../stores/library.js';
@@ -174,6 +174,22 @@ describe('search', () => {
     await waitFor(() => expect(useLibrary.getState().search).toBe('周杰伦'));
     const searches = calls.filter((c) => c.url.includes('/songs?search='));
     expect(searches).toHaveLength(1);
+  });
+
+  // ① — this box has no Enter to guard: its keystrokes arrive through
+  // `onChange`, so every candidate along the way used to be searched for.
+  it('searches the finished word, not the pinyin on the way to it', async () => {
+    render(<TopBar />);
+    const box = screen.getByRole('searchbox', { name: '搜索歌曲或歌手' });
+
+    fireEvent.compositionStart(box);
+    fireEvent.change(box, { target: { value: 'qinghua' } });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(useLibrary.getState().search).toBe('');
+
+    fireEvent.compositionEnd(box, { target: { value: '青花瓷' } });
+    expect(useLibrary.getState().search).toBe('青花瓷');
+    expect(calls.filter((c) => c.url.includes('/songs?search='))).toHaveLength(1);
   });
 
   it('clears back to the playlist view', async () => {

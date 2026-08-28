@@ -7,9 +7,10 @@
 import type { PlaylistData, PlaylistExportData } from '@lark/shared';
 import { VIRTUAL_ALL_PLAYLIST_ID, apiPath, request } from '@lark/shared';
 import { ChevronDown, Download, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
+import { isComposingKey } from '../lib/ime.js';
 import { getPlatform } from '../platform/index.js';
 import { useLibrary } from '../stores/library.js';
 import { usePlaylists } from '../stores/playlists.js';
@@ -53,15 +54,28 @@ export function TopBar(): React.JSX.Element {
   const [searchInput, setSearchInput] = useState('');
   const draftRef = useRef<HTMLInputElement>(null);
   const committed = useRef('');
+  const composing = useRef(false);
+
+  const commitSearch = useCallback(
+    (text: string) => {
+      committed.current = text.trim();
+      setSearch(committed.current);
+    },
+    [setSearch],
+  );
 
   // Debounce the committed search term; the store refetches on every commit.
+  //
+  // The other half of ① — this box has no Enter to guard, its bug is that an
+  // IME's candidate keystrokes arrive through `onChange` like any other
+  // typing, so 「青花瓷」 searched `qing` and then `qinghua` on the way. While
+  // a composition is open nothing is committed; `compositionend` commits the
+  // finished word once, without waiting out the debounce.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      committed.current = searchInput.trim();
-      setSearch(committed.current);
-    }, SEARCH_DEBOUNCE_MS);
+    if (composing.current) return;
+    const timer = setTimeout(() => commitSearch(searchInput), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [searchInput, setSearch]);
+  }, [searchInput, commitSearch]);
 
   // A remote `switch-playlist` clears the search in the store (§4.3); without
   // this the box would still show the old term and re-commit it on the next
@@ -147,7 +161,7 @@ export function TopBar(): React.JSX.Element {
       onChange={(e) => setDraftName(e.target.value)}
       onBlur={() => void commitDraft()}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') void commitDraft();
+        if (e.key === 'Enter' && !isComposingKey(e)) void commitDraft();
         else if (e.key === 'Escape') cancelDraft();
       }}
     />
@@ -295,6 +309,19 @@ export function TopBar(): React.JSX.Element {
           className="h-8 pr-8 pl-8"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
+          onCompositionStart={() => {
+            composing.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            composing.current = false;
+            // Chromium has already written the composed text to the element by
+            // the time this fires (the `input` event follows), so the value is
+            // read from the target rather than from state, which is still the
+            // last candidate.
+            const text = e.currentTarget.value;
+            setSearchInput(text);
+            commitSearch(text);
+          }}
         />
         {searchInput !== '' && (
           <button

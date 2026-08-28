@@ -30,6 +30,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../../lib/errors.js';
 import { formatRelativeTime } from '../../lib/format.js';
+import { isComposingKey } from '../../lib/ime.js';
 import { useSync } from '../../stores/sync.js';
 import { useWorkspaces } from '../../stores/workspaces.js';
 import { ConfirmDialog } from '../ConfirmDialog.js';
@@ -146,7 +147,7 @@ function LoginForm({ serverUrl }: { serverUrl: string | null }): React.JSX.Eleme
           value={form.password}
           onChange={(e) => setForm({ ...form, password: e.target.value })}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') start();
+            if (e.key === 'Enter' && !isComposingKey(e)) start();
           }}
         />
       </Field>

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { useBatchActions } from '../hooks/useBatchActions.js';
 import { errorMessage } from '../lib/errors.js';
 import { formatDateTime, formatDuration, formatFileSize } from '../lib/format.js';
+import { isComposingKey } from '../lib/ime.js';
 import { getPlatform } from '../platform/index.js';
 import { useLibrary } from '../stores/library.js';
 import { usePlaylists, userPlaylists } from '../stores/playlists.js';
@@ -161,7 +162,7 @@ function EditableCell({ value, display, onCommit }: EditableCellProps): React.JS
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') commit();
+        if (e.key === 'Enter' && !isComposingKey(e)) commit();
         else if (e.key === 'Escape') setDraft(null);
       }}
     />
