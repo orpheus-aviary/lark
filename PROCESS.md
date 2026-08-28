@@ -22,7 +22,7 @@
 
 **协议 `LOCAL_API_VERSION` 8 → 9**（`[desktop_lyrics]` 配置段 + `POST /download/batch` 的 `source` + 三个 `/download/history` 端点），**schema 仍是 v3，无 migration**。版本号十四处已抬（六个 manifest + 手机 manifest + 三个常量 + `app.config.ts` 的 version/versionCode + 协议号 + `accept-pack`）。
 
-**现在的位置**：P1–P10 十七次代码提交完毕，**桌面上手验收走到 §2.5（29 条里 28 条过）**，`just check` 绿（**十四条守卫**——IME 那条 + 桌面歌词窗禁拖拽区），`just test` **3543**（0.4.2 是 3415）。**没有跑过的**：五套 accept 套件、任何真机。
+**现在的位置**：P1–P10 十七次代码提交完毕，**桌面上手验收走到 §2.5（29 条里 28 条过）**，`just check` 绿（**十四条守卫**——IME 那条 + 桌面歌词窗禁拖拽区），`just test` **3547**（0.4.2 是 3415）。**没有跑过的**：五套 accept 套件、任何真机。
 
 🔴 **判据 19 红过一次，已修待复验**：桌面歌词窗整窗是 `-webkit-app-region: drag`，而拖拽区吞掉它自己那条控制条赖以出现的 hover ⇒ 控制条和把手一次都没出现过。改成 pointer 手动拖 + 把手自己 resize + 悬停画出窗口范围（用户提的），并因此多了第十四条守卫——**这件事没有任何测试看得见**（jsdom 不认识 `-webkit-app-region`，vitest 又把 CSS import 桩成空串，写出来的会是一条空判据）。逐条 → 子计划 §7 修订 1，现象与根因 → 验收清单 §4。
 

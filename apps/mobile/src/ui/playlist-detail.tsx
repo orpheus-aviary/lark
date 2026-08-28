@@ -330,6 +330,12 @@ export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void 
               </View>
               <Text style={styles.rowMeta} numberOfLines={1}>
                 {item.artist === '' ? '未知歌手' : item.artist}
+                {/* 🔴 THE SAME WORDS THE 歌曲 TAB USES. This screen draws its
+                    own row rather than `SongRow` (backlog C12), and the two
+                    drifted: a song synced from another device has its metadata
+                    and no audio, and in here nothing said so — the row looked
+                    exactly like a song that was ready to play. */}
+                {item.has_file === false ? ' · 需要下载' : ''}
               </Text>
             </Pressable>
             <Pressable
