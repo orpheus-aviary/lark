@@ -2,8 +2,14 @@
 // v0.2 T4, contents unchanged). Everything here edits the local draft — the
 // dialog's [保存] is the only writer.
 
-import type { LogLevel, PublicLarkConfig, ThemeMode } from '@lark/shared';
-import { LOG_LEVELS, THEME_MODES } from '@lark/shared';
+import type { DesktopLyricsPreset, LogLevel, PublicLarkConfig, ThemeMode } from '@lark/shared';
+import {
+  DESKTOP_LYRICS_BOUNDS,
+  DESKTOP_LYRICS_DEFAULT_BOUNDS,
+  DESKTOP_LYRICS_PRESETS,
+  LOG_LEVELS,
+  THEME_MODES,
+} from '@lark/shared';
 import { useMediaTools } from '../../stores/media-tools.js';
 import { Button } from '../ui/button.js';
 import { Checkbox } from '../ui/checkbox.js';
@@ -61,6 +67,14 @@ const CACHE_LIMITS = [
   { value: 10240, label: '10 GB' },
 ] as const;
 
+/** 四套配色的名字，和 `DESKTOP_LYRICS_PRESETS` 一一对应。 */
+const DESKTOP_LYRICS_PRESET_LABELS: Record<DesktopLyricsPreset, string> = {
+  classic: '经典',
+  night: '夜色',
+  warm: '暖阳',
+  plain: '素白',
+};
+
 interface GeneralTabProps {
   draft: Draft;
   config: PublicLarkConfig;
@@ -96,6 +110,120 @@ export function GeneralTab({
             </span>
           </span>
         </label>
+      </Section>
+
+      <Section title="桌面歌词" hint="悬在别的应用上面的一条歌词；改动和别处一样，点了保存才生效">
+        <label className="flex items-start gap-2 text-sm" htmlFor="desktop-lyrics-enabled">
+          <Checkbox
+            id="desktop-lyrics-enabled"
+            checked={draft.desktopLyricsEnabled}
+            onCheckedChange={(checked) => update({ desktopLyricsEnabled: checked === true })}
+          />
+          <span>
+            显示桌面歌词
+            <span className="block text-muted-foreground text-xs">
+              一个没有边框的悬浮窗，跟着当前播放的那一句走。没有歌词的歌显示歌名。
+            </span>
+          </span>
+        </label>
+
+        <Field label="行数" htmlFor="desktop-lyrics-lines" error={errorFor('desktop_lyrics.lines')}>
+          <Select
+            value={String(draft.desktopLyricsLines)}
+            onValueChange={(value) => update({ desktopLyricsLines: value === '2' ? 2 : 1 })}
+          >
+            <SelectTrigger id="desktop-lyrics-lines">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">一行</SelectItem>
+              <SelectItem value="2">两行（带下一句）</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <Field
+          label="字号"
+          htmlFor="desktop-lyrics-font"
+          hint={`${DESKTOP_LYRICS_BOUNDS.fontSize.min}–${DESKTOP_LYRICS_BOUNDS.fontSize.max}`}
+          error={errorFor('desktop_lyrics.font_size')}
+        >
+          <Input
+            id="desktop-lyrics-font"
+            type="number"
+            min={DESKTOP_LYRICS_BOUNDS.fontSize.min}
+            max={DESKTOP_LYRICS_BOUNDS.fontSize.max}
+            value={draft.desktopLyricsFontSize}
+            onChange={(e) => update({ desktopLyricsFontSize: e.target.value })}
+          />
+        </Field>
+
+        <Field
+          label="配色"
+          htmlFor="desktop-lyrics-preset"
+          hint="每套都有描边，才压得住底下的应用"
+          error={errorFor('desktop_lyrics.preset')}
+        >
+          <Select
+            value={draft.desktopLyricsPreset}
+            onValueChange={(value) => update({ desktopLyricsPreset: value as DesktopLyricsPreset })}
+          >
+            <SelectTrigger id="desktop-lyrics-preset">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DESKTOP_LYRICS_PRESETS.map((preset) => (
+                <SelectItem key={preset} value={preset}>
+                  {DESKTOP_LYRICS_PRESET_LABELS[preset]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+
+        {/* 🔴 The sentence the lock button already says, said again where it
+            is the ANSWER rather than the warning: this checkbox is the only
+            way back, because a locked window passes every click through to
+            whatever is behind it (macOS has no partial click-through). */}
+        <label className="flex items-start gap-2 text-sm" htmlFor="desktop-lyrics-locked">
+          <Checkbox
+            id="desktop-lyrics-locked"
+            checked={draft.desktopLyricsLocked}
+            onCheckedChange={(checked) => update({ desktopLyricsLocked: checked === true })}
+          />
+          <span>
+            锁定歌词窗
+            <span className="block text-muted-foreground text-xs">
+              锁定后点击会穿过它，落在下面的应用上——歌词窗自己也就点不到了。 这里是唯一的解锁开关。
+            </span>
+          </span>
+        </label>
+
+        {/* The other half of "the settings page is the way back": a window
+            dragged onto a display that is no longer attached is somewhere
+            nobody can reach, and its coordinates are the only thing that says
+            so. Editing them here goes through the draft like everything else
+            — the window normally writes them itself, as it is dragged. */}
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              update({
+                desktopLyricsX: String(DESKTOP_LYRICS_DEFAULT_BOUNDS.x),
+                desktopLyricsY: String(DESKTOP_LYRICS_DEFAULT_BOUNDS.y),
+                desktopLyricsWidth: String(DESKTOP_LYRICS_DEFAULT_BOUNDS.width),
+                desktopLyricsHeight: String(DESKTOP_LYRICS_DEFAULT_BOUNDS.height),
+              })
+            }
+          >
+            恢复默认位置
+          </Button>
+          <span className="text-muted-foreground text-xs">
+            {`当前 ${draft.desktopLyricsX}, ${draft.desktopLyricsY} · ${draft.desktopLyricsWidth}×${draft.desktopLyricsHeight}`}
+          </span>
+        </div>
       </Section>
 
       <Section title="LLM" hint="留空的字段会回退到 aviary 的共享配置">

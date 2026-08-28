@@ -20,6 +20,7 @@ import {
 import { dirname, join } from 'node:path';
 import {
   DESKTOP_LYRICS_BOUNDS,
+  DESKTOP_LYRICS_DEFAULT_BOUNDS,
   DESKTOP_LYRICS_PRESETS,
   type DesktopLyricsPreset,
   LLM_API_FORMATS,
@@ -68,10 +69,7 @@ export const DEFAULT_CONFIG: LarkConfig = {
     font_size: 32,
     preset: 'classic',
     locked: false,
-    x: 0,
-    y: 0,
-    width: 900,
-    height: 120,
+    ...DESKTOP_LYRICS_DEFAULT_BOUNDS,
   },
   sync: { interval_min: 5 },
 };

@@ -148,6 +148,16 @@ export const DESKTOP_LYRICS_BOUNDS = {
 } as const;
 
 /**
+ * Where the window starts, and where 「恢复默认位置」 puts it back.
+ *
+ * In shared rather than in core's `DEFAULT_CONFIG` alone because the settings
+ * page needs the same numbers: a window dragged onto a display that is no
+ * longer attached is somewhere nobody can reach, and this is the way back.
+ * `DEFAULT_CONFIG` spreads these, so there is one set of numbers.
+ */
+export const DESKTOP_LYRICS_DEFAULT_BOUNDS = { x: 0, y: 0, width: 900, height: 120 } as const;
+
+/**
  * The floating lyric window (0.5.0 ⑤).
  *
  * ALL OF IT IS CONFIG, geometry included, and that is the M4-12 / M5-2 line

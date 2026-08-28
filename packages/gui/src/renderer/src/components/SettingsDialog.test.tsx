@@ -178,6 +178,53 @@ describe('saving', () => {
     expect(patches()).toHaveLength(0);
   });
 
+  // ⑤ — every parameter of the floating window is readable and writable here,
+  // which is what makes this page the way back from a locked one.
+  it('writes a desktop-lyrics field like any other', async () => {
+    const user = await open();
+
+    await user.clear(screen.getByLabelText('字号'));
+    await user.type(screen.getByLabelText('字号'), '48');
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toEqual({ desktop_lyrics: { font_size: 48 } });
+  });
+
+  // 🔴 The only unlock in the app. A locked window passes every click through
+  // to whatever is behind it, so nothing ON it can offer this.
+  it('is the way back from a locked window', async () => {
+    config = publicConfig({
+      desktop_lyrics: { ...config.desktop_lyrics, enabled: true, locked: true },
+    });
+    useConfig.setState({ config });
+    const user = await open();
+
+    expect(screen.getByText(/这里是唯一的解锁开关/)).toBeDefined();
+    await user.click(screen.getByRole('checkbox', { name: /锁定歌词窗/ }));
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toEqual({ desktop_lyrics: { locked: false } });
+  });
+
+  // A window dragged onto a display that is no longer attached is somewhere
+  // nobody can reach; its coordinates are the only thing that says so.
+  it('puts a window nobody can reach back where it starts', async () => {
+    config = publicConfig({
+      desktop_lyrics: { ...config.desktop_lyrics, x: -4000, y: -2000 },
+    });
+    useConfig.setState({ config });
+    const user = await open();
+
+    expect(screen.getByText(/-4000, -2000/)).toBeDefined();
+    await user.click(screen.getByRole('button', { name: '恢复默认位置' }));
+    await user.click(screen.getByRole('button', { name: '保存' }));
+
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toEqual({ desktop_lyrics: { x: 0, y: 0 } });
+  });
+
   // The daemon answers `details.path`, so the page can mark the field without
   // parsing the English message (M5-20).
   it('marks the offending field from details.path and stays open', async () => {

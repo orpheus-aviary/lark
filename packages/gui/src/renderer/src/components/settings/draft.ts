@@ -8,7 +8,13 @@
 // key (R14). Leaving the field empty keeps whatever is stored; the explicit
 // [清除] button is the only way to remove it, and it sends `''`.
 
-import type { ConfigPatchRequest, LogLevel, PublicLarkConfig, ThemeMode } from '@lark/shared';
+import type {
+  ConfigPatchRequest,
+  DesktopLyricsPreset,
+  LogLevel,
+  PublicLarkConfig,
+  ThemeMode,
+} from '@lark/shared';
 
 /** Everything the form edits, as strings where the input is a text field. */
 export interface Draft {
@@ -24,6 +30,23 @@ export interface Draft {
   cacheLimitMb: number;
   /** Rule 3's second half (0.1.1 ⑥) — shared with the phone. */
   autoDownloadNext: boolean;
+  /**
+   * The floating lyric window (0.5.0 ⑤).
+   *
+   * ALL OF IT is here, geometry included, because the settings page is the
+   * only way back once the window is locked — a page that could not put it
+   * back where it belongs would leave somebody with a strip of text they can
+   * neither move nor reach.
+   */
+  desktopLyricsEnabled: boolean;
+  desktopLyricsLines: 1 | 2;
+  desktopLyricsFontSize: string;
+  desktopLyricsPreset: DesktopLyricsPreset;
+  desktopLyricsLocked: boolean;
+  desktopLyricsX: string;
+  desktopLyricsY: string;
+  desktopLyricsWidth: string;
+  desktopLyricsHeight: string;
   syncIntervalMin: number;
   windowWidth: string;
   windowHeight: string;
@@ -44,6 +67,15 @@ export function toDraft(config: PublicLarkConfig): Draft {
     lyricsFontSize: String(config.font.lyrics_font_size),
     cacheLimitMb: config.storage.cache_limit_mb,
     autoDownloadNext: config.playback.auto_download_next,
+    desktopLyricsEnabled: config.desktop_lyrics.enabled,
+    desktopLyricsLines: config.desktop_lyrics.lines,
+    desktopLyricsFontSize: String(config.desktop_lyrics.font_size),
+    desktopLyricsPreset: config.desktop_lyrics.preset,
+    desktopLyricsLocked: config.desktop_lyrics.locked,
+    desktopLyricsX: String(config.desktop_lyrics.x),
+    desktopLyricsY: String(config.desktop_lyrics.y),
+    desktopLyricsWidth: String(config.desktop_lyrics.width),
+    desktopLyricsHeight: String(config.desktop_lyrics.height),
     syncIntervalMin: config.sync.interval_min,
     windowWidth: String(config.window.width),
     windowHeight: String(config.window.height),
@@ -86,6 +118,24 @@ export function buildPatch(draft: Draft, config: PublicLarkConfig): ConfigPatchR
   if (draft.autoDownloadNext !== config.playback.auto_download_next) {
     patch.playback = { auto_download_next: draft.autoDownloadNext };
   }
+
+  const lyrics: NonNullable<ConfigPatchRequest['desktop_lyrics']> = {};
+  const dl = config.desktop_lyrics;
+  if (draft.desktopLyricsEnabled !== dl.enabled) lyrics.enabled = draft.desktopLyricsEnabled;
+  if (draft.desktopLyricsLines !== dl.lines) lyrics.lines = draft.desktopLyricsLines;
+  if (num(draft.desktopLyricsFontSize) !== dl.font_size) {
+    lyrics.font_size = num(draft.desktopLyricsFontSize);
+  }
+  if (draft.desktopLyricsPreset !== dl.preset) lyrics.preset = draft.desktopLyricsPreset;
+  if (draft.desktopLyricsLocked !== dl.locked) lyrics.locked = draft.desktopLyricsLocked;
+  // The geometry is normally the WINDOW's to write (it is dragged there), and
+  // it is in the draft for one reason: 「恢复默认位置」 is the only way back to
+  // a window that was dragged onto a display that is no longer attached.
+  if (num(draft.desktopLyricsX) !== dl.x) lyrics.x = num(draft.desktopLyricsX);
+  if (num(draft.desktopLyricsY) !== dl.y) lyrics.y = num(draft.desktopLyricsY);
+  if (num(draft.desktopLyricsWidth) !== dl.width) lyrics.width = num(draft.desktopLyricsWidth);
+  if (num(draft.desktopLyricsHeight) !== dl.height) lyrics.height = num(draft.desktopLyricsHeight);
+  if (Object.keys(lyrics).length > 0) patch.desktop_lyrics = lyrics;
 
   if (draft.syncIntervalMin !== config.sync.interval_min) {
     patch.sync = { interval_min: draft.syncIntervalMin };
