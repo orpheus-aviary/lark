@@ -65,7 +65,19 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     switch it cannot save. Same shape as 6: a client written against 8
  *     cannot use its own feature through one.
  */
-export const LOCAL_API_VERSION = 8;
+/*
+ *   9 → the download record and the desktop lyrics (0.5.0 ④⑤). Two widenings
+ *     and three new endpoints, and the download one is the harder of the two:
+ *     `POST /download/batch` groups may name the list they were picked out of,
+ *     and an 8 daemon answers `INVALID_BODY: unknown field: source` — which
+ *     refuses the WHOLE batch rather than degrading it. `GET /download/history`
+ *     and its two DELETEs do not exist there at all, so a client written
+ *     against 9 shows an empty record and cannot clear one. And `[desktop_lyrics]`
+ *     repeats 8's own shape exactly: an 8 daemon answers `INVALID_CONFIG:
+ *     unknown config section`, so the settings page would offer a window it
+ *     cannot save.
+ */
+export const LOCAL_API_VERSION = 9;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {
