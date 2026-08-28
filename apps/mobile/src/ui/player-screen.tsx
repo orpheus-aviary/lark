@@ -333,17 +333,36 @@ function Lyrics({
           setCentre(lineAtCentre(tops.current, event.nativeEvent.contentOffset.y, height));
         }}
       >
-        {lines.map((line, i) => (
-          <Text
-            key={`${line.time}-${i}`}
-            style={[styles.lyricLine, i === index && styles.lyricCurrent]}
-            onLayout={(event) => {
-              tops.current[i] = event.nativeEvent.layout.y;
-            }}
-          >
-            {line.text === '' ? '·' : line.text}
-          </Text>
-        ))}
+        {lines.map((line, i) => {
+          // The line the rule is lying across: the one a tap would jump to.
+          const pending = manual && i === centre;
+          return (
+            <Text
+              key={`${line.time}-${i}`}
+              style={[
+                styles.lyricLine,
+                i === index && styles.lyricCurrent,
+                pending && styles.lyricPending,
+              ]}
+              onLayout={(event) => {
+                tops.current[i] = event.nativeEvent.layout.y;
+              }}
+              // 🔴 THE WHOLE LINE IS THE TARGET, not just the triangle on the
+              // rule (user's ask). The rule already says WHICH line, so the
+              // 32px button was a small answer to a question already settled —
+              // it stays because it is what says the row can be tapped at all.
+              // Only the pending line takes a press: any other row would jump
+              // somewhere the rule is not pointing, and a tap that lands while
+              // a scroll is settling is far more likely to be a stop than a
+              // choice.
+              onPress={pending ? () => void seekToCentre(i) : undefined}
+              accessibilityRole={pending ? 'button' : undefined}
+              accessibilityLabel={pending ? '跳到这一句' : undefined}
+            >
+              {line.text === '' ? '·' : line.text}
+            </Text>
+          );
+        })}
       </ScrollView>
 
       {/* `box-none` all the way down: the rule lies across the list, and
@@ -390,6 +409,11 @@ const styles = StyleSheet.create({
   centreSeek: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   lyricLine: { color: C.faint, fontSize: 15, lineHeight: LYRIC_LINE_HEIGHT, textAlign: 'center' },
   lyricCurrent: { color: C.active, fontSize: 17 },
+  // Bold and brought forward, and NOT the amber: the amber means "this is
+  // sounding". This one means "this is where you would land", and while a
+  // finger is on the list those are two different lines — including the moment
+  // they are the same line, when the difference is the whole answer.
+  lyricPending: { color: C.text, fontWeight: '700' },
   noLyrics: { color: C.faint, fontSize: 14, textAlign: 'center', paddingVertical: 24 },
   offset: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
   offsetButton: { width: 44, height: 36, alignItems: 'center', justifyContent: 'center' },
