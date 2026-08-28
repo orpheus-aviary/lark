@@ -129,6 +129,14 @@ describe('following the song, or the finger', () => {
     expect(settled(FOLLOWING, 1000)).toBe(FOLLOWING);
   });
 
+  // A flick reports twice: the finger lifting, then the list coming to rest.
+  it('starts the wait when the list stops, not when the finger lifts', () => {
+    const lifted = settled(onDragBegin(), 1000);
+    const stopped = settled(lifted, 1800);
+    expect(onTick(stopped, 1000 + FOLLOW_RESUME_MS).kind).toBe('settling');
+    expect(onTick(stopped, 1800 + FOLLOW_RESUME_MS).kind).toBe('follow');
+  });
+
   it('keeps waiting from the LAST settle, not the first', () => {
     const first = settled(onDragBegin(), 1000);
     const second = settled(onDragBegin(), 2000);

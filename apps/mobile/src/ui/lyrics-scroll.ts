@@ -120,13 +120,18 @@ export function onDragBegin(): FollowState {
 /**
  * The list stopped moving.
  *
- * 🔴 ONLY A DRAG SETTLES. An animated `scrollTo` ends in a momentum event too,
- * so a machine that took every one of them would drop into `settling` every
- * time the song moved to the next line — putting the seek indicator on screen
- * for three seconds at a time, with nobody having touched anything.
+ * 🔴 A LIST THAT IS FOLLOWING NEVER SETTLES. An animated `scrollTo` ends in a
+ * momentum event too, so a machine that took every one of them would drop into
+ * `settling` every time the song moved to the next line — putting the seek
+ * indicator on screen for three seconds at a time, with nobody having touched
+ * anything.
+ *
+ * Every other state does, including `settling` itself: a flick fires the end
+ * of the DRAG when the finger lifts and the end of the MOMENTUM when the list
+ * finally stops, and the wait is meant to start from the second one.
  */
 export function onScrollSettled(state: FollowState, now: number): FollowState {
-  if (state.kind !== 'dragging') return state;
+  if (state.kind === 'follow') return state;
   return { kind: 'settling', until: now + FOLLOW_RESUME_MS };
 }
 

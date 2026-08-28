@@ -29,9 +29,21 @@ import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { player, usePlayback } from '../player';
 import { useLibrary } from './library-context';
-import { LYRIC_LINE_HEIGHT, lyricsPadding, targetOffset } from './lyrics-scroll';
+import {
+  FOLLOWING,
+  type FollowState,
+  LYRIC_LINE_HEIGHT,
+  isFollowing,
+  lineAtCentre,
+  lyricsPadding,
+  onDragBegin,
+  onScrollSettled,
+  onSeek,
+  onTick,
+  targetOffset,
+} from './lyrics-scroll';
 import { skip } from './minibar';
-import { Progress } from './progress';
+import { Progress, clock } from './progress';
 import { C, S } from './theme';
 
 /** The desktop's step, so a song nudged on one end reads the same on the other. */
@@ -74,7 +86,7 @@ export function PlayerScreen({ onClose, onQueue }: { onClose: () => void; onQueu
           {artist === '' ? '未知歌手' : artist}
         </Text>
 
-        <Lyrics lines={lyrics} index={index} />
+        <Lyrics lines={lyrics} index={index} offset={offset} />
 
         {/* Only where there is something to shift. The desktop shows this row
             whatever the song has, but it lives in a fixed-height strip beside
@@ -190,7 +202,7 @@ async function back(): Promise<void> {
 }
 
 /**
- * The lyric list, following the line that is playing.
+ * The lyric list, following the line that is playing — or the finger (⑦).
  *
  * Positions are MEASURED rather than computed from a line height: a long line
  * wraps, and a scroll offset built out of `index * 30` walks further away from
@@ -198,15 +210,35 @@ async function back(): Promise<void> {
  * each line, and `lyrics-scroll.ts` turns it into an offset that puts that
  * line in the MIDDLE of the screen — which the last line could not reach until
  * the padding below it did (⑥).
+ *
+ * Scrolling it by hand hands the list over: a rule appears across the middle
+ * naming the line under it, tapping the triangle seeks there, and letting go
+ * gives the song the list back a few seconds later. The shape is the one every
+ * player on this phone already uses; what is ours is that the playing line
+ * STAYS highlighted underneath, because the rule answers a different question.
+ *
+ * It stays a `ScrollView` rather than becoming a `FlatList`: lyrics are rarely
+ * two hundred lines, and the `onLayout` measurement above — the whole reason
+ * wrapped lines land correctly — does not exist for rows a list has recycled.
  */
 function Lyrics({
   lines,
   index,
-}: { lines: readonly { time: number; text: string }[]; index: number }) {
+  offset,
+}: {
+  lines: readonly { time: number; text: string }[];
+  index: number;
+  /** `lyrics_offset`: the display leads the audio by this much. */
+  offset: number;
+}) {
   const scroller = useRef<ScrollView | null>(null);
   const tops = useRef<number[]>([]);
   const measuredFor = useRef(lines);
   const [height, setHeight] = useState(0);
+  const [follow, setFollow] = useState<FollowState>(FOLLOWING);
+  /** Which line the rule is on. Only read while the finger has the list. */
+  const [centre, setCentre] = useState<number | null>(null);
+  const manual = !isFollowing(follow);
 
   // ONE effect, so which of the two things happens first is written down
   // rather than left to the order they were declared in.
@@ -224,6 +256,10 @@ function Lyrics({
       scroller.current?.scrollTo({ y: 0, animated: false });
       return;
     }
+    // The list belongs to whoever is holding it. This is also what brings it
+    // back: `follow` returning to `follow` re-runs the effect, and the scroll
+    // to the playing line IS the return.
+    if (!isFollowing(follow)) return;
     const y = targetOffset({
       tops: tops.current,
       index,
@@ -232,7 +268,33 @@ function Lyrics({
     });
     if (y === null) return;
     scroller.current?.scrollTo({ y, animated: true });
-  }, [lines, index, height]);
+  }, [lines, index, height, follow]);
+
+  // 🔵 A JS TIMER, AND THAT IS CORRECT HERE. The guard that bans them covers
+  // `src/player/`, and its question is "is this wait still meaningful with the
+  // screen off" — nobody is reading lyrics behind a dark screen, so the answer
+  // is no. Same reasoning that DELETED N4f-2's grace period rather than moving
+  // it to native: a wait nobody is waiting for does not need to survive.
+  useEffect(() => {
+    if (follow.kind !== 'settling') return;
+    const timer = setTimeout(
+      () => setFollow((state) => onTick(state, Date.now())),
+      Math.max(0, follow.until - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [follow]);
+
+  /** The tapped line becomes the playing line, and the song has the list back. */
+  const seekToCentre = async (line: number): Promise<void> => {
+    const target = lines[line];
+    if (target === undefined) return;
+    // `currentLrcIndex` compares `time + offset`, so going the other way is a
+    // subtraction. Awaited before following again: the store writes the new
+    // position as part of the seek, so by then `index` is the line that was
+    // tapped and the list scrolls there once instead of going back first.
+    await player.seek(Math.max(0, target.time - offset));
+    setFollow(onSeek());
+  };
 
   if (lines.length === 0) {
     return (
@@ -243,28 +305,68 @@ function Lyrics({
   }
 
   return (
-    <ScrollView
-      ref={scroller}
-      style={styles.lyrics}
-      contentContainerStyle={lyricsPadding(height, LYRIC_LINE_HEIGHT)}
-      // Android-only, and the point of it: the bar is a POSITION indicator on
-      // a screen whose text is scrolling itself. One that appears only while a
-      // finger is down tells you where you are exactly when you already know.
-      persistentScrollbar
-      onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
-    >
-      {lines.map((line, i) => (
-        <Text
-          key={`${line.time}-${i}`}
-          style={[styles.lyricLine, i === index && styles.lyricCurrent]}
-          onLayout={(event) => {
-            tops.current[i] = event.nativeEvent.layout.y;
-          }}
-        >
-          {line.text === '' ? '·' : line.text}
-        </Text>
-      ))}
-    </ScrollView>
+    <View style={styles.lyrics}>
+      <ScrollView
+        ref={scroller}
+        style={styles.lyricsScroll}
+        contentContainerStyle={lyricsPadding(height, LYRIC_LINE_HEIGHT)}
+        // Android-only, and the point of it: the bar is a POSITION indicator on
+        // a screen whose text is scrolling itself. One that appears only while a
+        // finger is down tells you where you are exactly when you already know.
+        persistentScrollbar
+        onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
+        onScrollBeginDrag={() => {
+          // Dropped rather than kept: it names a line from where the list was
+          // the LAST time a finger was on it, and one frame of the wrong
+          // timestamp is worse than one frame of nothing.
+          setCentre(null);
+          setFollow(onDragBegin());
+        }}
+        onScrollEndDrag={() => setFollow((state) => onScrollSettled(state, Date.now()))}
+        onMomentumScrollEnd={() => setFollow((state) => onScrollSettled(state, Date.now()))}
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          // Every frame of a drag, and none of a scroll the song asked for —
+          // the rule is not on screen then, and this would be a re-render per
+          // frame of every automatic scroll.
+          if (!manual) return;
+          setCentre(lineAtCentre(tops.current, event.nativeEvent.contentOffset.y, height));
+        }}
+      >
+        {lines.map((line, i) => (
+          <Text
+            key={`${line.time}-${i}`}
+            style={[styles.lyricLine, i === index && styles.lyricCurrent]}
+            onLayout={(event) => {
+              tops.current[i] = event.nativeEvent.layout.y;
+            }}
+          >
+            {line.text === '' ? '·' : line.text}
+          </Text>
+        ))}
+      </ScrollView>
+
+      {/* `box-none` all the way down: the rule lies across the list, and
+          everything but the triangle has to let a drag through to it. */}
+      {manual && centre !== null && lines[centre] !== undefined && (
+        <View style={styles.centre} pointerEvents="box-none">
+          <View style={styles.centreRow} pointerEvents="box-none">
+            <Text style={styles.centreTime}>
+              {clock(Math.max(0, (lines[centre]?.time ?? 0) - offset))}
+            </Text>
+            <View style={styles.centreRule} />
+            <Pressable
+              style={styles.centreSeek}
+              onPress={() => void seekToCentre(centre)}
+              accessibilityRole="button"
+              accessibilityLabel="跳到这一句"
+            >
+              <Play size={16} color={C.text} fill={C.text} />
+            </Pressable>
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -275,6 +377,17 @@ const styles = StyleSheet.create({
   name: { color: C.text, fontSize: 20, marginTop: 8 },
   artist: { color: C.faint, fontSize: 13, marginTop: 4 },
   lyrics: { flex: 1, marginTop: 16 },
+  lyricsScroll: { flex: 1 },
+  centre: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, justifyContent: 'center' },
+  centreRow: { flexDirection: 'row', alignItems: 'center', gap: S.gap },
+  centreTime: { color: C.muted, fontSize: 11, width: 34 },
+  centreRule: {
+    flex: 1,
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: C.border,
+  },
+  centreSeek: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
   lyricLine: { color: C.faint, fontSize: 15, lineHeight: LYRIC_LINE_HEIGHT, textAlign: 'center' },
   lyricCurrent: { color: C.active, fontSize: 17 },
   noLyrics: { color: C.faint, fontSize: 14, textAlign: 'center', paddingVertical: 24 },
