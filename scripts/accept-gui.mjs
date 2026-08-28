@@ -392,26 +392,116 @@ try {
   // the position never dropped — and a single seek fired here lands inside
   // that window and answers 409 GUI_OFFLINE. That measures how fast a
   // reconnect happens to be, not what this criterion is about, which is that
-  // the rotated token reaches a GUI and moves it. So: retry while the answer
-  // is "nobody is listening yet", and fail if that is still the answer 20
-  // seconds later.
+  // the rotated token reaches a GUI and moves it. So: retry rather than fire
+  // once.
+  //
+  // 🔴 AND A 200 IS NOT THE END OF IT EITHER (0.5.1). Stopping at the first
+  // non-409 answer measured a SECOND race and lost it: the command channel
+  // re-registers as soon as the GUI reconnects, which can be BEFORE the
+  // remounted element fires `loadedmetadata` — and `player/recovery.ts:70`
+  // then writes the saved position over whatever the seek had just set. The
+  // observed shape is `200 t=1129.9`: accepted, applied, and undone, where
+  // 1129.9 is the pre-restart 1127.0 plus the wait. So the loop now retries
+  // until the position has actually MOVED, which is what this criterion says
+  // it is about, bounded at 15 attempts (~37s). It still goes red if the seek
+  // never lands — that was verified by watching it fail this way twice before
+  // the retry existed.
+  //
+  // (That recovery clobbers an accepted seek is a real, narrow product wart in
+  // its own right — the daemon answered 200 for something that silently did
+  // not happen. It is written down in the backlog, not fixed in a hotfix.)
   let seekAfter = null;
-  for (let i = 0; i < 20; i++) {
+  let afterSeek = null;
+  const landed = () => seekAfter?.status === 200 && Math.abs(afterSeek?.time - 900) < 30;
+  for (let i = 0; i < 15; i++) {
     seekAfter = await fetch(`${DAEMON_URL}/player/seek`, {
       method: 'POST',
       headers: { ...newAuth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ position: 900 }),
     });
-    if (seekAfter.status !== 409) break;
-    await sleep(1000);
+    await sleep(2500);
+    afterSeek = await cdp.evaluate(audioState);
+    if (landed()) break;
   }
-  await sleep(3000);
-  const afterSeek = await cdp.evaluate(audioState);
   check(
     '6 · a seek after the restart is served on the new generation',
-    seekAfter.status === 200 && Math.abs(afterSeek.time - 900) < 30,
+    landed(),
     `${seekAfter.status} t=${afterSeek.time?.toFixed(1)}`,
   );
+
+  // ── 7 · the lyric window must not demote the whole process (0.5.1 §1) ──
+  //
+  // 🔴 WHY A SUITE ABOUT AUDIO LOOKS AT AN APPLICATION TYPE. 0.5.0 shipped
+  // `setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })`, which
+  // additionally runs `TransformProcessType(…UIElementApplication)` on the GUI
+  // PROCESS: no dock icon, no menu bar, no Cmd+Q, while the app kept playing
+  // and every one of the 129 criteria stayed green — none of them had ever
+  // looked at the process. `lsappinfo` answers from outside it, which is the
+  // only vantage point this harness has: `app.dock.isVisible()` lives in the
+  // main process and CDP only reaches renderers.
+  //
+  // 🔴 IT ASSERTS A LYRIC WINDOW IS ACTUALLY THERE, FIRST. A publish that
+  // quietly went nowhere would leave the process a foreground app for the
+  // boring reason, and the assertion below would be green while measuring
+  // nothing. Note what that check does and does not say: the copied nest may
+  // already have `desktop_lyrics.enabled = true` (MEASURED — the library this
+  // suite copies did), in which case the window was opened at GUI startup and
+  // the publish below only re-applied it. Either way what the next check needs
+  // is "a lyric window exists", which is exactly what this asserts.
+  //
+  // WHAT IT DOES NOT SAY: the window is opened through the preload bridge, not
+  // through the settings page, so this is silent on whether a person can reach
+  // the feature. That half is `docs/plans/2026-08-28-manual-check.md`.
+  const appType = (pid) =>
+    (
+      spawnSync('lsappinfo', ['info', '-only', 'ApplicationType', String(pid)], {
+        encoding: 'utf8',
+      }).stdout ?? ''
+    ).trim();
+
+  const typeBefore = appType(gui.pid);
+  // `newAuth`, NOT the `api` helper: criterion 6 restarted the daemon and
+  // rotated the token, and `api` closes over the old one — reading `/config`
+  // through it answers 401 and `data` is undefined.
+  const liveConfig = (await (await fetch(`${DAEMON_URL}/config`, { headers: newAuth })).json())
+    ?.data;
+  check(
+    '7 · the live config was readable (this criterion needs it)',
+    liveConfig?.desktop_lyrics !== undefined,
+    liveConfig === undefined ? 'no data in the response' : Object.keys(liveConfig).join(','),
+  );
+  const lyricsMessage = {
+    config: { ...(liveConfig?.desktop_lyrics ?? {}), enabled: true },
+    song: { name: 'fixture', artist: 'accept-gui' },
+    lyrics: [],
+    index: -1,
+    playing: false,
+  };
+  await cdp.evaluate(`window.larkAPI.publishDesktopLyrics(${JSON.stringify(lyricsMessage)})`);
+  await sleep(2500);
+
+  const targets = await (await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`)).json();
+  const lyricsWindowOpen = targets.some(
+    (t) => t.type === 'page' && typeof t.url === 'string' && t.url.includes('lyrics.html'),
+  );
+  check(
+    '7 · a lyric window is open',
+    lyricsWindowOpen,
+    targets.map((t) => `${t.type}:${(t.url ?? '').split('/').pop()}`).join(' '),
+  );
+
+  const typeWithLyrics = appType(gui.pid);
+  check(
+    '7 · the open lyric window left the GUI a foreground app',
+    typeBefore.includes('Foreground') && typeWithLyrics.includes('Foreground'),
+    `before ${typeBefore || '(nothing)'} → with lyrics ${typeWithLyrics || '(nothing)'}`,
+  );
+
+  // Put it back the way it was found, so the teardown below closes one window.
+  await cdp.evaluate(
+    `window.larkAPI.publishDesktopLyrics(${JSON.stringify({ ...lyricsMessage, config: { ...lyricsMessage.config, enabled: false } })})`,
+  );
+  await sleep(1000);
 
   // ── what T4 could not reach: a quit GUI answers 409 ──
   console.log('[6/6] quitting the GUI…');

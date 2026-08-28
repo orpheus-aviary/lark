@@ -40,6 +40,8 @@
 - **C11 · 移动端选择态脚手架在两个屏幕上重复** —— `songs-tab.tsx` 与 `playlist-detail.tsx` 各有一份 `rows / picked / leaveSelection / useBack(BACK.selection)`（0.1.1 P1 拆分之后才看得见，十行逐字相同）。抽成一个 hook 是对的，**但没在发版前动**：这两块只有 tsc 和真机验得到，而真机刚验过的就是要发出去的那份产物。下一批 UI 工作顺手做。
 - **C12 · 三份 StyleSheet 抄着同一批样式** —— `settings-tab.tsx` / `sync-section.tsx` / `edit-link.tsx` 各有一份 `input` / `button` / `field` / `note`（约二十行逐字相同），`playlist-detail.tsx` 与 `playlists-tab.tsx` 之间还有一份 `newButton`。延后的理由同 C11，做的时候一起做。
 
+- **C13 · 恢复会盖掉一个已经被接受的 seek**（0.5.1 取证时翻出来的）—— daemon 重启后，GUI 的 SSE 命令通道**重新注册得比 `loadedmetadata` 早**，于是 `POST /player/seek` 答 200、位置也确实被设了，紧接着 `player/recovery.ts:70` 无条件写回重启前保存的位置，把它盖掉。**用户看到的是：命令被接受了，但什么都没发生。** 窗口很窄（daemon 重启后的几秒），所以不在热修里动；真要修是让恢复知道「有没有更新的 seek 发生过」，而不是无条件还原。`accept-gui` 判据 6 现在用有界重试跨过这个窗口——**判据不再红了，但产品的这个洞还在**。
+
 ## D. 首发之后
 
 - **D1 · 桌面下一版** —— ✅ **完成 2026-08-27**（0.4.0 发了 N1/N4/N5/N7 那批，0.4.1 发了 0.1.1 的桌面另一半，两次都走九步、都复跑五套 accept）。原文： N1 的 portable 重构、N4/N5/N7 的桌面改动都还没随任何一个桌面版本发出去。发时走 `docs/history/v0.1.0-shipped.md` 记的那条九步发版链路。
