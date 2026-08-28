@@ -35,12 +35,16 @@ import {
   DOWNLOAD_BATCH_ITEMS_MAX,
   DOWNLOAD_BATCH_KEYWORD_MAX,
   DOWNLOAD_INPUT_MAX,
+  DOWNLOAD_LIST_KINDS,
   DOWNLOAD_NAMING_MODES,
   DOWNLOAD_PARSE_LINES_MAX,
   DOWNLOAD_PLAYLIST_NAME_MAX,
+  DOWNLOAD_SOURCE_TITLE_MAX,
+  DOWNLOAD_SOURCE_URL_MAX,
   type DownloadBatchGroupInput,
   type DownloadBatchItemInput,
   type DownloadCancelAllData,
+  type DownloadListKind,
   type DownloadNamingMode,
   type DownloadTaskAcceptedData,
   type FetchListRequest,
@@ -283,7 +287,7 @@ function readBatchGroups(raw: unknown): DownloadBatchGroupInput[] {
   let total = 0;
   const out: DownloadBatchGroupInput[] = [];
   for (const entry of groups) {
-    const group = objectBody(entry, ['target', 'items']);
+    const group = objectBody(entry, ['target', 'items', 'source']);
     const items = group.items;
     if (!Array.isArray(items) || items.length === 0) {
       throw new InvalidRequestError('INVALID_BODY', 'each group needs a non-empty items array');
@@ -292,12 +296,43 @@ function readBatchGroups(raw: unknown): DownloadBatchGroupInput[] {
     if (total > BATCH_ITEMS_MAX) {
       throw new InvalidRequestError('INVALID_BODY', `at most ${BATCH_ITEMS_MAX} items per request`);
     }
+    const source = readGroupSource(group.source);
     out.push({
       target: requiredTarget(group.target, PLAYLIST_NAME_MAX),
       items: items.map(readItem),
+      ...(source === undefined ? {} : { source }),
     });
   }
   return out;
+}
+
+/**
+ * The list a group came from, when it came from one (④).
+ *
+ * ABSENT IS LEGAL, and that is the shape rather than a leniency: a group of
+ * pasted links or keywords has no list identity, and every client sends those.
+ * Present-but-wrong is a 400 like any other body — this string is copied onto
+ * every task in the group and then repeated in a download record for as long
+ * as somebody keeps it, so it is not a field to be relaxed about.
+ */
+function readGroupSource(raw: unknown): DownloadBatchGroupInput['source'] {
+  if (raw === undefined || raw === null) return undefined;
+  const source = objectBody(raw, ['list', 'title', 'url']);
+  // Checked here rather than through `optionalEnum`, whose message names the
+  // key alone — and this body has other `kind`-ish fields to confuse it with.
+  // A 400 is only useful if it says WHICH one.
+  const list = source.list;
+  if (!DOWNLOAD_LIST_KINDS.includes(list as DownloadListKind)) {
+    throw new InvalidRequestError(
+      'INVALID_BODY',
+      `source.list must be one of: ${DOWNLOAD_LIST_KINDS.join(', ')}`,
+    );
+  }
+  return {
+    list: list as DownloadListKind,
+    title: requiredString(source, 'title', { maxLength: DOWNLOAD_SOURCE_TITLE_MAX }),
+    url: requiredString(source, 'url', { maxLength: DOWNLOAD_SOURCE_URL_MAX }),
+  };
 }
 
 function readItem(raw: unknown): DownloadBatchItemInput {

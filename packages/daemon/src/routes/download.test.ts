@@ -333,6 +333,75 @@ describe('POST /download/batch', () => {
     expect(events.filter((e) => e.type === 'download:batches-changed')).toHaveLength(1);
   });
 
+  // ④ — the list a group came from. Absent is legal (every client sends
+  // groups of pasted links), present-but-wrong is a 400 like any other body.
+  it('carries the list a group was picked out of', async () => {
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        {
+          target: { kind: 'all' },
+          source: {
+            list: 'collection',
+            title: '华语经典',
+            url: 'https://space.bilibili.com/1/lists/9',
+          },
+          items: [videoItem(2)],
+        },
+      ],
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(ctx.downloads.snapshot().tasks[0]?.origin).toEqual({
+      kind: 'list',
+      list: 'collection',
+      title: '华语经典',
+      url: 'https://space.bilibili.com/1/lists/9',
+      video_url: `${VIDEO_URL}?p=2`,
+      index: 1,
+      total: 1,
+    });
+  });
+
+  it('takes a group with no source at all', async () => {
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [{ target: { kind: 'all' }, items: [videoItem(1)] }],
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('refuses a source that is not one of the two kinds of list', async () => {
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        {
+          target: { kind: 'all' },
+          source: { list: 'playlist', title: 'x', url: 'https://x' },
+          items: [videoItem(1)],
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).message).toContain('source.list');
+  });
+
+  it('refuses a source carrying a field nobody reads', async () => {
+    const res = await post(API_PATHS.downloadBatch, {
+      groups: [
+        {
+          target: { kind: 'all' },
+          source: {
+            list: 'favorites',
+            title: 'x',
+            url: 'https://x',
+            media_id: '1',
+          },
+          items: [videoItem(1)],
+        },
+      ],
+    });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).message).toContain('media_id');
+  });
+
   it('refuses a keyword item with no LLM — no network needed to know', async () => {
     const before = upstream.requests.length;
     const res = await post(API_PATHS.downloadBatch, {

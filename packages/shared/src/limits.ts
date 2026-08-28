@@ -31,6 +31,14 @@ export const DOWNLOAD_BATCH_KEYWORD_MAX = 500;
 export const DOWNLOAD_PLAYLIST_NAME_MAX = 200;
 
 /**
+ * The list a batch group came from (0.5.0 ④). Bounded like everything else on
+ * the wire, and for one extra reason: it is copied onto every task of the
+ * group and repeated in a download record for as long as that record is kept.
+ */
+export const DOWNLOAD_SOURCE_TITLE_MAX = 500;
+export const DOWNLOAD_SOURCE_URL_MAX = 2048;
+
+/**
  * Pages walked while expanding a favourites folder / collection. A 953-item
  * folder needs 48 pages, so the original 50 sat right on top of a real
  * library; 200 pages is ~12s of sequential requests (M3 acceptance).

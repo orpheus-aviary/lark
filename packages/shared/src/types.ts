@@ -708,6 +708,13 @@ export type DownloadTaskInput =
   | { type: 'song'; song_id: string };
 
 /**
+ * The two things a batch can be picked out of. A named domain because the
+ * daemon validates against it and both origins carry it (0.5.0 ④).
+ */
+export const DOWNLOAD_LIST_KINDS = ['favorites', 'collection'] as const;
+export type DownloadListKind = (typeof DOWNLOAD_LIST_KINDS)[number];
+
+/**
  * Where a download was asked for (0.5.0 ④). SEPARATE FROM `DownloadTaskInput`,
  * which is what to fetch: a video queued from a collection and the same video
  * queued from a pasted link fetch the identical thing, and the whole question
@@ -732,7 +739,7 @@ export type DownloadOrigin =
    */
   | {
       kind: 'list';
-      list: 'favorites' | 'collection';
+      list: DownloadListKind;
       title: string;
       url: string;
       video_url: string;
@@ -861,7 +868,7 @@ export interface DownloadBatchGroupInput {
    * those have no list identity, and inventing one would be a lie the download
    * record then repeats forever.
    */
-  source?: { list: 'favorites' | 'collection'; title: string; url: string };
+  source?: { list: DownloadListKind; title: string; url: string };
 }
 
 /** `POST /download/batch` body. Every group commits, or none does (M3-5). */
