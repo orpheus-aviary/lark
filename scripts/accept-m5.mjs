@@ -211,6 +211,14 @@ try {
   const pinTarget = imported[0];
   await api('PUT', `/songs/${pinTarget.id}/pin`, { pinned: true });
 
+  // 🔴 THE SUITE GIVES THE LIMIT IT THEN ASSERTS ON. This used to read the
+  // copied config and require it to say 0 — which is an assertion about the
+  // machine it ran on, not about the product: the day the person running it
+  // had set a 5 GiB cap in their own settings, the criterion went red and the
+  // daemon had done nothing wrong. Same trap accept-gui's criterion 6 had
+  // (0.4.1): the environment is not the contract.
+  await api('PATCH', '/config', { storage: { cache_limit_mb: 0 } });
+
   const before = await data('GET', '/cache/status');
   check(
     'status counts every file and reports the limit it was given',

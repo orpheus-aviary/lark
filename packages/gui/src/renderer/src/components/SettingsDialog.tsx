@@ -28,7 +28,14 @@ import { type SettingsTab, useSettingsUi } from '../stores/settings-ui.js';
 import { useSync } from '../stores/sync.js';
 import { GeneralTab } from './settings/GeneralTab.js';
 import { SyncTab } from './settings/SyncTab.js';
-import { type Draft, buildPatch, followConfig, previewFrom, toDraft } from './settings/draft.js';
+import {
+  type Draft,
+  type TouchedFields,
+  buildPatch,
+  followConfig,
+  previewFrom,
+  toDraft,
+} from './settings/draft.js';
 import { Button } from './ui/button.js';
 import {
   Dialog,
@@ -66,7 +73,7 @@ export function SettingsDialog(): React.JSX.Element {
    * that came of asking "what differs from the config" instead — and the
    * lyric window previews these and nothing else.
    */
-  const [touched, setTouched] = useState<ReadonlySet<keyof Draft>>(() => new Set());
+  const [touched, setTouched] = useState<TouchedFields>(() => new Set());
   const [saving, setSaving] = useState(false);
   /** Field path → message, straight from the daemon's `details.path` (M5-20). */
   const [fieldError, setFieldError] = useState<{ path: string; message: string } | null>(null);
