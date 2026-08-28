@@ -3,7 +3,7 @@
 // boot/server/core (and better-sqlite3) — so nothing else may live here.
 
 /** Daemon package version — reported by `GET /status` and `--version`. Display only. */
-export const DAEMON_VERSION = '0.5.0';
+export const DAEMON_VERSION = '0.5.1';
 
 // The protocol gate moved into the wire contract in M6 (the CLI compares it
 // too, and must not depend on this package). Re-exported here so the GUI's

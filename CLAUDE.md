@@ -27,12 +27,12 @@ scripts/           # 验收套件、依赖方向守卫、设备驱动
 ```
 
 **依赖方向**：`shared ← core ← daemon ← gui`；`cli → shared + core`；`mobile → portable + shared + skybridge SDK`。
-**十四条守卫进 `just check`**（分层 · portable 零宿主 · 移动端 import · Metro bundle smoke · 原生模块接线 · 播放链路禁 JS 定时器 · 图标资产 · 工作区收口 · 日志卫生 · 渲染进程 Enter 问输入法 · 桌面歌词窗禁拖拽区），逐条见 `docs/INVARIANTS.md` §2。
+**十五条守卫进 `just check`**（分层 · portable 零宿主 · 移动端 import · Metro bundle smoke · 原生模块接线 · 播放链路禁 JS 定时器 · 图标资产 · 工作区收口 · 日志卫生 · 渲染进程 Enter 问输入法 · 桌面歌词窗禁拖拽区 · 桌面歌词窗不许降级整个进程），逐条见 `docs/INVARIANTS.md` §2。
 
 ## 开发命令
 
 ```bash
-just check          # lint + typecheck + 十四条守卫（含 bundle smoke）
+just check          # lint + typecheck + 十五条守卫（含 bundle smoke）
 just test           # 全部测试
 just dev-daemon     # 起 dev daemon
 just cli <args>     # = 对外的 lark
@@ -41,7 +41,7 @@ just mobile-android-release     # 构建 release APK 并 adb 装到冻结设备
 tokei               # 业务代码行数（口径见 .tokeignore）
 ```
 
-验收套件（发版门禁）：`accept-gui` 15 · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` **29**（0.5.0 加了「两个 renderer 入口都进包」——桌面歌词是第二个入口，少打包它只有产物看得见）。
+验收套件（发版门禁）：`accept-gui` **18** · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` 29（0.5.0 加了「两个 renderer 入口都进包」；**0.5.1 加了「开着歌词窗的 GUI 仍是 Foreground 应用」**——那次降级的是进程，源码守卫答不了 Electron 换行为）。
 
 ## 注意事项
 
