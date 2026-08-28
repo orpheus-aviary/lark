@@ -16,11 +16,13 @@ import {
   KIND_LABELS,
   batchProgress,
   inputLabel,
+  originCopyText,
+  originLabel,
   taskDescription,
   taskLabel,
   taskTitle,
 } from '@lark/shared';
-import { X } from 'lucide-react';
+import { Copy, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
 import { useDownloads } from '../stores/download.js';
@@ -106,9 +108,18 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
     }
   }
 
+  /** The one place a source reaches the clipboard, so it says so once. */
+  function copySource(text: string): void {
+    void navigator.clipboard?.writeText(text).then(
+      () => toast.success('已复制来源'),
+      () => toast.error('复制失败'),
+    );
+  }
+
   function row(task: DownloadTaskData): React.JSX.Element {
     const progress = batchProgress(batches, task.id);
     const pendingCancel = cancelling.includes(task.id);
+    const copyText = originCopyText(task.origin);
     return (
       // The input stays reachable as the tooltip: once a link has a name, the
       // name is what the row is about, but "which link was that?" is still a
@@ -136,6 +147,25 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
             {taskLabel(task)}
             {pendingCancel && isActive(task) && ' · 取消中'}
             {progress && ` · ${progress.done}/${progress.batch.total}`}
+          </p>
+          {/* ④ — where this came from, on every row. A collection names the
+              collection and counts the entry inside it; the button beside it
+              copies THIS video, which is the link that reproduces the song.
+              A task that started from a song in the library has no link to
+              give, so it gets the line and no button. */}
+          <p className="flex items-center gap-1 text-muted-foreground">
+            <span className="truncate">{originLabel(task.origin)}</span>
+            {copyText !== null && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`复制来源 ${taskDescription(task)}`}
+                title="复制来源"
+                onClick={() => copySource(copyText)}
+              >
+                <Copy />
+              </Button>
+            )}
           </p>
           {task.error_message !== null && <p className="text-destructive">{task.error_message}</p>}
           {task.failed_playlist_ids.length > 0 && (

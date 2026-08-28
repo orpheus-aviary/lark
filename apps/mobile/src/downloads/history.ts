@@ -35,8 +35,13 @@
 // it, and 重下 on that row is the only way to ask again.
 
 import type { StructuredLogger } from '@lark/core/portable';
-import type { DownloadTaskData, DownloadTaskInput, DownloadTaskKind } from '@lark/shared';
-import { DOWNLOAD_TASK_KINDS } from '@lark/shared';
+import type {
+  DownloadOrigin,
+  DownloadTaskData,
+  DownloadTaskInput,
+  DownloadTaskKind,
+} from '@lark/shared';
+import { DOWNLOAD_LIST_KINDS, DOWNLOAD_TASK_KINDS } from '@lark/shared';
 import { isActive } from './cancel';
 
 /**
@@ -62,6 +67,15 @@ export interface DownloadRecord {
   artist: string | null;
   /** Everything re-running it needs, minus the naming mode (see the header). */
   input: DownloadTaskInput;
+  /**
+   * Where it was asked for (0.5.0 ④).
+   *
+   * OPTIONAL, and that is about the file rather than the field: records
+   * written before 0.2.0 have none, and an old file stays readable — those
+   * rows simply say nothing about where they came from, which is exactly what
+   * was known when they were written.
+   */
+  origin?: DownloadOrigin;
   playlist_ids: readonly string[];
   song_id: string | null;
   error_code: string | null;
@@ -130,6 +144,50 @@ function readInput(value: unknown): DownloadTaskInput | null {
 
 const orNull = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 
+const isListKind = (value: unknown): value is (typeof DOWNLOAD_LIST_KINDS)[number] =>
+  DOWNLOAD_LIST_KINDS.some((kind) => kind === value);
+
+/**
+ * A stored origin, or `undefined` for one this build cannot read (④).
+ *
+ * Undefined rather than dropping the record: where a download came from is a
+ * caption, and losing the row over it would cost more than the caption is
+ * worth. Anything written before 0.2.0 lands here too.
+ */
+function readOrigin(value: unknown): DownloadOrigin | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const origin = value as Record<string, unknown>;
+  if (origin.kind === 'keyword' && typeof origin.query === 'string') {
+    return { kind: 'keyword', query: origin.query };
+  }
+  if (origin.kind === 'video' && typeof origin.url === 'string') {
+    return { kind: 'video', url: origin.url };
+  }
+  if (origin.kind === 'song' && typeof origin.song_id === 'string') {
+    return { kind: 'song', song_id: origin.song_id };
+  }
+  if (
+    origin.kind === 'list' &&
+    isListKind(origin.list) &&
+    typeof origin.title === 'string' &&
+    typeof origin.url === 'string' &&
+    typeof origin.video_url === 'string' &&
+    typeof origin.index === 'number' &&
+    typeof origin.total === 'number'
+  ) {
+    return {
+      kind: 'list',
+      list: origin.list,
+      title: origin.title,
+      url: origin.url,
+      video_url: origin.video_url,
+      index: origin.index,
+      total: origin.total,
+    };
+  }
+  return undefined;
+}
+
 /**
  * One stored entry, or `null` when it is not one this build understands.
  *
@@ -145,6 +203,7 @@ export function readRecord(value: unknown): DownloadRecord | null {
   if (typeof row.id !== 'string' || input === null) return null;
   if (!isKind(row.kind) || !isRecordState(row.state)) return null;
   if (typeof row.finished_at !== 'number' || !Number.isFinite(row.finished_at)) return null;
+  const origin = readOrigin(row.origin);
   return {
     id: row.id,
     kind: row.kind,
@@ -152,6 +211,7 @@ export function readRecord(value: unknown): DownloadRecord | null {
     title: orNull(row.title),
     artist: orNull(row.artist),
     input,
+    ...(origin === undefined ? {} : { origin }),
     playlist_ids: Array.isArray(row.playlist_ids)
       ? row.playlist_ids.filter((id): id is string => typeof id === 'string')
       : [],
@@ -199,6 +259,7 @@ export function recordOf(task: DownloadTaskData): DownloadRecord | null {
     title: task.title,
     artist: task.artist,
     input: task.input,
+    origin: task.origin,
     playlist_ids: [...task.playlist_ids],
     song_id: task.song_id,
     error_code: task.error_code,

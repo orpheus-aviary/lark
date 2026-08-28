@@ -15,12 +15,20 @@
 // link genuinely has no name until `naming` runs, and inventing one would be
 // worse than showing the URL that was pasted.
 
-import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
-import { KIND_LABELS, batchDone, taskLabel, taskTitle } from '@lark/shared';
-import { X } from 'lucide-react-native';
+import type { DownloadBatchData, DownloadOrigin, DownloadTaskData } from '@lark/shared';
+import {
+  KIND_LABELS,
+  batchDone,
+  originCopyText,
+  originLabel,
+  taskLabel,
+  taskTitle,
+} from '@lark/shared';
+import * as Clipboard from 'expo-clipboard';
+import { Copy, X } from 'lucide-react-native';
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import {
   cancelActive,
   cancelOne,
@@ -192,6 +200,7 @@ function TaskRow({ task, onCancel }: { task: DownloadTaskData; onCancel: () => v
             : `${KIND_LABELS[task.kind]} · ${taskTitle(task)}`}
         </Text>
         <Text style={styles.state}>{taskLabel(task)}</Text>
+        <Origin origin={task.origin} />
       </View>
       <Pressable
         style={styles.cancel}
@@ -236,6 +245,7 @@ function RecordRow({
             {record.error_message}
           </Text>
         )}
+        <Origin origin={record.origin} />
       </View>
       {canRetry(record) && (
         <Pressable
@@ -257,6 +267,41 @@ function RecordRow({
       >
         <X size={18} color={C.muted} />
       </Pressable>
+    </View>
+  );
+}
+
+/**
+ * Where a download came from, and a way to take that with you (④).
+ *
+ * `undefined` for a record written before 0.2.0 — the line is simply absent
+ * there, which is honest: nothing knew the answer when it was written.
+ *
+ * ONE BUTTON, and it copies THIS video rather than the list it came out of:
+ * the reason to reach for it is a song that came out wrong, and the link that
+ * reproduces it is the video's. The list is named in the line beside it.
+ */
+function Origin({ origin }: { origin: DownloadOrigin | undefined }) {
+  if (origin === undefined) return null;
+  const copyable = originCopyText(origin);
+  return (
+    <View style={styles.origin}>
+      <Text style={styles.originText} numberOfLines={1}>
+        {originLabel(origin)}
+      </Text>
+      {copyable !== null && (
+        <Pressable
+          onPress={() => {
+            void Clipboard.setStringAsync(copyable);
+            ToastAndroid.show('来源已复制', ToastAndroid.SHORT);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="复制来源"
+          hitSlop={8}
+        >
+          <Copy size={14} color={C.muted} />
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -372,6 +417,8 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   name: { color: C.text, fontSize: 14 },
   state: { color: C.muted, fontSize: 12 },
+  origin: { flexDirection: 'row', alignItems: 'center', gap: S.gap },
+  originText: { color: C.faint, fontSize: 11, flexShrink: 1 },
   error: { color: C.danger, fontSize: 12 },
   cancel: { padding: 6 },
   empty: { color: C.faint, fontSize: 13, padding: S.pad },

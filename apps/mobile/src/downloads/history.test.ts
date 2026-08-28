@@ -16,6 +16,7 @@ const task = (patch: Partial<DownloadTaskData> = {}): DownloadTaskData =>
     stage: null,
     revision: 1,
     input: { type: 'url', url: 'https://www.bilibili.com/video/BV1xx411c7mD' },
+    origin: { kind: 'video', url: 'https://www.bilibili.com/video/BV1xx411c7mD' },
     song_id: 's1',
     playlist_ids: [],
     failed_playlist_ids: [],
@@ -229,6 +230,61 @@ describe('the file', () => {
         finished_at: 1,
       }),
     ).toBeNull();
+  });
+
+  // ④ — the caption survives the trip through the file, and its absence is
+  // not a reason to lose the row.
+  it('keeps where a download came from', () => {
+    const { history } = store();
+    history.observe([
+      task({
+        origin: {
+          kind: 'list',
+          list: 'collection',
+          title: '华语经典',
+          url: 'https://space.bilibili.com/1/lists/9',
+          video_url: 'https://www.bilibili.com/video/BV3?p=2',
+          index: 3,
+          total: 50,
+        },
+      }),
+    ]);
+    expect(history.getRecords()[0]?.origin).toEqual({
+      kind: 'list',
+      list: 'collection',
+      title: '华语经典',
+      url: 'https://space.bilibili.com/1/lists/9',
+      video_url: 'https://www.bilibili.com/video/BV3?p=2',
+      index: 3,
+      total: 50,
+    });
+  });
+
+  // Everything written before 0.2.0. The row is what somebody downloaded;
+  // dropping it over a missing caption would cost more than the caption.
+  it('reads a record from before there was an origin', () => {
+    const record = readRecord({
+      id: 'old',
+      kind: 'download',
+      state: 'succeeded',
+      input: { type: 'keyword', query: '稻香' },
+      finished_at: 1,
+    });
+    expect(record?.id).toBe('old');
+    expect(record?.origin).toBeUndefined();
+  });
+
+  it('drops an origin it cannot read, and keeps the record', () => {
+    const record = readRecord({
+      id: 'weird',
+      kind: 'download',
+      state: 'succeeded',
+      input: { type: 'keyword', query: '稻香' },
+      origin: { kind: 'list', list: 'playlist', title: 'x' },
+      finished_at: 1,
+    });
+    expect(record?.id).toBe('weird');
+    expect(record?.origin).toBeUndefined();
   });
 
   it('tells listeners once per change', () => {

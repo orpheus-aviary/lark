@@ -76,6 +76,69 @@ const open = (): void => {
   render(<DownloadPanel open onClose={() => {}} />);
 };
 
+// ④ — every row says where it came from, and hands that over on request.
+describe('where a download came from', () => {
+  it('counts an entry inside the list it was picked out of', () => {
+    useDownloads.setState({
+      tasks: [
+        task({
+          origin: {
+            kind: 'list',
+            list: 'collection',
+            title: '华语经典',
+            url: 'https://space.bilibili.com/1/lists/9',
+            video_url: 'https://www.bilibili.com/video/BV3?p=2',
+            index: 3,
+            total: 50,
+          },
+        }),
+      ],
+    });
+    open();
+
+    expect(screen.getByText('from：华语经典（3/50）')).toBeDefined();
+  });
+
+  // The label names the list; the button copies the ONE video, which is the
+  // link that reproduces this song.
+  it('copies the entry rather than the list', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    useDownloads.setState({
+      tasks: [
+        task({
+          origin: {
+            kind: 'list',
+            list: 'collection',
+            title: '华语经典',
+            url: 'https://space.bilibili.com/1/lists/9',
+            video_url: 'https://www.bilibili.com/video/BV3?p=2',
+            index: 3,
+            total: 50,
+          },
+        }),
+      ],
+    });
+    open();
+
+    await user.click(screen.getByRole('button', { name: /复制来源/ }));
+    expect(writeText).toHaveBeenCalledWith('https://www.bilibili.com/video/BV3?p=2');
+  });
+
+  // A redownload started from a song already here: there is a line to read and
+  // nothing a clipboard could hold.
+  it('offers no copy button where there is no link', () => {
+    useDownloads.setState({
+      tasks: [task({ kind: 'redownload', origin: { kind: 'song', song_id: 's1' } })],
+    });
+    open();
+
+    expect(screen.getByText('from：曲库里已有的歌')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /复制来源/ })).toBeNull();
+  });
+});
+
 describe('the three sections', () => {
   it('splits running, queued and finished', () => {
     useDownloads.setState({

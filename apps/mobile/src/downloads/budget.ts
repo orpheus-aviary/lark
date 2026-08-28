@@ -127,6 +127,7 @@ export function refusedRecord(song: SongData, limitMb: number, at: number): Down
     title: song.name,
     artist: song.artist,
     input: { type: 'song', song_id: song.id },
+    origin: { kind: 'song', song_id: song.id },
     playlist_ids: [],
     song_id: song.id,
     error_code: CACHE_LIMIT_CODE,
