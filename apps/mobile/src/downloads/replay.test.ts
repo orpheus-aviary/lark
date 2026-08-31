@@ -1,7 +1,7 @@
 import type { RetryPlan } from '@lark/core/portable';
 import { describe, expect, it, vi } from 'vitest';
 import type { Recognition } from './preflight';
-import { type ReplayDeps, replay, summariseReplays } from './replay';
+import { type ReplayDeps, replay, summariseReplays, supersededRecord } from './replay';
 
 const video = {
   kind: 'video',
@@ -108,5 +108,31 @@ describe('summariseReplays', () => {
 
   it('says both halves when some did and some did not', () => {
     expect(summariseReplays([ok, no('队列满了')])).toBe('已重新排队 1 条，1 条没能排上：队列满了');
+  });
+});
+
+// ── 0.5.1 · one row per chain ────────────────────────────
+//
+// A record is keyed by its task id, so a retry always ADDS a row. Whether the
+// old one goes is this predicate, and it had to become one because the rule
+// existed in two places and the path a person taps had neither.
+describe('supersededRecord', () => {
+  it('is true only once the new task exists', () => {
+    expect(supersededRecord({ queued: true, message: '已重新排队', taskId: 't2' })).toBe(true);
+  });
+
+  // 🔴 The half that matters more. A replay that did not get back on the queue
+  // must leave the row exactly as it was — a failed row with a 重下 on it. The
+  // opposite is a song that vanishes from the record and never comes back.
+  it('is false when nothing was queued', () => {
+    expect(supersededRecord({ queued: false, message: '这是收藏夹或合集', taskId: null })).toBe(
+      false,
+    );
+  });
+
+  // `queued` and `taskId` are two facts and both are required: a runtime that
+  // reported success without naming the task would leave the chain unfollowable.
+  it('is false when it says queued but names no task', () => {
+    expect(supersededRecord({ queued: true, message: '已重新排队', taskId: null })).toBe(false);
   });
 });

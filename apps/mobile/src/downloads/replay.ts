@@ -47,6 +47,29 @@ export interface ReplayOutcome {
   taskId: string | null;
 }
 
+/**
+ * Did this replay SUPERSEDE the record it came from?
+ *
+ * 🔴 ONE ROW PER CHAIN, and this is the one place that decides it. A record is
+ * keyed by its task id, so a retry always adds a row; the old one has to go,
+ * and only once the new task exists — a request that failed must leave a row
+ * that can be pressed again.
+ *
+ * Extracted in 0.5.1 because the rule had two copies and the path a PERSON
+ * uses had neither: `retry-runtime.ts` did it automatically, `DownloadPanel`
+ * did it on the desktop, and tapping 重下 on the phone did not (用户
+ * 2026-08-31). Three call sites, one sentence.
+ *
+ * A type guard rather than a boolean: the caller that follows the chain needs
+ * the task id right after asking, and `taskId !== null` twice is two places
+ * for the same fact to be checked differently.
+ */
+export function supersededRecord(
+  outcome: ReplayOutcome,
+): outcome is ReplayOutcome & { taskId: string } {
+  return outcome.queued && outcome.taskId !== null;
+}
+
 export async function replay(deps: ReplayDeps, plan: RetryPlan): Promise<ReplayOutcome> {
   try {
     if (plan.kind === 'redownload') {

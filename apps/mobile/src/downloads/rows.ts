@@ -19,7 +19,7 @@
 // container (0.1.1 ③) and a discriminated row keeps the ordering decidable
 // here, in a file that loads without a device.
 
-import type { DownloadRecord } from '@lark/core/portable';
+import { type DownloadRecord, orderedTasks } from '@lark/core/portable';
 import type { DownloadBatchData, DownloadTaskData } from '@lark/shared';
 import { isActive } from './cancel';
 
@@ -44,7 +44,12 @@ export function downloadListRows(
   tasks: readonly DownloadTaskData[],
   records: readonly DownloadRecord[],
 ): DownloadListRow[] {
-  const active = tasks.filter(isActive);
+  // 🔴 SORTED, NOT INSERTION ORDER (0.5.1). A Map's insertion order put the
+  // lyrics continuation of a song that just finished BELOW every download
+  // still going, because it is the newest entry — and on a phone, a row
+  // sorted off the bottom is indistinguishable from a row that is not there.
+  // `orderedTasks` is the desktop's answer too, from portable.
+  const active = orderedTasks(tasks.filter(isActive), tasks);
   const rows: DownloadListRow[] = [
     { kind: 'head', key: 'head:tasks', section: 'tasks', count: active.length },
   ];

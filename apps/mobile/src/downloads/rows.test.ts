@@ -152,3 +152,29 @@ describe('latestBatch', () => {
     expect(latestBatch([batch('first', 5), batch('second', 5)])?.id).toBe('second');
   });
 });
+
+// ── 0.5.1 · the continuation of a song that just finished ────────────────
+//
+// Same class of bug as the one this file was written for: a row in the wrong
+// place. `lyrics` is a SEPARATE task spawned when a download succeeds, so it
+// is always the newest thing in the engine's Map — and insertion order put it
+// under every download still running, where a `FlatList` may not reach it.
+describe('a lyrics continuation', () => {
+  const parent = { ...task('dl-early', 'succeeded', 200), song_id: 'song-1', started_at: 100 };
+  const stillGoing = { ...task('dl-late', 'running'), created_at: 500, started_at: 500 };
+  const lyrics = {
+    ...task('ly', 'running'),
+    kind: 'lyrics' as const,
+    stage: 'lyrics' as const,
+    song_id: 'song-1',
+    created_at: 900,
+    started_at: 900,
+  };
+
+  it('is listed with its own song, not under everything still running', () => {
+    // Insertion order, which is what the engine hands back.
+    const rows = downloadListRows([parent, stillGoing, lyrics], []);
+    const tasks = rows.filter((row) => row.kind === 'task').map((row) => row.task.id);
+    expect(tasks).toEqual(['ly', 'dl-late']);
+  });
+});

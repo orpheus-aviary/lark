@@ -40,7 +40,7 @@ import {
 import { downloadRuntimeOnce } from '../downloads/engine';
 import type { ForegroundStatus } from '../downloads/foreground';
 import { downloadHistoryOnce } from '../downloads/history-runtime';
-import { replay, summariseReplays } from '../downloads/replay';
+import { replay, summariseReplays, supersededRecord } from '../downloads/replay';
 import { replayDepsOnce } from '../downloads/replay-runtime';
 import { downloadListRows, latestBatch } from '../downloads/rows';
 import { useDownloads } from '../downloads/use-downloads';
@@ -87,9 +87,25 @@ export function TaskList({ header }: { header?: ReactNode }) {
   // parts, only one of which is on a screen.
   const replayDeps = useMemo(() => replayDepsOnce(boot), [boot]);
 
+  /**
+   * 重下 one record.
+   *
+   * 🔴 THE SUPERSEDED ATTEMPT IS NOT A SECOND LINE IN THE RECORD (0.5.1，用户
+   * 2026-08-31). A record is keyed by its task id, so a retry — which is a new
+   * task — always adds a row; without this the same song accumulates one line
+   * per attempt, and 全部重试 doubles the whole list at a stroke.
+   *
+   * The rule already existed twice and this path had neither copy: the
+   * automatic retry does it in `retry-runtime.ts`, and the desktop does it in
+   * `DownloadPanel`'s `runAgain`. Same timing as both — the old row goes ONLY
+   * once the new task exists, so a request that failed leaves a row that can
+   * be pressed again.
+   */
   const retryOne = async (record: DownloadRecord): Promise<void> => {
     setBusy(true);
-    setSaid((await replay(replayDeps, planRetry(record))).message);
+    const outcome = await replay(replayDeps, planRetry(record));
+    if (supersededRecord(outcome)) history.remove(record.id);
+    setSaid(outcome.message);
     setBusy(false);
   };
 
@@ -103,7 +119,11 @@ export function TaskList({ header }: { header?: ReactNode }) {
   const retryAll = async (): Promise<void> => {
     setBusy(true);
     const outcomes = [];
-    for (const record of failed) outcomes.push(await replay(replayDeps, planRetry(record)));
+    for (const record of failed) {
+      const outcome = await replay(replayDeps, planRetry(record));
+      if (supersededRecord(outcome)) history.remove(record.id);
+      outcomes.push(outcome);
+    }
     setSaid(summariseReplays(outcomes));
     setBusy(false);
   };

@@ -17,7 +17,13 @@
 // the app was closed had no answer at all. `已结束` now reads the daemon's
 // file, which is where the phone has read it since 0.1.1 ⑦.
 
-import { type DownloadRecord, canRetry, failedRecords, planRetry } from '@lark/core/portable';
+import {
+  type DownloadRecord,
+  canRetry,
+  failedRecords,
+  orderedTasks,
+  planRetry,
+} from '@lark/core/portable';
 import type { DownloadOrigin, DownloadTaskData, DownloadTaskKind } from '@lark/shared';
 import {
   KIND_LABELS,
@@ -64,8 +70,9 @@ function isActive(task: DownloadTaskData): boolean {
  * `created_at` keeps those in submission order rather than collapsing them all
  * to zero.
  */
-const byQueueOrder = (a: DownloadTaskData, b: DownloadTaskData): number =>
-  (a.started_at ?? a.created_at) - (b.started_at ?? b.created_at);
+// Ordering moved to `@lark/core/portable`'s `orderedTasks` (0.5.1): a lyrics
+// continuation is the tail of a download, and answering that here meant the
+// phone answered it somewhere else — two answers to one question.
 
 interface DownloadPanelProps {
   open: boolean;
@@ -92,8 +99,14 @@ export function DownloadPanel({ open, onClose }: DownloadPanelProps): React.JSX.
   const playlistName = (id: string): string =>
     playlists.find((playlist) => playlist.id === id)?.name ?? id;
 
-  const running = tasks.filter((task) => task.state === 'running').sort(byQueueOrder);
-  const queued = tasks.filter((task) => task.state === 'queued').sort(byQueueOrder);
+  const running = orderedTasks(
+    tasks.filter((task) => task.state === 'running'),
+    tasks,
+  );
+  const queued = orderedTasks(
+    tasks.filter((task) => task.state === 'queued'),
+    tasks,
+  );
 
   // Read when the panel opens. The store also refetches on every terminal
   // event, but a window that was closed while a download finished has to catch

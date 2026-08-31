@@ -29,7 +29,7 @@ import type { BootResult } from '../boot/sequence';
 import { downloadHistoryOnce } from './history-runtime';
 import { downloads } from './hub';
 import { engineLogger } from './log';
-import { replay } from './replay';
+import { replay, supersededRecord } from './replay';
 import { replayDepsOnce } from './replay-runtime';
 import { readRetryLimit, shouldRetry } from './retry';
 
@@ -83,7 +83,7 @@ export function bindAutoRetry(boot: BootResult): void {
     issued += 1;
 
     void replay(deps, planRetry(record)).then((outcome) => {
-      if (!outcome.queued || outcome.taskId === null) {
+      if (!supersededRecord(outcome)) {
         // Could not get it back on the queue. The record stays exactly as it
         // was, which is the honest thing to leave behind: a failed row with a
         // 重下 on it.
