@@ -15,6 +15,7 @@
 // reads the part's own title out of the page list it fetches anyway (§7.4),
 // and two sources for one string drift.
 
+import { partsGroupPayload } from '@lark/core/portable';
 import type {
   DownloadBatchGroupInput,
   DownloadBatchItemInput,
@@ -90,31 +91,37 @@ export function checkedRows(group: BatchGroup): readonly GroupRow[] {
  * Every group creates its own playlist — that is what makes a group a group,
  * and 0.5.1 extended it to the parts of a video on purpose: a 「歌曲合集」
  * uploaded as forty parts is a playlist by any other name.
+ *
+ * 🔴 THE PARTS BRANCH IS NOT WRITTEN HERE (2026-08-31). It is
+ * `partsGroupPayload` in `@lark/core/portable`, and the phone's picker calls
+ * the same function. The two ends each had their own copy for three days and
+ * the copies disagreed — the desktop created a playlist, the phone submitted
+ * into whatever 「存到」 was showing — while `INVARIANTS.md` §3 said they
+ * matched. The list branch stays here because only this end has list groups.
  */
 export function groupPayload(group: BatchGroup): DownloadBatchGroupInput {
   const naming: DownloadNamingMode = group.useOriginalTitle ? 'original' : 'clean';
   const rows = checkedRows(group);
-  const items: DownloadBatchItemInput[] =
-    group.kind === 'list'
-      ? rows.map((row) => ({
-          kind: 'video',
-          bvid: row.key,
-          page: null,
-          title: row.label,
-          naming,
-        }))
-      : rows.map((row) => ({
-          kind: 'video',
-          bvid: group.bvid,
-          page: Number(row.key),
-          title: null,
-          naming,
-        }));
+  if (group.kind === 'parts') {
+    return partsGroupPayload(
+      group.bvid,
+      group.title,
+      rows.map((row) => Number(row.key)),
+      naming,
+    );
+  }
+  const items: DownloadBatchItemInput[] = rows.map((row) => ({
+    kind: 'video',
+    bvid: row.key,
+    page: null,
+    // A list's title is BETTER than the video's own and is what `clean` reads
+    // a song name out of, so unlike a part it rides along.
+    title: row.label,
+    naming,
+  }));
   return {
     target: { kind: 'new', name: group.title },
     items,
-    // NO `source` on a parts group: a video is not a list, and inventing a
-    // list identity is a lie the download record then repeats forever.
-    ...(group.kind === 'list' ? { source: listSource(group.source, group.title) } : {}),
+    source: listSource(group.source, group.title),
   };
 }

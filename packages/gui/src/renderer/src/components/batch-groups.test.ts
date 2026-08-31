@@ -1,5 +1,6 @@
 // What a group becomes on the wire (0.5.1「格式也和合集完全统一」).
 
+import { partsGroupPayload } from '@lark/core/portable';
 import { describe, expect, it } from 'vitest';
 import { type BatchGroup, checkedRows, groupPayload } from './batch-groups.js';
 
@@ -68,6 +69,14 @@ describe('groupPayload', () => {
       url: 'https://x/1',
     });
     expect(groupPayload(parts).source).toBeUndefined();
+  });
+
+  // 判据 3（2026-08-31 对齐）. Not "the two look similar" — the SAME function
+  // produced both, and this is what goes red the day somebody writes a second
+  // copy of the parts branch here. That is the whole failure this batch fixes:
+  // the phone had its own copy and it disagreed.
+  it('builds a parts group out of the same function the phone uses', () => {
+    expect(groupPayload(parts)).toEqual(partsGroupPayload('BV9', '古风合集', [1, 3], 'clean'));
   });
 
   it('turns the 原标题 tick into the naming mode, per group', () => {

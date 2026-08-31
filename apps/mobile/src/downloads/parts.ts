@@ -11,7 +11,7 @@
 // nothing to collapse (`selection.ts`'s `pickable` is about the other case).
 
 import { type BilibiliClient, fetchParts } from '@lark/core/portable';
-import type { DownloadBatchItemInput, DownloadNamingMode, DownloadPartsData } from '@lark/shared';
+import type { DownloadPartsData } from '@lark/shared';
 import type { PickRow } from './selection';
 
 export interface PartRow extends PickRow {
@@ -43,19 +43,4 @@ export async function loadParts(
   signal?: AbortSignal,
 ): Promise<DownloadPartsData> {
   return fetchParts(client, bvid, signal === undefined ? undefined : { signal });
-}
-
-/**
- * The picked rows, in wire shape.
- *
- * `title: null` on every one: the pipeline reads the part's own title out of
- * the page list it fetches anyway (§7.4), and two sources for one string
- * drift. The desktop sends exactly this.
- */
-export function partItems(
-  bvid: string,
-  rows: readonly PartRow[],
-  naming: DownloadNamingMode,
-): DownloadBatchItemInput[] {
-  return rows.map((row) => ({ kind: 'video', bvid, page: row.page, title: null, naming }));
 }

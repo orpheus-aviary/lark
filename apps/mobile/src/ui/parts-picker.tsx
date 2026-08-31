@@ -15,29 +15,34 @@
 // whole reason this screen exists is that a person is choosing WHICH parts,
 // and a 40-part collection ticked in advance turns one stray tap into forty
 // downloads.
+//
+// 🔴 IT CREATES A PLAYLIST, LIKE EVERY OTHER GROUP (2026-08-31 对齐). Until
+// this batch it submitted into whatever 「存到」 was showing on the add page —
+// no playlist, no editable name — while the desktop created one and
+// `INVARIANTS.md` §3 said the two matched. A 「歌曲合集」 uploaded as forty
+// parts is a playlist by any other name, and it is now the same shape here as
+// a favourites folder: a name you can edit, defaulted to the video's title.
+// The wire shape is `partsGroupPayload`, shared with the desktop, so there is
+// no second copy left to disagree.
 
-import type { BatchTargetInput, DownloadPartsData } from '@lark/shared';
+import { partsGroupPayload } from '@lark/core/portable';
+import type { DownloadPartsData } from '@lark/shared';
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, TextInput } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
-import { type PartRow, loadParts, partItems, partRows } from '../downloads/parts';
+import { type PartRow, loadParts, partRows } from '../downloads/parts';
 import { submitBatch } from '../downloads/preflight';
 import { useLibrary } from './library-context';
 import { Picker } from './picker';
-import { C } from './theme';
+import { C, S } from './theme';
 
 export function PartsPicker({
   bvid,
-  target,
-  targetName,
   onClose,
   onFailed,
   onSubmitted,
 }: {
   bvid: string;
-  target: BatchTargetInput;
-  /** What that target is called, for the one line this screen adds. */
-  targetName: string;
   onClose: () => void;
   /** The parts could not be listed. Told to choose, with nothing to choose from. */
   onFailed: (message: string) => void;
@@ -48,6 +53,8 @@ export function PartsPicker({
 
   const [data, setData] = useState<DownloadPartsData | null>(null);
   const [loading, setLoading] = useState(true);
+  /** The playlist this will create. The video's title until somebody edits it. */
+  const [name, setName] = useState('');
 
   // One request, and leaving the page aborts it — the same shape as the other
   // two sources' walks, minus the walk: a page list arrives in one answer.
@@ -58,6 +65,10 @@ export function PartsPicker({
       .then((result) => {
         if (!live) return;
         setData(result);
+        // Seeded HERE rather than derived from `data`, because it has to stay
+        // editable afterwards: a value computed from `data` on every render
+        // would put the video's title back over whatever was typed.
+        setName(result.title);
         setLoading(false);
       })
       .catch((err: unknown) => {
@@ -86,12 +97,19 @@ export function PartsPicker({
       onClose={onClose}
       header={
         <>
-          {data !== null && (
-            <Text style={styles.title} numberOfLines={2}>
-              {data.title}
-            </Text>
-          )}
-          <Text style={styles.target}>存到 · {targetName}</Text>
+          <Text style={styles.fieldLabel}>新建歌单</Text>
+          {/* The same offer the favourites folder makes, in the same words
+              (`list-picker.tsx`): the desktop edits this title in place and a
+              phone has no double click, so a field you can tap into is that
+              gesture in this platform's idiom. */}
+          <TextInput
+            style={styles.name}
+            value={name}
+            onChangeText={setName}
+            placeholder={data?.title ?? '歌单名称'}
+            placeholderTextColor={C.faint}
+            accessibilityLabel="歌单名称"
+          />
         </>
       }
       onSubmit={async (chosen, mode) => {
@@ -102,9 +120,12 @@ export function PartsPicker({
             foreground: runtime.foreground,
             engine: runtime.engine,
           },
-          // NO `source`: a video is not a list, and inventing a list identity
-          // is a lie the download record then repeats forever (0.5.0 ④).
-          { target, items: partItems(bvid, chosen, mode) },
+          partsGroupPayload(
+            bvid,
+            name,
+            chosen.map((row) => row.page),
+            mode,
+          ),
         );
         onSubmitted();
       }}
@@ -113,6 +134,13 @@ export function PartsPicker({
 }
 
 const styles = StyleSheet.create({
-  title: { color: C.text, fontSize: 15, lineHeight: 21 },
-  target: { color: C.muted, fontSize: 13, marginTop: 4 },
+  fieldLabel: { color: C.faint, fontSize: 13 },
+  name: {
+    color: C.text,
+    fontSize: 15,
+    backgroundColor: C.surface,
+    borderRadius: S.radius,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
 });

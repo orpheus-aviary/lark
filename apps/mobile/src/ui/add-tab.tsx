@@ -547,15 +547,11 @@ function Chooser({
     );
   }
   if (parts !== null) {
+    // NO target: a parts group creates its own playlist, the same way a
+    // favourites folder does (2026-08-31 对齐). 「存到」 is about the songs this
+    // page submits loose, and a group does not submit loose.
     return (
-      <PartsPicker
-        bvid={parts}
-        target={target}
-        targetName={targetName}
-        onClose={onClose}
-        onFailed={onFailed}
-        onSubmitted={onSubmitted}
-      />
+      <PartsPicker bvid={parts} onClose={onClose} onFailed={onFailed} onSubmitted={onSubmitted} />
     );
   }
   return null;

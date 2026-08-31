@@ -27,6 +27,7 @@ export * from './cache-limit.js';
 export * from './db-identity.js';
 export * from './device-settings.js';
 export * from './db.js';
+export * from './download/batch-groups.js';
 export * from './download/batches.js';
 export * from './download/bilibili.js';
 export * from './download/claims.js';

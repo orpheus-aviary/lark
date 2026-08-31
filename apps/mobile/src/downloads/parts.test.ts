@@ -1,8 +1,9 @@
 // The parts of one multi-part video, as the picker sees them (0.5.1 §7.3).
 
+import { partsGroupPayload } from '@lark/core/portable';
 import type { DownloadPartsData } from '@lark/shared';
 import { describe, expect, it } from 'vitest';
-import { partItems, partRows } from './parts';
+import { partRows } from './parts';
 
 const data: DownloadPartsData = {
   bvid: 'BV1',
@@ -42,15 +43,30 @@ describe('partRows', () => {
   });
 });
 
-describe('partItems', () => {
-  it('sends the page and no title, under one naming answer', () => {
-    const rows = partRows(data).filter((row) => row.page !== 2);
-    expect(partItems('BV1', rows, 'clean')).toEqual([
-      // 🔴 `title: null` on every one: the pipeline reads the part's own title
-      // out of the page list it fetches anyway (§7.4), and two sources for one
-      // string drift. The desktop and the CLI send exactly this.
-      { kind: 'video', bvid: 'BV1', page: 1, title: null, naming: 'clean' },
-      { kind: 'video', bvid: 'BV1', page: 3, title: null, naming: 'clean' },
-    ]);
+describe('what the picker submits', () => {
+  // 🔴 2026-08-31 对齐. The phone used to build this itself and submitted into
+  // whatever 「存到」 was showing; the desktop created a playlist. Both ends now
+  // call `partsGroupPayload`, and this asserts the phone's half of that — the
+  // rows it hands over are pages, and the group is a NEW playlist.
+  it('creates a playlist named by the field, out of the ticked pages', () => {
+    const ticked = partRows(data).filter((row) => row.page !== 2);
+
+    expect(
+      partsGroupPayload(
+        'BV1',
+        '司夏古风',
+        ticked.map((row) => row.page),
+        'clean',
+      ),
+    ).toEqual({
+      target: { kind: 'new', name: '司夏古风' },
+      items: [
+        // `title: null` on every one: the pipeline reads the part's own title
+        // out of the page list it fetches anyway (§7.4), and two sources for
+        // one string drift. The desktop and the CLI send exactly this.
+        { kind: 'video', bvid: 'BV1', page: 1, title: null, naming: 'clean' },
+        { kind: 'video', bvid: 'BV1', page: 3, title: null, naming: 'clean' },
+      ],
+    });
   });
 });
