@@ -80,7 +80,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 
 ## 当前进度
 
-**桌面 v0.5.0 + Android 0.2.0 已发布**（2026-08-28，tag `v0.5.0` / `android-v0.2.0`，同一个 commit `9b359c0`）。**0.5.1 / Android 0.2.1 代码已完成、尚未发版**——测试 3629，协议抬到 10。**当前进度一律以 `PROCESS.md` 为准。**
+**桌面 v0.5.1 + Android 0.2.1 已发布**（2026-08-31，tag `v0.5.1` / `android-v0.2.1`，同一个 commit `b152fb7`）。测试 **3629**，`just check` 绿（十五条守卫），五套 accept 对发出去的那两份产物 **134/134**。协议 `LOCAL_API_VERSION = 10`（9 → 10：`POST /download/parts` + `MULTI_PART_UNRESOLVED` + `[download] retry_limit`），**schema 仍 v3**。**当前进度一律以 `PROCESS.md` 为准。**
 
 **当前状态 + 下一步以 `PROCESS.md` 为准。** 其余入口：
 
