@@ -54,6 +54,7 @@ export function Picker<T extends PickRow>({
   emptyText,
   onClose,
   onSubmit,
+  initial = 'all',
 }: {
   /** 收藏夹 / 合集 / 多行粘贴 — what this screen is about. */
   kindLabel: string;
@@ -69,6 +70,16 @@ export function Picker<T extends PickRow>({
   onClose: () => void;
   /** Throws to refuse: the message lands above the button, nothing is queued. */
   onSubmit: (chosen: readonly T[], mode: DownloadNamingMode) => Promise<void>;
+  /**
+   * What is ticked before anybody touches it (0.5.1).
+   *
+   * `all` is N4f decision e and stays the default: somebody who pasted twenty
+   * links or opened a folder came for the whole of it. `none` is for the parts
+   * of ONE video, where the screen exists precisely because a person is
+   * choosing — a 40-part collection ticked in advance turns one stray tap into
+   * forty downloads.
+   */
+  initial?: 'all' | 'none';
 }) {
   const { boot } = useLibrary();
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
@@ -83,11 +94,12 @@ export function Picker<T extends PickRow>({
   /** Why the engine would not admit the batch. Nothing was created. */
   const [refused, setRefused] = useState<string | null>(null);
 
-  // Everything ticked, until somebody says otherwise (N4f decision e).
+  // Everything ticked, until somebody says otherwise (N4f decision e) — unless
+  // the source asked for the other opening (`initial`, 0.5.1).
   // DERIVED rather than set from an effect: the rows arrive asynchronously, and
   // an effect that seeded the set would fight every tap that came before it.
   const tickable = useMemo(() => eligible(rows), [rows]);
-  const ticked = touched ? chosen : chooseAll(tickable);
+  const ticked = touched || initial === 'none' ? chosen : chooseAll(tickable);
   const picked = chosenRows(tickable, ticked);
   const overLimit = overItemLimit(picked.length);
   const ready = picked.length > 0 && overLimit === null && !submitting;

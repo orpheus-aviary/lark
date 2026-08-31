@@ -20,7 +20,12 @@
 // (`downloads/preflight.ts`).
 
 import type { BilibiliClient } from '@lark/core/portable';
-import { readNamingMode, resolveNamingMode, writeNamingMode } from '@lark/core/portable';
+import {
+  MultiPartUnresolvedError,
+  readNamingMode,
+  resolveNamingMode,
+  writeNamingMode,
+} from '@lark/core/portable';
 import type { BatchTargetInput, DownloadNamingMode } from '@lark/shared';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -42,6 +47,7 @@ import { Chip } from './chip';
 import { useLibrary } from './library-context';
 import { LinesPicker } from './lines-picker';
 import { ListPicker } from './list-picker';
+import { PartsPicker } from './parts-picker';
 import { Sheet, SheetAction } from './sheet';
 import { TaskList } from './task-list';
 import { C, S } from './theme';
@@ -161,6 +167,17 @@ export function AddTab({
   const [expanding, setExpanding] = useState<ListItem | null>(null);
   /** True while the pasted lines are open in their own picker. */
   const [pickingLines, setPickingLines] = useState(false);
+  /**
+   * The bvid whose parts are being picked (0.5.1 §7.3).
+   *
+   * 🔴 SET BY A REFUSAL, NOT BY A PROBE. A link is recognised offline, so
+   * nothing before the tap can know a video has parts — and asking every link
+   * would put a request in front of the single-part videos that are almost all
+   * of them. `submitDownload` runs portable's preflight, which answers
+   * `MULTI_PART_UNRESOLVED`, and that costs nothing because it happens before
+   * a task exists. The desktop opens its picker the same way.
+   */
+  const [pickingParts, setPickingParts] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   /** What the last submission said, when it did not queue anything. */
   const [failed, setFailed] = useState<string | null>(null);
@@ -231,6 +248,12 @@ export function AddTab({
       // honest without waiting for the download.
       changed();
     } catch (err) {
+      // The multi-part refusal is a question, not a failure: it says nobody
+      // named a part, and this is where somebody does.
+      if (err instanceof MultiPartUnresolvedError && item.kind === 'video') {
+        setPickingParts(item.bvid);
+        return;
+      }
       setFailed(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
@@ -330,6 +353,7 @@ export function AddTab({
       <Chooser
         lines={pickingLines ? lines : null}
         list={expanding}
+        parts={pickingParts}
         target={
           playlistId === null ? { kind: 'all' } : { kind: 'playlist', playlist_id: playlistId }
         }
@@ -337,17 +361,20 @@ export function AddTab({
         onClose={() => {
           setPickingLines(false);
           setExpanding(null);
+          setPickingParts(null);
         }}
         onFailed={(message) => {
           // Nothing came back, so there is nothing to choose from. The refusal
           // is portable's own sentence and it belongs where every other one on
           // this page is (§2.2).
           setExpanding(null);
+          setPickingParts(null);
           setFailed(message);
         }}
         onSubmitted={() => {
           setPickingLines(false);
           setExpanding(null);
+          setPickingParts(null);
           onDraft(submitted);
           // A playlist may exist now, and tasks certainly do.
           changed();
@@ -475,14 +502,18 @@ function Naming({
 /**
  * The screen that opens on top of this one, if any (N4h-2).
  *
- * Two sources, one slot: a list link expands into a picker of videos, a paste
- * into a picker of lines, and nothing can be in both states at once — the box
- * holds either one line or several. Keeping them in one place is what stops the
- * add page from growing a second copy of "who is on top".
+ * Three sources, one slot: a list link expands into a picker of videos, a paste
+ * into a picker of lines, and — since 0.5.1 — a single link that turned out to
+ * be multi-part into a picker of parts. Nothing can be in two of those states
+ * at once: the box holds either one line or several, and the parts one is
+ * opened by a refusal that only a single line can produce. Keeping them in one
+ * place is what stops the add page from growing a second copy of "who is on
+ * top".
  */
 function Chooser({
   lines,
   list,
+  parts,
   target,
   targetName,
   onClose,
@@ -491,6 +522,8 @@ function Chooser({
 }: {
   lines: LineSummary | null;
   list: ListItem | null;
+  /** The bvid whose parts are being picked, once a refusal named one. */
+  parts: string | null;
   target: BatchTargetInput;
   targetName: string;
   onClose: () => void;
@@ -511,6 +544,18 @@ function Chooser({
   if (list !== null) {
     return (
       <ListPicker item={list} onClose={onClose} onFailed={onFailed} onSubmitted={onSubmitted} />
+    );
+  }
+  if (parts !== null) {
+    return (
+      <PartsPicker
+        bvid={parts}
+        target={target}
+        targetName={targetName}
+        onClose={onClose}
+        onFailed={onFailed}
+        onSubmitted={onSubmitted}
+      />
     );
   }
   return null;

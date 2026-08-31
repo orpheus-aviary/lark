@@ -189,6 +189,7 @@ export default defineConfig({
       'src/downloads/cancel.test.ts',
       'src/downloads/ensure.test.ts',
       'src/downloads/multi-line.test.ts',
+      'src/downloads/parts.test.ts',
       'src/downloads/preflight.test.ts',
       'src/downloads/replay.test.ts',
       'src/downloads/retry.test.ts',
