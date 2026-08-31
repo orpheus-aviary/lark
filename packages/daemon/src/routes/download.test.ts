@@ -639,6 +639,70 @@ describe('POST /download/batch', () => {
   });
 });
 
+// ─── POST /download/parts ──────────────────────────────
+
+describe('POST /download/parts', () => {
+  const multiPart = () => {
+    upstream.state.videos.set(BVID, {
+      title: '【司夏　古风歌曲合集】分集',
+      owner: '司夏',
+      ownerMid: 1,
+      duration: 100,
+      pages: [
+        { page: 1, part: '烟雨行舟', duration: 50, cid: 111 },
+        { page: 2, part: '半壶纱', duration: 0, cid: 222 },
+      ],
+    });
+  };
+
+  it('lists the parts, and the title they were uploaded under', async () => {
+    multiPart();
+    const res = await post(API_PATHS.downloadParts, { bvid: BVID });
+
+    expect(res.statusCode).toBe(200);
+    const data = bodyOf(res).data;
+    expect(data.title).toContain('司夏');
+    expect(data.parts).toEqual([
+      { page: 1, part: '烟雨行舟', duration: 50 },
+      // 0 is bilibili's "unknown"; a picker showing 0:00 for a part is worse
+      // than one showing nothing.
+      { page: 2, part: '半壶纱', duration: null },
+    ]);
+  });
+
+  // One request, not two: `view` carries the pages alongside the title, so
+  // asking `pagelist` as well would be a second round trip for a list already
+  // in hand. This is the only place that is observable.
+  it('costs one upstream request', async () => {
+    multiPart();
+    const before = upstream.requests.length;
+    await post(API_PATHS.downloadParts, { bvid: BVID });
+    expect(upstream.requests.slice(before)).toHaveLength(1);
+  });
+
+  // A single-part video is not an error: the caller asked what the parts are,
+  // and "one" is the answer. Refusing would make every caller special-case it.
+  it('answers one entry for a single-part video', async () => {
+    const res = await post(API_PATHS.downloadParts, { bvid: BVID });
+    expect(res.statusCode).toBe(200);
+    expect(bodyOf(res).data.parts).toHaveLength(1);
+  });
+
+  it('refuses a malformed bvid here rather than forwarding it', async () => {
+    const before = upstream.requests.length;
+    const res = await post(API_PATHS.downloadParts, { bvid: 'not-a-bvid' });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('INVALID_BODY');
+    expect(upstream.requests.slice(before)).toEqual([]);
+  });
+
+  it('rejects an unknown body field', async () => {
+    const res = await post(API_PATHS.downloadParts, { bvid: BVID, page: 2 });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('INVALID_BODY');
+  });
+});
+
 // ─── POST /download/fetch-list ─────────────────────────
 
 describe('POST /download/fetch-list', () => {

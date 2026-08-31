@@ -77,7 +77,17 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     unknown config section`, so the settings page would offer a window it
  *     cannot save.
  */
-export const LOCAL_API_VERSION = 9;
+/*
+ *   10 → a person picks the parts (0.5.1 §7). One new endpoint and one new
+ *     refusal, and the refusal is the half that bites: a multi-part link with
+ *     no `?p=` now answers `MULTI_PART_UNRESOLVED`, which a 9 client has never
+ *     heard of and will show as a bare message. Worse in the other direction —
+ *     a 10 client's picker calls `POST /download/parts`, and a 9 daemon
+ *     answers 404, so the only way it offers to resolve a multi-part link does
+ *     not exist there. Same shape as 8 and 9 before it: a client written
+ *     against 10 cannot use its own feature through an older daemon.
+ */
+export const LOCAL_API_VERSION = 10;
 
 /** Static daemon route paths. Extended milestone by milestone. */
 export const API_PATHS = {
@@ -106,6 +116,16 @@ export const API_PATHS = {
   downloadParse: '/download/parse',
   downloadBatch: '/download/batch',
   downloadFetchList: '/download/fetch-list',
+  /**
+   * The parts of one multi-part video, for a person to pick from (0.5.1 §7.3-a).
+   *
+   * Beside `/download/fetch-list` rather than inside it: a favourites folder is
+   * walked page by page and legitimately comes back HALF fetched, which is why
+   * `FetchListData` carries an `error` alongside its videos. A page list is one
+   * request that either answers or does not, so sharing that shape would mean
+   * a partial-success field that can never be partially successful.
+   */
+  downloadParts: '/download/parts',
   downloadCancel: '/download/cancel',
   downloadCancelAll: '/download/cancel-all',
   downloadTasks: '/download/tasks',

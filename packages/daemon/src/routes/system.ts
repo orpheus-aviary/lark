@@ -165,6 +165,11 @@ const ENDPOINTS: readonly CapabilityEndpoint[] = [
     path: API_PATHS.downloadFetchList,
     description: 'Expand a favourites folder or a collection into videos',
   },
+  {
+    method: 'POST',
+    path: API_PATHS.downloadParts,
+    description: "List one video's parts, for a person to pick from",
+  },
   { method: 'POST', path: API_PATHS.downloadCancel, description: 'Cancel a download task' },
   {
     method: 'POST',

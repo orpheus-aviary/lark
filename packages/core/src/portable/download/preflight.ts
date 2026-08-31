@@ -17,6 +17,7 @@
 import {
   type DownloadBatchGroupInput,
   type DownloadNamingMode,
+  type DownloadPartsData,
   FETCH_LIST_ITEMS_MAX,
   FETCH_LIST_PAGES_MAX,
   type FetchListData,
@@ -134,6 +135,39 @@ export function preflightBatch(
   if (hasClean && !deps.hasLlm) {
     throw new LlmNotConfiguredError('批量里有条目要清洗命名，需要先配置 LLM（或者改用原标题）');
   }
+}
+
+/**
+ * List one video's parts, so a person can choose among them (0.5.1 §7.3).
+ *
+ * 🔴 ONE REQUEST, NOT TWO. `view` parses `pages` out of the same upstream
+ * response it reads the title from, so asking `pagelist` as well would be a
+ * second round trip for a list already in hand.
+ *
+ * NO PARTIAL SUCCESS, which is why this is not `fetchList`: a page list is one
+ * response that either arrives or throws. A failure here reaches the caller as
+ * an error rather than as an empty list with an explanation, because an empty
+ * list would read as "this video has no parts" — a sentence that is never true.
+ *
+ * A single-part video answers one entry. The caller asked what the parts are.
+ */
+export async function fetchParts(
+  client: BilibiliClient,
+  bvid: string,
+  options?: BiliRequestOptions,
+): Promise<DownloadPartsData> {
+  const view = await client.view(bvid, options);
+  return {
+    bvid: view.bvid,
+    title: view.title,
+    parts: view.pages.map((page) => ({
+      page: page.page,
+      part: page.part,
+      // `0` is bilibili's "unknown", and a picker showing 0:00 for every part
+      // is worse than one showing nothing.
+      duration: page.duration > 0 ? page.duration : null,
+    })),
+  };
 }
 
 /**

@@ -22,6 +22,15 @@ import type { BiliPage, BiliRequestOptions, BilibiliClient } from './bilibili.js
  * match happily finds a "bvid" inside an arbitrary string.
  */
 const BVID_RE = /^BV1[1-9A-HJ-NP-Za-km-z]{9}$/;
+
+/**
+ * Is this string a bvid? Exported so a route can refuse a malformed one with a
+ * 400 instead of forwarding it and reporting bilibili's confusion (0.5.1).
+ */
+export function isBvid(text: string): boolean {
+  return BVID_RE.test(text);
+}
+
 /** The same character class, for pulling a bvid out of a URL path segment. */
 const BVID_IN_PATH_RE = /^BV1[1-9A-HJ-NP-Za-km-z]{9}$/;
 

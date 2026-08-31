@@ -23,6 +23,8 @@
 import {
   type DownloadHistoryData,
   fetchList,
+  fetchParts,
+  isBvid,
   isLlmConfigured,
   parseSongInput,
   preflightBatch,
@@ -184,6 +186,26 @@ export function registerDownloadRoutes(app: FastifyInstance, ctx: AppContext): v
   app.post(API_PATHS.downloadFetchList, async (req, reply) => {
     const request = readFetchListRequest(req.body);
     const data = await fetchList(bilibili, request, { signal: preflightSignal() });
+    ok(reply, data);
+  });
+
+  // ─── POST /download/parts ──────────────────────────────
+
+  /**
+   * One video's parts, for a person to pick from (0.5.1 §7.3-a).
+   *
+   * Separate from `/download/fetch-list` because the two answer differently
+   * shaped questions: a list walk can come back half-done and says so, a page
+   * list arrives or throws. `fetchParts` costs one upstream request — `view`
+   * carries the pages alongside the title.
+   */
+  app.post(API_PATHS.downloadParts, async (req, reply) => {
+    const body = objectBody(req.body, ['bvid']);
+    const bvid = requiredString(body, 'bvid', { maxLength: 32 });
+    // Refused here rather than forwarded: bilibili answers a malformed bvid
+    // with its own vocabulary, and the caller would read it as an outage.
+    if (!isBvid(bvid)) throw new InvalidRequestError('INVALID_BODY', `不是有效的 bvid：${bvid}`);
+    const data = await fetchParts(bilibili, bvid, { signal: preflightSignal() });
     ok(reply, data);
   });
 

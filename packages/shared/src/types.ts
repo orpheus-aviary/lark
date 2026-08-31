@@ -988,6 +988,37 @@ export interface FetchListData {
   error: string | null;
 }
 
+/** `POST /download/parts` body. */
+export interface DownloadPartsRequest {
+  bvid: string;
+}
+
+/** One part, as the picker lists it. `page` is what goes back as `?p=`. */
+export interface DownloadPartData {
+  page: number;
+  /** The part's own title — what the song will be called (0.5.1 §7.4). */
+  part: string;
+  duration: number | null;
+}
+
+/**
+ * `POST /download/parts` — one video's parts, for a person to choose among.
+ *
+ * `title` is the video's own, which for a multi-part upload is the collection
+ * name: the picker needs it to say WHAT it is listing the parts of, and the
+ * song names come from `part` instead. Both arrive in the same upstream
+ * response, so this costs one request, not two.
+ *
+ * A single-part video answers one entry rather than an error. The caller asked
+ * what the parts are and that is the honest answer; refusing would make every
+ * caller special-case a case that is not a problem.
+ */
+export interface DownloadPartsData {
+  bvid: string;
+  title: string;
+  parts: readonly DownloadPartData[];
+}
+
 /** `POST /songs/:id/recognize-url` — a preview, never written to the db (R6). */
 export interface RecognizeUrlData {
   source_url: string;
