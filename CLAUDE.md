@@ -41,7 +41,7 @@ just mobile-android-release     # 构建 release APK 并 adb 装到冻结设备
 tokei               # 业务代码行数（口径见 .tokeignore）
 ```
 
-验收套件（发版门禁）：`accept-gui` **18** · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` 29 = **132**（0.5.0 加了「两个 renderer 入口都进包」；**0.5.1 加了「开着歌词窗的 GUI 仍是 Foreground 应用」**——那次降级的是进程，源码守卫答不了 Electron 换行为）。🔴 **`accept-sync` 要一份从没登录过的库**，不是「删掉登录痕迹的库」，见 `docs/LESSONS.md`。
+验收套件（发版门禁）：`accept-gui` **20** · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` 29 = **134**（0.5.0 加了「两个 renderer 入口都进包」；**0.5.1 加了「开着歌词窗的 GUI 仍是 Foreground 应用」**——那次降级的是进程，源码守卫答不了 Electron 换行为；**又加了「daemon 存得下 `download.retry_limit`、且给它一个 7 是 400 不是 clamp」**——新配置段的失败是不对称的，源码判据答不了）。🔴 **`accept-sync` 要一份从没登录过的库**，不是「删掉登录痕迹的库」，见 `docs/LESSONS.md`。
 
 ## 注意事项
 
@@ -49,6 +49,7 @@ tokei               # 业务代码行数（口径见 .tokeignore）
 - **daemon 是统一入口**（默认端口 **47100**，`471xx` 归 lark）；daemon 存活时 CLI 一律禁止 `--direct` 写。
 - **数据目录** `~/orpheus-aviary-nest/lark/`；**统一响应** `{"success", "data", "message"}`（例外只有 `/audio` / `/lyrics` / `/events`）。
 - **canonical 音频** = `songs/<id>/song.m4a`；**schema v3**；协议 `LOCAL_API_VERSION = 10`（**以 `packages/shared/src/api-paths.ts` 为准**）。
+- **凡是「两端一致」的规则，落点必须是一处代码**（分P 的 wire shape 在 `portable/download/batch-groups.ts`，自动重试的判定在 `portable/download/retry.ts`）——一句写在文档里的约定不会变红。
 - **同步身份两域不混用**：实体 `device_id` 只存 skybridge 注册 ID，本地身份在 `local_metadata.device_uuid`；凭证在独立文件 `skybridge.toml`（0600，不进 `/config`，backup 每层排除）。
 - **歌曲本体不同步**；**缓存清理只动 `downloaded` 且探活确认可重下的文件**，imported 是用户资产、永不自动清理。
 - **每账号独立工作区**：`local` 原地不动，账号库在 `libraries/<32hex>/`。**切换只写一行、要重启才生效**——`serving` ≠ `active`。
@@ -79,7 +80,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 
 ## 当前进度
 
-**桌面 v0.5.0 + Android 0.2.0 已发布**（2026-08-28，tag `v0.5.0` / `android-v0.2.0`，同一个 commit `9b359c0`）。测试 **3547**，`just check` 绿（十四条守卫），五套 accept 对发出去的那两份产物 **129/129**。协议 `LOCAL_API_VERSION = 9`（8 → 9：`[desktop_lyrics]` 段 + `POST /download/batch` 的 `source` + 三个 `/download/history` 端点），**schema 仍 v3**。
+**桌面 v0.5.0 + Android 0.2.0 已发布**（2026-08-28，tag `v0.5.0` / `android-v0.2.0`，同一个 commit `9b359c0`）。**0.5.1 / Android 0.2.1 代码已完成、尚未发版**——测试 3629，协议抬到 10。**当前进度一律以 `PROCESS.md` 为准。**
 
 **当前状态 + 下一步以 `PROCESS.md` 为准。** 其余入口：
 
