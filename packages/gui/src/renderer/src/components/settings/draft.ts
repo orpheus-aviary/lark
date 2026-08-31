@@ -40,6 +40,7 @@ export interface Draft {
   cacheLimitMb: number;
   /** Rule 3's second half (0.1.1 ⑥) — shared with the phone. */
   autoDownloadNext: boolean;
+  retryLimit: number;
   /**
    * The floating lyric window (0.5.0 ⑤).
    *
@@ -77,6 +78,7 @@ export function toDraft(config: PublicLarkConfig): Draft {
     lyricsFontSize: String(config.font.lyrics_font_size),
     cacheLimitMb: config.storage.cache_limit_mb,
     autoDownloadNext: config.playback.auto_download_next,
+    retryLimit: config.download.retry_limit,
     desktopLyricsEnabled: config.desktop_lyrics.enabled,
     desktopLyricsLines: config.desktop_lyrics.lines,
     desktopLyricsFontSize: String(config.desktop_lyrics.font_size),
@@ -143,6 +145,10 @@ export function buildPatch(
 
   if (edited('autoDownloadNext') && draft.autoDownloadNext !== config.playback.auto_download_next) {
     patch.playback = { auto_download_next: draft.autoDownloadNext };
+  }
+
+  if (edited('retryLimit') && draft.retryLimit !== config.download.retry_limit) {
+    patch.download = { retry_limit: draft.retryLimit };
   }
 
   const lyrics: NonNullable<ConfigPatchRequest['desktop_lyrics']> = {};

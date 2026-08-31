@@ -68,6 +68,24 @@ export interface PlaybackConfig {
   auto_download_next: boolean;
 }
 
+/**
+ * Download preferences (2026-08-31 对齐).
+ *
+ * One field, and it is the number half of a rule the phone has had since
+ * 0.1.1 ⑧: how many EXTRA attempts a failure that could plausibly go the other
+ * way gets by itself. WHICH failures those are is not a setting and never will
+ * be — that judgement is `@lark/core/portable`'s `download/retry.ts`, shared
+ * with the phone, because an allowlist that exists twice will say two things.
+ *
+ * `0` turns the feature off. The domain is `RETRY_LIMITS`, and it is closed
+ * for the same two-consumer reason as {@link LOG_LEVELS}: core's `sanitize`
+ * converges an out-of-domain disk value to the default, the daemon's
+ * `PATCH /config` validator rejects it.
+ */
+export interface DownloadConfig {
+  retry_limit: number;
+}
+
 export interface StorageConfig {
   /** Cache limit in MB; 0 = unlimited (no automatic eviction). */
   cache_limit_mb: number;
@@ -198,6 +216,7 @@ export interface LarkConfig {
   log: LogConfig;
   storage: StorageConfig;
   playback: PlaybackConfig;
+  download: DownloadConfig;
   desktop_lyrics: DesktopLyricsConfig;
   sync: SyncConfig;
 }
@@ -216,6 +235,7 @@ export interface ConfigPatchRequest {
   log?: Partial<LogConfig>;
   storage?: Partial<StorageConfig>;
   playback?: Partial<PlaybackConfig>;
+  download?: Partial<DownloadConfig>;
   desktop_lyrics?: Partial<DesktopLyricsConfig>;
   sync?: Partial<SyncConfig>;
 }
@@ -240,6 +260,7 @@ export interface PublicLarkConfig {
   log: LogConfig;
   storage: StorageConfig;
   playback: PlaybackConfig;
+  download: DownloadConfig;
   desktop_lyrics: DesktopLyricsConfig;
   sync: SyncConfig;
 }

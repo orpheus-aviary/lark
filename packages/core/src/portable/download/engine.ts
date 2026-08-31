@@ -278,6 +278,56 @@ export class DownloadEngine {
   }
 
   /**
+   * Do a finished task's work again, as a NEW task (2026-08-31 对齐).
+   *
+   * 🔴 IT REPLAYS THE TASK'S OWN `target`, not the text somebody typed. That
+   * is the whole reason this is a method rather than four lines in each host:
+   * a `DownloadRecord` deliberately does not carry the naming mode
+   * (`history.ts`), so re-submitting its input means answering "which naming?"
+   * again — and an automatic retry has nobody to ask. The phone used to answer
+   * it with whatever the 命名 chip was showing AT THE MOMENT OF THE RETRY, so
+   * a song submitted under 原标题 could land under 清洗命名 because somebody
+   * moved a chip in between. A retry is the continuation of one request, not a
+   * new decision about it, and the target it already resolved says so exactly.
+   *
+   * The other half of the same argument is cost: the target is resolved, so
+   * this costs no network at all — no short-link hop, no page list, no LLM.
+   *
+   * 🔴 LYRICS ARE NEVER REPLAYED HERE (`null`). The engine spawns a lyrics
+   * task after every download, nobody asked for it on its own, and hammering
+   * three providers for each failed fetch is a cost with no consumer. Its
+   * record keeps a 重下 for the person who does want it.
+   *
+   * `null` also for a task this engine has never heard of — terminal tasks age
+   * out of the ring, and a caller holding an old id is asking about something
+   * that no longer exists rather than making a mistake.
+   */
+  enqueueRetry(taskId: string): DownloadTaskData | null {
+    const task = this.#tasks.get(taskId);
+    if (task === undefined) return null;
+    switch (task.kind) {
+      case 'lyrics':
+        return null;
+      case 'redownload':
+        return task.songId === null ? null : this.enqueueRedownload(task.songId);
+      case 'ensure-file':
+        return task.songId === null ? null : this.enqueueEnsureFile(task.songId);
+      case 'download': {
+        // A download task always bound a target before it could run; a `null`
+        // one means it died before that, and there is nothing to replay.
+        if (task.target === null) return null;
+        return this.enqueueDownload({
+          target: task.target,
+          playlistIds: task.playlistIds,
+          // The normalised URL this task was registered with, so the new one
+          // shows the same link rather than a rebuilt `bilibili.com/video/BV…`.
+          ...(task.input.type === 'url' ? { url: task.input.url } : {}),
+        });
+      }
+    }
+  }
+
+  /**
    * Queue a lyrics fetch. Also how a finished download spawns its own.
    *
    * The two callers want different queue positions, which is what `runNext`

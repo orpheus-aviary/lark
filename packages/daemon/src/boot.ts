@@ -93,6 +93,7 @@ import {
   peekNormalRuntime,
 } from './context.js';
 import { createNodeDownloadHistory } from './download-history.js';
+import { type AutoRetry, createAutoRetry } from './download-retry.js';
 import { EventsBus } from './events/bus.js';
 import { GuiChannel } from './events/gui-channel.js';
 import { DaemonLifecycle } from './lifecycle.js';
@@ -533,6 +534,10 @@ export async function boot(options: BootOptions = {}): Promise<void> {
         files,
         logger,
       });
+      // Declared before the engine because the engine's own callback feeds it,
+      // and assigned after because it needs the engine. A failure arrives long
+      // after both exist, so the cycle is only in the types.
+      let autoRetry: AutoRetry | null = null;
       const downloads = new DownloadEngine({
         store: portable,
         files,
@@ -549,6 +554,9 @@ export async function boot(options: BootOptions = {}): Promise<void> {
             // and the store ignores the rest: `recordOf` answers `null` while
             // a task is still running.
             downloadHistory.observe([task]);
+            // AFTER the record, because a retry removes the row it supersedes
+            // and there has to be a row to remove (0.1.1 ⑧'s 「一条链一行」).
+            autoRetry?.observe(task);
             eventsBus.emit({
               type: 'download:status',
               task_id: task.id,
@@ -603,6 +611,15 @@ export async function boot(options: BootOptions = {}): Promise<void> {
           onBatchesChanged: (batchId) =>
             eventsBus.emit({ type: 'download:batches-changed', batch_id: batchId }),
         },
+      });
+
+      autoRetry = createAutoRetry({
+        engine: downloads,
+        history: downloadHistory,
+        // Read fresh, for the same reason the LLM config is: a `PATCH /config`
+        // is meant to take effect on the next failure, not the next daemon.
+        retryLimit: () => (ctx?.config ?? config).download.retry_limit,
+        logger,
       });
 
       return {

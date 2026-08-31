@@ -2,6 +2,7 @@
 // v0.2 T4, contents unchanged). Everything here edits the local draft — the
 // dialog's [保存] is the only writer.
 
+import { RETRY_LIMITS } from '@lark/core/portable';
 import type { DesktopLyricsPreset, LogLevel, PublicLarkConfig, ThemeMode } from '@lark/shared';
 import {
   DESKTOP_LYRICS_BOUNDS,
@@ -110,6 +111,34 @@ export function GeneralTab({
             </span>
           </span>
         </label>
+      </Section>
+
+      <Section
+        title="下载"
+        hint="这一条也和手机版是同一条规则：重试哪些失败由 lark 决定，次数由你决定"
+      >
+        <Field label="失败自动重试" htmlFor="retry-limit" error={errorFor('download.retry_limit')}>
+          <Select
+            value={String(draft.retryLimit)}
+            onValueChange={(value) => update({ retryLimit: Number(value) })}
+          >
+            <SelectTrigger id="retry-limit">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RETRY_LIMITS.map((limit) => (
+                <SelectItem key={limit} value={String(limit)}>
+                  {limit === 0 ? '不重试' : `${limit} 次`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <p className="text-muted-foreground text-xs">
+          只重试可能换个结果的失败——超时、连接断了、短链没展开。链接失效、风控、模型没配、
+          撞到缓存上限都不会自动重试，那些再问一次也是同一个答案。不重试时在「下载任务」里点
+          「重下」。
+        </p>
       </Section>
 
       <Section

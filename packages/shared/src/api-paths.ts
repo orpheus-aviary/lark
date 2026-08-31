@@ -86,6 +86,15 @@ export function defaultDaemonBaseUrl(port: number = DEFAULT_DAEMON_PORT): string
  *     answers 404, so the only way it offers to resolve a multi-part link does
  *     not exist there. Same shape as 8 and 9 before it: a client written
  *     against 10 cannot use its own feature through an older daemon.
+ *
+ *     10 also carries `[download] retry_limit` (2026-08-31 对齐): the desktop
+ *     grew the phone's automatic retry, and the setting is config because the
+ *     retry runs in the daemon rather than the renderer. NOT its own version —
+ *     10 has never been released, so no daemon in the world answers 10 without
+ *     this field, and a number exists to separate behaviours that HAVE shipped.
+ *     Had it shipped, this would be 11 for the same reason 8 and 9 were: a 9
+ *     daemon answers `INVALID_CONFIG: unknown config section: download`, and a
+ *     settings page would be offering a switch it cannot save.
  */
 export const LOCAL_API_VERSION = 10;
 

@@ -116,6 +116,7 @@ export * from './download/resolve.js';
 export * from './download/import.js';
 export * from './portable/download/pipeline.js';
 export * from './portable/download/preflight.js';
+export * from './portable/download/retry.js';
 export * from './portable/download/source-url.js';
 export * from './portable/download/target.js';
 export * from './portable/download/task-data.js';

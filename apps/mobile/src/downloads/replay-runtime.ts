@@ -1,11 +1,17 @@
 // The add page's two functions, bound once for everybody who re-runs a
 // download (0.1.1 ⑦⑧).
 //
-// TWO CALLERS NOW, WHICH IS WHY THIS EXISTS. The download page builds a 重下
-// button out of these, and the automatic retry (`retry-runtime.ts`) builds the
-// same request out of the same ones — and only one of the two is on a screen.
-// Left in the screen, an automatic retry would have had to grow a second copy,
-// and the copy would have been the one nobody checked.
+// ONE CALLER SINCE 2026-08-31, and the reason is worth keeping. It was built
+// for two — the download page's 重下 button and the automatic retry — and the
+// automatic one has since moved to `engine.enqueueRetry`, which replays the
+// task's own target instead of rebuilding the request. That is not a tidy-up:
+// rebuilding means answering "which naming?", a record carries no such answer
+// (`history.ts`), and the answer this file supplies is **whatever the 命名 chip
+// says right now**. For a button somebody just pressed that is right (0.1.1
+// ⑨); for a retry nobody asked for it silently renamed the song.
+//
+// So what is left here is the manual path, and the comment below about reading
+// the mode per call is about a person's tap rather than a machine's.
 //
 // A SINGLETON for the ordinary reason (`bootOnce`, the engine, the history):
 // the naming mode is read per call, but the client and the foreground

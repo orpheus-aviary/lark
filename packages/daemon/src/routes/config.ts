@@ -19,7 +19,7 @@
 // config is: it answers the request first, then asks to die (never awaiting
 // the teardown, which would deadlock against this very request).
 
-import { loadConfig, redactConfig, saveConfig } from '@lark/core';
+import { RETRY_LIMITS, loadConfig, redactConfig, saveConfig } from '@lark/core';
 import {
   API_PATHS,
   DESKTOP_LYRICS_BOUNDS,
@@ -84,6 +84,24 @@ function boolean(): FieldValidator {
   };
 }
 
+/**
+ * A closed NUMERIC domain, for a setting whose values are a menu rather than a
+ * range (`download.retry_limit`).
+ *
+ * Not `number({min, max})`: 7 is not "3 with extra on top", it is a value from
+ * another build, and a caller who asked for it deserves to hear so rather than
+ * to have it quietly become 3. The loader's opposite policy — converge to the
+ * default — is `isRetryLimit` in core's `sanitize`.
+ */
+function oneOfNumber(domain: readonly number[]): FieldValidator {
+  return (value, path) => {
+    if (typeof value !== 'number' || !domain.includes(value)) {
+      throw invalidConfig(`${path} must be one of: ${domain.join(', ')}`, path);
+    }
+    return value;
+  };
+}
+
 function oneOf(domain: readonly string[]): FieldValidator {
   return (value, path) => {
     if (typeof value !== 'string' || !domain.includes(value)) {
@@ -127,6 +145,10 @@ const SCHEMA: Record<string, Record<string, FieldValidator>> = {
   },
   storage: { cache_limit_mb: number({ min: 0 }) },
   playback: { auto_download_next: boolean() },
+  // How many EXTRA attempts a retryable failure gets by itself (2026-08-31
+  // 对齐). WHICH failures those are is not patchable and is not a setting at
+  // all — that judgement is portable's, shared with the phone.
+  download: { retry_limit: oneOfNumber(RETRY_LIMITS) },
   // The floating lyric window (0.5.0 ⑤). Geometry is patchable because the
   // window writes its own back as it is dragged (P9c) — and bounded for the
   // same reason the loader bounds it: a window nobody can find or read.

@@ -1,9 +1,23 @@
 // Trying a failed download again, without being asked (0.1.1 ⑧).
 //
-// WHICH failures and HOW MANY times are `downloads/retry.ts`'s, where they can
-// be checked. What is here is the part that needs the process: watching the
-// hub, following one chain of attempts, and taking the superseded row out of
-// the record.
+// WHICH failures is portable's (`download/retry.ts`, shared with the desktop
+// since 2026-08-31) and HOW MANY times is `downloads/retry.ts`'s, where this
+// phone keeps the number. What is here is the part that needs the process:
+// watching the hub, following one chain of attempts, and taking the superseded
+// row out of the record.
+//
+// 🔴 IT REPLAYS THE TASK, NOT THE TEXT (2026-08-31 对齐). Until this batch it
+// went back through the add page's recogniser and its submit — which asks
+// "which naming?", and a record does not carry one, so the answer came from
+// whatever the 命名 chip was showing AT THAT MOMENT. A download submitted under
+// 原标题 could therefore land under 清洗命名 because somebody moved a chip while
+// it was failing, and nobody asked for that. `engine.enqueueRetry` replays the
+// task's own resolved target instead: same page, same naming, same playlists,
+// and no network at all. The desktop's daemon does exactly this.
+//
+// 🔑 THE MANUAL 重下 IS UNCHANGED and still goes through `replay`: a button
+// pressed today means today's answer (0.1.1 ⑨). This file is the one that
+// nobody pressed.
 //
 // 🔴 THE CHAIN IS FOLLOWED BY TASK ID, and every attempt is counted against
 // the same chain. A retry produces a NEW task, so `attempts` is re-keyed onto
@@ -23,15 +37,14 @@
 // 歌曲 can fail with nobody on the download page, and that is the failure this
 // exists for.
 
-import { planRetry, recordOf } from '@lark/core/portable';
+import { shouldRetry } from '@lark/core/portable';
 import type { DownloadTaskData } from '@lark/shared';
 import type { BootResult } from '../boot/sequence';
+import { downloadRuntimeOnce } from './engine';
 import { downloadHistoryOnce } from './history-runtime';
 import { downloads } from './hub';
 import { engineLogger } from './log';
-import { replay, supersededRecord } from './replay';
-import { replayDepsOnce } from './replay-runtime';
-import { readRetryLimit, shouldRetry } from './retry';
+import { readRetryLimit } from './retry';
 
 /**
  * A backstop, not a policy (see the header's note on chains).
@@ -53,7 +66,7 @@ export function bindAutoRetry(boot: BootResult): void {
   bound = true;
 
   const history = downloadHistoryOnce(boot);
-  const deps = replayDepsOnce(boot);
+  const engine = downloadRuntimeOnce(boot).engine;
   /** Failures already judged. A hub tick is not an event; the ring is a list. */
   const judged = new Set<string>();
   /** Attempts made so far, by the task the NEXT one would be. */
@@ -70,9 +83,6 @@ export function bindAutoRetry(boot: BootResult): void {
     const limit = readRetryLimit(boot.deviceSettings, engineLogger);
     if (!shouldRetry(task.error_code, made, limit)) return;
 
-    const record = recordOf(task);
-    if (record === null) return;
-
     if (issued >= MAX_AUTOMATIC_RETRIES) {
       engineLogger.error(
         { task: task.id, issued },
@@ -82,18 +92,24 @@ export function bindAutoRetry(boot: BootResult): void {
     }
     issued += 1;
 
-    void replay(deps, planRetry(record)).then((outcome) => {
-      if (!supersededRecord(outcome)) {
-        // Could not get it back on the queue. The record stays exactly as it
+    // A microtask, not inline: this runs from a hub tick, which the engine
+    // drives while its worker is between steps.
+    queueMicrotask(() => {
+      let retried: DownloadTaskData | null;
+      try {
+        retried = engine.enqueueRetry(task.id);
+      } catch (err) {
+        // A full queue is the ordinary one. The record stays exactly as it
         // was, which is the honest thing to leave behind: a failed row with a
         // 重下 on it.
         engineLogger.warn(
-          { task: task.id, code: task.error_code, said: outcome.message },
+          { task: task.id, code: task.error_code, err: String(err) },
           'a download could not be retried automatically',
         );
         return;
       }
-      attempts.set(outcome.taskId, made + 1);
+      if (retried === null) return;
+      attempts.set(retried.id, made + 1);
       // The attempt just superseded is not a second line in the record.
       history.remove(task.id);
     });

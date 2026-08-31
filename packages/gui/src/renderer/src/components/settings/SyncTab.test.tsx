@@ -18,6 +18,7 @@ function publicConfig(): PublicLarkConfig {
     log: { level: 'info', max_size_mb: 10, max_backups: 5 },
     storage: { cache_limit_mb: 0 },
     playback: { auto_download_next: true },
+    download: { retry_limit: 1 },
     desktop_lyrics: {
       enabled: false,
       lines: 1,

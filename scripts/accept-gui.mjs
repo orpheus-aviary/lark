@@ -503,6 +503,49 @@ try {
   );
   await sleep(1000);
 
+  // ── 8 · the daemon takes the new config section (2026-08-31 对齐) ──
+  //
+  // 🔴 THIS IS THE PROTOCOL HALF, AND A SOURCE GUARD CANNOT ANSWER IT. The
+  // desktop's automatic retry lives in the daemon, so its setting had to be
+  // config — and a config SECTION is the one kind of addition that fails
+  // asymmetrically: `PATCH /config` on a daemon that does not know it answers
+  // `INVALID_CONFIG: unknown config section: download`, which means the
+  // settings page can offer a control it cannot save. 0.4.1 (`[playback]`) and
+  // 0.5.0 (`[desktop_lyrics]`) each shipped that bug's shape once; both times
+  // the unit tests were green because both halves were written together.
+  //
+  // So: write a value through the real daemon and read it back through it.
+  // Not the settings page — CDP reaches the renderer but the page's [保存] is
+  // behind a dialog this suite does not drive; what the page adds on top is
+  // `docs/plans/2026-08-28-manual-check.md`'s.
+  const patched = await fetch(`${DAEMON_URL}/config`, {
+    method: 'PATCH',
+    headers: { ...newAuth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ download: { retry_limit: 2 } }),
+  });
+  const reread = (await (await fetch(`${DAEMON_URL}/config`, { headers: newAuth })).json())?.data;
+  check(
+    '8 · the daemon stores download.retry_limit',
+    patched.status === 200 && reread?.download?.retry_limit === 2,
+    `PATCH ${patched.status} → ${JSON.stringify(reread?.download)}`,
+  );
+  // The reverse half: a count from another build is refused, not clamped. A
+  // clamp would let a settings page that offers 7 look like it worked.
+  const refused = await fetch(`${DAEMON_URL}/config`, {
+    method: 'PATCH',
+    headers: { ...newAuth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ download: { retry_limit: 7 } }),
+  });
+  const refusedBody = await refused.json().catch(() => null);
+  const stillTwo = (await (await fetch(`${DAEMON_URL}/config`, { headers: newAuth })).json())?.data;
+  check(
+    '8 · a retry count this build does not offer is refused, not clamped',
+    refused.status === 400 &&
+      refusedBody?.error_code === 'INVALID_CONFIG' &&
+      stillTwo?.download?.retry_limit === 2,
+    `${refused.status} ${refusedBody?.error_code} → ${JSON.stringify(stillTwo?.download)}`,
+  );
+
   // ── what T4 could not reach: a quit GUI answers 409 ──
   console.log('[6/6] quitting the GUI…');
   cdp.close();

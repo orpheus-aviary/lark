@@ -21,6 +21,8 @@ import {
   LOCAL_LLM_API_FORMATS,
   type LocalLlmApiFormat,
   MIB,
+  RETRY_LIMITS,
+  type RetryLimit,
   isLlmConfigured,
   readCacheLimitMb,
   readLlmEndpoint,
@@ -41,7 +43,7 @@ import {
 import { readDeviceUsage } from '../cache/usage';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineErrors, subscribeEngineErrors } from '../downloads/log';
-import { RETRY_LIMITS, type RetryLimit, readRetryLimit, writeRetryLimit } from '../downloads/retry';
+import { readRetryLimit, writeRetryLimit } from '../downloads/retry';
 import { nowPlaying } from '../player';
 import { readAutoDownloadNext, writeAutoDownloadNext } from '../player/auto-download';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';

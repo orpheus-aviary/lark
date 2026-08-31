@@ -143,13 +143,19 @@ describe('loadConfig', () => {
 
     const raw = parse(readFileSync(cfgPath(), 'utf-8')) as Record<string, unknown>;
     expect(raw.display).toEqual({ show_duration: true });
-    expect(raw.download).toEqual({ uploader_video_limit: 100 });
+    // 🔴 A SECTION THIS BUILD ALSO USES (2026-08-31). `[download]` was a
+    // Go-era section and is now one of ours too — `retry_limit` joined it —
+    // so the round-trip has to keep BOTH: the dead key nobody reads and the
+    // live one. A `toEqual` on the dead key alone would have gone red the day
+    // this section grew a field, which is what it just did.
+    expect(raw.download).toEqual({ uploader_video_limit: 100, retry_limit: 1 });
     expect(raw.daemon).toEqual({ port: 47020 });
     expect((raw.log as Record<string, unknown>).max_age_days).toBe(30);
 
     const pub = redactConfig(cfg);
     expect(Object.keys(pub).sort()).toEqual([
       'desktop_lyrics',
+      'download',
       'font',
       'llm',
       'log',

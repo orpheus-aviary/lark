@@ -66,6 +66,7 @@ function setConfig(playback: { auto_download_next: boolean }): void {
       log: { level: 'info', max_size_mb: 10, max_backups: 5 },
       storage: { cache_limit_mb: 0 },
       playback,
+      download: { retry_limit: 1 },
       desktop_lyrics: {
         enabled: false,
         lines: 1,

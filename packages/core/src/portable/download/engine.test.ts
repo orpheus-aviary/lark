@@ -1267,6 +1267,87 @@ describe('redownload', () => {
   }, 60_000);
 });
 
+// ─── enqueueRetry (2026-08-31 对齐) ────────────────────
+//
+// The automatic retry's one primitive, and what it must NOT do is the half
+// worth asserting: it must not re-decide anything. The phone used to rebuild
+// the request out of the record and answer "which naming?" with whatever the
+// chip was showing AT THE MOMENT OF THE RETRY, so a song submitted under
+// 原标题 could come back under 清洗命名 because somebody moved a chip in
+// between. Nothing in a snapshot shows a target, so the two probes below ask
+// the engine instead: an identical submission MERGES, and one that disagrees
+// on naming is REFUSED.
+
+describe('enqueueRetry', () => {
+  it("replays the task's own target — same page, same naming, same playlists", () => {
+    upstream.state.hangAudio = true;
+    const e = build();
+    const playlist = createPlaylist(store, '重试要保住的歌单');
+    // A blocker, so the task under test never leaves the queue and can be
+    // cancelled into a terminal state without waiting for anything.
+    e.enqueueDownload({ target: videoTarget(2) });
+    const first = e.enqueueDownload({
+      target: videoTarget(1, null, 'original'),
+      playlistIds: [playlist.id],
+    });
+    e.cancel(first.id);
+
+    const again = e.enqueueRetry(first.id);
+
+    expect(again).not.toBeNull();
+    expect(again?.id).not.toBe(first.id);
+    expect(again?.playlist_ids).toEqual([playlist.id]);
+    // Probe 1: the same target merges into it, so its dedupe key — page and
+    // all — is the one the cancelled task carried.
+    expect(e.enqueueDownload({ target: videoTarget(1, null, 'original') }).id).toBe(again?.id);
+    // Probe 2: 清洗命名 for the same video is a conflict, which can only be
+    // true if the pending task is holding `original`.
+    expect(() => e.enqueueDownload({ target: videoTarget(1, null, 'clean') })).toThrow(
+      /NAMING|命名/,
+    );
+  }, 60_000);
+
+  it('replays a redownload as a redownload', async () => {
+    const e = build();
+    const first = e.enqueueDownload({ target: videoTarget() });
+    await settle(e, first.id);
+    const songId = taskOf(e, first.id).result?.song_id as string;
+    await settleAll(e);
+
+    upstream.state.hangAudio = true;
+    const blocker = e.enqueueDownload({ target: videoTarget(2) });
+    const again = e.enqueueRedownload(songId);
+    e.cancel(again.id);
+
+    const retried = e.enqueueRetry(again.id);
+
+    expect(retried?.kind).toBe('redownload');
+    expect(retried?.input).toEqual({ type: 'song', song_id: songId });
+    e.cancel(blocker.id);
+  }, 60_000);
+
+  // 🔴 The engine spawns a lyrics task after every download, nobody asked for
+  // it on its own, and hammering three providers for every failed fetch is a
+  // cost with no consumer. Its record keeps a 重下 for whoever does want it.
+  it('never replays a lyrics task', () => {
+    const e = build();
+    const lyrics = e.enqueueLyrics('11111111-2222-4333-8444-555555555555');
+    const before = e.snapshot().tasks.length;
+
+    expect(e.enqueueRetry(lyrics.id)).toBeNull();
+    expect(e.snapshot().tasks).toHaveLength(before);
+  });
+
+  // Terminal tasks age out of the ring, so a caller holding an old id is
+  // asking about something that is gone rather than making a mistake — unlike
+  // `cancel`, which throws.
+  it('answers null for a task it has never heard of', () => {
+    const e = build();
+    expect(e.enqueueRetry('11111111-2222-4333-8444-555555555555')).toBeNull();
+    expect(e.snapshot().tasks).toEqual([]);
+  });
+});
+
 // ─── expectedDurationSeconds (N4a, §1.4) ───────────────
 //
 // A REFERENCE the landing may cross-check, filled from the page list both

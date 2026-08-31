@@ -35,6 +35,7 @@ import {
 import { parse, stringify } from 'smol-toml';
 import { ConfigUnsafePermissionsError } from '../errors.js';
 import { aviaryConfigPath, configPath } from '../paths.js';
+import { DEFAULT_RETRY_LIMIT, isRetryLimit } from '../portable/download/retry.js';
 
 // The skybridge credential file rides on this subpath too: it is config, it is
 // TOML, and it must stay reachable from `@lark/core/config` so the CLI can
@@ -59,6 +60,10 @@ export const DEFAULT_CONFIG: LarkConfig = {
   // On by default (0.1.1 ⑥): a list that stops because the next song's file is
   // not here reads as broken, and both hosts can fetch it.
   playback: { auto_download_next: true },
+  // One extra attempt (0.1.1 ⑧'s default, and the phone's): the failure this
+  // is for is a connection that dropped for a moment, and one more go answers
+  // it. Nobody should have to find a setting for the common case.
+  download: { retry_limit: DEFAULT_RETRY_LIMIT },
   // Off, and that is the only sensible default for a window that floats over
   // everything else on the screen: it appears because somebody asked for it.
   // The geometry is a starting place — a wide, short strip near the top left
@@ -232,6 +237,7 @@ export function redactConfig(config: LarkConfig): PublicLarkConfig {
     },
     storage: { cache_limit_mb: config.storage.cache_limit_mb },
     playback: { auto_download_next: config.playback.auto_download_next },
+    download: { retry_limit: config.download.retry_limit },
     desktop_lyrics: { ...config.desktop_lyrics },
     sync: { interval_min: config.sync.interval_min },
   };
@@ -345,6 +351,11 @@ function sanitize(cfg: LarkConfig): LarkConfig {
     cfg.playback.auto_download_next,
     d.playback.auto_download_next,
   );
+  // A count this build does not offer converges to the default rather than
+  // being clamped: 7 is not "3 with extra", it is a value from another build.
+  cfg.download.retry_limit = isRetryLimit(cfg.download.retry_limit)
+    ? cfg.download.retry_limit
+    : d.download.retry_limit;
   const lyrics = cfg.desktop_lyrics;
   const dl = d.desktop_lyrics;
   lyrics.enabled = bool(lyrics.enabled, dl.enabled);
