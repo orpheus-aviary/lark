@@ -10,6 +10,7 @@ import type {
   CacheStatusData,
   DownloadBatchData,
   DownloadBatchesData,
+  DownloadPartsData,
   DownloadTaskData,
   DownloadTasksData,
   FetchListData,
@@ -61,6 +62,7 @@ export interface FakeBackendData {
   parse?: ParseResultData;
   accepted?: { task_id: string };
   fetchList?: FetchListData;
+  fetchParts?: DownloadPartsData;
   batches?: DownloadBatchesData;
   recognize?: RecognizeUrlData;
 
@@ -236,6 +238,7 @@ export function createFakeBackend(data: FakeBackendData = {}): FakeBackend {
     downloadSong: (request) =>
       record('downloadSong', [request], data.accepted ?? { task_id: 'task-1' }),
     fetchList: (request) => record('fetchList', [request], data.fetchList as FetchListData),
+    fetchParts: (bvid) => record('fetchParts', [bvid], data.fetchParts as DownloadPartsData),
     downloadBatch: (groups) =>
       record('downloadBatch', [groups], data.batches ?? { batches: [batch()] }),
     downloadTasks: () => {

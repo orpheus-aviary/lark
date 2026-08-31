@@ -4,6 +4,7 @@ import type {
   CacheStatusData,
   DownloadBatchGroupInput,
   DownloadBatchesData,
+  DownloadPartsData,
   DownloadSongRequest,
   DownloadTaskAcceptedData,
   DownloadTasksData,
@@ -107,6 +108,8 @@ export interface Backend {
   downloadSong(request: DownloadSongRequest): Promise<ApiResponse<DownloadTaskAcceptedData>>;
   /** Expand a favourites folder / collection into videos. Partial success is normal. */
   fetchList(request: FetchListRequest): Promise<ApiResponse<FetchListData>>;
+  /** One video's parts, so `--all-parts` knows how many there are (0.5.1 §7.3). */
+  fetchParts(bvid: string): Promise<ApiResponse<DownloadPartsData>>;
   downloadBatch(
     groups: readonly DownloadBatchGroupInput[],
   ): Promise<ApiResponse<DownloadBatchesData>>;

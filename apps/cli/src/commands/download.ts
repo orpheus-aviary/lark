@@ -28,6 +28,7 @@ import {
   type DownloadBatchItemInput,
   type DownloadBatchesData,
   type DownloadNamingMode,
+  type DownloadPartsData,
   type DownloadSongRequest,
   type DownloadTaskAcceptedData,
   type DownloadTaskData,
@@ -59,6 +60,40 @@ export interface DownloadOptions {
   allowPartial?: boolean;
   /** `--clean-name`: let the LLM name the song instead of keeping the title. */
   cleanName?: boolean;
+  /** `--part 1,3,5-7`: which parts of a multi-part video to download (0.5.1 §7.3-e). */
+  part?: string;
+  /** `--all-parts`: every part, without having to know how many there are. */
+  allParts?: boolean;
+}
+
+/**
+ * Read `1,3,5-7` into `[1, 3, 5, 6, 7]`.
+ *
+ * 🔴 A USAGE ERROR, NOT A SILENT REPAIR. `--part 0`, `--part 3-1` and
+ * `--part abc` are all somebody meaning something specific and mistyping it;
+ * quietly downloading part 1 instead is the failure mode 0.5.1 exists to
+ * remove, only moved from the model to the parser.
+ */
+export function parsePartSpec(spec: string): number[] {
+  const pages = new Set<number>();
+  for (const piece of spec.split(',')) {
+    const text = piece.trim();
+    if (text === '') continue;
+    const range = /^(\d+)-(\d+)$/.exec(text);
+    if (range) {
+      const from = Number(range[1]);
+      const to = Number(range[2]);
+      if (from < 1 || to < from) throw usageError(`--part 的区间不对：${text}`);
+      for (let page = from; page <= to; page++) pages.add(page);
+      continue;
+    }
+    if (!/^\d+$/.test(text)) throw usageError(`--part 只认编号和区间（如 1,3,5-7）：${text}`);
+    const page = Number(text);
+    if (page < 1) throw usageError('--part 的编号从 1 开始。');
+    pages.add(page);
+  }
+  if (pages.size === 0) throw usageError('--part 需要至少一个分P 编号，如 --part 1,3。');
+  return [...pages].sort((a, b) => a - b);
 }
 
 /** Injected so tests need neither a clock nor a real stdin. */
@@ -95,6 +130,17 @@ export function assertDownloadShape(input: string | undefined, opts: DownloadOpt
       '--allow-partial 只用于收藏夹 / 合集链接（那种列表可能只取回一部分）；--batch 的每一行都是独立的一次下载。',
     );
   }
+  // The same F11 rule again, for the two new flags: one `--part` cannot mean
+  // anything sensible across a file of unrelated links.
+  if ((opts.part !== undefined || opts.allParts === true) && opts.batch !== undefined) {
+    throw usageError('--part / --all-parts 只对一个视频链接有意义；--batch 的每一行各是一个视频。');
+  }
+  if (opts.part !== undefined && opts.allParts === true) {
+    throw usageError('--part 和 --all-parts 只能给一个。');
+  }
+  // Decided without a backend so the parse error is exit 2 rather than a
+  // request that was never going to be sent.
+  if (opts.part !== undefined) parsePartSpec(opts.part);
 }
 
 export async function runDownload(
@@ -168,6 +214,19 @@ async function downloadOne(
   // the flag and letting it be ignored (the `--allow-partial` lesson, F11).
   if (item.kind === 'keyword' && opts.cleanName === true) {
     throw usageError('--clean-name 只对视频链接有意义：关键词搜索的命名一直由 LLM 决定。');
+  }
+  const wantsParts = opts.part !== undefined || opts.allParts === true;
+  if (wantsParts) {
+    if (item.kind !== 'video') {
+      throw usageError('--part / --all-parts 只对视频链接有意义。');
+    }
+    // A link that already says which part, plus a flag that says which part,
+    // is two answers to one question. Refused rather than ranked.
+    if (item.page !== null) {
+      throw usageError(`链接里已经有 ?p=${item.page} 了：--part / --all-parts 与它冲突。`);
+    }
+    await downloadParts(ctx, item.bvid, opts, deps);
+    return;
   }
   const target = await resolveTarget(ctx, opts.playlist);
   const request: DownloadSongRequest = { input };
@@ -353,6 +412,60 @@ function pageOf(item: ParsedItem): number | null {
 }
 
 // ─── Batch enqueue and outcome ─────────────────────────
+
+/**
+ * `--part` / `--all-parts`: download named parts of one multi-part video.
+ *
+ * 🔴 THIS IS THE CLI'S WHOLE ANSWER TO MULTI-PART NOW (0.5.1 §7.3-e). The
+ * model used to pick a part when a link named none — and answered "1" whenever
+ * it could not tell, which is a different song and nothing to notice it by. A
+ * GUI can ask; a CLI cannot, so it is asked on the command line instead.
+ *
+ * `--all-parts` costs one request that `--part` does not: nobody can write
+ * `--part 1-40` without first knowing there are forty.
+ */
+async function downloadParts(
+  ctx: CommandContext,
+  bvid: string,
+  opts: DownloadOptions,
+  deps: DownloadDeps,
+): Promise<void> {
+  let pages: number[];
+  if (opts.allParts === true) {
+    const envelope = await ctx.backend.fetchParts(bvid);
+    const parts = (envelope.data as DownloadPartsData).parts;
+    if (parts.length === 0) throw new CliError('INVALID_RESPONSE', 'daemon 没有返回分P 列表。');
+    pages = parts.map((part) => part.page);
+  } else {
+    // Already validated in `assertDownloadShape`, so a bad spec never reaches
+    // the daemon; parsed again here because that check answers a shape
+    // question and this one needs the value.
+    pages = parsePartSpec(opts.part ?? '');
+  }
+
+  const target = await resolveTarget(ctx, opts.playlist);
+  await enqueueBatch(
+    ctx,
+    [
+      {
+        target: target.target,
+        // NO `source`: this came from a link, not from a list, and inventing a
+        // list identity is a lie the download record then repeats forever.
+        items: pages.map((page) => ({
+          kind: 'video' as const,
+          bvid,
+          page,
+          // `null`: the pipeline reads the part's own title out of the page
+          // list it fetches anyway (§7.4).
+          title: null,
+          naming: namingOf(opts),
+        })),
+      },
+    ],
+    opts,
+    deps,
+  );
+}
 
 async function enqueueBatch(
   ctx: CommandContext,

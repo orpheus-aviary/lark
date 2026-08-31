@@ -270,6 +270,8 @@ program
   .option('--no-wait', 'return as soon as it is queued')
   .option('--allow-partial', 'proceed even when the list only came back partially')
   .option('--clean-name', 'ask the LLM for the song and the artist instead of keeping the title')
+  .option('--part <spec>', 'which parts of a multi-part video, e.g. 1,3,5-7')
+  .option('--all-parts', 'every part of a multi-part video')
   .action((input: string | undefined, opts) =>
     withBackend('daemon', (ctx) => runDownload(ctx, input, opts), {
       precheck: () => assertDownloadShape(input, opts),

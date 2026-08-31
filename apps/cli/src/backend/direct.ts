@@ -386,6 +386,7 @@ function buildBackend(core: Core, handles: Handles, mode: 'read' | 'write'): Bac
     parseInput: () => Promise.reject(daemonOnly('解析下载输入')),
     downloadSong: () => Promise.reject(daemonOnly('下载')),
     fetchList: () => Promise.reject(daemonOnly('展开收藏夹 / 合集')),
+    fetchParts: () => Promise.reject(daemonOnly('列出分P')),
     downloadBatch: () => Promise.reject(daemonOnly('批量下载')),
     downloadTasks: () => Promise.reject(daemonOnly('查看下载队列')),
     redownloadSong: () => Promise.reject(daemonOnly('重新下载')),

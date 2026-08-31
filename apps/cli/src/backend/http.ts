@@ -4,6 +4,7 @@ import {
   type CacheEvictResultData,
   type CacheStatusData,
   type DownloadBatchesData,
+  type DownloadPartsData,
   type DownloadSongRequest,
   type DownloadTaskAcceptedData,
   type DownloadTasksData,
@@ -86,6 +87,8 @@ export function createHttpBackend(baseUrl: string = defaultDaemonBaseUrl()): Bac
       send<DownloadTaskAcceptedData>('POST', API_PATHS.downloadSong, body),
     fetchList: (body: FetchListRequest) =>
       send<FetchListData>('POST', API_PATHS.downloadFetchList, body),
+    fetchParts: (bvid: string) =>
+      send<DownloadPartsData>('POST', API_PATHS.downloadParts, { bvid }),
     downloadBatch: (groups) =>
       send<DownloadBatchesData>('POST', API_PATHS.downloadBatch, { groups }),
     downloadTasks: () => get<DownloadTasksData>(API_PATHS.downloadTasks),

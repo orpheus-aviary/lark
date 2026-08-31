@@ -7,7 +7,13 @@ import type {
 import { describe, expect, it } from 'vitest';
 import type { CliError } from '../lib/errors.js';
 import { batch, fakeContext, playlist, song, task } from '../testing/fake-backend.js';
-import { type DownloadDeps, runDownload, runSongsRedownload } from './download.js';
+import {
+  type DownloadDeps,
+  assertDownloadShape,
+  parsePartSpec,
+  runDownload,
+  runSongsRedownload,
+} from './download.js';
 
 const PLAYLIST_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const SONG_ID = '11111111-2222-4333-8444-555555555555';
@@ -480,5 +486,102 @@ describe('songs redownload', () => {
 
     expect(ctx.backend.names()).toEqual(['redownloadSong']);
     expect(ctx.streams.stdout[0]).toContain('已加入队列');
+  });
+});
+
+// ── 0.5.1 §7.3-e · the CLI's whole answer to multi-part ──────────────────
+//
+// The model used to pick a part when a link named none, and answered "1"
+// whenever it could not tell. A GUI can ask; a CLI is asked on its own command
+// line instead.
+describe('--part / --all-parts', () => {
+  const multiPart = {
+    items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://x/BV1' }],
+  } as const;
+
+  it('reads 1,3,5-7 into the pages it names', () => {
+    expect(parsePartSpec('1,3,5-7')).toEqual([1, 3, 5, 6, 7]);
+    // Duplicates and whitespace are somebody typing, not somebody meaning two
+    // downloads of part 3.
+    expect(parsePartSpec(' 3 , 1 , 3 ')).toEqual([1, 3]);
+  });
+
+  // 🔴 A mistyped spec is a usage error, not a silent part 1. Repairing it
+  // quietly is the exact failure this version removed from the model.
+  it.each([['0'], ['abc'], ['3-1'], [''], ['-'], ['1,x']])('refuses %s', (spec) => {
+    expect(() => parsePartSpec(spec)).toThrow();
+  });
+
+  it('sends the named pages as one batch, and never touches /download/song', async () => {
+    const ctx = fakeContext({ parse: multiPart, taskSnapshots: succeeds() });
+    await runDownload(ctx, 'https://x/BV1', { part: '2,4' }, NOW);
+
+    expect(ctx.backend.names()).not.toContain('downloadSong');
+    expect(ctx.backend.argsOf('downloadBatch')?.[0]).toEqual([
+      {
+        target: { kind: 'all' },
+        items: [
+          { kind: 'video', bvid: 'BV1', page: 2, title: null, naming: 'original' },
+          { kind: 'video', bvid: 'BV1', page: 4, title: null, naming: 'original' },
+        ],
+      },
+    ]);
+  });
+
+  // --all-parts is the one that has to ask: nobody can write `--part 1-40`
+  // without first knowing there are forty.
+  it('--all-parts lists the parts first, then sends every one', async () => {
+    const ctx = fakeContext({
+      parse: multiPart,
+      fetchParts: {
+        bvid: 'BV1',
+        title: '合集',
+        parts: [
+          { page: 1, part: '一', duration: 10 },
+          { page: 2, part: '二', duration: null },
+        ],
+      },
+      taskSnapshots: succeeds(),
+    });
+    await runDownload(ctx, 'https://x/BV1', { allParts: true }, NOW);
+
+    expect(ctx.backend.argsOf('fetchParts')).toEqual(['BV1']);
+    const groups = ctx.backend.argsOf('downloadBatch')?.[0] as { items: { page: number }[] }[];
+    expect(groups[0]?.items.map((item) => item.page)).toEqual([1, 2]);
+  });
+
+  // The shape rules, all decided without a backend so they are exit 2 rather
+  // than a request that was never going to be sent.
+  it.each([
+    ['--part with --batch', { part: '1', batch: 'f.txt' }],
+    ['--all-parts with --batch', { allParts: true, batch: 'f.txt' }],
+    ['both at once', { part: '1', allParts: true }],
+    ['a bad spec', { part: '0' }],
+  ])('refuses %s before any backend call', (_label, opts) => {
+    expect(() => assertDownloadShape('BV1', opts)).toThrow();
+  });
+
+  it('refuses --part when the link already says ?p=', async () => {
+    const ctx = fakeContext({
+      parse: {
+        items: [{ kind: 'video', bvid: 'BV1', page: 2, url: 'https://x/BV1?p=2' }],
+      } as const,
+    });
+    await expect(runDownload(ctx, 'https://x/BV1?p=2', { part: '3' }, NOW)).rejects.toThrow(/冲突/);
+  });
+
+  it('refuses --part on a keyword', async () => {
+    const ctx = fakeContext({ parse: { items: [{ kind: 'keyword', query: '晴天' }] } as const });
+    await expect(runDownload(ctx, '晴天', { part: '1' }, NOW)).rejects.toThrow(/只对视频链接/);
+  });
+
+  // The counter-test: an ordinary link is untouched by any of this.
+  it('leaves a plain link on the single path', async () => {
+    const ctx = fakeContext({ taskSnapshots: succeeds() });
+    await runDownload(ctx, 'BV1', {}, NOW);
+
+    expect(ctx.backend.names()).toContain('downloadSong');
+    expect(ctx.backend.names()).not.toContain('downloadBatch');
+    expect(ctx.backend.names()).not.toContain('fetchParts');
   });
 });
