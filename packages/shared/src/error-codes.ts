@@ -84,6 +84,10 @@ export const DAEMON_ENVELOPE_ERROR_CODES = [
   'FFMPEG_FAILED',
   'LLM_FAILED',
   'LLM_NOT_CONFIGURED',
+  // A multi-part video with no part named (0.5.1). Separate from
+  // LLM_NOT_CONFIGURED on purpose: configuring a model does not answer it any
+  // more — a person does, through `?p=`, `--part`, or the picker.
+  'MULTI_PART_UNRESOLVED',
   // Two requests want the same video under different naming modes (0.3.0
   // §3.6-1). They would merge onto one task, and one of the two users would
   // silently get the other's answer, so the second one is refused instead.
@@ -160,6 +164,7 @@ export const TASK_ERROR_CODES = [
   'LLM_FAILED',
   'LLM_NOT_CONFIGURED',
   'MEDIA_TOOLS_UNAVAILABLE',
+  'MULTI_PART_UNRESOLVED',
   // Same reason as the sync codes below: no task raises it — it is refused at
   // enqueue time — but `describeTaskError` passes any CodedError through, so
   // the registry closes over the class rather than over today's callers.

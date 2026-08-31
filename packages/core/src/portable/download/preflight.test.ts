@@ -79,7 +79,10 @@ describe('the multi-part gate (criterion 28, and its counter-test)', () => {
   it('refuses a multi-part video with no ?p= and no model, naming the count', async () => {
     await expect(
       preflightSingle({ client: client(2), hasLlm: false }, video(null), 'original'),
-    ).rejects.toThrow('这个视频有 2 个分P');
+    ).rejects.toMatchObject({
+      code: 'MULTI_PART_UNRESOLVED',
+      message: expect.stringContaining('这个视频有 2 个分P'),
+    });
   });
 
   // The two cases that make the one above meaningful: delete the gate and this
@@ -96,10 +99,14 @@ describe('the multi-part gate (criterion 28, and its counter-test)', () => {
     ).resolves.toMatchObject({ page: null });
   });
 
-  it('does not fire once there is a model — the model picks the part', async () => {
+  // 🔴 INVERTED IN 0.5.1 (§7.3-e). It used to assert that a configured model
+  // made the refusal go away, because the model picked the part — and answered
+  // "1" whenever it could not tell. Nothing guesses now, so a model changes
+  // nothing here, and this is the test that says so.
+  it('fires even with a model configured — nothing guesses a part any more', async () => {
     await expect(
       preflightSingle({ client: client(2), hasLlm: true }, video(null), 'original'),
-    ).resolves.toMatchObject({ page: null });
+    ).rejects.toMatchObject({ code: 'MULTI_PART_UNRESOLVED' });
   });
 });
 

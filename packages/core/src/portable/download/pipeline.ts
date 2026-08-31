@@ -16,7 +16,12 @@
 
 import type { DownloadStage, LlmConfig, SongData } from '@lark/shared';
 import type { PortableDb } from '../db.js';
-import { BilibiliApiError, LlmNotConfiguredError, SourceGoneError } from '../errors.js';
+import {
+  BilibiliApiError,
+  LlmNotConfiguredError,
+  MultiPartUnresolvedError,
+  SourceGoneError,
+} from '../errors.js';
 import { writeLyrics } from '../library/lyrics.js';
 import type { StructuredLogger } from '../logger.js';
 import type { FileContext } from '../ports/fs.js';
@@ -82,48 +87,71 @@ export async function resolveTarget(
   if (target.kind === 'keyword') return resolveKeyword(deps, target.query, ctx);
 
   ctx.reportStage('resolving');
-  const page = await choosePage(deps, target, ctx);
+  // `?? 1` so ONE pagelist answers both questions. `normalizeSourceOnline`
+  // fetches it for the p → cid hop regardless and hands it back, so the
+  // multi-part refusal below reads the same list rather than asking twice.
   const source = await normalizeSourceOnline(
     deps.bilibili,
-    { bvid: target.bvid, page },
+    { bvid: target.bvid, page: target.page ?? 1 },
     { signal: ctx.signal },
   );
+  // 🔴 NOBODY GUESSES A PART ANY MORE (0.5.1 §7.3-e). Until then the model
+  // picked one — and answered "1" whenever it could not tell, which is a
+  // different song, silently. The picker, `?p=`, and `--part` are now the
+  // only three ways to say which. The daemon's preflight refuses this before
+  // a task exists; this is the backstop for the paths that skip it.
+  if (target.page === null && source.pages.length > 1) {
+    throw new MultiPartUnresolvedError(
+      `这个视频有 ${source.pages.length} 个分P：在链接后加 ?p=<编号>，或在下载前选择要下哪几个分P`,
+    );
+  }
   const view = await deps.bilibili.view(target.bvid, { signal: ctx.signal });
-  // The list's title when a list gave one, the video's own otherwise — and
-  // whichever it is, it is also what `clean` falls back to.
-  const title = target.title ?? view.title;
-  if (target.naming === 'original') return { source, name: title, artist: view.ownerName };
+  const part = partTitle(source);
+  // The list's title when a list gave one, the video's own otherwise.
+  const mainTitle = target.title ?? view.title;
+  // 🔴 WHAT A PART IS CALLED IS THE PART'S OWN TITLE (0.5.1 §7.3-f). A
+  // 「歌曲合集」 uploaded as forty parts is forty songs, and naming them all
+  // after the collection is the complaint this answers. Single-part videos
+  // keep `view.title`: their `part` is routinely "1" or a filename, and
+  // changing them would break names that are correct today for nothing.
+  const fallback = part !== '' ? part : mainTitle;
+  if (target.naming === 'original') return { source, name: fallback, artist: view.ownerName };
 
   ctx.reportStage('naming');
-  const inferred = await inferSongInfo(deps, title, '', view.ownerName, ctx);
+  // BOTH titles go to the model, because the answer is split across them: the
+  // song is in the part (「烟雨行舟」), the artist is in the main title
+  // (「【司夏　古风歌曲合集】…」). Either one alone cannot produce both.
+  const inferred = await inferSongInfo(deps, mainTitle, part, '', view.ownerName, ctx);
   return {
     source,
-    name: inferred.song_name !== '' ? inferred.song_name : title,
+    name: inferred.song_name !== '' ? inferred.song_name : fallback,
     artist: inferred.artist !== '' ? inferred.artist : view.ownerName,
   };
 }
 
 /**
- * A multi-part video with no `?p=` is the one place a plain URL still needs
- * the model. With `?p=` — or with only one part — this never runs, which is
- * what makes "paste a link, no LLM" true.
+ * The part's own title, and only when the video HAS parts.
+ *
+ * A single-part video still has a `pages[0].part`; it is just not a subtitle —
+ * bilibili fills it with the whole title, a bare "1", or the uploaded
+ * filename. Reading it there would rename songs that are named correctly
+ * today, so this answers `''` and every caller falls back to the video's own
+ * title, exactly as before 0.5.1.
  */
-async function choosePage(
-  deps: PipelineDeps,
-  target: { bvid: string; page: number | null; title: string | null },
-  ctx: StepContext,
-): Promise<number> {
-  if (target.page !== null) return target.page;
-  const pages = await deps.bilibili.pagelist(target.bvid, { signal: ctx.signal });
-  if (pages.length <= 1) return 1;
-  if (deps.llm === null) {
-    throw new LlmNotConfiguredError(
-      `${target.bvid} 有 ${pages.length} 个分P：请在链接后加 ?p=<编号>，或配置 LLM 让它自动选集`,
-    );
-  }
-  return pickPage(deps, pages, target.title ?? '', '', ctx);
+function partTitle(source: NormalizedSource): string {
+  if (source.pages.length <= 1) return '';
+  return str(source.pages[source.page - 1]?.part);
 }
 
+/**
+ * Pick a part for a KEYWORD search, where there is no link and no picker.
+ *
+ * 🔴 THE ONE SURVIVING MODEL-PICKED PART (0.5.1 §7.3-e). Links no longer come
+ * through here: a person names the parts. A keyword search cannot ask — the
+ * person typed words and never saw a video, let alone its parts — and the
+ * model already chose the video one step above, so choosing among its parts is
+ * the same act, not a new dependency.
+ */
 async function pickPage(
   deps: PipelineDeps,
   pages: readonly BiliPage[],
@@ -175,10 +203,14 @@ async function resolveKeyword(
   const source = await normalizeSourceOnline(deps.bilibili, { bvid, page }, { signal: ctx.signal });
 
   const view = await deps.bilibili.view(bvid, { signal: ctx.signal });
-  const inferred = await inferSongInfo(deps, view.title, query, view.ownerName, ctx);
+  // A keyword that landed on one part of a collection is named after that
+  // part, on the same terms as a link (§7.3-f).
+  const part = partTitle(source);
+  const fallback = part !== '' ? part : view.title;
+  const inferred = await inferSongInfo(deps, view.title, part, query, view.ownerName, ctx);
   return {
     source,
-    name: inferred.song_name !== '' ? inferred.song_name : view.title,
+    name: inferred.song_name !== '' ? inferred.song_name : fallback,
     artist: inferred.artist !== '' ? inferred.artist : view.ownerName,
   };
 }
@@ -215,11 +247,13 @@ async function analyzeKeyword(
 async function inferSongInfo(
   deps: PipelineDeps,
   title: string,
+  /** The part's own title, `''` when the video is not multi-part (§7.3-f). */
+  part: string,
   userInput: string,
   uploader: string,
   ctx: StepContext,
 ): Promise<{ song_name: string; artist: string }> {
-  const payload = JSON.stringify({ title, user_input: userInput, uploader }, null, 2);
+  const payload = JSON.stringify({ title, part, user_input: userInput, uploader }, null, 2);
   const parsed = await llmJson<{ song_name?: string; artist?: string }>(
     deps,
     INFER_SONG_INFO_PROMPT,

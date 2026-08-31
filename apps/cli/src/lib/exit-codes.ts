@@ -146,6 +146,11 @@ export const EXIT_MAP: Record<CliErrorCode, ExitCode> = {
   INVALID_ID: EXIT_USAGE,
   INVALID_CONFIG: EXIT_USAGE,
   INVALID_SOURCE: EXIT_USAGE,
+  // 2, NOT 3: nothing is missing from this machine. The link named a video
+  // with several parts and did not say which — `?p=` or `--part` answers it
+  // (0.5.1). Sending it to the environment group would point at the settings
+  // page, which is where the old LLM_NOT_CONFIGURED wrongly pointed.
+  MULTI_PART_UNRESOLVED: EXIT_USAGE,
   INVALID_IMPORT_FILE: EXIT_USAGE,
   INVALID_REUSE: EXIT_USAGE,
   INVALID_REORDER: EXIT_USAGE,

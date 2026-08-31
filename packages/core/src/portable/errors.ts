@@ -401,6 +401,24 @@ export class VirtualPlaylistError extends Error {
   }
 }
 
+/**
+ * A multi-part video was submitted without saying WHICH part (0.5.1 §7.3-e).
+ *
+ * 🔴 NOT `LLM_NOT_CONFIGURED`, WHICH IS WHAT IT USED TO BE. Until 0.5.1 the
+ * model picked a part, so the refusal only happened when there was no model —
+ * and a configured one silently answered "1" whenever it could not tell. Now
+ * nobody guesses: the caller says which parts, through `?p=`, `--part`, or the
+ * picker. Configuring an LLM does not make this go away, so the old code would
+ * have sent people to the settings page for nothing.
+ */
+export class MultiPartUnresolvedError extends CodedError {
+  readonly code = 'MULTI_PART_UNRESOLVED';
+  constructor(message: string) {
+    super(message);
+    this.name = 'MultiPartUnresolvedError';
+  }
+}
+
 /** No usable LLM in either lark's config or aviary's, for an operation that needs one. */
 export class LlmNotConfiguredError extends CodedError {
   readonly code = 'LLM_NOT_CONFIGURED';

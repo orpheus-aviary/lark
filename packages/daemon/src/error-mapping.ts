@@ -92,6 +92,10 @@ const STATUS_BY_CODE: Record<DaemonEnvelopeErrorCode, number> = {
   FFMPEG_FAILED: 500,
   LLM_FAILED: 502,
   LLM_NOT_CONFIGURED: 400,
+  // 400 for the same reason and a different cause: the request under-specified
+  // itself. A multi-part video was named without saying which parts, and no
+  // amount of configuring answers it — only a changed request does (0.5.1).
+  MULTI_PART_UNRESOLVED: 400,
   // 409: the request is well-formed and would be fine on its own — something
   // else is already in the queue under the other naming mode (§3.6-1).
   NAMING_MODE_CONFLICT: 409,

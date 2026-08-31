@@ -8,10 +8,12 @@
 // the prompt survives only as the multi-line batch fallback. The text is
 // unchanged; its authority is not.
 //
-// One rule HAS since been added on purpose: `INFER_SONG_INFO_PROMPT` now says
-// what to do when a title names several artists (0.5.0 ⑧). It is a behaviour
-// change rather than a cleanup, and only a real model can show that it reads
-// the way it is meant to.
+// Two rules HAVE since been added on purpose, both to `INFER_SONG_INFO_PROMPT`:
+// what to do when a title names several artists (0.5.0 ⑧), and what `part`
+// means when it is not empty (0.5.1 §7.4) — a multi-part collection keeps the
+// song in the part and the artist in the main title, so the model has to be
+// told which half to read for which. They are behaviour changes rather than
+// cleanups, and only a real model can show that they read the way they mean to.
 
 /** Split one free-form line into `{type, url, song_name, artist, query}`. */
 export const ANALYZE_PROMPT = `你是一个音频下载助手。分析用户输入，判断是URL还是关键词搜索。
@@ -33,7 +35,8 @@ export const INFER_SONG_INFO_PROMPT = `你是一个音频下载助手。根据bi
 - 如果是其他内容：song_name填节目/视频标题的核心部分，artist填UP主/主播/演员
 - UP主名称可以帮助推断创作者（例如"等什么君Official"说明歌手是"等什么君"）
 - 如果有多个创作者：全部保留，用「、」分隔（例如"周杰伦、费玉清"），顺序按标题里出现的先后
-- 如果无法确定创作者，artist留空`;
+- 如果无法确定创作者，artist留空
+- part是分P（子集）的标题，为空表示这不是多P视频。part不为空时，song_name基本应取自part（它才是这一首的名字），而title往往是合集名，创作者通常要从title或UP主里取（例如title="【司夏 古风歌曲合集】分集"、part="烟雨行舟" ⇒ song_name="烟雨行舟"、artist="司夏"）`;
 
 /**
  * Split a multi-line paste into items.
@@ -69,7 +72,14 @@ export function selectPrompt(songName: string, artist: string): string {
 - 避免选择：合集（除非用户明确要合集中的某一期）、教程、评论/反应视频`;
 }
 
-/** Pick a part of a multi-P video. Answers a bare page number. */
+/**
+ * Pick a part of a multi-P video, for a KEYWORD search only. Answers a bare
+ * page number.
+ *
+ * 🔴 NO LONGER REACHED BY A LINK (0.5.1 §7.3-e). A pasted link that names no
+ * part is refused now; a person picks. This survives on the keyword path,
+ * where there is nobody to ask and the model already chose the video.
+ */
 export function multiPPrompt(songName: string, artist: string): string {
   return `这是一个bilibili多P视频的分P列表。用户想要下载：歌名="${songName}"，歌手="${artist}"
 请返回最匹配的分P编号（纯数字，如"3"）。

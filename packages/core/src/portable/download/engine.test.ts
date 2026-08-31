@@ -290,10 +290,10 @@ describe('single-part URL with no LLM', () => {
   }, 60_000);
 });
 
-describe('multi-part with no ?p= and no LLM', () => {
+describe('multi-part with no ?p=', () => {
   // The batch trade-off (fourth review ②): batch items skip the synchronous
   // preflight, so this surfaces as an async task failure rather than a 400.
-  it('fails the task with LLM_NOT_CONFIGURED rather than guessing a part', async () => {
+  it('fails the task with MULTI_PART_UNRESOLVED rather than guessing a part', async () => {
     upstream.state.videos.set(BVID, {
       title: '多P合辑',
       owner: 'UP',
@@ -310,13 +310,90 @@ describe('multi-part with no ?p= and no LLM', () => {
 
     const task = taskOf(e, id);
     expect(task.state).toBe('failed');
-    expect(task.error_code).toBe('LLM_NOT_CONFIGURED');
+    expect(task.error_code).toBe('MULTI_PART_UNRESOLVED');
     expect(task.error_message).toContain('?p=');
     expect(listSongs(db, sqlite).total).toBe(0);
   }, 60_000);
 });
 
 // ─── Naming (0.3.0 §3.6-1) ─────────────────────────────
+
+describe('what a part is called (0.5.1 §7.4)', () => {
+  /** The shape the complaint came from: a collection uploaded as parts. */
+  function collection(): void {
+    upstream.state.videos.set(BVID, {
+      title: '【司夏　古风歌曲合集】分集　有歌词　可加　收藏循环',
+      owner: '司夏',
+      ownerMid: 1,
+      duration: 100,
+      pages: [
+        { page: 1, part: '烟雨行舟', duration: 50, cid: 111 },
+        { page: 2, part: '半壶纱', duration: 50, cid: 222 },
+      ],
+    });
+  }
+
+  it('names a part after the part, not after the collection', async () => {
+    collection();
+    const e = build();
+    const { id } = e.enqueueDownload({ target: videoTarget(1, null, 'original') });
+    await settle(e, id);
+
+    const song = getSong(db, sqlite, taskOf(e, id).result?.song_id as string);
+    expect(song.name).toBe('烟雨行舟');
+    expect(song.artist).toBe('司夏');
+  }, 60_000);
+
+  // The counter-test that keeps the rule NARROW: a single-part video's `part`
+  // is bilibili filler ("1", a filename, the whole title), so reading it there
+  // would rename songs that are right today.
+  it('leaves a single-part video on its own title', async () => {
+    upstream.state.videos.set(BVID, {
+      title: '【私藏馆】周杰伦《稻香》',
+      owner: '音乐私藏馆',
+      ownerMid: 1,
+      duration: 100,
+      pages: [{ page: 1, part: '稻香.flac', duration: 100, cid: 111 }],
+    });
+    const e = build();
+    const { id } = e.enqueueDownload({ target: videoTarget(null, null, 'original') });
+    await settle(e, id);
+
+    const song = getSong(db, sqlite, taskOf(e, id).result?.song_id as string);
+    expect(song.name).toBe('【私藏馆】周杰伦《稻香》');
+  }, 60_000);
+
+  it('shows the model both titles, because the answer is split across them', async () => {
+    collection();
+    const payloads: string[] = [];
+    upstream.state.llm = (system, user) => {
+      if (!system.includes('推断内容名称')) return '1';
+      payloads.push(user);
+      return JSON.stringify({ song_name: '烟雨行舟', artist: '司夏' });
+    };
+    const e = build({ llm: llmConfig() });
+    const { id } = e.enqueueDownload({ target: videoTarget(1, null, 'clean') });
+    await settle(e, id);
+
+    expect(payloads).toHaveLength(1);
+    const payload = JSON.parse(payloads[0] as string) as { title: string; part: string };
+    expect(payload.part).toBe('烟雨行舟');
+    expect(payload.title).toContain('司夏');
+  }, 60_000);
+
+  // The property 0.5.1 extended to multi-part videos: naming a part is now a
+  // deterministic act, so a link that says which part asks nothing of anyone.
+  it('asks no model at all when the link names the part', async () => {
+    collection();
+    const e = build({ llm: llmConfig() });
+    const { id } = e.enqueueDownload({ target: videoTarget(2, null, 'original') });
+    await settle(e, id);
+
+    expect(taskOf(e, id).state).toBe('succeeded');
+    expect(getSong(db, sqlite, taskOf(e, id).result?.song_id as string).name).toBe('半壶纱');
+    expect(upstream.requests.some((r) => r.includes('chat/completions'))).toBe(false);
+  }, 60_000);
+});
 
 describe('naming mode', () => {
   /** Answer the infer prompt; everything else is not this suite's business. */

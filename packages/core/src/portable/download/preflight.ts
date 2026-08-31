@@ -23,7 +23,12 @@ import {
   type FetchListRequest,
   type ParsedItem,
 } from '@lark/shared';
-import { InvalidSourceError, LlmNotConfiguredError, PreflightTimeoutError } from '../errors.js';
+import {
+  InvalidSourceError,
+  LlmNotConfiguredError,
+  MultiPartUnresolvedError,
+  PreflightTimeoutError,
+} from '../errors.js';
 import type { BiliRequestOptions, BilibiliClient } from './bilibili.js';
 import { resolveInput } from './link.js';
 import type { DownloadTarget } from './target.js';
@@ -56,12 +61,12 @@ export function resolveOne(
  *
  *   keyword and no LLM             → LLM_NOT_CONFIGURED
  *   clean naming and no LLM        → LLM_NOT_CONFIGURED
- *   multi-part, no ?p=, and no LLM → LLM_NOT_CONFIGURED
+ *   multi-part with no ?p=         → MULTI_PART_UNRESOLVED (0.5.1, any LLM)
  *   a favourites / collection link → INVALID_SOURCE (use fetch-list)
  *
  * The page list is fetched here for the multi-part gate because it is needed
  * for p → cid anyway, so asking it is free — and it is the only way to know
- * whether the LLM will be required. A `naming_mode` for a video is assumed
+ * whether a part still has to be named. A `naming_mode` for a video is assumed
  * present (the caller validates request shape); a video reaching this without
  * one is a caller bug, not a user error.
  */
@@ -91,11 +96,16 @@ export async function preflightSingle(
   if (namingMode === 'clean' && !deps.hasLlm) {
     throw new LlmNotConfiguredError('清洗命名需要配置 LLM；或者用 naming_mode=original 保留原标题');
   }
+  // 🔴 NOT AN LLM GATE ANY MORE (0.5.1 §7.3-e). It used to refuse only when
+  // there was no model, because a model would pick a part — and answer "1"
+  // whenever it could not tell. Now nothing guesses, so this refuses whatever
+  // is configured, and says the three things that DO answer it. Sending
+  // somebody to the settings page for this would have been a dead end.
   if (item.page === null) {
     const pages = await withPreflightBudget(() => deps.client.pagelist(item.bvid, options));
-    if (pages.length > 1 && !deps.hasLlm) {
-      throw new LlmNotConfiguredError(
-        `这个视频有 ${pages.length} 个分P：在链接后加 ?p=<编号>，或配置 LLM 让它自动选集`,
+    if (pages.length > 1) {
+      throw new MultiPartUnresolvedError(
+        `这个视频有 ${pages.length} 个分P：在链接后加 ?p=<编号>，或选择要下哪几个分P`,
       );
     }
   }

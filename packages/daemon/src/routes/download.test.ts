@@ -71,7 +71,7 @@ describe('POST /download/song', () => {
 
   // The preflight's whole point: an answer the user can act on, before the
   // queue, rather than a task that fails minutes later.
-  it('refuses a multi-part video with no ?p= and no LLM, and says how to fix it', async () => {
+  it('refuses a multi-part video with no ?p=, and says how to fix it', async () => {
     upstream.state.videos.set(BVID, {
       title: '多P',
       owner: 'UP',
@@ -84,12 +84,16 @@ describe('POST /download/song', () => {
     });
     const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
     expect(res.statusCode).toBe(400);
-    expect(bodyOf(res).error_code).toBe('LLM_NOT_CONFIGURED');
+    expect(bodyOf(res).error_code).toBe('MULTI_PART_UNRESOLVED');
     expect(bodyOf(res).message).toContain('?p=');
     expect(ctx.downloads.snapshot().tasks).toEqual([]);
   });
 
-  it('accepts the same video once an LLM is configured', async () => {
+  // 🔴 INVERTED IN 0.5.1 (§7.3-e). It used to assert that configuring a model
+  // made this video acceptable, because the model then picked a part — and
+  // answered "1" whenever it could not tell, which is a different song and no
+  // way to notice. A model answers nothing here now; a person says which part.
+  it('still refuses it once an LLM is configured — a model does not answer this', async () => {
     upstream.state.videos.set(BVID, {
       title: '多P',
       owner: 'UP',
@@ -101,10 +105,30 @@ describe('POST /download/song', () => {
       ],
     });
     configureLlm();
-    expect(
-      (await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' }))
-        .statusCode,
-    ).toBe(200);
+    const res = await post(API_PATHS.downloadSong, { input: VIDEO_URL, naming_mode: 'original' });
+    expect(res.statusCode).toBe(400);
+    expect(bodyOf(res).error_code).toBe('MULTI_PART_UNRESOLVED');
+    expect(ctx.downloads.snapshot().tasks).toEqual([]);
+  });
+
+  // The other half, unchanged and now carrying more weight: naming the part is
+  // the whole of what this needs, and it costs no packet at all.
+  it('queues it the moment the link names a part', async () => {
+    upstream.state.videos.set(BVID, {
+      title: '多P',
+      owner: 'UP',
+      ownerMid: 1,
+      duration: 10,
+      pages: [
+        { page: 1, part: '一', duration: 5, cid: 111 },
+        { page: 2, part: '二', duration: 5, cid: 222 },
+      ],
+    });
+    const res = await post(API_PATHS.downloadSong, {
+      input: `${VIDEO_URL}?p=2`,
+      naming_mode: 'original',
+    });
+    expect(res.statusCode).toBe(200);
   });
 
   it('does not preflight at all when ?p= is explicit', async () => {
