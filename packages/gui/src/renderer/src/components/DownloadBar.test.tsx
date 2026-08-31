@@ -18,6 +18,8 @@ interface Call {
 
 let calls: Call[] = [];
 let parseResult: (() => Response) | null = null;
+let songResponse: (() => Response) | null = null;
+let partsResponse: (() => Response) | null = null;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -55,13 +57,22 @@ function task(overrides: Partial<DownloadTaskData> = {}): DownloadTaskData {
 beforeEach(() => {
   calls = [];
   parseResult = null;
+  songResponse = null;
+  partsResponse = null;
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string, init?: RequestInit) => {
       calls.push({ url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined });
       if (url.endsWith('/download/parse') && parseResult) return Promise.resolve(parseResult());
       if (url.endsWith('/download/song')) {
+        if (songResponse) return Promise.resolve(songResponse());
         return Promise.resolve(jsonResponse({ success: true, data: { task_id: 't1' } }));
+      }
+      if (url.endsWith('/download/parts') && partsResponse) {
+        return Promise.resolve(partsResponse());
+      }
+      if (url.endsWith('/download/batch')) {
+        return Promise.resolve(jsonResponse({ success: true, data: { batches: [] } }));
       }
       if (url.endsWith('/download/fetch-list')) {
         return Promise.resolve(
@@ -299,6 +310,143 @@ describe('one line of input', () => {
 
 // ② — a question that gets dismissed hands the text back to the box it was
 // typed into, rather than eating it.
+// ── 0.5.1 §7.3 · the refusal is the question ─────────────
+//
+// A pasted link is classified offline, so nothing in the renderer knows a
+// video has parts. The daemon's refusal is what raises the question, and these
+// say the bar treats it as one rather than as a failure.
+describe('a multi-part link', () => {
+  /** `POST /download/song` refuses; `/download/parts` answers two parts. */
+  function refuseThenList(): void {
+    songResponse = () =>
+      jsonResponse(
+        {
+          success: false,
+          error_code: 'MULTI_PART_UNRESOLVED',
+          message: '这个视频有 2 个分P：在链接后加 ?p=<编号>，或选择要下哪几个分P',
+        },
+        400,
+      );
+    partsResponse = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          bvid: 'BV1',
+          title: '【司夏　古风歌曲合集】分集',
+          parts: [
+            { page: 1, part: '烟雨行舟', duration: 215 },
+            { page: 2, part: '半壶纱', duration: null },
+          ],
+        },
+      });
+  }
+
+  /** Paste a link with no `?p=`, answer the naming question, hit the refusal. */
+  async function reachThePicker(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    refuseThenList();
+    parseResult = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://b.com/video/BV1' }],
+        },
+      });
+    render(<DownloadBar />);
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+    await screen.findByText('怎么命名？');
+    await user.click(screen.getByRole('button', { name: '原标题' }));
+    await screen.findByText('选择要下载的分P');
+  }
+
+  it('turns the refusal into the parts question', async () => {
+    const user = userEvent.setup();
+    await reachThePicker(user);
+
+    expect(screen.getByText('烟雨行舟')).toBeTruthy();
+    expect(screen.getByText('半壶纱')).toBeTruthy();
+    // The collection's own title labels the dialog; the songs are the parts.
+    // Matched loosely: testing-library normalises the ideographic space in it.
+    expect(screen.getByText(/古风歌曲合集/)).toBeTruthy();
+  });
+
+  // §7.3-d: a pre-ticked list of forty parts turns one stray Enter into forty
+  // downloads, which is the opposite of "a person chooses".
+  it('opens with nothing ticked, and cannot be confirmed that way', async () => {
+    const user = userEvent.setup();
+    await reachThePicker(user);
+
+    expect(screen.getByRole('button', { name: /下载选中的 0 个/ }).hasAttribute('disabled')).toBe(
+      true,
+    );
+  });
+
+  it('sends the ticked pages as one batch, under the same naming answer', async () => {
+    const user = userEvent.setup();
+    await reachThePicker(user);
+
+    await user.click(screen.getByLabelText('半壶纱'));
+    await user.click(screen.getByRole('button', { name: /下载选中的 1 个/ }));
+
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/batch'))?.body).toEqual({
+        groups: [
+          {
+            target: { kind: 'all' },
+            items: [
+              // `title: null` on purpose: the pipeline reads the part's own
+              // title out of the page list it fetches anyway (§7.4).
+              { kind: 'video', bvid: 'BV1', page: 2, title: null, naming: 'original' },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+
+  // The counter-test that keeps the question NARROW: an ordinary link must not
+  // pay for this. No `/download/parts` request, no dialog, no extra hop.
+  it('does not ask about parts when the link downloads normally', async () => {
+    const user = userEvent.setup();
+    parseResult = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://b.com/video/BV1' }],
+        },
+      });
+    render(<DownloadBar />);
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+    await screen.findByText('怎么命名？');
+    await user.click(screen.getByRole('button', { name: '原标题' }));
+
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/download/song'))).toBe(true));
+    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
+    expect(screen.queryByText('选择要下载的分P')).toBeNull();
+  });
+
+  // Any OTHER refusal is still a refusal. Without this the branch could widen
+  // to "every error opens the picker" and no test would notice.
+  it('reports an unrelated refusal instead of opening the picker', async () => {
+    const user = userEvent.setup();
+    songResponse = () =>
+      jsonResponse({ success: false, error_code: 'DOWNLOAD_QUEUE_FULL', message: '队列满了' }, 409);
+    parseResult = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://b.com/video/BV1' }],
+        },
+      });
+    render(<DownloadBar />);
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+    await screen.findByText('怎么命名？');
+    await user.click(screen.getByRole('button', { name: '原标题' }));
+
+    await screen.findByText('队列满了');
+    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
+  });
+});
+
 describe('an abandoned parse', () => {
   const twoVideos = () =>
     jsonResponse({

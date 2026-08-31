@@ -55,6 +55,21 @@ function stubFetch(): void {
       if (url.endsWith('/download/batch')) {
         return Promise.resolve(jsonResponse({ success: true, data: { batches: [] } }));
       }
+      if (url.endsWith('/download/parts')) {
+        return Promise.resolve(
+          jsonResponse({
+            success: true,
+            data: {
+              bvid: 'BV9',
+              title: '古风合集',
+              parts: [
+                { page: 1, part: '烟雨行舟', duration: 215 },
+                { page: 2, part: '半壶纱', duration: null },
+              ],
+            },
+          }),
+        );
+      }
       if (url.endsWith('/download/song')) {
         const next = songResponses.shift();
         return Promise.resolve(
@@ -340,5 +355,71 @@ describe('backing out', () => {
     await user.keyboard('{Escape}');
     expect(onBack).toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+// ── 0.5.1 §7.3-c · a pasted line that turns out to be multi-part ──────────
+//
+// Twenty pasted links must not cost twenty page-list requests, so nothing is
+// expanded up front. The daemon's refusal is what expands the one line that
+// needs it, in place, where the person can see which line it was.
+describe('a multi-part line in a paste', () => {
+  const refuseMultiPart = () =>
+    jsonResponse(
+      {
+        success: false,
+        error_code: 'MULTI_PART_UNRESOLVED',
+        message: '这个视频有 2 个分P',
+      },
+      400,
+    );
+
+  it('expands the line instead of failing it', async () => {
+    songResponses = [refuseMultiPart];
+    const user = userEvent.setup();
+    open([video]);
+    await user.click(screen.getByRole('button', { name: /确认/ }));
+
+    await screen.findByText('烟雨行舟');
+    expect(screen.getByText('半壶纱')).toBeTruthy();
+    // The line now reads as what it turned out to be.
+    expect(screen.getByText('古风合集')).toBeTruthy();
+  });
+
+  it('costs nothing until the refusal — no line is expanded up front', async () => {
+    const user = userEvent.setup();
+    open([video, video]);
+    // Opening the dialog asks bilibili nothing about either line.
+    await waitFor(() => expect(screen.getByRole('button', { name: /确认/ })).toBeTruthy());
+    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
+    await user.click(screen.getByRole('button', { name: /确认/ }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/download/song'))).toBe(true));
+    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
+  });
+
+  it('sends the ticked parts as their own group on the next confirm', async () => {
+    songResponses = [refuseMultiPart];
+    const user = userEvent.setup();
+    open([video]);
+    await user.click(screen.getByRole('button', { name: /确认/ }));
+    await screen.findByText('烟雨行舟');
+
+    await user.click(screen.getByLabelText('烟雨行舟'));
+    // The parts inherit the dialog's own naming answer rather than carrying a
+    // second one: it is the same submission, and being asked twice reads as a
+    // bug (§7.3, 用户: 和合集一致).
+    await user.click(screen.getByLabelText('原标题'));
+    await user.click(screen.getByRole('button', { name: /确认/ }));
+
+    await waitFor(() => expect(batchBody()).toBeDefined());
+    expect(batchBody()?.groups).toEqual([
+      {
+        target: { kind: 'all' },
+        items: [{ kind: 'video', bvid: 'BV9', page: 1, title: null, naming: 'original' }],
+      },
+    ]);
+    // The expanded line does NOT go back down the single path — sending the
+    // whole link again would just be refused again.
+    expect(calls.filter((call) => call.url.endsWith('/download/song'))).toHaveLength(1);
   });
 });

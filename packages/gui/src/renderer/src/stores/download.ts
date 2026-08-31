@@ -21,6 +21,7 @@ import type {
   DownloadCancelRequest,
   DownloadNamingMode,
   DownloadParseRequest,
+  DownloadPartsData,
   DownloadSongRequest,
   DownloadTaskAcceptedData,
   DownloadTaskData,
@@ -96,6 +97,8 @@ interface DownloadState {
     naming?: DownloadNamingMode,
   ) => Promise<string>;
   fetchList: (query: FetchListRequest) => Promise<FetchListData>;
+  /** One video's parts, for the picker (0.5.1 §7.3). */
+  fetchParts: (bvid: string) => Promise<DownloadPartsData>;
   submitBatch: (groups: readonly DownloadBatchGroupInput[]) => Promise<DownloadBatchData[]>;
   importFiles: (paths: readonly string[]) => Promise<ImportResultData>;
 }
@@ -276,6 +279,14 @@ export const useDownloads = create<DownloadState>((set, get) => ({
       videos: data?.videos ?? [],
       error: data?.error ?? null,
     };
+  },
+
+  fetchParts: async (bvid) => {
+    const envelope = await request<DownloadPartsData>('POST', API_PATHS.downloadParts, { bvid });
+    // Same boundary normalisation as `fetchList`: the picker renders this
+    // directly, and a missing `parts` would take the dialog down.
+    const data = envelope.data;
+    return { bvid: data?.bvid ?? bvid, title: data?.title ?? '', parts: data?.parts ?? [] };
   },
 
   submitBatch: async (groups) => {

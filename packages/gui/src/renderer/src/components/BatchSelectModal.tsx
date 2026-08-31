@@ -8,10 +8,11 @@
 import type {
   DownloadBatchGroupInput,
   DownloadNamingMode,
+  DownloadPartData,
   FetchListRequest,
   ParsedItem,
 } from '@lark/shared';
-import { VIRTUAL_ALL_PLAYLIST_ID, listSource } from '@lark/shared';
+import { ApiError, VIRTUAL_ALL_PLAYLIST_ID, listSource } from '@lark/shared';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { errorMessage } from '../lib/errors.js';
@@ -20,6 +21,7 @@ import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
 import { useDownloads } from '../stores/download.js';
 import { useLibrary } from '../stores/library.js';
 import { useMediaTools } from '../stores/media-tools.js';
+import { PartsList } from './PartsList.js';
 import { Button } from './ui/button.js';
 import { Checkbox } from './ui/checkbox.js';
 import {
@@ -35,6 +37,21 @@ import {
 const BATCH_ITEMS_MAX = 1000;
 const BATCH_GROUPS_MAX = 20;
 
+/**
+ * A pasted line that turned out to be multi-part, once it has been expanded.
+ *
+ * `null` until the daemon says so — a line is classified offline, so nothing
+ * here can know. §7.3-c: expanding every pasted link up front would put a
+ * request behind each of twenty lines; the refusal costs nothing and only
+ * happens to the lines that need it.
+ */
+interface ExpandedParts {
+  title: string;
+  list: readonly DownloadPartData[];
+  /** Nothing is ticked when it opens (§7.3-d). */
+  checked: readonly number[];
+}
+
 interface SingleItem {
   key: string;
   label: string;
@@ -42,6 +59,9 @@ interface SingleItem {
   input: string;
   /** Keywords are named by the model regardless, so the choice skips them. */
   isVideo: boolean;
+  /** `null` for keywords — there is no video to list parts of. */
+  bvid: string | null;
+  parts: ExpandedParts | null;
   checked: boolean;
 }
 
@@ -103,6 +123,7 @@ export function BatchSelectModal({
   onBack,
 }: BatchSelectModalProps): React.JSX.Element {
   const fetchList = useDownloads((s) => s.fetchList);
+  const fetchParts = useDownloads((s) => s.fetchParts);
   const submitBatch = useDownloads((s) => s.submitBatch);
   const downloadSong = useDownloads((s) => s.downloadSong);
   const playlistId = useLibrary((s) => s.playlistId);
@@ -120,6 +141,8 @@ export function BatchSelectModal({
         label: item.kind === 'video' ? item.url : item.query,
         input: item.kind === 'video' ? item.url : item.query,
         isVideo: item.kind === 'video',
+        bvid: item.kind === 'video' ? item.bvid : null,
+        parts: null,
         checked: true,
       })),
   );
@@ -212,14 +235,49 @@ export function BatchSelectModal({
       ),
     );
 
+  const patchParts = (key: string, checked: readonly number[]): void =>
+    setSingles((prev) =>
+      prev.map((item) =>
+        item.key === key && item.parts !== null
+          ? { ...item, parts: { ...item.parts, checked } }
+          : item,
+      ),
+    );
+
+  const togglePart = (key: string, page: number): void => {
+    const current = singles.find((item) => item.key === key)?.parts;
+    if (current === undefined || current === null) return;
+    patchParts(
+      key,
+      current.checked.includes(page)
+        ? current.checked.filter((p) => p !== page)
+        : [...current.checked, page],
+    );
+  };
+
+  const togglePartsAll = (key: string, all: boolean): void => {
+    const current = singles.find((item) => item.key === key)?.parts;
+    if (current === undefined || current === null) return;
+    patchParts(key, all ? current.list.map((part) => part.page) : []);
+  };
+
   // Zero-selection groups are filtered out entirely: the daemon requires every
   // group AND every item list to be non-empty (§4.2).
   const activeGroups = groups.filter((group) => group.videos.some((video) => video.checked));
-  const checkedSingles = singles.filter((item) => item.checked);
-  const groupItemCount = activeGroups.reduce(
-    (sum, group) => sum + group.videos.filter((video) => video.checked).length,
+  // An expanded line is no longer one submission: it is however many parts are
+  // ticked, and it never goes back down the single-item path — sending the
+  // whole link again would just be refused again (§7.3-c).
+  const checkedSingles = singles.filter((item) => item.checked && item.parts === null);
+  const expanded = singles.filter((item) => item.parts !== null && item.checked);
+  const expandedItemCount = expanded.reduce(
+    (sum, item) => sum + (item.parts?.checked.length ?? 0),
     0,
   );
+  const groupItemCount =
+    activeGroups.reduce(
+      (sum, group) => sum + group.videos.filter((video) => video.checked).length,
+      0,
+    ) + expandedItemCount;
   const total = groupItemCount + checkedSingles.length;
   const loading = groups.some((group) => group.loading);
 
@@ -228,8 +286,8 @@ export function BatchSelectModal({
   const overLimit =
     groupItemCount > BATCH_ITEMS_MAX
       ? `一次最多 ${BATCH_ITEMS_MAX} 个视频（当前 ${groupItemCount}），请分批提交`
-      : activeGroups.length > BATCH_GROUPS_MAX
-        ? `一次最多 ${BATCH_GROUPS_MAX} 个列表（当前 ${activeGroups.length}），请分批提交`
+      : activeGroups.length + expanded.length > BATCH_GROUPS_MAX
+        ? `一次最多 ${BATCH_GROUPS_MAX} 个列表（当前 ${activeGroups.length + expanded.length}），请分批提交`
         : null;
   const canConfirm = total > 0 && !loading && submitting === false && overLimit === null;
 
@@ -250,7 +308,7 @@ export function BatchSelectModal({
 
   /** One request, all-or-nothing: every list group rides in the same batch. */
   async function submitListGroups(): Promise<void> {
-    if (activeGroups.length === 0) return;
+    if (activeGroups.length === 0 && expandedItemCount === 0) return;
     const payload: DownloadBatchGroupInput[] = activeGroups.map((group) => ({
       // Every list group creates its own playlist; the editable title is
       // exactly that name (§4.2) — and, since ④, the name the download record
@@ -272,8 +330,78 @@ export function BatchSelectModal({
           naming: group.useOriginalTitle ? 'original' : 'clean',
         })),
     }));
+    // An expanded line is a group of its own: the parts a person ticked, into
+    // whatever playlist the library is showing. NO `source` — these came from a
+    // pasted link, and inventing a list identity is a lie the download record
+    // then repeats forever (0.5.0 ④).
+    for (const item of expanded) {
+      const picked = item.parts?.checked ?? [];
+      if (picked.length === 0) continue;
+      payload.push({
+        target:
+          playlistId === VIRTUAL_ALL_PLAYLIST_ID
+            ? { kind: 'all' }
+            : { kind: 'playlist', playlist_id: playlistId },
+        items: picked.map((page) => ({
+          kind: 'video',
+          bvid: item.bvid ?? '',
+          page,
+          // `null`: the pipeline reads the part's own title out of the page
+          // list it fetches anyway (§7.4). Two sources for one string drift.
+          title: null,
+          naming: singlesNaming,
+        })),
+      });
+    }
+    if (payload.length === 0) return;
     await submitBatch(payload);
-    toast.success(`已提交 ${activeGroups.length} 个列表，共 ${groupItemCount} 项`);
+    toast.success(`已提交 ${payload.length} 组，共 ${groupItemCount} 项`);
+  }
+
+  /**
+   * List one line's parts and show them under it.
+   *
+   * The line stays checked and stays where it is: a person is picking parts of
+   * something they already asked for, and moving it would lose their place in
+   * a twenty-line paste.
+   */
+  async function expandInPlace(item: SingleItem): Promise<void> {
+    if (item.bvid === null) return;
+    try {
+      const data = await fetchParts(item.bvid);
+      setSingles((prev) =>
+        prev.map((candidate) =>
+          candidate.key === item.key
+            ? { ...candidate, parts: { title: data.title, list: data.parts, checked: [] } }
+            : candidate,
+        ),
+      );
+    } catch (err) {
+      // Told to pick a part and given no way to pick one is the worse of the
+      // two messages, so this one replaces the refusal rather than following it.
+      toast.error(`无法列出「${item.label}」的分P：${errorMessage(err)}`);
+    }
+  }
+
+  /**
+   * 🔴 THE MULTI-PART REFUSAL IS A QUESTION, NOT A FAILURE (§7.3-c).
+   *
+   * It stops the run for the same reason a full queue does — everything after
+   * this line is unsubmitted and stays that way — but instead of an error it
+   * leaves the line EXPANDED, with its parts listed where it sits. Nothing
+   * already queued is rolled back; confirming again picks up from the parts.
+   *
+   * Anything else is the failure it looks like: a full queue stops the rest,
+   * and the count says how far it got.
+   */
+  async function reportSingleFailure(item: SingleItem, err: unknown, done: number): Promise<void> {
+    const multiPart = err instanceof ApiError && err.errorCode === 'MULTI_PART_UNRESOLVED';
+    if (multiPart && item.bvid !== null) {
+      await expandInPlace(item);
+      toast.info(`「${item.label}」有多个分P，请选择要下载的分P`);
+      return;
+    }
+    toast.error(`单项下载已提交 ${done}/${checkedSingles.length}：${errorMessage(err)}`);
   }
 
   /** One request per item, in order, stopping at the first refusal (§4.2). */
@@ -286,8 +414,9 @@ export function BatchSelectModal({
         await downloadSong(item.input, target, item.isVideo ? singlesNaming : undefined);
         done++;
       } catch (err) {
-        // A full queue stops the rest, and the count says how far it got.
-        toast.error(`单项下载已提交 ${done}/${checkedSingles.length}：${errorMessage(err)}`);
+        // Either way the run stops here; what differs is what the person is
+        // left looking at — an expanded line, or an error.
+        await reportSingleFailure(item, err, done);
         return 'stopped';
       }
     }
@@ -369,23 +498,38 @@ export function BatchSelectModal({
               </header>
               <ul className="max-h-40 overflow-y-auto p-2">
                 {singles.map((item) => (
-                  <li key={item.key} className="flex items-center gap-2 px-1 py-0.5 text-sm">
-                    <Checkbox
-                      id={item.key}
-                      checked={item.checked}
-                      onCheckedChange={() =>
-                        setSingles((prev) =>
-                          prev.map((candidate) =>
-                            candidate.key === item.key
-                              ? { ...candidate, checked: !candidate.checked }
-                              : candidate,
-                          ),
-                        )
-                      }
-                    />
-                    <label htmlFor={item.key} className="truncate">
-                      {item.label}
-                    </label>
+                  <li key={item.key} className="px-1 py-0.5 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id={item.key}
+                        checked={item.checked}
+                        onCheckedChange={() =>
+                          setSingles((prev) =>
+                            prev.map((candidate) =>
+                              candidate.key === item.key
+                                ? { ...candidate, checked: !candidate.checked }
+                                : candidate,
+                            ),
+                          )
+                        }
+                      />
+                      <label htmlFor={item.key} className="truncate">
+                        {item.parts === null ? item.label : item.parts.title}
+                      </label>
+                    </div>
+                    {item.parts !== null && (
+                      // The same list the single-link picker draws — written
+                      // once, on purpose (backlog C12).
+                      <div className="mt-1 ml-6">
+                        <PartsList
+                          idPrefix={item.key}
+                          parts={item.parts.list}
+                          checked={item.parts.checked}
+                          onToggle={(page) => togglePart(item.key, page)}
+                          onToggleAll={(all) => togglePartsAll(item.key, all)}
+                        />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>

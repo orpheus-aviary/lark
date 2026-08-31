@@ -16,6 +16,7 @@ import {
 import { ListChecks, Loader2, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { usePartsPrompt } from '../hooks/usePartsPrompt.js';
 import { errorMessage } from '../lib/errors.js';
 import { isComposingKey } from '../lib/ime.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
@@ -26,6 +27,7 @@ import { BatchActionBar } from './BatchActionBar.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
 import { DownloadPanel } from './DownloadPanel.js';
 import { NamingModeDialog } from './NamingModeDialog.js';
+import { PartsPickerDialog } from './PartsPickerDialog.js';
 import { PasteInputModal } from './PasteInputModal.js';
 import { Button } from './ui/button.js';
 import { Input } from './ui/input.js';
@@ -75,7 +77,10 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const [batchItems, setBatchItems] = useState<readonly ParsedItem[] | null>(null);
   // A lone video link, waiting for its naming answer. Held rather than
   // downloaded immediately because the answer is the user's, not a default.
-  const [pendingVideo, setPendingVideo] = useState<string | null>(null);
+  const [pendingVideo, setPendingVideo] = useState<{ url: string; bvid: string } | null>(null);
+  // The parts question lives in its own hook: it is a conversation, and this
+  // component is an input and a status line (§7.3).
+  const parts = usePartsPrompt((text) => setNotice({ text, error: true }));
   const [panelOpen, setPanelOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -120,7 +125,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
       setParsedFrom({ origin, text: input });
       if (items.length === 1 && only?.kind === 'video') {
         // `input` is the NORMALISED url parse handed back (it keeps `?p=`).
-        setPendingVideo(only.url);
+        setPendingVideo({ url: only.url, bvid: only.bvid });
         setValue('');
         return;
       }
@@ -185,11 +190,15 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   }
 
   /** The second half of `submit` for a video: run once the naming is known. */
-  async function startVideo(url: string, naming: DownloadNamingMode): Promise<void> {
+  async function startVideo(url: string, bvid: string, naming: DownloadNamingMode): Promise<void> {
     setBusy(true);
     try {
       await downloadSong(url, targetPlaylist, naming);
+      setParsedFrom(null);
     } catch (err) {
+      // The multi-part refusal is a question, not a failure — the hook turns
+      // it into one and this stops treating it as an error (§7.3).
+      if (await parts.offer(bvid, err, naming)) return;
       setNotice({ text: errorMessage(err), error: true });
     } finally {
       setBusy(false);
@@ -344,14 +353,41 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
           returnToSource();
         }}
         onConfirm={(mode) => {
-          const url = pendingVideo;
+          const target = pendingVideo;
           setPendingVideo(null);
-          setParsedFrom(null);
-          if (url === null) return;
+          // NOT cleared yet when the answer turns out to be "which parts?":
+          // the parts dialog can still be backed out of, and the text has to
+          // have somewhere to go when it is (②).
+          if (target === null) return;
           rememberNamingMode(mode);
-          void startVideo(url, mode);
+          void startVideo(target.url, target.bvid, mode);
         }}
       />
+      {parts.prompt !== null && (
+        <PartsPickerDialog
+          title={parts.prompt.title}
+          parts={parts.prompt.parts}
+          naming={parts.prompt.naming}
+          llmAvailable={llmAvailable !== false}
+          submitting={parts.submitting}
+          // Backing out here is the same accident as backing out of the naming
+          // question, and has the same answer: the text goes back to the box.
+          onCancel={() => {
+            parts.dismiss();
+            returnToSource();
+          }}
+          onConfirm={(pages, mode) => {
+            rememberNamingMode(mode);
+            void parts.confirm(pages, mode, targetPlaylist).then((went) => {
+              if (went) {
+                toast.success(`已提交 ${pages.length} 个分P`);
+                setParsedFrom(null);
+              }
+              inputRef.current?.focus();
+            });
+          }}
+        />
+      )}
     </div>
   );
 }
