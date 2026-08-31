@@ -45,6 +45,7 @@ import { RETRY_LIMITS, type RetryLimit, readRetryLimit, writeRetryLimit } from '
 import { nowPlaying } from '../player';
 import { readAutoDownloadNext, writeAutoDownloadNext } from '../player/auto-download';
 import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '../settings/llm';
+import { appVersion } from '../sync/context';
 import { Chip } from './chip';
 import { ConflictsScreen } from './conflicts-screen';
 import { useLibrary } from './library-context';
@@ -91,6 +92,19 @@ export function SettingsTab() {
         is still the ONLY way an INTERNAL_ERROR gets off a release build.
       */}
       <Field label="曲库" value={`${total} 首`} />
+      {/*
+        🔴 NOT ONE OF THE EIGHT (0.5.1，用户). The diagnostics above were
+        removed because they were identifiers nobody who is not debugging
+        wants. A version is the opposite: this app is not in a store and has
+        no auto-update — every copy is an APK somebody installed by hand off a
+        Release page — so 「我装的是哪一版」 is the one question a person
+        cannot answer any other way. The desktop has said so all along, in its
+        「关于」 section.
+        Read through `appVersion()`, which reads the embedded config: a version
+        that has to be edited in two places is one that will disagree with
+        itself.
+      */}
+      <Field label="版本" value={appVersion()} />
       <EngineErrors />
     </ScrollView>
   );
