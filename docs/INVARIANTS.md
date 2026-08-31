@@ -51,9 +51,13 @@ mobile → @lark/core/portable + @lark/shared + skybridge SDK，仅此三者
 - **跨进程写互斥**：daemon / `--direct` 写 / backup-nest 三方共守 `songs.db.writer.lock`（常驻 SQLite 锁库，`BEGIN EXCLUSIVE`，kill -9 自动释放，**锁文件永不删**）。锁序冻结 **writer → migrate → 真库 EXCLUSIVE**。读路径不取任何锁。
 - **token**：daemon 生成并原子发布 0600 文件；GUI 每次重读，**不进 URL / DOM / 日志 / 媒体 src**（R21/R29）。
 - **统一响应** `{"success", "data", "message"}`；例外只有 `/audio`（二进制 + Range）、`/lyrics`（text/plain）、`/events`（SSE）。
-- **数据目录** `~/orpheus-aviary-nest/lark/`。canonical 音频 = `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。**schema v3**，协议 `LOCAL_API_VERSION = 9`（**以 `packages/shared/src/api-paths.ts` 为准**）。
+- **数据目录** `~/orpheus-aviary-nest/lark/`。canonical 音频 = `songs/<id>/song.m4a`，`/audio` 回 `audio/mp4`。**schema v3**，协议 `LOCAL_API_VERSION = 10`（**以 `packages/shared/src/api-paths.ts` 为准**）。
 - **设置页只发「人碰过的字段」**（0.5.0）：草稿在打开那一刻建一次，而配置会在它开着的时候被别的东西改——歌词窗被拖动时自己写几何、它的控制条自己写字号与配色。拿草稿和**当下**配置做 diff，等于把打开那一刻的值写回去（真撞到过：拖完窗口按保存，它弹回原位）。
 - **桌面歌词的实时预览不写盘**（0.5.0）：预览 = 把草稿 publish 给那个窗口，取消 = 不再 publish，所以「不保存就变回去」没有撤销这一步。**可预览的只有 `enabled` / `lines` / `font_size` / `preset`**（`DesktopLyricsPreview` 白名单）——`locked` 不可预览（锁上之后连唯一的解锁开关都点不到），几何不可预览（那是窗口自己写的，两边会打架）。
+
+- 🔴 **没有人替人选分P**（0.5.1）：多 P 视频没有 `?p=` 时，**任何一端都拒绝**（`MULTI_PART_UNRESOLVED`），配了 LLM 也一样。以前是模型选一个、答不出就落第 1 P——那是**静默下错歌**。三个回答它的方式：链接里的 `?p=`、CLI 的 `--part` / `--all-parts`、界面上的选择。**唯一还让模型选集的是关键词搜索**，那条路上人从没见过视频、也弹不出窗。
+- 🔴 **一个分P 叫它自己的名字**（0.5.1）：`original` 和 `clean` 都从 `pages[page-1].part` 取，`clean` 还会**同时**拿到整稿标题（歌名在分P 里、歌手在主标题里）。**只对真正的多 P 视频成立**——单 P 稿件的 `part` 常是「1」或文件名，动它会平白改掉一堆本来就对的名字。**分P 的批量 item 一律 `title: null`**：pipeline 反正要取 page list，两个来源写同一个字符串迟早走散。
+- **多 P 视频在界面上就是一个「合集」**（0.5.1，用户定）：桌面和手机都把它渲染成和收藏夹/合集**同一种组**——可改名的标题、每组自己的「原标题」、全选、提交时新建歌单。**唯一的差别是开局勾选**：列表全勾（打开文件夹的人要整个文件夹），分P 零勾（这一屏存在就是为了让人挑）。
 
 ## 4 · 同步（skybridge）
 

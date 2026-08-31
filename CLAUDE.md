@@ -41,7 +41,7 @@ just mobile-android-release     # 构建 release APK 并 adb 装到冻结设备
 tokei               # 业务代码行数（口径见 .tokeignore）
 ```
 
-验收套件（发版门禁）：`accept-gui` **18** · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` 29（0.5.0 加了「两个 renderer 入口都进包」；**0.5.1 加了「开着歌词窗的 GUI 仍是 Foreground 应用」**——那次降级的是进程，源码守卫答不了 Electron 换行为）。
+验收套件（发版门禁）：`accept-gui` **18** · `accept-cli` 27 · `accept-m5` 22 · `accept-sync` 36 · `accept-pack` 29 = **132**（0.5.0 加了「两个 renderer 入口都进包」；**0.5.1 加了「开着歌词窗的 GUI 仍是 Foreground 应用」**——那次降级的是进程，源码守卫答不了 Electron 换行为）。🔴 **`accept-sync` 要一份从没登录过的库**，不是「删掉登录痕迹的库」，见 `docs/LESSONS.md`。
 
 ## 注意事项
 
