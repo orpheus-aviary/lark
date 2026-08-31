@@ -48,7 +48,7 @@ tokei               # 业务代码行数（口径见 .tokeignore）
 - 🚨 **动曲库前先读 `docs/INVARIANTS.md` §1。** 一句话版本：**开发版碰到旧库就会单向升级**（v2 → v3 还会当场把 mp3 转成 m4a，旧版本从此拒绝打开），所以**开发期一律 `just backup-nest` 的副本 + `LARK_NEST_DIR`**；**验收夹具自造，不借用户的库**。
 - **daemon 是统一入口**（默认端口 **47100**，`471xx` 归 lark）；daemon 存活时 CLI 一律禁止 `--direct` 写。
 - **数据目录** `~/orpheus-aviary-nest/lark/`；**统一响应** `{"success", "data", "message"}`（例外只有 `/audio` / `/lyrics` / `/events`）。
-- **canonical 音频** = `songs/<id>/song.m4a`；**schema v3**；协议 `LOCAL_API_VERSION = 9`（**以 `packages/shared/src/api-paths.ts` 为准**）。
+- **canonical 音频** = `songs/<id>/song.m4a`；**schema v3**；协议 `LOCAL_API_VERSION = 10`（**以 `packages/shared/src/api-paths.ts` 为准**）。
 - **同步身份两域不混用**：实体 `device_id` 只存 skybridge 注册 ID，本地身份在 `local_metadata.device_uuid`；凭证在独立文件 `skybridge.toml`（0600，不进 `/config`，backup 每层排除）。
 - **歌曲本体不同步**；**缓存清理只动 `downloaded` 且探活确认可重下的文件**，imported 是用户资产、永不自动清理。
 - **每账号独立工作区**：`local` 原地不动，账号库在 `libraries/<32hex>/`。**切换只写一行、要重启才生效**——`serving` ≠ `active`。

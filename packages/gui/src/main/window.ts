@@ -114,6 +114,16 @@ export function createDesktopLyricsWindow(
     hasShadow: false,
     backgroundColor: '#00000000',
     resizable: true,
+    // 🔴 A NON-ACTIVATING PANEL, WHICH IS WHAT BUYS BOTH HALVES (0.5.1，用户
+    // 实测 A2). Floating over another app's full-screen Space needs the
+    // window's `fullScreenAuxiliary` behaviour AND a process that is not an
+    // ordinary foreground app — which is why Electron's `visibleOnFullScreen`
+    // demotes the whole process, and why skipping that demotion (for the dock
+    // icon) cost the coverage: MEASURED — the lyrics stayed on Desktop 1 while
+    // a full-screen app opened Desktop 2. An NSPanel satisfies the second half
+    // by being a panel rather than by degrading the app, so the two are no
+    // longer a trade.
+    type: 'panel',
     // It is not a document. It belongs beside the app it came from, not in
     // the dock or the window menu.
     skipTaskbar: true,

@@ -310,23 +310,14 @@ describe('one line of input', () => {
 
 // ② — a question that gets dismissed hands the text back to the box it was
 // typed into, rather than eating it.
-// ── 0.5.1 §7.3 · the refusal is the question ─────────────
+// ── 0.5.1 · a single link that turns out to be multi-part ────────────────
 //
-// A pasted link is classified offline, so nothing in the renderer knows a
-// video has parts. The daemon's refusal is what raises the question, and these
-// say the bar treats it as one rather than as a failure.
+// Nothing offline can tell whether a video has parts, so the bar asks once
+// before deciding WHICH question to put on screen: the naming one, or the
+// whole picker (用户 2026-08-31：「点击回车之后直接展开」). One request, and
+// only for a link that does not already name a part.
 describe('a multi-part link', () => {
-  /** `POST /download/song` refuses; `/download/parts` answers two parts. */
-  function refuseThenList(): void {
-    songResponse = () =>
-      jsonResponse(
-        {
-          success: false,
-          error_code: 'MULTI_PART_UNRESOLVED',
-          message: '这个视频有 2 个分P：在链接后加 ?p=<编号>，或选择要下哪几个分P',
-        },
-        400,
-      );
+  function twoParts(): void {
     partsResponse = () =>
       jsonResponse({
         success: true,
@@ -341,109 +332,114 @@ describe('a multi-part link', () => {
       });
   }
 
-  /** Paste a link with no `?p=`, answer the naming question, hit the refusal. */
-  async function reachThePicker(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-    refuseThenList();
+  function onePart(): void {
+    partsResponse = () =>
+      jsonResponse({
+        success: true,
+        data: {
+          bvid: 'BV1',
+          title: '普通视频',
+          parts: [{ page: 1, part: '普通视频', duration: 9 }],
+        },
+      });
+  }
+
+  function parseAsVideo(page: number | null = null): void {
     parseResult = () =>
       jsonResponse({
         success: true,
         data: {
-          items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://b.com/video/BV1' }],
+          items: [
+            {
+              kind: 'video',
+              bvid: 'BV1',
+              page,
+              url: page === null ? 'https://b.com/video/BV1' : `https://b.com/video/BV1?p=${page}`,
+            },
+          ],
         },
       });
-    render(<DownloadBar />);
-    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
-    await screen.findByText('怎么命名？');
-    await user.click(screen.getByRole('button', { name: '原标题' }));
-    await screen.findByText('选择要下载的分P');
   }
 
-  it('turns the refusal into the parts question', async () => {
+  it('opens the picker instead of the naming question', async () => {
+    twoParts();
+    parseAsVideo();
     const user = userEvent.setup();
-    await reachThePicker(user);
+    render(<DownloadBar />);
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
 
-    expect(screen.getByText('烟雨行舟')).toBeTruthy();
-    expect(screen.getByText('半壶纱')).toBeTruthy();
-    // The collection's own title labels the dialog; the songs are the parts.
-    // Matched loosely: testing-library normalises the ideographic space in it.
-    expect(screen.getByText(/古风歌曲合集/)).toBeTruthy();
+    await screen.findByText('烟雨行舟');
+    // The naming question is not the one being asked here: the picker carries
+    // its own 原标题 checkbox, exactly as a collection does.
+    expect(screen.queryByText('怎么命名？')).toBeNull();
   });
 
-  // §7.3-d: a pre-ticked list of forty parts turns one stray Enter into forty
-  // downloads, which is the opposite of "a person chooses".
-  it('opens with nothing ticked, and cannot be confirmed that way', async () => {
+  it('sends the ticked parts as a group, into a new playlist', async () => {
+    twoParts();
+    parseAsVideo();
     const user = userEvent.setup();
-    await reachThePicker(user);
-
-    expect(screen.getByRole('button', { name: /下载选中的 0 个/ }).hasAttribute('disabled')).toBe(
-      true,
-    );
-  });
-
-  it('sends the ticked pages as one batch, under the same naming answer', async () => {
-    const user = userEvent.setup();
-    await reachThePicker(user);
+    render(<DownloadBar />);
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+    await screen.findByText('烟雨行舟');
 
     await user.click(screen.getByLabelText('半壶纱'));
-    await user.click(screen.getByRole('button', { name: /下载选中的 1 个/ }));
+    await user.click(screen.getByRole('button', { name: /确认下载/ }));
 
     await waitFor(() =>
       expect(calls.find((call) => call.url.endsWith('/download/batch'))?.body).toEqual({
         groups: [
           {
-            target: { kind: 'all' },
-            items: [
-              // `title: null` on purpose: the pipeline reads the part's own
-              // title out of the page list it fetches anyway (§7.4).
-              { kind: 'video', bvid: 'BV1', page: 2, title: null, naming: 'original' },
-            ],
+            target: { kind: 'new', name: '【司夏　古风歌曲合集】分集' },
+            items: [{ kind: 'video', bvid: 'BV1', page: 2, title: null, naming: 'clean' }],
           },
         ],
       }),
     );
   });
 
-  // The counter-test that keeps the question NARROW: an ordinary link must not
-  // pay for this. No `/download/parts` request, no dialog, no extra hop.
-  it('does not ask about parts when the link downloads normally', async () => {
+  // 🔴 THE COUNTER-TEST, and the reason the probe is worth its request: an
+  // ordinary video must still go straight to the naming question. One dialog,
+  // not two.
+  it('asks how to name a single-part video, as before', async () => {
+    onePart();
+    parseAsVideo();
     const user = userEvent.setup();
-    parseResult = () =>
-      jsonResponse({
-        success: true,
-        data: {
-          items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://b.com/video/BV1' }],
-        },
-      });
     render(<DownloadBar />);
     await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+
     await screen.findByText('怎么命名？');
     await user.click(screen.getByRole('button', { name: '原标题' }));
-
-    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/download/song'))).toBe(true));
-    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
-    expect(screen.queryByText('选择要下载的分P')).toBeNull();
+    await waitFor(() =>
+      expect(calls.find((call) => call.url.endsWith('/download/song'))?.body).toEqual({
+        input: 'https://b.com/video/BV1',
+        naming_mode: 'original',
+      }),
+    );
   });
 
-  // Any OTHER refusal is still a refusal. Without this the branch could widen
-  // to "every error opens the picker" and no test would notice.
-  it('reports an unrelated refusal instead of opening the picker', async () => {
+  // A link that already names a part has nothing to choose, so it is not asked
+  // about at all — the one place the extra request is not paid.
+  it('does not ask about a link that already carries ?p=', async () => {
+    parseAsVideo(2);
     const user = userEvent.setup();
-    songResponse = () =>
-      jsonResponse({ success: false, error_code: 'DOWNLOAD_QUEUE_FULL', message: '队列满了' }, 409);
-    parseResult = () =>
-      jsonResponse({
-        success: true,
-        data: {
-          items: [{ kind: 'video', bvid: 'BV1', page: null, url: 'https://b.com/video/BV1' }],
-        },
-      });
     render(<DownloadBar />);
     await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
-    await screen.findByText('怎么命名？');
-    await user.click(screen.getByRole('button', { name: '原标题' }));
 
-    await screen.findByText('队列满了');
+    await screen.findByText('怎么命名？');
     expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
+  });
+
+  // The probe is not allowed to take the download down with it: a link whose
+  // parts could not be listed still gets the ordinary path, where the daemon
+  // refuses it and says why.
+  it('falls through to the ordinary path when the probe fails', async () => {
+    partsResponse = () => jsonResponse({ success: false, message: '网络错误' }, 502);
+    parseAsVideo();
+    const user = userEvent.setup();
+    render(<DownloadBar />);
+    await user.type(screen.getByLabelText('下载链接或歌曲名称'), 'BV1{Enter}');
+
+    await screen.findByText('怎么命名？');
   });
 });
 

@@ -5,7 +5,7 @@
 // it is without queueing anything, a lone video or keyword goes straight to
 // `POST /download/song`, and anything else opens the selection dialog.
 
-import type { DownloadNamingMode, ParsedItem } from '@lark/shared';
+import type { DownloadNamingMode, DownloadPartsData, ParsedItem } from '@lark/shared';
 import {
   VIRTUAL_ALL_PLAYLIST_ID,
   batchProgress,
@@ -16,7 +16,6 @@ import {
 import { ListChecks, Loader2, Maximize2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { usePartsPrompt } from '../hooks/usePartsPrompt.js';
 import { errorMessage } from '../lib/errors.js';
 import { isComposingKey } from '../lib/ime.js';
 import { loadNamingMode, rememberNamingMode } from '../lib/naming-mode.js';
@@ -27,7 +26,6 @@ import { BatchActionBar } from './BatchActionBar.js';
 import { BatchSelectModal } from './BatchSelectModal.js';
 import { DownloadPanel } from './DownloadPanel.js';
 import { NamingModeDialog } from './NamingModeDialog.js';
-import { PartsPickerDialog } from './PartsPickerDialog.js';
 import { PasteInputModal } from './PasteInputModal.js';
 import { Button } from './ui/button.js';
 import { Input } from './ui/input.js';
@@ -57,6 +55,7 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   const cancelling = useDownloads((s) => s.cancelling);
   const parse = useDownloads((s) => s.parse);
   const downloadSong = useDownloads((s) => s.downloadSong);
+  const fetchParts = useDownloads((s) => s.fetchParts);
   const cancel = useDownloads((s) => s.cancel);
   const refresh = useDownloads((s) => s.refresh);
   const playlistId = useLibrary((s) => s.playlistId);
@@ -78,9 +77,16 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   // A lone video link, waiting for its naming answer. Held rather than
   // downloaded immediately because the answer is the user's, not a default.
   const [pendingVideo, setPendingVideo] = useState<{ url: string; bvid: string } | null>(null);
-  // The parts question lives in its own hook: it is a conversation, and this
-  // component is an input and a status line (§7.3).
-  const parts = usePartsPrompt((text) => setNotice({ text, error: true }));
+  /**
+   * The parts of a link that turned out to be multi-part (0.5.1).
+   *
+   * 🔴 ASKED BEFORE THE DIALOG OPENS, not after a refusal. A single link is
+   * the one place where opening the batch dialog would be a REGRESSION for the
+   * common case — almost every video has one part — so this asks first and
+   * only opens it when the answer is "more than one". The answer travels with
+   * it, so 「多一次连网」 is one request, not two.
+   */
+  const [pendingParts, setPendingParts] = useState<DownloadPartsData | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -123,6 +129,28 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
       // The two paths that ASK something both note where the text came from:
       // whichever question is dismissed, that is what goes back in the box.
       setParsedFrom({ origin, text: input });
+      if (items.length === 1 && only?.kind === 'video' && only.page === null) {
+        // 🔴 ONE REQUEST, ASKED BEFORE ANY DIALOG (0.5.1，用户「点击回车之后
+        // 直接展开」). Nothing offline can tell whether a video has parts, and
+        // the answer decides WHICH question to ask: the naming one, or the
+        // whole picker. A link that already names a part (`?p=`) skips this
+        // entirely — it has nothing left to choose.
+        setBusy(true);
+        try {
+          const data = await fetchParts(only.bvid);
+          if (data.parts.length > 1) {
+            setPendingParts(data);
+            setBatchItems(items);
+            setValue('');
+            return;
+          }
+        } catch {
+          // Could not ask. Fall through to the ordinary single-link path: the
+          // daemon refuses a multi-part link there and says so.
+        } finally {
+          setBusy(false);
+        }
+      }
       if (items.length === 1 && only?.kind === 'video') {
         // `input` is the NORMALISED url parse handed back (it keeps `?p=`).
         setPendingVideo({ url: only.url, bvid: only.bvid });
@@ -190,15 +218,12 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
   }
 
   /** The second half of `submit` for a video: run once the naming is known. */
-  async function startVideo(url: string, bvid: string, naming: DownloadNamingMode): Promise<void> {
+  async function startVideo(url: string, naming: DownloadNamingMode): Promise<void> {
     setBusy(true);
     try {
       await downloadSong(url, targetPlaylist, naming);
       setParsedFrom(null);
     } catch (err) {
-      // The multi-part refusal is a question, not a failure — the hook turns
-      // it into one and this stops treating it as an error (§7.3).
-      if (await parts.offer(bvid, err, naming)) return;
       setNotice({ text: errorMessage(err), error: true });
     } finally {
       setBusy(false);
@@ -328,12 +353,15 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
       {batchItems && (
         <BatchSelectModal
           items={batchItems}
+          prefetchedParts={pendingParts === null ? [] : [pendingParts]}
           onClose={() => {
             setBatchItems(null);
+            setPendingParts(null);
             setParsedFrom(null);
           }}
           onBack={() => {
             setBatchItems(null);
+            setPendingParts(null);
             returnToSource();
           }}
         />
@@ -360,34 +388,9 @@ export function DownloadBar({ trailing }: DownloadBarProps = {}): React.JSX.Elem
           // have somewhere to go when it is (②).
           if (target === null) return;
           rememberNamingMode(mode);
-          void startVideo(target.url, target.bvid, mode);
+          void startVideo(target.url, mode);
         }}
       />
-      {parts.prompt !== null && (
-        <PartsPickerDialog
-          title={parts.prompt.title}
-          parts={parts.prompt.parts}
-          naming={parts.prompt.naming}
-          llmAvailable={llmAvailable !== false}
-          submitting={parts.submitting}
-          // Backing out here is the same accident as backing out of the naming
-          // question, and has the same answer: the text goes back to the box.
-          onCancel={() => {
-            parts.dismiss();
-            returnToSource();
-          }}
-          onConfirm={(pages, mode) => {
-            rememberNamingMode(mode);
-            void parts.confirm(pages, mode, targetPlaylist).then((went) => {
-              if (went) {
-                toast.success(`已提交 ${pages.length} 个分P`);
-                setParsedFrom(null);
-              }
-              inputRef.current?.focus();
-            });
-          }}
-        />
-      )}
     </div>
   );
 }

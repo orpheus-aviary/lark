@@ -21,6 +21,21 @@ interface Call {
 }
 
 let calls: Call[] = [];
+/** What `/download/parts` answers. One part = an ordinary video. */
+let partsResult: unknown = {
+  bvid: 'BV9',
+  title: '单P视频',
+  parts: [{ page: 1, part: '单P视频', duration: 100 }],
+};
+let partsResponses: (() => Response)[] = [];
+const twoParts = {
+  bvid: 'BV9',
+  title: '古风合集',
+  parts: [
+    { page: 1, part: '烟雨行舟', duration: 215 },
+    { page: 2, part: '半壶纱', duration: null },
+  ],
+};
 let fetchListResult: {
   title: string;
   videos: { bvid: string; title: string }[];
@@ -44,6 +59,12 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function stubFetch(): void {
   calls = [];
+  partsResult = {
+    bvid: 'BV9',
+    title: '单P视频',
+    parts: [{ page: 1, part: '单P视频', duration: 100 }],
+  };
+  partsResponses = [];
   vi.stubGlobal(
     'fetch',
     vi.fn((url: string, init?: RequestInit) => {
@@ -56,19 +77,12 @@ function stubFetch(): void {
         return Promise.resolve(jsonResponse({ success: true, data: { batches: [] } }));
       }
       if (url.endsWith('/download/parts')) {
-        return Promise.resolve(
-          jsonResponse({
-            success: true,
-            data: {
-              bvid: 'BV9',
-              title: '古风合集',
-              parts: [
-                { page: 1, part: '烟雨行舟', duration: 215 },
-                { page: 2, part: '半壶纱', duration: null },
-              ],
-            },
-          }),
-        );
+        // 🔴 ONE PART BY DEFAULT. Every video line is asked about now (0.5.1),
+        // so a stub that answered "two" for everything would turn every link
+        // in this file into a group and quietly rewrite what the other
+        // criteria are about.
+        const next = partsResponses.shift();
+        return Promise.resolve(next ? next() : jsonResponse({ success: true, data: partsResult }));
       }
       if (url.endsWith('/download/song')) {
         const next = songResponses.shift();
@@ -145,13 +159,25 @@ describe('the keyboard path', () => {
     expect(document.activeElement).toBe(confirm);
   });
 
-  // Plain links need no fetch, so the button is usable on the very first
-  // render — and that is the case where Radix's own focus pass runs AFTER a
-  // mount effect and puts focus back on the 原标题 checkbox. Taking it in
-  // `onOpenAutoFocus` is what makes it stick.
+  // A link that already names a part needs no fetch, so the button is usable
+  // on the very first render — and that is the case where Radix's own focus
+  // pass runs AFTER a mount effect and puts focus back on the 原标题 checkbox.
+  // Taking it in `onOpenAutoFocus` is what makes it stick.
+  //
+  // 🔴 `?p=` ON PURPOSE (0.5.1). A video line with no part named is asked
+  // about when the dialog opens, so it is NOT instantly confirmable any more —
+  // that is the cost of 「单条和多行都直接展开」, and the criterion below
+  // measures it rather than letting this one quietly stop meaning anything.
   it('keeps focus on confirm for links that need no fetching', async () => {
     const user = userEvent.setup();
-    open([video, { ...video, bvid: 'BV8', url: 'https://www.bilibili.com/video/BV8' }]);
+    const p1 = { ...video, page: 1, url: 'https://www.bilibili.com/video/BV9?p=1' } as ParsedItem;
+    const p2 = {
+      ...video,
+      bvid: 'BV8',
+      page: 2,
+      url: 'https://www.bilibili.com/video/BV8?p=2',
+    } as ParsedItem;
+    open([p1, p2]);
 
     const confirm = screen.getByRole('button', { name: /确认下载/ });
     expect(document.activeElement).toBe(confirm);
@@ -358,68 +384,116 @@ describe('backing out', () => {
   });
 });
 
-// ── 0.5.1 §7.3-c · a pasted line that turns out to be multi-part ──────────
+// ── 0.5.1 · a line that turns out to be multi-part ───────────────────────
 //
-// Twenty pasted links must not cost twenty page-list requests, so nothing is
-// expanded up front. The daemon's refusal is what expands the one line that
-// needs it, in place, where the person can see which line it was.
+// Nothing offline can tell whether a video has parts, so every video line is
+// asked about when the dialog opens (用户 2026-08-31：「单条和多行都直接展开」).
+// What comes back decides which shape the line takes: one part and it stays a
+// line, more and it becomes a GROUP — the same group a favourites folder is,
+// down to the editable playlist name.
 describe('a multi-part line in a paste', () => {
-  const refuseMultiPart = () =>
-    jsonResponse(
-      {
-        success: false,
-        error_code: 'MULTI_PART_UNRESOLVED',
-        message: '这个视频有 2 个分P',
-      },
-      400,
-    );
-
-  it('expands the line instead of failing it', async () => {
-    songResponses = [refuseMultiPart];
-    const user = userEvent.setup();
+  it('becomes a group, exactly like a collection', async () => {
+    partsResult = twoParts;
     open([video]);
-    await user.click(screen.getByRole('button', { name: /确认/ }));
 
     await screen.findByText('烟雨行舟');
     expect(screen.getByText('半壶纱')).toBeTruthy();
-    // The line now reads as what it turned out to be.
-    expect(screen.getByText('古风合集')).toBeTruthy();
+    // The group's heading is the playlist it will create, and it is editable —
+    // which is the whole of what「和合集完全统一」asked for.
+    expect(screen.getByTitle('双击编辑歌单名称').textContent).toContain('古风合集');
   });
 
-  it('costs nothing until the refusal — no line is expanded up front', async () => {
-    const user = userEvent.setup();
-    open([video, video]);
-    // Opening the dialog asks bilibili nothing about either line.
-    await waitFor(() => expect(screen.getByRole('button', { name: /确认/ })).toBeTruthy());
-    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
-    await user.click(screen.getByRole('button', { name: /确认/ }));
-    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/download/song'))).toBe(true));
-    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
-  });
-
-  it('sends the ticked parts as their own group on the next confirm', async () => {
-    songResponses = [refuseMultiPart];
-    const user = userEvent.setup();
+  // 🔴 NOTHING IS TICKED, which is what still differs from a folder: somebody
+  // who opened a folder came for the folder, while this group exists because a
+  // person is choosing which parts.
+  it('opens with nothing ticked, and cannot be confirmed that way', async () => {
+    partsResult = twoParts;
     open([video]);
-    await user.click(screen.getByRole('button', { name: /确认/ }));
     await screen.findByText('烟雨行舟');
 
-    await user.click(screen.getByLabelText('烟雨行舟'));
-    // The parts inherit the dialog's own naming answer rather than carrying a
-    // second one: it is the same submission, and being asked twice reads as a
-    // bug (§7.3, 用户: 和合集一致).
-    await user.click(screen.getByLabelText('原标题'));
-    await user.click(screen.getByRole('button', { name: /确认/ }));
+    expect(screen.getByRole('button', { name: /确认下载（0）/ }).hasAttribute('disabled')).toBe(
+      true,
+    );
+  });
+
+  it('sends the ticked parts as a group of their own, into a new playlist', async () => {
+    partsResult = twoParts;
+    const user = userEvent.setup();
+    open([video]);
+    await screen.findByText('烟雨行舟');
+
+    await user.click(screen.getByLabelText('半壶纱'));
+    await user.click(screen.getByRole('button', { name: /确认下载/ }));
 
     await waitFor(() => expect(batchBody()).toBeDefined());
     expect(batchBody()?.groups).toEqual([
       {
-        target: { kind: 'all' },
-        items: [{ kind: 'video', bvid: 'BV9', page: 1, title: null, naming: 'original' }],
+        // A group creates its playlist, named after the video it came out of.
+        target: { kind: 'new', name: '古风合集' },
+        // NO `source`: a video is not a list, and inventing a list identity is
+        // a lie the download record then repeats forever.
+        items: [{ kind: 'video', bvid: 'BV9', page: 2, title: null, naming: 'clean' }],
       },
     ]);
-    // The expanded line does NOT go back down the single path — sending the
-    // whole link again would just be refused again.
-    expect(calls.filter((call) => call.url.endsWith('/download/song'))).toHaveLength(1);
+    // It never goes back down the single path — that would just be refused.
+    expect(calls.some((call) => call.url.endsWith('/download/song'))).toBe(false);
+  });
+
+  // The cost of expanding on open, stated: one request per video line. The
+  // criterion exists so that changing it back to "ask nothing" is visible.
+  it('asks about every video line when it opens', async () => {
+    open([video, { ...video, bvid: 'BV8', url: 'https://x/BV8' }]);
+
+    await waitFor(() =>
+      expect(calls.filter((call) => call.url.endsWith('/download/parts'))).toHaveLength(2),
+    );
+  });
+
+  // A link that already names a part has nothing left to choose, so it is not
+  // asked about at all — the one place the cost above is not paid.
+  it('does not ask about a line that already names its part', async () => {
+    const p2 = { ...video, page: 2, url: 'https://www.bilibili.com/video/BV9?p=2' } as ParsedItem;
+    open([p2]);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /确认下载（1）/ })).toBeTruthy());
+    expect(calls.some((call) => call.url.endsWith('/download/parts'))).toBe(false);
+  });
+
+  // 🔴 THE BACKSTOP. If the opening probe could not answer, the line stays a
+  // line and the daemon refuses it at submit — and THAT path has to promote it
+  // too, or the parts would arrive in a second shape. It also must not close
+  // the dialog it just put the question in: 用户实测「多 P 不会被展开，会失败」
+  // was exactly that, and the criterion below is the one that says so.
+  it('promotes on the refusal when the opening probe failed, and stays open', async () => {
+    partsResult = twoParts;
+    partsResponses = [() => jsonResponse({ success: false, message: '网络错误' }, 502)];
+    songResponses = [
+      () =>
+        jsonResponse(
+          { success: false, error_code: 'MULTI_PART_UNRESOLVED', message: '这个视频有 2 个分P' },
+          400,
+        ),
+    ];
+    const user = userEvent.setup();
+    const { onClose } = open([video]);
+
+    await user.click(screen.getByRole('button', { name: /确认下载/ }));
+    await screen.findByText('烟雨行舟');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // The other outcomes keep the shipped behaviour: it says how far it got and
+  // closes. Without this the rule above could widen into "never close again".
+  it('still closes when a line failed for any other reason', async () => {
+    songResponses = [
+      () =>
+        jsonResponse({ success: false, error_code: 'DOWNLOAD_QUEUE_FULL', message: '满了' }, 409),
+    ];
+    const user = userEvent.setup();
+    const { onClose } = open([video]);
+    await waitFor(() => expect(screen.getByRole('button', { name: /确认下载（1）/ })).toBeTruthy());
+    await user.click(screen.getByRole('button', { name: /确认下载/ }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 });
