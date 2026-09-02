@@ -1,6 +1,6 @@
 {
   "name": "@lark/mobile",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "private": true,
   "description": "lark for Android (Phase B). Expo SDK 57 + CNG; links @lark/core/portable and nothing else of core.",
   "scripts": {

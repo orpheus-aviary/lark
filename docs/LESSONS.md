@@ -388,3 +388,14 @@
 - 🔴 **一条过期的约束比没有更贵**（§7 第一条）：`INVARIANTS.md` 写着「锁屏/车机的上一首/下一首在 expo-audio 上不存在 ⇒ v1 收窄成播放/暂停/seek」，而 0.1.1 ⑬ 已经用 patch 做出来了，**同一份文件的 §8 还写着它的验收方法**。两条互相矛盾放了五天没人发现。**「不做」类的条目要和实现一起改**——它的读者是未来的自己，而它会劝人别去做一件已经做好的事。
 - **同一个功能两端都做了，不代表它们同一条路**（自动重试）：手机 0.1.1 ⑧ 的自动重试重放的是**记录里的文本**，于是要再答一次「哪种命名」，而它的答案是**此刻设置页记着的那个** ⇒ 一首 `original` 提交的歌可以在自己失败的那几分钟里因为有人拨了 chip 而以 `clean` 落库。**没有人要求过这件事，也没有任何判据看得见它**（两端的判据都只问「重试了没有」）。桌面补这个功能时才逼出这个问题：daemon 没有「此刻的 chip」可读。改成重放 **task 自己的 target** 之后两端同一条路，且不再需要网络。**「补另一端」是一次很好的复审——它会问出第一端从没被问过的问题。**
 - **一个 Go 时代的配置段可以和一个新段同名**（同上）：`[download]` 早就在 Go 版的 config 里（`uploader_video_limit`），新加 `retry_limit` 时那条「未知键原样回写、但永不进 Public 投影」的判据当场红——它断言 `raw.download` **只有**那个死键。判据本身是对的，红得也对。**加配置字段前先看一眼那个段名在 Go 时代有没有主人。**
+
+## Android 0.2.2 实测锁定（输入法 / 列表 / 下载页，2026-09-02，三次上机）
+
+- 🔴 **targetSdk 35+ 之后 `adjustResize` 停用，平台改成「平移（pan）」——它只露出焦点那一个 view**（三次上机才把这条看清）。签名很好认，而且第一次会被误读成「好了」：**输入框自己完全可用，它下面的按钮被盖住**。添加页的「下载」按钮、弹框的「保存/取消」都栽在这上面。manifest 里那句 `adjustResize` 还在、读起来一切正常，是 Android 15 的 edge-to-edge 强制把它废掉的（`WindowUtil.updateEdgeToEdgeFeatureFlag` 自己把开关打开）。
+- 🔴 **`KeyboardAvoidingView` 在这里修不了它**：它拿自己 `onLayout` 的**父容器坐标**去减 `endCoordinates.screenY` 的**屏幕坐标**，中间差着一个每屏不同、又推导不出来的 `keyboardVerticalOffset`。**正解是在 app 根上垫 `根高 − screenY`**（两个数同一坐标系），等于自己把 `adjustResize` 实现一遍。**这么做的真正理由是历史的**：这个 app 每一处布局都是照 `adjustResize` 写的（设置页靠 ScrollView 缩小把焦点行滚进来、添加页把按钮放输入框上方），把前提还回去比一屏一屏补小。**代价要一起付**：迷你条和 tab 栏也会被顶上去，得在键盘弹起时隐藏。
+- 🔴 **`Modal` 是第二个窗口，而第二个窗口是这一类问题的根**（用户拍板换掉，`ui/overlay.tsx`）：① 根上那份让位到不了它 ② IME 出现时平台**平移**那个窗口，平移量 **JS 读不到**——Fabric 的 `measureInWindow` 算的是布局树，不含窗口滚动 ⇒ **「量出来再减掉」这条路不存在** ③ `autoFocus` 在 `onAttachedToWindow` 里跑，而 RN 是 `dialog.show()` 的**下一行**才清 `FLAG_NOT_FOCUSABLE`，`showSoftInput` 静默失败；换 `onShow → focus()` 也没成，因为 `requestFocusProgrammatically` 还要 `isInTouchMode`。**搬进 app 自己窗口的浮层之后，三条一起消失**，`autoFocus` 不改一个字就活了。
+- **`Modal` 的 dialog 会先预留导航栏、随后又被 insets 拿走**，于是**底部对齐的内容正好下移一个导航栏**（用户看到播放队列「整体下移」，并且自己判断出是导航栏）。修法是给它 `statusBarTranslucent` + `navigationBarTranslucent`，让它从第一帧就 edge-to-edge、没有预留可被拿走。
+- 🔴 **`selectTextOnFocus` 会被 Fabric 反复重新武装**（用户报的「编辑一下就变全选」）：它落成原生 `ReactEditText` 的一个字段，`onLayout` 里只要它还是 true 就 `selectAll()`；而 **Fabric 每次 props 更新是整包重发**（`FabricMountingManager` 默认走 `newProps->rawProps`，diff 那条路只对 `<View>` 生效）⇒ 受控 `value` 每敲一个字就重新武装一次，下一次 layout（中文输入法的候选栏一出一收就够）整行被选中。**修法是命令式的 `ref.setSelection()` + 非受控**——命令不是 prop，重发不了。
+- **一次真机读数只该回答一个是非题**：`screenY 420 · 高 284 · 窗口 720` 的用处是「`screenY` 到底动不动」，不是三个常数。代码里一个数都没有；跨机型成立是因为**两个数结构上配平**（RN 报的高度减掉的那份导航栏，正是贴合系统栏的 dialog 窗口自己让出的那份），不是因为标定过。
+- **锁屏状态下 `adb install` 会被判成 `INSTALL_FAILED_ABORTED: User rejected permissions`**（vivo）。看起来像权限问题，其实只是屏幕黑着——`dumpsys power | grep mWakefulness` 一眼就能分清，让用户解锁再装即可。
+- **「补另一端」会问出第一端没被问过的问题**，这次是「歌单页要高亮正在播的歌单」逼出来的：歌单**详情**页原本连「正在播的是哪一首」都没有（它自己画行，backlog C16）。只做外面那层就会变成「外面亮着、点进去找不到」⇒ **一次把 C16 收掉**，详情复用 `SongRow`，同时补回时长、固定标记和那张表的滚动条。

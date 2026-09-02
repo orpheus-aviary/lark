@@ -12,7 +12,7 @@ const config: ExpoConfig = {
   slug: 'lark',
   // D14's independent APK version line — NOT the desktop's 0.3.0. The two ship
   // separately and a shared number would only ever be a coincidence.
-  version: '0.2.1',
+  version: '0.2.2',
   orientation: 'portrait',
   platforms: ['android'],
   scheme: 'lark',
@@ -34,7 +34,7 @@ const config: ExpoConfig = {
     // `…lark.spike` — sharing one would have the first real install inherit
     // the spike's data directory, half-finished SecureStore entries included.
     package: 'com.orpheusaviary.lark',
-    versionCode: 4,
+    versionCode: 5,
     // N3a. POST_NOTIFICATIONS is what makes the media notification VISIBLE on
     // Android 13+ — and on Android 13+ that notification IS the lock screen
     // controls. The foreground service runs either way, so a denied permission

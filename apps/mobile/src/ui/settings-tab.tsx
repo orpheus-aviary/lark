@@ -32,8 +32,6 @@ import type { NowPlayingMode } from '@lark/shared';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
-  Dimensions,
-  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -126,39 +124,8 @@ export function SettingsTab({ visible }: { visible: boolean }) {
         <Field label="版本" value={appVersion()} />
         <EngineErrors />
       </ScrollView>
-      <KeyboardProbe />
     </View>
   );
-}
-
-/**
- * 🔴 TEMPORARY — delete it with the batch that added it
- * (`docs/plans/2026-09-02-mobile-input-list-downloads.md` §1).
- *
- * The keyboard geometry the whole app now depends on (`ui/keyboard.ts`), in
- * the one place it can be read off a release build — which reaches no logcat,
- * so the number has to be on screen.
- *
- * It answered its first question already: `screenY` DOES move once the window
- * stops resizing, which is what makes `App.tsx`'s inset possible at all. It
- * stays for one more round because it is also how a phone with a different
- * navigation bar, or a taller IME, can be checked in one look.
- */
-function KeyboardProbe() {
-  const [line, setLine] = useState('键盘：还没弹起过');
-  useEffect(() => {
-    const shown = Keyboard.addListener('keyboardDidShow', (event) => {
-      const { screenY, height } = event.endCoordinates;
-      const window = Math.round(Dimensions.get('window').height);
-      setLine(`screenY ${Math.round(screenY)} · 高 ${Math.round(height)} · 窗口 ${window}`);
-    });
-    const hidden = Keyboard.addListener('keyboardDidHide', () => setLine('键盘：已收起'));
-    return () => {
-      shown.remove();
-      hidden.remove();
-    };
-  }, []);
-  return <Text style={styles.probe}>{line}</Text>;
 }
 
 /** What the last press of 保存 / 测试连接 / 清除 had to say. */
@@ -730,18 +697,6 @@ function Field({ label, value }: { label: string; value: string }) {
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   settings: { padding: S.pad, gap: S.pad },
-  /** 🔴 TEMPORARY, with `KeyboardProbe`. */
-  probe: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: C.surfaceOn,
-    color: C.text,
-    fontSize: 11,
-    textAlign: 'center',
-    paddingVertical: 3,
-  },
   section: { gap: S.gap },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: S.gap },
   sectionTitle: { color: C.text, fontSize: 16, fontWeight: '600', flex: 1 },

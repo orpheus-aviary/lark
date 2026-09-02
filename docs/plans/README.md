@@ -11,7 +11,7 @@
 
 ## 活跃
 
-- `2026-09-02-mobile-input-list-downloads.md` — **本批，未开工**（手机端四件事）：输入法遮挡（edge-to-edge 停用了 `adjustResize`）· `Prompt` 的全选（`selectTextOnFocus` 会被 props 重发重新武装）· 歌曲页 `getItemLayout` + 搜索节流 + 行 memo · **四个 tab 保持挂载，隐藏的 tab 不算「在屏」** · 下载页对齐桌面的三段。**不加任何新依赖**；一次真机会话，清单在 §6
+- `2026-09-02-mobile-input-list-downloads.md` — **本批，代码完成待发版**（Android 0.2.2，只动 `apps/mobile/`）：输入法遮挡（让位改到 app 根上一处）· sheet 退出 `Modal`（第二个窗口是两个 bug 的共同根因）· `Prompt` 全选 · 列表 `getItemLayout` + 搜索节流 + 行 memo · **四个 tab 保持挂载**（「挂载」≠「在屏」）· 下载页三段 · 歌单页高亮正在播的歌单 · 歌曲页新顶栏 · C16。**三次上机的结果与两次修法翻案都在 §9。**
 - `2026-08-31-parity-0.5.1.md` — **两端对齐普查**（2026-08-31，发版前用户要求）：逐功能对了一遍桌面与手机，分「有意的分叉 / 漂移 / 文档与代码不符」三类。修了两条漂移（手机分P 也建歌单 · 桌面补自动重试），查出不做的四条进 backlog（C14–C16 / D5）。**已随 0.5.1 发布**
 - `2026-08-31-desktop-check.md` / `2026-08-31-device-check.md` — 对齐那一批的**上手验收单**（桌面 15 条 · 真机 10 条），两端都已走完
 - `2026-08-28-desktop-0.5.1.md` — **上一版的子计划，已发布**（2026-08-31）：§1–§6 程序坞回归热修（`setVisibleOnAllWorkspaces` 的 `visibleOnFullScreen` 把**整个进程**降成了 UIElement 应用）· §7 多 P 视频改成人来选集 + 分P 子标题进命名（动三端，协议 9 → 10）· §8 复盘两条。
