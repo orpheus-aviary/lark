@@ -2,7 +2,16 @@
 
 > **这个文件只写「现在」。** 逐批的历史记录已经归档到 `docs/history/`，索引在下面。
 > 对话以本文件为基准；旧的东西查得到就行，不必读进上下文。
-## 当前阶段：**刚发完 0.5.1 / Android 0.2.1，没有进行中的批次**
+## 当前阶段：**手机端一批进行中**（输入框 · 列表 · 下载页三段）
+
+**计划**：`docs/plans/2026-09-02-mobile-input-list-downloads.md`（2026-09-02 定稿）。来源是用户报的四个现象，四批 + **集中一次真机会话**（计划 §6）；**不加任何新依赖**。
+
+| 批 | 状态 |
+|---|---|
+| **P1 · 输入框** —— KAV 包设置页/添加页（edge-to-edge 之后 `adjustResize` 被停用）· `Prompt` 改非受控 + 一次性 `setSelection` | ✅ 代码已落地，`just check` / `just test` 绿。**待真机**（§6 第 1–4 条），临时的 `KeyboardProbe` 验完就删 |
+| P2 · 列表 —— `getItemLayout` + 搜索节流 + 行 memo | 未开工 |
+| P3 · 四个 tab 保持挂载 + `visible` 语义（四条 gate） | 未开工 |
+| P4 · 下载页三段（对齐桌面） | 未开工 |
 
 **2026-08-31 发布**：[Release v0.5.1](https://github.com/orpheus-aviary/lark/releases/tag/v0.5.1)（tag → `b152fb7`）+ [`@orpheus-aviary/lark-cli@0.5.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli) + [Release android-v0.2.1](https://github.com/orpheus-aviary/lark/releases/tag/android-v0.2.1)（同一个 commit）。这一站是什么、门禁与逐批记录 → **`docs/history/0.5.1-android-0.2.1-shipped.md`**。
 
@@ -15,7 +24,7 @@
 
 ### 下一步
 
-**没有已定的下一批。** 候选，按现在看得见的顺序：
+**下一批是 P2**（见上表）。四批走完再集中一次真机会话。这一批之后的候选，按现在看得见的顺序：
 
 1. **两端对齐剩下的四条** —— 发版前那次普查查出来、当时明确不做的：`[重复]` 标记搬到手机（**C14**）· 手机歌曲页多选加「下载」（**C15**）· 歌单详情那份重复的 row（**C16**，C11/C12 的第三次代价）· 桌面记「上次听到哪」（**D5**，`portable/last-playback.ts` 是两端共用层而桌面一行没接）。前三条都小。
 2. **D2「长期使用复盘」** —— 0.1.1、0.5.0、0.5.1 都是这么来的：用一阵子，把别扭的地方列回来，再分批。
