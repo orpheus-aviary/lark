@@ -1,4 +1,5 @@
-// How tall a song row is, measured once per process (P2, 2026-09-02).
+// How tall a list's row is, measured once per process and per list (P2,
+// 2026-09-02; a second list on 2026-09-02 evening).
 //
 // WHAT IT BUYS is `getItemLayout`. Without one, a `FlatList` estimates its
 // total content height from the rows it has measured SO FAR, and revises that
@@ -22,13 +23,22 @@
 import { useSyncExternalStore } from 'react';
 import { PixelRatio } from 'react-native';
 
-let measured: { height: number; fontScale: number } | null = null;
+/**
+ * Which list. Two shapes, and they really are different heights: a song row
+ * carries two lines, a queue row one — measuring once and sharing the answer
+ * would put the queue's rows at the wrong offsets, which is the exact bug
+ * `getItemLayout` exists to avoid.
+ */
+export type RowKind = 'song' | 'queue';
+
+const measured = new Map<RowKind, { height: number; fontScale: number }>();
 const listeners = new Set<() => void>();
 
 /** The row height, or `null` while nothing has reported one at this font scale. */
-export function songRowHeight(): number | null {
-  if (measured === null) return null;
-  return measured.fontScale === PixelRatio.getFontScale() ? measured.height : null;
+export function rowHeight(kind: RowKind): number | null {
+  const seen = measured.get(kind);
+  if (seen === undefined) return null;
+  return seen.fontScale === PixelRatio.getFontScale() ? seen.height : null;
 }
 
 /**
@@ -37,11 +47,12 @@ export function songRowHeight(): number | null {
  * when the answer has not changed — otherwise every row on screen would wake
  * the list up to tell it what it already knows.
  */
-export function reportSongRowHeight(height: number): void {
+export function reportRowHeight(kind: RowKind, height: number): void {
   if (height <= 0) return;
   const fontScale = PixelRatio.getFontScale();
-  if (measured !== null && measured.height === height && measured.fontScale === fontScale) return;
-  measured = { height, fontScale };
+  const seen = measured.get(kind);
+  if (seen !== undefined && seen.height === height && seen.fontScale === fontScale) return;
+  measured.set(kind, { height, fontScale });
   for (const listener of listeners) listener();
 }
 
@@ -59,6 +70,6 @@ const subscribe = (listener: () => void): (() => void) => {
  * every component reading it — the same shape as `downloads/use-downloads.ts`.
  * The snapshot is a number or null, so there is nothing here to compare wrong.
  */
-export function useSongRowHeight(): number | null {
-  return useSyncExternalStore(subscribe, songRowHeight);
+export function useRowHeight(kind: RowKind): number | null {
+  return useSyncExternalStore(subscribe, () => rowHeight(kind));
 }

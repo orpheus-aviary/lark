@@ -25,7 +25,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ensureController } from '../downloads/ensure-runtime';
 import { player, usePlayback } from '../player';
 import type { PlayQueue } from '../player/queue';
-import { reportSongRowHeight } from './row-metrics';
+import { reportRowHeight } from './row-metrics';
 import { C, S } from './theme';
 
 /**
@@ -95,7 +95,7 @@ export const SongRow = memo(function SongRow({
     // and the rest are a function call.
     <View
       style={[styles.row, chosen && styles.rowChosen]}
-      onLayout={(event) => reportSongRowHeight(event.nativeEvent.layout.height)}
+      onLayout={(event) => reportRowHeight('song', event.nativeEvent.layout.height)}
     >
       <Pressable
         style={styles.rowBody}

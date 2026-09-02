@@ -15,8 +15,7 @@
 
 import { MIB, readCacheLimitMb } from '@lark/core/portable';
 import type { SongData } from '@lark/shared';
-import { Check } from 'lucide-react-native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { readDeviceUsage } from '../cache/usage';
 import {
@@ -26,11 +25,9 @@ import {
   refusedRecord,
 } from '../downloads/budget';
 import { downloadRuntimeOnce } from '../downloads/engine';
-import { ensureController } from '../downloads/ensure-runtime';
 import { downloadHistoryOnce } from '../downloads/history-runtime';
 import { describeBatch, runBatch } from '../library/batch';
 import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
-import { player } from '../player';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
 import { sharePlaylistExport } from '../services/playlist-export';
@@ -39,9 +36,11 @@ import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
 import { useLibrary, useVisibleView } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
+import { useRowHeight } from './row-metrics';
 import { SelectionBar } from './selection-bar';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { SongActionsSheet } from './song-actions';
+import { SongRow } from './song-row';
 import { C, S } from './theme';
 
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
@@ -76,12 +75,44 @@ export function PlaylistDetail({
   // This playlist is the queue a delayed play would use, while it is on screen
   // (N4g, §2.9). `?? []` because the hook cannot be called conditionally and
   // the screen below returns early when the playlist is gone.
-  useVisibleQueue(
-    useCallback(
-      () => queueFrom({ kind: 'playlist', id }, detail?.songs ?? []),
-      [id, detail?.songs],
+  // The playlist as it is RIGHT NOW, for the two callers that must not hold a
+  // copy: a row's tap and a play that starts later (the 歌曲 tab's shape).
+  const latest = useRef<readonly SongData[]>(detail?.songs ?? []);
+  latest.current = detail?.songs ?? [];
+  const getQueue = useCallback(() => queueFrom({ kind: 'playlist', id }, latest.current), [id]);
+
+  // This playlist is the queue a delayed play would use, while it is on screen
+  // (N4g, §2.9).
+  useVisibleQueue(getQueue, visible);
+
+  // Stable, so `SongRow`'s memo can hold — see there.
+  const openMenu = useCallback((song: SongData) => setActing(song), []);
+  const toggleRow = useCallback(
+    (song: SongData) => setChosen((current) => toggleOne(current, song.id)),
+    [],
+  );
+  const rowHeight = useRowHeight('song');
+  const getItemLayout = useCallback(
+    (_: ArrayLike<SongData> | null | undefined, index: number) => ({
+      length: rowHeight ?? 0,
+      offset: (rowHeight ?? 0) * index,
+      index,
+    }),
+    [rowHeight],
+  );
+  const renderItem = useCallback(
+    ({ item }: { item: SongData }) => (
+      <SongRow
+        song={item}
+        getQueue={getQueue}
+        selecting={selecting}
+        chosen={chosen.has(item.id)}
+        onMenu={openMenu}
+        onLongPress={toggleRow}
+        onToggle={toggleRow}
+      />
     ),
-    visible,
+    [chosen, getQueue, openMenu, selecting, toggleRow],
   );
 
   const rows = useMemo(
@@ -311,63 +342,17 @@ export function PlaylistDetail({
       <FlatList
         data={detail.songs}
         keyExtractor={(song) => song.id}
-        renderItem={({ item }) => (
-          // The row is a play target and the menu is its own button — the same
-          // shape as the 歌曲 tab, decided by hand-testing in N2f. What differs
-          // is the queue: playing from here plays THIS playlist.
-          <View style={[styles.rowLine, chosen.has(item.id) && styles.rowChosen]}>
-            <Pressable
-              style={styles.detailRow}
-              onPress={() => {
-                if (selecting) {
-                  setChosen(toggleOne(chosen, item.id));
-                  return;
-                }
-                const queue = queueFrom({ kind: 'playlist', id }, detail.songs);
-                // Same rule as the 歌曲 tab: no file is not a refusal, it is a
-                // play with a download in front of it (N4g, decision b).
-                if (item.has_file === false) {
-                  ensureController().request(item, queue);
-                  return;
-                }
-                void player.play(item, queue);
-              }}
-              onLongPress={() => setChosen(toggleOne(chosen, item.id))}
-              accessibilityRole="button"
-              accessibilityLabel={selecting ? `选择 ${item.name}` : `播放 ${item.name}`}
-            >
-              <View style={styles.rowNameLine}>
-                {selecting && (
-                  <Check
-                    size={16}
-                    color={chosen.has(item.id) ? C.text : C.border}
-                    accessibilityLabel={chosen.has(item.id) ? '已选' : '未选'}
-                  />
-                )}
-                <Text style={styles.rowName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-              </View>
-              <Text style={styles.rowMeta} numberOfLines={1}>
-                {item.artist === '' ? '未知歌手' : item.artist}
-                {/* 🔴 THE SAME WORDS THE 歌曲 TAB USES. This screen draws its
-                    own row rather than `SongRow` (backlog C12), and the two
-                    drifted: a song synced from another device has its metadata
-                    and no audio, and in here nothing said so — the row looked
-                    exactly like a song that was ready to play. */}
-                {item.has_file === false ? ' · 需要下载' : ''}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.rowMenu}
-              onPress={() => setActing(item)}
-              accessibilityRole="button"
-              accessibilityLabel={`${item.name} 的操作`}
-            >
-              <Text style={styles.rowMenuGlyph}>⋮</Text>
-            </Pressable>
-          </View>
-        )}
+        // 🔴 `SongRow`, NOT A ROW OF ITS OWN (backlog C16, closed 2026-09-02).
+        // This screen used to draw its own, and the two drifted every time:
+        // 0.5.1 had to put 「需要下载」 back here alone, and until now this
+        // list showed no duration, no pin, and no sign of which song was
+        // playing. One row means one place to fix.
+        //
+        // What is NOT shared is the queue: playing from here plays THIS
+        // playlist, which is what `getQueue` closes over.
+        {...(rowHeight === null ? {} : { getItemLayout })}
+        extraData={chosen}
+        renderItem={renderItem}
         ListEmptyComponent={<Text style={styles.empty}>这个歌单还没有歌。</Text>}
       />
 
@@ -527,21 +512,8 @@ const styles = StyleSheet.create({
   // The separator belongs to the LINE, not to the tappable part: with it on
   // the pressable it stopped where the text stopped, and the ⋮ hung off the
   // end of a line that had already been drawn (user, 2026-08-25).
-  rowLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: C.border,
-  },
   /** The detail row's tappable half. `flex: 1` is what pushes ⋮ to the edge. */
-  detailRow: { flex: 1, paddingVertical: 10, paddingHorizontal: S.pad },
-  rowMenu: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  rowMenuGlyph: { color: C.muted, fontSize: 20 },
-  rowNameLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  rowName: { color: C.text, fontSize: 16, flexShrink: 1 },
   // The ticked row — the surface tone, never the amber: that one is the
   // playing row's and the two must stay tellable apart (decision g).
-  rowChosen: { backgroundColor: C.surface },
-  rowMeta: { color: C.faint, fontSize: 12, marginTop: 2 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
 });

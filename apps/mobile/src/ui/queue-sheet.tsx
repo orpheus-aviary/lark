@@ -10,10 +10,12 @@
 import type { PlayMode, SongData } from '@lark/shared';
 import { PLAY_MODE_LABELS, nextPlayMode } from '@lark/shared';
 import { ArrowRight, Repeat, Repeat1, Shuffle } from 'lucide-react-native';
+import { useCallback } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { player, usePlayback } from '../player';
 import { resolveQueue } from '../player/queue';
 import { useLibrary } from './library-context';
+import { reportRowHeight, useRowHeight } from './row-metrics';
 import { C, S } from './theme';
 
 export function QueueSheet({ onClose }: { onClose: () => void }) {
@@ -31,6 +33,18 @@ export function QueueSheet({ onClose }: { onClose: () => void }) {
           queue.source.kind === 'all' ? view.songs().songs : view.playlistSongs(queue.source.id),
         );
   const index = songs.findIndex((song) => song.id === currentId);
+  // The same treatment the 歌曲 tab got: without `getItemLayout` a FlatList
+  // guesses its own height from the rows it has drawn so far and redraws the
+  // scroll indicator on every batch (`row-metrics.ts`).
+  const rowHeight = useRowHeight('queue');
+  const getItemLayout = useCallback(
+    (_: ArrayLike<SongData> | null | undefined, position: number) => ({
+      length: rowHeight ?? 0,
+      offset: (rowHeight ?? 0) * position,
+      index: position,
+    }),
+    [rowHeight],
+  );
 
   return (
     <View style={styles.sheet}>
@@ -55,9 +69,11 @@ export function QueueSheet({ onClose }: { onClose: () => void }) {
         data={songs}
         keyExtractor={(song) => song.id}
         style={styles.list}
+        {...(rowHeight === null ? {} : { getItemLayout })}
         renderItem={({ item, index: position }) => (
           <Pressable
             style={styles.row}
+            onLayout={(event) => reportRowHeight('queue', event.nativeEvent.layout.height)}
             onPress={() => {
               if (queue !== null) void player.play(item, queue);
               onClose();

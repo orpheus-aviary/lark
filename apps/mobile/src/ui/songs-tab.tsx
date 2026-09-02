@@ -32,18 +32,20 @@ import {
   toggleOrder,
   withField,
 } from '@lark/shared';
+import { ArrowUpToLine, LocateFixed, X } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { engineLogger } from '../downloads/log';
 import { describeBatch, runBatch } from '../library/batch';
 import { allChosen, chosenRows, toggleEvery, toggleOne } from '../library/selection';
+import { usePlayback } from '../player';
 import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
 import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
 import { useLibrary, useVisibleView } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
-import { useSongRowHeight } from './row-metrics';
+import { useRowHeight } from './row-metrics';
 import { SelectionBar } from './selection-bar';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { SongActionsSheet } from './song-actions';
@@ -140,6 +142,24 @@ export function SongsTab({ visible }: { visible: boolean }) {
   const getQueue = useCallback(() => queueFrom({ kind: 'all' }, latest.current), []);
   useVisibleQueue(getQueue, visible);
 
+  // 「定位当前」 (用户, 2026-09-02). The song being played may not be in this
+  // list at all — nothing is playing, it was started from a playlist, or the
+  // search has filtered it out — so the button is GREYED rather than hidden,
+  // the same call the download page's two buttons make: a control that comes
+  // and goes moves everything beside it.
+  const currentId = usePlayback((state) => state.song?.id ?? null);
+  const currentIndex = useMemo(
+    () => (currentId === null ? -1 : songs.findIndex((song) => song.id === currentId)),
+    [songs, currentId],
+  );
+
+  // 🔴 `scrollToIndex` NEEDS `getItemLayout`, or it throws for a row the list
+  // has not measured yet — which is most of them. That is why this button is
+  // also off until a row has reported its height (`row-metrics.ts`).
+  const toCurrent = useCallback(() => {
+    if (currentIndex < 0) return;
+    list.current?.scrollToIndex({ index: currentIndex, animated: true, viewPosition: 0.3 });
+  }, [currentIndex]);
   // The three a row hands back. Stable, so `SongRow`'s memo can hold: a
   // closure built per row per render would change every one of them whenever
   // anything on this page did.
@@ -241,7 +261,7 @@ export function SongsTab({ visible }: { visible: boolean }) {
 
   // Known once the first row has laid itself out; `null` before that, and
   // again if the system font size changes (`row-metrics.ts` keeps that half).
-  const rowHeight = useSongRowHeight();
+  const rowHeight = useRowHeight('song');
   // 🔴 THE THREE RULES ABOUT WHERE THE LIST SITS, and they used to be one.
   // Unmounting a tab answered all three at once — everything started at the
   // top — and one of those answers was wrong (coming back to the tab) while
@@ -270,6 +290,8 @@ export function SongsTab({ visible }: { visible: boolean }) {
     }),
     [rowHeight],
   );
+  /** 「定位当前」 can act: the song is in this list, and rows have been measured. */
+  const canLocate = currentIndex >= 0 && rowHeight !== null;
   const renderItem = useCallback(
     ({ item }: { item: SongData }) => (
       <SongRow
@@ -317,36 +339,78 @@ export function SongsTab({ visible }: { visible: boolean }) {
           ]}
         />
       ) : (
-        <View style={styles.controls}>
-          <TextInput
-            style={styles.search}
-            value={search}
-            onChangeText={(next) => {
-              setSearch(next);
-              toTop();
-            }}
-            placeholder="搜索歌名或歌手"
-            placeholderTextColor={C.faint}
-            accessibilityLabel="搜索"
-          />
-          <Pressable
-            style={styles.sortButton}
-            onPress={() => changeSort(toggleOrder(sort))}
-            accessibilityRole="button"
-          >
-            <Text style={styles.sortLabel}>{sortLabel(sort)}</Text>
-          </Pressable>
-          <Pressable
-            style={styles.sortButton}
-            onPress={() => setPicking(true)}
-            accessibilityRole="button"
-          >
-            <Text style={styles.sortLabel}>排序</Text>
-          </Pressable>
-        </View>
+        // TWO LINES, and the count moved into the second one (用户,
+        // 2026-09-02). The search gets a whole row because a song title is
+        // long; the four controls get the other, with 「N 首」 on the left
+        // rather than on a third line of its own — three bands of chrome over
+        // a list is a lot of a phone screen.
+        <>
+          <View style={styles.searchLine}>
+            <TextInput
+              style={styles.search}
+              value={search}
+              onChangeText={(next) => {
+                setSearch(next);
+                toTop();
+              }}
+              placeholder="搜索歌名或歌手"
+              placeholderTextColor={C.faint}
+              accessibilityLabel="搜索"
+            />
+            {/* Shown only when there is something to clear. It reads as a
+                contradiction of the greying above, and is not: this one sits
+                INSIDE a fixed-height field, so its coming and going moves
+                nothing. */}
+            {search !== '' && (
+              <Pressable
+                onPress={() => {
+                  setSearch('');
+                  toTop();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="清除搜索"
+                hitSlop={10}
+              >
+                <X size={16} color={C.muted} />
+              </Pressable>
+            )}
+          </View>
+          <View style={styles.tools}>
+            <Text style={styles.count}>{songs.length} 首</Text>
+            <Pressable
+              style={styles.toolButton}
+              onPress={toTop}
+              accessibilityRole="button"
+              accessibilityLabel="返回顶部"
+            >
+              <ArrowUpToLine size={16} color={C.muted} />
+            </Pressable>
+            <Pressable
+              style={[styles.toolButton, !canLocate && styles.toolButtonOff]}
+              onPress={toCurrent}
+              disabled={!canLocate}
+              accessibilityRole="button"
+              accessibilityLabel="定位当前"
+            >
+              <LocateFixed size={16} color={C.muted} />
+            </Pressable>
+            <Pressable
+              style={styles.toolButton}
+              onPress={() => changeSort(toggleOrder(sort))}
+              accessibilityRole="button"
+            >
+              <Text style={styles.sortLabel}>{sortLabel(sort)}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.toolButton}
+              onPress={() => setPicking(true)}
+              accessibilityRole="button"
+            >
+              <Text style={styles.sortLabel}>排序</Text>
+            </Pressable>
+          </View>
+        </>
       )}
-
-      <Text style={styles.count}>{songs.length} 首</Text>
 
       <FlatList
         ref={list}
@@ -468,22 +532,31 @@ export function SongsTab({ visible }: { visible: boolean }) {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  controls: { flexDirection: 'row', gap: S.gap, paddingHorizontal: S.pad, paddingBottom: S.gap },
-  search: {
-    flex: 1,
-    color: C.text,
+  searchLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: C.surface,
     borderRadius: S.radius,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    marginHorizontal: S.pad,
+    paddingRight: 12,
   },
-  sortButton: {
+  search: { flex: 1, color: C.text, paddingHorizontal: 12, paddingVertical: 8 },
+  tools: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: S.gap,
+    paddingHorizontal: S.pad,
+    paddingVertical: S.gap,
+  },
+  toolButton: {
     justifyContent: 'center',
     paddingHorizontal: 12,
+    paddingVertical: 6,
     backgroundColor: C.surface,
     borderRadius: S.radius,
   },
+  toolButtonOff: { opacity: 0.4 },
   sortLabel: { color: C.muted, fontSize: 13 },
-  count: { color: C.faint, fontSize: 12, paddingHorizontal: S.pad, paddingBottom: 4 },
+  count: { color: C.faint, fontSize: 12, flex: 1 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
 });

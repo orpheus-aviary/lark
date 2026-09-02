@@ -20,6 +20,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
+import { usePlayback } from '../player';
 import { shareLibraryExport } from '../services/playlist-export';
 import { BACK, useBack } from './back';
 import { ImportPlaylistScreen } from './import-playlist';
@@ -81,6 +82,19 @@ function PlaylistList({ visible, onOpen }: { visible: boolean; onOpen: (id: stri
     [view],
   );
 
+  // 🔴 WHICH PLAYLIST IS PLAYING IS THE QUEUE'S OWN ANSWER (用户, 2026-09-02).
+  // The queue is a snapshot and it carries where it came from
+  // (`player/queue.ts`), so this is not a second opinion about anything: a
+  // queue whose source is `all` — anything started from the 歌曲 tab —
+  // highlights NO playlist, which is exactly the rule that was asked for.
+  //
+  // The amber is `theme.ts`'s `active`, defined there as "the row that is
+  // playing" and already used by `SongRow`. Nothing new was picked.
+  const playingId = usePlayback((state) =>
+    state.queue?.source.kind === 'playlist' ? state.queue.source.id : null,
+  );
+  const playing = usePlayback((state) => state.playing);
+
   const exportLibrary = async (): Promise<void> => {
     try {
       const result = await shareLibraryExport(library);
@@ -132,7 +146,13 @@ function PlaylistList({ visible, onOpen }: { visible: boolean; onOpen: (id: stri
         keyExtractor={(playlist) => playlist.id}
         renderItem={({ item }) => (
           <Pressable style={styles.row} onPress={() => onOpen(item.id)} accessibilityRole="button">
-            <Text style={styles.rowName}>{item.name}</Text>
+            <Text style={[styles.rowName, item.id === playingId && styles.rowNamePlaying]}>
+              {/* The 歌曲 tab's own two channels, said the same way: the amber
+                  is "this is what the queue came from", the ▶ is "and it is
+                  running right now". */}
+              {item.id === playingId && playing ? '▶ ' : ''}
+              {item.name}
+            </Text>
             <Text style={styles.rowMeta}>{item.song_count} 首</Text>
           </Pressable>
         )}
@@ -178,6 +198,7 @@ const styles = StyleSheet.create({
     borderBottomColor: C.border,
   },
   rowName: { color: C.text, fontSize: 16, flexShrink: 1 },
+  rowNamePlaying: { color: C.active },
   rowMeta: { color: C.faint, fontSize: 12, marginTop: 2 },
   empty: { color: C.faint, fontSize: 14, padding: S.pad },
 });
