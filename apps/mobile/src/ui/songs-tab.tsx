@@ -32,7 +32,7 @@ import {
   toggleOrder,
   withField,
 } from '@lark/shared';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { engineLogger } from '../downloads/log';
 import { describeBatch, runBatch } from '../library/batch';
@@ -43,11 +43,13 @@ import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
 import { useLibrary } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
+import { useSongRowHeight } from './row-metrics';
 import { SelectionBar } from './selection-bar';
 import { Prompt, Sheet, SheetAction } from './sheet';
 import { SongActionsSheet } from './song-actions';
 import { SongRow } from './song-row';
 import { C, S } from './theme';
+import { SEARCH_DEBOUNCE_MS, useDebounced } from './use-debounced';
 
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
@@ -94,17 +96,40 @@ export function SongsTab() {
   const [confirmingMany, setConfirmingMany] = useState(false);
   const selecting = chosen.size > 0;
 
+  // 🔴 THE LIST FOLLOWS A SETTLED SEARCH, NOT THE KEYSTROKES (P2, 2026-09-02).
+  // Every character used to cost a full-table LIKE, a Chinese collation sort
+  // and a rebuild of everything below — thrown away by the next character.
+  // Same 200ms the desktop has settled on since D6.
+  const committed = useDebounced(search, SEARCH_DEBOUNCE_MS);
   const songs = useMemo(() => {
-    const trimmed = search.trim();
+    const trimmed = committed.trim();
     // `view` is the dependency that makes a write show up: it is a new reader
     // after every one (`library-context.tsx`).
     return sortSongs(view.songs(trimmed === '' ? {} : { search: trimmed }).songs, sort);
-  }, [view, search, sort]);
+  }, [view, committed, sort]);
+
+  // The list as it is RIGHT NOW, for the two callers that must not hold a copy
+  // of it: a row's tap and a play that starts later. Written during render, the
+  // same way `ui/back.ts` holds its action.
+  const latest = useRef(songs);
+  latest.current = songs;
 
   // What a play that starts LATER should play out of (N4g, §2.9): this list,
-  // as it is at that moment — sort, search and all. Republished whenever it
-  // changes, and retracted when this tab is unmounted.
-  useVisibleQueue(useCallback(() => queueFrom({ kind: 'all' }, songs), [songs]));
+  // as it is AT THAT MOMENT — sort, search and all. It reads the ref rather
+  // than closing over an array, so one publication stays true for the tab's
+  // whole life instead of being replaced after every write; it is retracted
+  // when this tab is unmounted.
+  const getQueue = useCallback(() => queueFrom({ kind: 'all' }, latest.current), []);
+  useVisibleQueue(getQueue);
+
+  // The three a row hands back. Stable, so `SongRow`'s memo can hold: a
+  // closure built per row per render would change every one of them whenever
+  // anything on this page did.
+  const openMenu = useCallback((song: SongData) => setActing(song), []);
+  const toggleRow = useCallback(
+    (song: SongData) => setChosen((current) => toggleOne(current, song.id)),
+    [],
+  );
 
   /** Every write ends the same way: do it, close everything, re-read. */
   const write = (body: () => void) => {
@@ -177,6 +202,35 @@ export function SongsTab() {
     setConfirming(null);
   };
 
+  // Known once the first row has laid itself out; `null` before that, and
+  // again if the system font size changes (`row-metrics.ts` keeps that half).
+  const rowHeight = useSongRowHeight();
+  const getItemLayout = useCallback(
+    (_: ArrayLike<SongData> | null | undefined, index: number) => ({
+      length: rowHeight ?? 0,
+      offset: (rowHeight ?? 0) * index,
+      index,
+    }),
+    [rowHeight],
+  );
+  const renderItem = useCallback(
+    ({ item }: { item: SongData }) => (
+      <SongRow
+        song={item}
+        getQueue={getQueue}
+        selecting={selecting}
+        chosen={chosen.has(item.id)}
+        onMenu={openMenu}
+        // Long press is the way IN (decision b), and it works on a row that is
+        // already ticked too — there is no separate gesture for "add to the
+        // selection".
+        onLongPress={toggleRow}
+        onToggle={toggleRow}
+      />
+    ),
+    [chosen, getQueue, openMenu, selecting, toggleRow],
+  );
+
   return (
     <View style={styles.fill}>
       {selecting ? (
@@ -237,22 +291,16 @@ export function SongsTab() {
       <FlatList
         data={songs}
         keyExtractor={(song) => song.id}
-        renderItem={({ item }) => (
-          <SongRow
-            song={item}
-            songs={songs}
-            selecting={selecting}
-            chosen={chosen.has(item.id)}
-            onMenu={() => setActing(item)}
-            // Long press is the way IN (decision b), and it works on a row
-            // that is already ticked too — there is no separate gesture for
-            // "add to the selection".
-            onLongPress={() => setChosen(toggleOne(chosen, item.id))}
-            onToggle={() => setChosen(toggleOne(chosen, item.id))}
-          />
-        )}
+        // Exact from the first frame, so the scroll indicator is drawn once
+        // instead of being revised on every batch (`row-metrics.ts`). `null`
+        // only until the first row has laid itself out — once per process.
+        {...(rowHeight === null ? {} : { getItemLayout })}
+        // The tick is not in `data` — it is one Set above this list — so a
+        // cell has no prop of its own that changes when it is ticked.
+        extraData={chosen}
+        renderItem={renderItem}
         ListEmptyComponent={
-          <Text style={styles.empty}>{search === '' ? '曲库是空的。' : '没有匹配的歌。'}</Text>
+          <Text style={styles.empty}>{committed === '' ? '曲库是空的。' : '没有匹配的歌。'}</Text>
         }
       />
 

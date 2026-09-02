@@ -20,15 +20,31 @@
 
 import type { SongData } from '@lark/shared';
 import { Check, EllipsisVertical, Pin } from 'lucide-react-native';
+import { memo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ensureController } from '../downloads/ensure-runtime';
 import { player, usePlayback } from '../player';
-import { queueFrom } from '../player/queue';
+import type { PlayQueue } from '../player/queue';
+import { reportSongRowHeight } from './row-metrics';
 import { C, S } from './theme';
 
-export function SongRow({
+/**
+ * 🔴 MEMOISED, AND THE PROPS ARE SHAPED FOR IT (P2, 2026-09-02).
+ *
+ * A list re-renders for reasons that have nothing to do with most of its rows
+ * — one row gets ticked, the player starts, a download lands — and without
+ * this every row on screen was re-rendered for each of them.
+ *
+ * IT ONLY WORKS BECAUSE THE LIST ITSELF IS NO LONGER A PROP. This row used to
+ * take the whole `songs` array, to freeze the queue at the moment of a tap;
+ * that array is rebuilt after every write, so every row's props changed
+ * whenever anything changed and a memo would have compared its way to the same
+ * work. `getQueue` is a stable callback that reads the current list when the
+ * tap happens, which is the only moment it was ever needed.
+ */
+export const SongRow = memo(function SongRow({
   song,
-  songs,
+  getQueue,
   selecting,
   chosen,
   onMenu,
@@ -36,13 +52,19 @@ export function SongRow({
   onToggle,
 }: {
   song: SongData;
-  songs: readonly SongData[];
+  /** The list to play out of, read at the moment of the tap (§2.6). */
+  getQueue: () => PlayQueue;
   /** In selection mode a tap TICKS instead of playing (§1.7). */
   selecting: boolean;
   chosen: boolean;
-  onMenu: () => void;
-  onLongPress: () => void;
-  onToggle: () => void;
+  /**
+   * The three the LIST owns. They take the song rather than closing over it,
+   * so the tab can hand down callbacks that never change — a per-row closure
+   * would be a new prop on every render and the memo above would never hold.
+   */
+  onMenu: (song: SongData) => void;
+  onLongPress: (song: SongData) => void;
+  onToggle: (song: SongData) => void;
 }) {
   // Two subscriptions, both primitives (see `usePlayback`): a row re-renders
   // when it becomes the current song and when that song starts or stops, and
@@ -55,7 +77,7 @@ export function SongRow({
     // The queue is FROZEN here (§2.6): whatever the list holds at the moment
     // of the tap, sort and search and all. Switching tabs afterwards does not
     // change what plays next.
-    const queue = queueFrom({ kind: 'all' }, songs);
+    const queue = getQueue();
     // No file yet — the tap is still a play, it just has a download in front
     // of it (N4g, decision b). The queue handed over is this list, and it is
     // only the FALLBACK: if another list is on screen when the file lands,
@@ -68,11 +90,17 @@ export function SongRow({
   };
 
   return (
-    <View style={[styles.row, chosen && styles.rowChosen]}>
+    // The height goes to `row-metrics.ts`, which is where the list gets its
+    // `getItemLayout` from. Every row reports; the first one to arrive wins,
+    // and the rest are a function call.
+    <View
+      style={[styles.row, chosen && styles.rowChosen]}
+      onLayout={(event) => reportSongRowHeight(event.nativeEvent.layout.height)}
+    >
       <Pressable
         style={styles.rowBody}
-        onPress={selecting ? onToggle : start}
-        onLongPress={onLongPress}
+        onPress={selecting ? () => onToggle(song) : start}
+        onLongPress={() => onLongPress(song)}
         accessibilityRole="button"
         accessibilityLabel={selecting ? `选择 ${song.name}` : `播放 ${song.name}`}
       >
@@ -108,7 +136,7 @@ export function SongRow({
           thing a thumb hits reliably. */}
       <Pressable
         style={styles.rowMenu}
-        onPress={onMenu}
+        onPress={() => onMenu(song)}
         accessibilityRole="button"
         accessibilityLabel={`${song.name} 的菜单`}
       >
@@ -116,7 +144,7 @@ export function SongRow({
       </Pressable>
     </View>
   );
-}
+});
 
 /** `m:ss`, and `--:--` for a song nobody has measured yet. */
 function duration(seconds: number): string {

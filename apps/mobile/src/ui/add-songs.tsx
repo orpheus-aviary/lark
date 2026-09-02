@@ -9,6 +9,7 @@ import { FlatList, StyleSheet, Text, TextInput } from 'react-native';
 import { useLibrary } from './library-context';
 import { Sheet, SheetAction } from './sheet';
 import { C, S } from './theme';
+import { SEARCH_DEBOUNCE_MS, useDebounced } from './use-debounced';
 
 /**
  * Everything not already in the playlist — adding what is there is a no-op
@@ -47,12 +48,15 @@ export function AddSongs({
   const [search, setSearch] = useState('');
   const [added, setAdded] = useState(0);
 
+  // Settled, not per keystroke — the 歌曲 tab's rule and the desktop's
+  // (`ui/use-debounced.ts`). This one queries the same library.
+  const committed = useDebounced(search, SEARCH_DEBOUNCE_MS);
   const candidates = useMemo(() => {
-    const trimmed = search.trim();
+    const trimmed = committed.trim();
     return view
       .songs(trimmed === '' ? {} : { search: trimmed })
       .songs.filter((song) => !memberIds.has(song.id));
-  }, [view, search, memberIds]);
+  }, [view, committed, memberIds]);
 
   return (
     <Sheet title={added === 0 ? '加歌' : `加歌 · 已加 ${added} 首`} onClose={onClose}>
