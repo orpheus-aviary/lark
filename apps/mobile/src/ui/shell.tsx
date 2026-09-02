@@ -19,7 +19,9 @@ import { useSyncNow } from '../sync/use-sync';
 import { type AddDraft, EMPTY_ADD_DRAFT } from './add-draft';
 import { AddTab } from './add-tab';
 import { BACK, handleBack, useBack } from './back';
+import { useKeyboard } from './keyboard';
 import { MiniBar } from './minibar';
+import { OverlayHost } from './overlay';
 import { PlayerScreen } from './player-screen';
 import { PlaylistsTab } from './playlists-tab';
 import { QueueSheet } from './queue-sheet';
@@ -102,6 +104,13 @@ export function Shell() {
   // everything derived from the library (`useVisibleView`). A hidden tab must
   // also close whatever `Modal` it has open: a Modal is its own window and
   // does not go away when the view behind it is hidden.
+  // 🔴 THE BOTTOM CHROME GOES AWAY WHILE THE KEYBOARD IS UP (用户,
+  // 2026-09-02). Making room at the app root gives the whole app back the
+  // behaviour `adjustResize` used to have — including the part nobody wants:
+  // the mini bar and the tab bar riding up on top of the keyboard, where they
+  // are neither useful nor reachable by the thumb that is typing. Hiding them
+  // also hands their ~112dp back to the form that is being filled in.
+  const typing = useKeyboard() !== null;
   const songsOn = tab === '歌曲';
   const playlistsOn = tab === '歌单';
   const addOn = tab === '添加';
@@ -122,18 +131,34 @@ export function Shell() {
           <SettingsTab visible={settingsOn} />
         </Pane>
       </View>
-      <MiniBar
-        onOpen={() => setPlayerOpen(true)}
-        onQueue={() => setQueueOpen(true)}
-        // Where the progress of a fetch is (N4g-3): the task list, beside every
-        // other download. The mini bar promises; 添加 shows the work.
-        onTasks={() => setTab('添加')}
-      />
+      {!typing && (
+        <MiniBar
+          onOpen={() => setPlayerOpen(true)}
+          onQueue={() => setQueueOpen(true)}
+          // Where the progress of a fetch is (N4g-3): the task list, beside every
+          // other download. The mini bar promises; 添加 shows the work.
+          onTasks={() => setTab('添加')}
+        />
+      )}
       {playerOpen && (
         <PlayerScreen onClose={() => setPlayerOpen(false)} onQueue={() => setQueueOpen(true)} />
       )}
       {queueOpen && (
-        <Modal transparent animationType="fade" visible onRequestClose={() => setQueueOpen(false)}>
+        // 🔴 THE TWO FLAGS ARE THE EXPERIMENT (用户 2026-09-02:「整体下移，感觉
+        // 是下面导航栏消失导致的」). Without them RN keeps this dialog's decor
+        // fitting the system windows, so its content area reserves the
+        // navigation bar — and then a later insets pass takes that reservation
+        // away, which moves bottom-anchored content DOWN by exactly one
+        // navigation bar. With them the dialog is edge-to-edge from the first
+        // frame, like the app's own window, and there is nothing to settle.
+        <Modal
+          transparent
+          statusBarTranslucent
+          navigationBarTranslucent
+          animationType="fade"
+          visible
+          onRequestClose={() => setQueueOpen(false)}
+        >
           <Pressable style={styles.backdrop} onPress={() => setQueueOpen(false)}>
             {/* The height lives HERE, on the tap-swallowing wrapper, and it is
                 a NUMBER: a percentage resolved against a parent with no height
@@ -144,19 +169,26 @@ export function Shell() {
           </Pressable>
         </Modal>
       )}
-      <View style={styles.tabBar}>
-        {TABS.map((name) => (
-          <Pressable
-            key={name}
-            style={styles.tab}
-            onPress={() => setTab(name)}
-            accessibilityRole="button"
-          >
-            <Text style={[styles.tabLabel, tab === name && styles.tabOn]}>{name}</Text>
-            {name === '设置' && needsAttention && <View style={styles.dot} />}
-          </Pressable>
-        ))}
-      </View>
+      {!typing && (
+        <View style={styles.tabBar}>
+          {TABS.map((name) => (
+            <Pressable
+              key={name}
+              style={styles.tab}
+              onPress={() => setTab(name)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.tabLabel, tab === name && styles.tabOn]}>{name}</Text>
+              {name === '设置' && needsAttention && <View style={styles.dot} />}
+            </Pressable>
+          ))}
+        </View>
+      )}
+      {/* Last, so it draws over everything, and absolutely positioned inside
+          the root's padding box — which is where the room for the keyboard
+          already is (`App.tsx`). A sheet is above the keyboard because the
+          whole app is. */}
+      <OverlayHost />
     </View>
   );
 }

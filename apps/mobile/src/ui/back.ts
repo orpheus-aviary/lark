@@ -35,6 +35,12 @@ export type BackAction = () => boolean;
  * of them without renumbering anything that already works.
  */
 export const BACK = {
+  /**
+   * A sheet drawn over the app (`ui/overlay.tsx`). The innermost thing there
+   * is: it was a `Modal` until 2026-09-02, and a Modal answered the back key
+   * by itself — leaving it does not, so this layer is what replaces that.
+   */
+  sheet: 40,
   /** A selection inside a list — leaving it is the first thing back means. */
   selection: 30,
   /** A screen pushed inside a tab. Today: the playlist detail. */
