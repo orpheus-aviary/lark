@@ -42,6 +42,7 @@ import {
   loadImportFile,
 } from '../library/import';
 import { pickPlaylistFile } from '../services/playlist-import';
+import { useKeyboardSheetInset } from './keyboard';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
 
@@ -133,9 +134,12 @@ export function ImportPlaylistScreen({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const inset = useKeyboardSheetInset();
   return (
     <Modal transparent={false} animationType="slide" visible onRequestClose={onClose}>
-      <View style={styles.screen}>
+      {/* Its own window, so the app root's room does not reach it
+          (`ui/keyboard.ts`). */}
+      <View style={[styles.screen, { paddingBottom: inset }]}>
         <View style={styles.head}>
           <Text style={styles.title}>导入歌单</Text>
           <Pressable onPress={onClose} accessibilityRole="button">

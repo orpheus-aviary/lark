@@ -35,6 +35,7 @@ import {
 } from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { type RecognizedSource, recogniseLink, resolveLink } from '../services/source-url';
+import { useKeyboardSheetInset } from './keyboard';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
 
@@ -102,9 +103,12 @@ export function EditLink({ song, onClose }: { song: SongData; onClose: () => voi
     onClose();
   };
 
+  const inset = useKeyboardSheetInset();
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <View style={styles.screen}>
+      {/* Its own window, so the app root's room does not reach it
+          (`ui/keyboard.ts`). */}
+      <View style={[styles.screen, { paddingBottom: inset }]}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>更改链接</Text>
           <Text style={styles.note}>{song.name}</Text>

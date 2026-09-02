@@ -40,6 +40,7 @@ import { engineLogger } from '../downloads/log';
 import { type PickRow, eligible, overItemLimit } from '../downloads/selection';
 import { allChosen, chooseAll, chosenRows, toggleEvery, toggleOne } from '../library/selection';
 import { Chip } from './chip';
+import { useKeyboardSheetInset } from './keyboard';
 import { useLibrary } from './library-context';
 import { C, S } from './theme';
 
@@ -135,9 +136,12 @@ export function Picker<T extends PickRow>({
     }
   };
 
+  const inset = useKeyboardSheetInset();
   return (
     <Modal transparent={false} animationType="slide" visible onRequestClose={onClose}>
-      <View style={styles.screen}>
+      {/* Its own window, so the app root's room does not reach it
+          (`ui/keyboard.ts`). */}
+      <View style={[styles.screen, { paddingBottom: inset }]}>
         <View style={styles.header}>
           <Pressable onPress={onClose} accessibilityRole="button" accessibilityLabel="取消">
             <Text style={styles.cancel}>取消</Text>

@@ -12,6 +12,7 @@
 
 import { type ReactNode, useRef } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput } from 'react-native';
+import { useKeyboardSheetInset } from './keyboard';
 import { C, S } from './theme';
 
 export function Sheet({
@@ -23,9 +24,19 @@ export function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
+  // 🔴 A DIALOG IS ITS OWN WINDOW, so the room made at the app root is not
+  // made here (`ui/keyboard.ts`). Without this the platform PANS the dialog
+  // to reveal whatever has focus, which leaves everything BELOW the field —
+  // 保存, 取消, the submit button — under the keyboard. With the card already
+  // above it, there is nothing to reveal and no pan happens.
+  const inset = useKeyboardSheetInset();
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button">
+      <Pressable
+        style={[styles.backdrop, { paddingBottom: inset }]}
+        onPress={onClose}
+        accessibilityRole="button"
+      >
         {/* Swallow taps inside the card so only the backdrop dismisses. */}
         <Pressable style={styles.card} onPress={() => undefined}>
           <Text style={styles.title}>{title}</Text>
@@ -95,9 +106,29 @@ export function Prompt({
   const input = useRef<TextInput>(null);
   const value = useRef(initial);
   const selected = useRef(false);
+  const inset = useKeyboardSheetInset();
   return (
-    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} accessibilityRole="button">
+    <Modal
+      transparent
+      animationType="fade"
+      visible
+      onRequestClose={onClose}
+      // 🔴 NOT `autoFocus` (2026-09-02, 用户: 「现在不会自动唤起输入法」).
+      // `autoFocus` is applied in `onAttachedToWindow`, and RN clears the
+      // dialog window's FLAG_NOT_FOCUSABLE on the line AFTER `dialog.show()` —
+      // so the focus request lands on a window that cannot take focus yet and
+      // `showSoftInput` fails silently. It has always been a race; it only
+      // became visible when the field stopped selecting itself.
+      //
+      // `onShow` cannot lose it: `Dialog.show()` posts the show callback
+      // through a handler, so it is delivered after that line has run.
+      onShow={() => input.current?.focus()}
+    >
+      <Pressable
+        style={[styles.backdrop, { paddingBottom: inset }]}
+        onPress={onClose}
+        accessibilityRole="button"
+      >
         <Pressable style={styles.card} onPress={() => undefined}>
           <Text style={styles.title}>{title}</Text>
           <TextInput
@@ -107,7 +138,6 @@ export function Prompt({
             onChangeText={(next) => {
               value.current = next;
             }}
-            autoFocus
             onFocus={() => {
               if (selected.current) return;
               selected.current = true;

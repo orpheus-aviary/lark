@@ -34,7 +34,6 @@ import {
   ActivityIndicator,
   Dimensions,
   Keyboard,
-  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -77,23 +76,13 @@ export function SettingsTab({ visible }: { visible: boolean }) {
   // `limit: 0` fetches no rows and still reports the count.
   const total = view.songs({ limit: 0 }).total;
   return (
-    // 🔴 THE WINDOW NO LONGER SHRINKS FOR THE KEYBOARD (2026-09-02, 用户报的
-    // 「有些输入框不会随着输入法移动」). `AndroidManifest` still says
-    // `adjustResize` and it still reads as if it worked, but this app targets
-    // SDK 36: on Android 15+ that means edge-to-edge is ENFORCED
-    // (`WindowUtil.updateEdgeToEdgeFeatureFlag` turns it on by itself), the
-    // decor stops fitting system windows, and `adjustResize` is disabled with
-    // it. So the fields at the bottom of this page — the API key, the sync
-    // password — sat under the keyboard with nothing to scroll, because the
-    // `ScrollView` below never shrank.
+    // The keyboard is made room for at the app root (`App.tsx`), not here:
+    // the window stopped resizing itself when edge-to-edge became enforced,
+    // and one place giving that back beats a wrapper per screen.
     //
-    // WHY THE SHEETS AND PICKERS ARE NOT WRAPPED: RN's `Modal` turns
-    // edge-to-edge back OFF for its own dialog window and sets ADJUST_RESIZE
-    // on it (`ReactModalHostView`), so every input inside one already moves.
-    // Wrapping those too would be a second source of displacement.
-    <KeyboardAvoidingView behavior="padding" style={styles.fill}>
-      {/* `handled` and not `always`: a tap on 保存 must reach 保存 with the
-          keyboard up (§1.8), while a tap on the scroll area still dismisses it. */}
+    // `handled` and not `always`: a tap on 保存 must reach 保存 with the
+    // keyboard up (§1.8), while a tap on the scroll area still dismisses it.
+    <View style={styles.fill}>
       <ScrollView contentContainerStyle={styles.settings} keyboardShouldPersistTaps="handled">
         <SyncSection onConflicts={() => setConflictsOpen(true)} />
         {conflictsOpen && <ConflictsScreen db={boot.db} onClose={() => setConflictsOpen(false)} />}
@@ -138,7 +127,7 @@ export function SettingsTab({ visible }: { visible: boolean }) {
         <EngineErrors />
       </ScrollView>
       <KeyboardProbe />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -146,13 +135,14 @@ export function SettingsTab({ visible }: { visible: boolean }) {
  * 🔴 TEMPORARY — delete it with the batch that added it
  * (`docs/plans/2026-09-02-mobile-input-list-downloads.md` §1).
  *
- * Whether the `KeyboardAvoidingView` above can work at all comes down to one
- * number: `endCoordinates.screenY`, which is what it measures against. RN
- * takes that from `getWindowVisibleDisplayFrame()` (`ReactRootView`), and a
- * window that is no longer resized may report a CONSTANT — in which case the
- * view computes a displacement of zero and does nothing, silently. The three
- * outcomes lead to three different fixes, and telling them apart on the phone
- * needs the number: a release build reaches no logcat, so it is on screen.
+ * The keyboard geometry the whole app now depends on (`ui/keyboard.ts`), in
+ * the one place it can be read off a release build — which reaches no logcat,
+ * so the number has to be on screen.
+ *
+ * It answered its first question already: `screenY` DOES move once the window
+ * stops resizing, which is what makes `App.tsx`'s inset possible at all. It
+ * stays for one more round because it is also how a phone with a different
+ * navigation bar, or a taller IME, can be checked in one look.
  */
 function KeyboardProbe() {
   const [line, setLine] = useState('键盘：还没弹起过');

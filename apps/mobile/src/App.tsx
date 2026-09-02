@@ -42,6 +42,7 @@ import { useShareIntentBridge } from './share/intent';
 import { createAppStateSource } from './sync/app-state';
 import { syncContextOnce } from './sync/context';
 import { syncTriggersOnce } from './sync/triggers';
+import { useKeyboard } from './ui/keyboard';
 import { LibraryProvider } from './ui/library-context';
 import { Shell } from './ui/shell';
 import { C, S } from './ui/theme';
@@ -53,6 +54,29 @@ type BootState =
 
 export function App() {
   const [boot, setBoot] = useState<BootState>({ status: 'booting' });
+  // 🔴 THE WINDOW NO LONGER SHRINKS FOR THE KEYBOARD, SO THIS DOES IT
+  // (2026-09-02). Targeting SDK 36 means Android 15+ enforces edge-to-edge,
+  // and `adjustResize` is disabled with it — what the platform does instead is
+  // PAN, which reveals the focused field and nothing else. That is why the
+  // 下载 button under the paste box, and 保存 under a renamed title, were
+  // still covered while the field itself was perfectly usable.
+  //
+  // ONE PLACE RATHER THAN ONE PER SCREEN, and the reason is historical: every
+  // layout in this app was written for `adjustResize` — the settings page
+  // relies on a `ScrollView` shrinking to scroll its focused field into view
+  // (N4e-2 §1.8), the add page puts its button above the input, and
+  // `docs/LESSONS.md` measured the tab bar being reachable above the keyboard.
+  // Giving that assumption back is smaller than patching every screen that
+  // was built on it.
+  //
+  // `KeyboardAvoidingView` was the first attempt and is NOT what this is: it
+  // compares its own layout (parent coordinates) against a screen coordinate,
+  // so it needs a per-screen `keyboardVerticalOffset` that nothing can derive.
+  // The root has no such gap — it starts at the top of the window.
+  const keyboard = useKeyboard();
+  const [rootHeight, setRootHeight] = useState(0);
+  const keyboardInset =
+    keyboard === null || rootHeight === 0 ? 0 : Math.max(0, rootHeight - keyboard.top);
   // ABOVE the boot state on purpose (N4d-3, decision p). A share that launches
   // the app cold arrives within milliseconds of the bundle running — long
   // before the library is open — and the only thing that could read it lives
@@ -203,7 +227,12 @@ export function App() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView
+      style={[styles.screen, { paddingBottom: keyboardInset }]}
+      // The frame, not the content box: padding lives INSIDE it, so this
+      // cannot feed back into itself.
+      onLayout={(event) => setRootHeight(event.nativeEvent.layout.height)}
+    >
       <StatusBar style="light" />
 
       {boot.status === 'booting' && <Text style={styles.note}>正在打开曲库…</Text>}
