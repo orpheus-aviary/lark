@@ -9,9 +9,9 @@
 | 批 | 状态 |
 |---|---|
 | **P1 · 输入框** —— KAV 包设置页/添加页（edge-to-edge 之后 `adjustResize` 被停用）· `Prompt` 改非受控 + 一次性 `setSelection` | ✅ 代码已落地，`just check` / `just test` 绿。**待真机**（§6 第 1–4 条），临时的 `KeyboardProbe` 验完就删 |
-| P2 · 列表 —— `getItemLayout` + 搜索节流 + 行 memo | 未开工 |
-| P3 · 四个 tab 保持挂载 + `visible` 语义（四条 gate） | 未开工 |
-| P4 · 下载页三段（对齐桌面） | 未开工 |
+| **P2 · 列表** —— `getItemLayout`（行高量一次、按字体缩放缓存）+ 搜索节流 200ms（对齐桌面）+ 行 memo | ✅ 代码已落地 |
+| **P3 · 四个 tab 保持挂载 + `visible` 语义** —— 可见队列 · 返回键 · 派生值冻结 · 隐藏时关 Modal；列表记住滚动位置，换排序/换搜索才回顶 | ✅ 代码已落地，规则进了 `INVARIANTS` §7 |
+| **P4 · 下载页三段** —— 进行中/排队中/已结束（照桌面用词）· 空段画+小字（**有意分叉**，进了 backlog E）· 两个按钮移到「下载」下面并置灰 | ✅ 代码已落地，`rows.test.ts` 跟着改（这批唯一能红的单测） |
 
 **2026-08-31 发布**：[Release v0.5.1](https://github.com/orpheus-aviary/lark/releases/tag/v0.5.1)（tag → `b152fb7`）+ [`@orpheus-aviary/lark-cli@0.5.1`](https://www.npmjs.com/package/@orpheus-aviary/lark-cli) + [Release android-v0.2.1](https://github.com/orpheus-aviary/lark/releases/tag/android-v0.2.1)（同一个 commit）。这一站是什么、门禁与逐批记录 → **`docs/history/0.5.1-android-0.2.1-shipped.md`**。
 
@@ -24,7 +24,7 @@
 
 ### 下一步
 
-**下一批是 P2**（见上表）。四批走完再集中一次真机会话。这一批之后的候选，按现在看得见的顺序：
+**四批的代码都已落地，`just check` 十五条守卫 + `just test` 3629 条全绿。下一步是那一次真机会话**（计划 §6，十二条，用户操作）——在那之前这批没有一条判据被证明过。会话之后：删掉临时的 `KeyboardProbe`；输入法那条若是「完全没动」，走 `pan` 或自建 insets 模块并再上机一次。这一批之后的候选，按现在看得见的顺序：
 
 1. **两端对齐剩下的四条** —— 发版前那次普查查出来、当时明确不做的：`[重复]` 标记搬到手机（**C14**）· 手机歌曲页多选加「下载」（**C15**）· 歌单详情那份重复的 row（**C16**，C11/C12 的第三次代价）· 桌面记「上次听到哪」（**D5**，`portable/last-playback.ts` 是两端共用层而桌面一行没接）。前三条都小。
 2. **D2「长期使用复盘」** —— 0.1.1、0.5.0、0.5.1 都是这么来的：用一阵子，把别扭的地方列回来，再分批。
