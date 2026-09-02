@@ -28,7 +28,15 @@ import {
 } from '@lark/core/portable';
 import type { BatchTargetInput, DownloadNamingMode } from '@lark/shared';
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { downloadRuntimeOnce } from '../downloads/engine';
 import { engineLogger } from '../downloads/log';
 import { type LineSummary, readLines } from '../downloads/multi-line';
@@ -307,48 +315,59 @@ export function AddTab({
     <View style={styles.fill}>
       {/* 0.1.1 ③: the form is the LIST's header, so the page has one
           scrollbar from the input box to the last finished task. An
-          element, never a function — see `TaskList`. */}
-      <TaskList
-        header={
-          <View style={styles.form}>
-            <TextInput
-              style={styles.input}
-              value={text}
-              onChangeText={setText}
-              placeholder="粘贴 B 站视频链接，或分享到 lark"
-              placeholderTextColor={C.faint}
-              multiline
-              autoCapitalize="none"
-              autoCorrect={false}
-              accessibilityLabel="链接输入框"
-            />
+          element, never a function — see `TaskList`.
 
-            <Preview seen={seen} resolving={resolving} lines={lines} />
+          WRAPPED, since 2026-09-02: the window stops shrinking for the
+          keyboard once edge-to-edge is enforced, so the 下载 button under the
+          paste box went behind the IME with nothing to scroll. The reasoning
+          — and why the Modals on this page are deliberately NOT wrapped — is
+          written out once, in `settings-tab.tsx`.
 
-            {naming && <Naming mode={mode} hasLlm={hasLlm} onChoose={chooseMode} />}
+          The `Chooser` stays OUTSIDE it: everything it draws is a `Modal`,
+          which brings its own resizing window. */}
+      <KeyboardAvoidingView behavior="padding" style={styles.fill}>
+        <TaskList
+          header={
+            <View style={styles.form}>
+              <TextInput
+                style={styles.input}
+                value={text}
+                onChangeText={setText}
+                placeholder="粘贴 B 站视频链接，或分享到 lark"
+                placeholderTextColor={C.faint}
+                multiline
+                autoCapitalize="none"
+                autoCorrect={false}
+                accessibilityLabel="链接输入框"
+              />
 
-            {targeting && (
-              <View style={styles.row}>
-                <Text style={styles.rowLabel}>存到</Text>
-                <Chip label={targetName} on onPress={() => setPicking(true)} />
-              </View>
-            )}
+              <Preview seen={seen} resolving={resolving} lines={lines} />
 
-            <Pressable
-              style={[styles.submit, !ready && styles.submitOff]}
-              onPress={() => void submit()}
-              disabled={!ready}
-              accessibilityRole="button"
-              accessibilityLabel="下载"
-            >
-              <Text style={[styles.submitLabel, !ready && styles.submitLabelOff]}>
-                {submitting ? '提交中…' : '下载'}
-              </Text>
-            </Pressable>
-            {failed !== null && <Text style={styles.failed}>{failed}</Text>}
-          </View>
-        }
-      />
+              {naming && <Naming mode={mode} hasLlm={hasLlm} onChoose={chooseMode} />}
+
+              {targeting && (
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>存到</Text>
+                  <Chip label={targetName} on onPress={() => setPicking(true)} />
+                </View>
+              )}
+
+              <Pressable
+                style={[styles.submit, !ready && styles.submitOff]}
+                onPress={() => void submit()}
+                disabled={!ready}
+                accessibilityRole="button"
+                accessibilityLabel="下载"
+              >
+                <Text style={[styles.submitLabel, !ready && styles.submitLabelOff]}>
+                  {submitting ? '提交中…' : '下载'}
+                </Text>
+              </Pressable>
+              {failed !== null && <Text style={styles.failed}>{failed}</Text>}
+            </View>
+          }
+        />
+      </KeyboardAvoidingView>
 
       <Chooser
         lines={pickingLines ? lines : null}

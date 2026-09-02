@@ -29,9 +29,12 @@ import {
   writeCacheLimitMb,
 } from '@lark/core/portable';
 import type { NowPlayingMode } from '@lark/shared';
-import { useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -64,52 +67,98 @@ export function SettingsTab() {
   // `limit: 0` fetches no rows and still reports the count.
   const total = view.songs({ limit: 0 }).total;
   return (
-    // `handled` and not `always`: a tap on 保存 must reach 保存 with the
-    // keyboard up (§1.8), while a tap on the scroll area still dismisses it.
-    <ScrollView contentContainerStyle={styles.settings} keyboardShouldPersistTaps="handled">
-      <SyncSection onConflicts={() => setConflictsOpen(true)} />
-      {conflictsOpen && <ConflictsScreen db={boot.db} onClose={() => setConflictsOpen(false)} />}
-      <View style={styles.rule} />
-      <WorkspacesSection />
-      <View style={styles.rule} />
-      <Llm settings={boot.deviceSettings} />
-      <View style={styles.rule} />
-      <BluetoothLyrics />
-      <View style={styles.rule} />
-      <AutoDownloadNext settings={boot.deviceSettings} />
-      <View style={styles.rule} />
-      <AutoRetry settings={boot.deviceSettings} />
-      <View style={styles.rule} />
-      <Cache />
-      <View style={styles.rule} />
-      {/*
-        0.1.1 ⑫: eight diagnostics went from here — the song-directory count,
-        schema, protocol, the boot verdict, install_id, device_uuid, the boot
-        drain's tally and the Bluetooth-lyrics counter. Every one of them was
-        written for a batch that needed to read a number off a device with no
-        logcat, and every one of them stayed afterwards, so the page a person
-        opens to change one setting was mostly identifiers.
-        WHAT STAYED, and why: the song count, because it is the one number
-        somebody who is not debugging wants; and the error window below, which
-        is still the ONLY way an INTERNAL_ERROR gets off a release build.
-      */}
-      <Field label="曲库" value={`${total} 首`} />
-      {/*
-        🔴 NOT ONE OF THE EIGHT (0.5.1，用户). The diagnostics above were
-        removed because they were identifiers nobody who is not debugging
-        wants. A version is the opposite: this app is not in a store and has
-        no auto-update — every copy is an APK somebody installed by hand off a
-        Release page — so 「我装的是哪一版」 is the one question a person
-        cannot answer any other way. The desktop has said so all along, in its
-        「关于」 section.
-        Read through `appVersion()`, which reads the embedded config: a version
-        that has to be edited in two places is one that will disagree with
-        itself.
-      */}
-      <Field label="版本" value={appVersion()} />
-      <EngineErrors />
-    </ScrollView>
+    // 🔴 THE WINDOW NO LONGER SHRINKS FOR THE KEYBOARD (2026-09-02, 用户报的
+    // 「有些输入框不会随着输入法移动」). `AndroidManifest` still says
+    // `adjustResize` and it still reads as if it worked, but this app targets
+    // SDK 36: on Android 15+ that means edge-to-edge is ENFORCED
+    // (`WindowUtil.updateEdgeToEdgeFeatureFlag` turns it on by itself), the
+    // decor stops fitting system windows, and `adjustResize` is disabled with
+    // it. So the fields at the bottom of this page — the API key, the sync
+    // password — sat under the keyboard with nothing to scroll, because the
+    // `ScrollView` below never shrank.
+    //
+    // WHY THE SHEETS AND PICKERS ARE NOT WRAPPED: RN's `Modal` turns
+    // edge-to-edge back OFF for its own dialog window and sets ADJUST_RESIZE
+    // on it (`ReactModalHostView`), so every input inside one already moves.
+    // Wrapping those too would be a second source of displacement.
+    <KeyboardAvoidingView behavior="padding" style={styles.fill}>
+      {/* `handled` and not `always`: a tap on 保存 must reach 保存 with the
+          keyboard up (§1.8), while a tap on the scroll area still dismisses it. */}
+      <ScrollView contentContainerStyle={styles.settings} keyboardShouldPersistTaps="handled">
+        <SyncSection onConflicts={() => setConflictsOpen(true)} />
+        {conflictsOpen && <ConflictsScreen db={boot.db} onClose={() => setConflictsOpen(false)} />}
+        <View style={styles.rule} />
+        <WorkspacesSection />
+        <View style={styles.rule} />
+        <Llm settings={boot.deviceSettings} />
+        <View style={styles.rule} />
+        <BluetoothLyrics />
+        <View style={styles.rule} />
+        <AutoDownloadNext settings={boot.deviceSettings} />
+        <View style={styles.rule} />
+        <AutoRetry settings={boot.deviceSettings} />
+        <View style={styles.rule} />
+        <Cache />
+        <View style={styles.rule} />
+        {/*
+          0.1.1 ⑫: eight diagnostics went from here — the song-directory count,
+          schema, protocol, the boot verdict, install_id, device_uuid, the boot
+          drain's tally and the Bluetooth-lyrics counter. Every one of them was
+          written for a batch that needed to read a number off a device with no
+          logcat, and every one of them stayed afterwards, so the page a person
+          opens to change one setting was mostly identifiers.
+          WHAT STAYED, and why: the song count, because it is the one number
+          somebody who is not debugging wants; and the error window below, which
+          is still the ONLY way an INTERNAL_ERROR gets off a release build.
+        */}
+        <Field label="曲库" value={`${total} 首`} />
+        {/*
+          🔴 NOT ONE OF THE EIGHT (0.5.1，用户). The diagnostics above were
+          removed because they were identifiers nobody who is not debugging
+          wants. A version is the opposite: this app is not in a store and has
+          no auto-update — every copy is an APK somebody installed by hand off a
+          Release page — so 「我装的是哪一版」 is the one question a person
+          cannot answer any other way. The desktop has said so all along, in its
+          「关于」 section.
+          Read through `appVersion()`, which reads the embedded config: a version
+          that has to be edited in two places is one that will disagree with
+          itself.
+        */}
+        <Field label="版本" value={appVersion()} />
+        <EngineErrors />
+      </ScrollView>
+      <KeyboardProbe />
+    </KeyboardAvoidingView>
   );
+}
+
+/**
+ * 🔴 TEMPORARY — delete it with the batch that added it
+ * (`docs/plans/2026-09-02-mobile-input-list-downloads.md` §1).
+ *
+ * Whether the `KeyboardAvoidingView` above can work at all comes down to one
+ * number: `endCoordinates.screenY`, which is what it measures against. RN
+ * takes that from `getWindowVisibleDisplayFrame()` (`ReactRootView`), and a
+ * window that is no longer resized may report a CONSTANT — in which case the
+ * view computes a displacement of zero and does nothing, silently. The three
+ * outcomes lead to three different fixes, and telling them apart on the phone
+ * needs the number: a release build reaches no logcat, so it is on screen.
+ */
+function KeyboardProbe() {
+  const [line, setLine] = useState('键盘：还没弹起过');
+  useEffect(() => {
+    const shown = Keyboard.addListener('keyboardDidShow', (event) => {
+      const { screenY, height } = event.endCoordinates;
+      const window = Math.round(Dimensions.get('window').height);
+      setLine(`screenY ${Math.round(screenY)} · 高 ${Math.round(height)} · 窗口 ${window}`);
+    });
+    const hidden = Keyboard.addListener('keyboardDidHide', () => setLine('键盘：已收起'));
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, []);
+  return <Text style={styles.probe}>{line}</Text>;
 }
 
 /** What the last press of 保存 / 测试连接 / 清除 had to say. */
@@ -678,7 +727,20 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   settings: { padding: S.pad, gap: S.pad },
+  /** 🔴 TEMPORARY, with `KeyboardProbe`. */
+  probe: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: C.surfaceOn,
+    color: C.text,
+    fontSize: 11,
+    textAlign: 'center',
+    paddingVertical: 3,
+  },
   section: { gap: S.gap },
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: S.gap },
   sectionTitle: { color: C.text, fontSize: 16, fontWeight: '600', flex: 1 },
