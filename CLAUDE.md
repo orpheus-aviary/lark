@@ -80,7 +80,7 @@ Scope：`shared` / `core` / `daemon` / `gui` / `cli` / `mobile` / `player` / `do
 
 ## 当前进度
 
-**桌面 v0.5.1 已发布**（2026-08-31，tag `v0.5.1`）；**Android 0.2.2 待发版**（2026-09-02，只动 `apps/mobile/`）。测试 **3629**，`just check` 绿（十五条守卫）。协议 `LOCAL_API_VERSION = 10`，**schema 仍 v3**——手机那一批没碰 `packages/`，所以两个数都没动，桌面与 CLI 也不跟着发。
+**桌面 v0.5.1 已发布**（2026-08-31，tag `v0.5.1`）；**Android 0.2.2 已发布**（2026-09-02，tag `android-v0.2.2`，**只动 `apps/mobile/`，第一次只发一条版本线**）。测试 **3629**，`just check` 绿（十五条守卫）。协议 `LOCAL_API_VERSION = 10`，**schema 仍 v3**——手机那一批没碰 `packages/`，所以两个数都没动，桌面与 CLI 也不跟着发。
 
 **当前状态 + 下一步以 `PROCESS.md` 为准。** 其余入口：
 
