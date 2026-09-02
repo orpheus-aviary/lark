@@ -122,3 +122,29 @@ export function useLibrary(): LibraryValue {
   if (value === null) throw new Error('useLibrary outside a LibraryProvider');
   return value;
 }
+
+/**
+ * The library as a screen that may be HIDDEN should read it (2026-09-02).
+ *
+ * Tabs stay mounted now (`ui/shell.tsx`), and `view` is replaced after every
+ * write — so without this, every download, every pulled row and every eviction
+ * would make all four tabs redo their derivations, for nobody. The settings
+ * page is the sharp case: its cache figure walks the song directories with a
+ * `statSync` per row, and its own comment says it is "not a hot path" —
+ * a sentence that was true only because the page used to be unmounted.
+ *
+ * So a hidden screen keeps the last view it saw, and takes the current one the
+ * moment it is looked at again. The work is not skipped, it is DEFERRED to the
+ * same instant a remount would have done it — which is exactly the cost these
+ * screens used to have.
+ *
+ * The assignment during render is React's own "adjust state when props change":
+ * it re-renders this component immediately, before anything is committed, and
+ * costs nothing when `visible` is false.
+ */
+export function useVisibleView(visible: boolean): LibraryView {
+  const { view } = useLibrary();
+  const [shown, setShown] = useState(view);
+  if (visible && shown !== view) setShown(view);
+  return shown;
+}

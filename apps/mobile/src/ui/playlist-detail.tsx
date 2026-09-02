@@ -16,7 +16,7 @@
 import { MIB, readCacheLimitMb } from '@lark/core/portable';
 import type { SongData } from '@lark/shared';
 import { Check } from 'lucide-react-native';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { readDeviceUsage } from '../cache/usage';
 import {
@@ -37,7 +37,7 @@ import { sharePlaylistExport } from '../services/playlist-export';
 import { AddSongs } from './add-songs';
 import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
-import { useLibrary } from './library-context';
+import { useLibrary, useVisibleView } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
 import { SelectionBar } from './selection-bar';
 import { Prompt, Sheet, SheetAction } from './sheet';
@@ -46,8 +46,13 @@ import { C, S } from './theme';
 
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
-export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void }) {
-  const { library, view, boot, changed } = useLibrary();
+export function PlaylistDetail({
+  visible,
+  id,
+  onBack,
+}: { visible: boolean; id: string; onBack: () => void }) {
+  const { library, boot, changed } = useLibrary();
+  const view = useVisibleView(visible);
   const [renaming, setRenaming] = useState(false);
   const [adding, setAdding] = useState(false);
   const [acting, setActing] = useState<SongData | null>(null);
@@ -76,6 +81,7 @@ export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void 
       () => queueFrom({ kind: 'playlist', id }, detail?.songs ?? []),
       [id, detail?.songs],
     ),
+    visible,
   );
 
   const rows = useMemo(
@@ -88,14 +94,28 @@ export function PlaylistDetail({ id, onBack }: { id: string; onBack: () => void 
   // 0.1.1 ④, and it sits INSIDE the screen the shell registers for: a
   // selection is the innermost layer, so back leaves the selection before it
   // leaves the playlist.
+  // `&& visible`: mounted is no longer the same as on screen (`shell.tsx`).
   useBack(
-    selecting,
+    selecting && visible,
     () => {
       leaveSelection();
       return true;
     },
     BACK.selection,
   );
+
+  // A Modal outlives the pane behind it (`songs-tab.tsx` says why).
+  useEffect(() => {
+    if (visible) return;
+    setRenaming(false);
+    setAdding(false);
+    setActing(null);
+    setEditing(null);
+    setConfirming(null);
+    setLinking(null);
+    setAddingTo(null);
+    setConfirmingMany(false);
+  }, [visible]);
 
   // The playlist this screen was opened for is gone. Deleting it from here
   // navigates away on its own (below), so what reaches this branch is the

@@ -18,27 +18,26 @@
 // what is missing is the handle, and with it the three native dependencies a
 // draggable list would have cost.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, ToastAndroid, View } from 'react-native';
 import { shareLibraryExport } from '../services/playlist-export';
 import { BACK, useBack } from './back';
 import { ImportPlaylistScreen } from './import-playlist';
-import { useLibrary } from './library-context';
+import { useLibrary, useVisibleView } from './library-context';
 import { PlaylistDetail } from './playlist-detail';
 import { Prompt } from './sheet';
 import { C, S } from './theme';
 
 /**
- * Which playlist is open is the SHELL's state, not this component's.
- *
- * A tab is unmounted while another one is showing, so anything kept here is
- * forgotten the moment somebody looks at 设置 and comes back — and coming back
- * to the list you were already inside is the whole point of a detail screen.
+ * Which playlist is open is the SHELL's state, not this component's — see
+ * `shell.tsx` for why it stays there now that tabs are no longer unmounted.
  */
 export function PlaylistsTab({
+  visible,
   openId,
   onOpen,
 }: {
+  visible: boolean;
   openId: string | null;
   onOpen: (id: string | null) => void;
 }) {
@@ -46,8 +45,10 @@ export function PlaylistsTab({
   // `Modal`, so it was the one screen the back key left the app from. It is
   // registered HERE rather than inside the detail because this is where
   // "which playlist is open" can be unset.
+  // `&& visible`: still mounted while another tab shows, and a playlist nobody
+  // can see must not answer the back key.
   useBack(
-    openId !== null,
+    openId !== null && visible,
     () => {
       onOpen(null);
       return true;
@@ -55,16 +56,23 @@ export function PlaylistsTab({
     BACK.screen,
   );
   return openId === null ? (
-    <PlaylistList onOpen={onOpen} />
+    <PlaylistList visible={visible} onOpen={onOpen} />
   ) : (
-    <PlaylistDetail id={openId} onBack={() => onOpen(null)} />
+    <PlaylistDetail visible={visible} id={openId} onBack={() => onOpen(null)} />
   );
 }
 
-function PlaylistList({ onOpen }: { onOpen: (id: string) => void }) {
-  const { library, view, changed } = useLibrary();
+function PlaylistList({ visible, onOpen }: { visible: boolean; onOpen: (id: string) => void }) {
+  const { library, changed } = useLibrary();
+  const view = useVisibleView(visible);
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
+  // A Modal outlives the pane behind it (`songs-tab.tsx` says why).
+  useEffect(() => {
+    if (visible) return;
+    setCreating(false);
+    setImporting(false);
+  }, [visible]);
   const playlists = useMemo(
     // The virtual `all` is already gone: `library-context.tsx` drops it once,
     // for every screen, after the add page was found offering it as a download

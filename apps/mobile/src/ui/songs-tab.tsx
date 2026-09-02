@@ -32,7 +32,7 @@ import {
   toggleOrder,
   withField,
 } from '@lark/shared';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, ToastAndroid, View } from 'react-native';
 import { engineLogger } from '../downloads/log';
 import { describeBatch, runBatch } from '../library/batch';
@@ -41,7 +41,7 @@ import { queueFrom } from '../player/queue';
 import { useVisibleQueue } from '../player/visible-queue';
 import { BACK, useBack } from './back';
 import { EditLink } from './edit-link';
-import { useLibrary } from './library-context';
+import { useLibrary, useVisibleView } from './library-context';
 import { PlaylistPicker } from './playlist-picker';
 import { useSongRowHeight } from './row-metrics';
 import { SelectionBar } from './selection-bar';
@@ -53,8 +53,12 @@ import { SEARCH_DEBOUNCE_MS, useDebounced } from './use-debounced';
 
 type Editing = { song: SongData; field: 'name' | 'artist' } | null;
 
-export function SongsTab() {
-  const { boot, library, view, changed } = useLibrary();
+export function SongsTab({ visible }: { visible: boolean }) {
+  const { boot, library, changed } = useLibrary();
+  // Frozen while this tab is hidden, and caught up the moment it is looked at
+  // again (`library-context.tsx`). The tabs stay mounted now, so without this
+  // every download would re-query and re-sort the whole library for nobody.
+  const view = useVisibleView(visible);
   const [search, setSearch] = useState('');
   // Remembered per device (0.5.0): a library listed by 创建时间 came back in
   // its own order on every launch, which reads as the setting not sticking.
@@ -68,6 +72,19 @@ export function SongsTab() {
   const [editing, setEditing] = useState<Editing>(null);
   const [confirming, setConfirming] = useState<SongData | null>(null);
 
+  const list = useRef<FlatList<SongData>>(null);
+  /** Where the list was, so coming back to this tab lands where you left. */
+  const offset = useRef(0);
+
+  // A different order, or a different search, is a different list — staying at
+  // the same pixel would leave you somewhere unrelated to what you asked for.
+  // Called from the two actions rather than watched with an effect: this is a
+  // consequence of a tap and a keystroke, not a synchronisation with anything.
+  const toTop = useCallback(() => {
+    offset.current = 0;
+    list.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+
   /**
    * The only way the order changes — both buttons and the sheet go through it.
    *
@@ -77,6 +94,7 @@ export function SongsTab() {
    */
   const changeSort = (next: SortState): void => {
     setSort(next);
+    toTop();
     void writeSongSort(boot.deviceSettings, next).catch((err: unknown) => {
       engineLogger.warn({ err: String(err) }, 'could not remember the song order');
     });
@@ -120,7 +138,7 @@ export function SongsTab() {
   // whole life instead of being replaced after every write; it is retracted
   // when this tab is unmounted.
   const getQueue = useCallback(() => queueFrom({ kind: 'all' }, latest.current), []);
-  useVisibleQueue(getQueue);
+  useVisibleQueue(getQueue, visible);
 
   // The three a row hands back. Stable, so `SongRow`'s memo can hold: a
   // closure built per row per render would change every one of them whenever
@@ -145,8 +163,27 @@ export function SongsTab() {
 
   // 0.1.1 ④. The innermost layer this tab has: a selection is a mode you are
   // IN, and the back key is how a phone leaves a mode.
+  // 🔴 A MODAL IS ITS OWN WINDOW, so hiding the pane behind it leaves it on
+  // screen, over whatever tab you switched to. Only a PROGRAMMATIC switch can
+  // do that — a share arriving turns the app to 添加 (`shell.tsx`) — because a
+  // Modal covers the tab bar and takes the back key itself. Rare, and one
+  // effect.
+  useEffect(() => {
+    if (visible) return;
+    setPicking(false);
+    setActing(null);
+    setEditing(null);
+    setConfirming(null);
+    setLinking(null);
+    setAddingTo(null);
+    setConfirmingMany(false);
+  }, [visible]);
+
+  // `&& visible`: this tab is still mounted while another one is showing, and
+  // a selection nobody can see must not answer the back key — it outranks the
+  // tab layer, so it would swallow a press meant for「回到歌曲」.
   useBack(
-    selecting,
+    selecting && visible,
     () => {
       leaveSelection();
       return true;
@@ -205,6 +242,26 @@ export function SongsTab() {
   // Known once the first row has laid itself out; `null` before that, and
   // again if the system font size changes (`row-metrics.ts` keeps that half).
   const rowHeight = useSongRowHeight();
+  // 🔴 THE THREE RULES ABOUT WHERE THE LIST SITS, and they used to be one.
+  // Unmounting a tab answered all three at once — everything started at the
+  // top — and one of those answers was wrong (coming back to the tab) while
+  // the other two were right by accident. Now they are three lines.
+  //
+  // Coming back: exactly where you left it. A pane hidden with `display: none`
+  // lays out nothing, so the native offset cannot be relied on to survive.
+  //
+  // TWICE, and both are needed. This effect runs right after the commit that
+  // revealed the pane, which may be BEFORE the native layout that gives the
+  // list its height back — and a `scrollToOffset` on a list that is still
+  // zero-high clamps to the top. `onLayout` below catches that case. Neither
+  // can fight the user: `offset` is what the last scroll reported, so a
+  // restore that was not needed puts the list where it already is.
+  const restore = useCallback(() => {
+    if (visible) list.current?.scrollToOffset({ offset: offset.current, animated: false });
+  }, [visible]);
+  useEffect(() => {
+    restore();
+  }, [restore]);
   const getItemLayout = useCallback(
     (_: ArrayLike<SongData> | null | undefined, index: number) => ({
       length: rowHeight ?? 0,
@@ -264,7 +321,10 @@ export function SongsTab() {
           <TextInput
             style={styles.search}
             value={search}
-            onChangeText={setSearch}
+            onChangeText={(next) => {
+              setSearch(next);
+              toTop();
+            }}
             placeholder="搜索歌名或歌手"
             placeholderTextColor={C.faint}
             accessibilityLabel="搜索"
@@ -289,8 +349,13 @@ export function SongsTab() {
       <Text style={styles.count}>{songs.length} 首</Text>
 
       <FlatList
+        ref={list}
         data={songs}
         keyExtractor={(song) => song.id}
+        onScroll={(event) => {
+          offset.current = event.nativeEvent.contentOffset.y;
+        }}
+        onLayout={restore}
         // Exact from the first frame, so the scroll indicator is drawn once
         // instead of being revised on every batch (`row-metrics.ts`). `null`
         // only until the first row has laid itself out — once per process.

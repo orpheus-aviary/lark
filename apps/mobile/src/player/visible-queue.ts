@@ -4,9 +4,15 @@
 // now took its queue in the same turn as the tap (`queueFrom(source, songs)`),
 // so the list was simply there. An ensure-file play is the first that starts
 // up to a minute after the tap — and §2.9 says its queue is the one in front
-// of you WHEN IT STARTS, not the one you tapped in. A closure over the tapped
-// screen's array cannot answer that: tabs are unmounted when you leave them
-// (`shell.tsx`), so what it holds is a list that stopped existing.
+// of you WHEN IT STARTS, not the one you tapped in.
+//
+// 🔴 `visible` IS NOT A CONVENIENCE (2026-09-02). Until this batch, "in front
+// of you" and "mounted" were the same thing, because a tab was unmounted the
+// moment you left it. Tabs now stay mounted (`shell.tsx`), so a screen has to
+// SAY whether it is the one being looked at — otherwise this stays
+// last-writer-wins between screens that are all still alive, and a playlist
+// you left would go on owning the queue of a song you started from the songs
+// tab.
 //
 // So a screen showing a list publishes how to build its queue, and replaces
 // that as its list changes (a sort, a search, a write). What is stored is a
@@ -45,10 +51,17 @@ export function visibleQueue(): PlayQueue | null {
 }
 
 /**
- * `build` must be stable — a `useCallback` over whatever the list derives from.
- * A new function every render would republish every render, which is harmless
- * and pointless.
+ * `build` must be stable — a `useCallback` over whatever the list derives from,
+ * or one that reads a ref. A new function every render would republish every
+ * render, which is harmless and pointless.
+ *
+ * Publishing is what "this list is on screen" means, so a hidden screen does
+ * not: the effect re-runs when `visible` flips, which both retracts on the way
+ * out and re-publishes on the way back in.
  */
-export function useVisibleQueue(build: () => PlayQueue): void {
-  useEffect(() => publishVisibleQueue(build), [build]);
+export function useVisibleQueue(build: () => PlayQueue, visible: boolean): void {
+  useEffect(() => {
+    if (!visible) return;
+    return publishVisibleQueue(build);
+  }, [build, visible]);
 }

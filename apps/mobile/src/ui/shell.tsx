@@ -12,7 +12,7 @@
 // page's refusals is typed. Sync is the last empty thing here, and it is N5.
 
 import { syncBadgeView } from '@lark/shared';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { BackHandler, Dimensions, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { hasShareDraft, subscribeShareDraft } from '../share/draft';
 import { useSyncNow } from '../sync/use-sync';
@@ -46,14 +46,12 @@ export function Shell() {
   const { status, conflicts } = useSyncNow();
   const badge = syncBadgeView(status, conflicts);
   const needsAttention = badge.attention > 0 || badge.tone === 'warn' || badge.tone === 'error';
-  // Which playlist is open lives HERE, not in the tab: switching tabs
-  // unmounts the tab, and a detail screen that forgot where it was every time
-  // you glanced at 设置 is a screen you stop using.
+  // Which playlist is open lives HERE, and what 添加 was in the middle of (③).
+  // Both were lifted when a tab was unmounted the moment you left it; since
+  // 2026-09-02 they would survive down there too. They stay because this is
+  // also where the back key can unset the first one, and because moving state
+  // back down is churn with nothing to show for it.
   const [openPlaylist, setOpenPlaylist] = useState<string | null>(null);
-  // And what 添加 was in the middle of, for the same reason (③). The page
-  // still owns everything DERIVED from the text — what was recognised, which
-  // picker is open, whether a submission is in flight — because none of that
-  // outlives the text it was derived from.
   const [addDraft, setAddDraft] = useState<AddDraft>(EMPTY_ADD_DRAFT);
   // Two overlays over the same player, and they are INDEPENDENT. One
   // `showing` state made them mutually exclusive, so opening the queue from
@@ -90,13 +88,39 @@ export function Shell() {
     },
     BACK.tab,
   );
+  // 🔴 THE TABS ARE NOT UNMOUNTED (2026-09-02, 用户决定). They used to be, and
+  // it cost a full re-derivation and a scroll position on every switch: coming
+  // back to 歌曲 meant re-querying the library, re-sorting it and starting
+  // again from the first row. It also cost a real bug — filling in the
+  // settings page and pressing BACK unmounted the page and took the unsaved
+  // draft with it (`docs/LESSONS.md`).
+  //
+  // WHAT THAT CHANGES, and it is not only performance: "mounted" stopped
+  // meaning "on screen". Three things were relying on the old equivalence and
+  // now take `visible` instead — the queue a delayed play uses
+  // (`player/visible-queue.ts`), the back key (`ui/back.ts` callers), and
+  // everything derived from the library (`useVisibleView`). A hidden tab must
+  // also close whatever `Modal` it has open: a Modal is its own window and
+  // does not go away when the view behind it is hidden.
+  const songsOn = tab === '歌曲';
+  const playlistsOn = tab === '歌单';
+  const addOn = tab === '添加';
+  const settingsOn = tab === '设置';
   return (
     <View style={styles.fill}>
       <View style={styles.fill}>
-        {tab === '歌曲' && <SongsTab />}
-        {tab === '歌单' && <PlaylistsTab openId={openPlaylist} onOpen={setOpenPlaylist} />}
-        {tab === '添加' && <AddTab draft={addDraft} onDraft={setAddDraft} />}
-        {tab === '设置' && <SettingsTab />}
+        <Pane visible={songsOn}>
+          <SongsTab visible={songsOn} />
+        </Pane>
+        <Pane visible={playlistsOn}>
+          <PlaylistsTab visible={playlistsOn} openId={openPlaylist} onOpen={setOpenPlaylist} />
+        </Pane>
+        <Pane visible={addOn}>
+          <AddTab visible={addOn} draft={addDraft} onDraft={setAddDraft} />
+        </Pane>
+        <Pane visible={settingsOn}>
+          <SettingsTab visible={settingsOn} />
+        </Pane>
       </View>
       <MiniBar
         onOpen={() => setPlayerOpen(true)}
@@ -137,8 +161,20 @@ export function Shell() {
   );
 }
 
+/**
+ * One tab's layer.
+ *
+ * `display: 'none'` and not `opacity: 0`: a hidden pane must cost nothing to
+ * draw, and Yoga skips its subtree entirely — which is also why the list
+ * inside restores its own scroll offset when it comes back (`songs-tab.tsx`).
+ */
+function Pane({ visible, children }: { visible: boolean; children: ReactNode }) {
+  return <View style={visible ? styles.fill : styles.hidden}>{children}</View>;
+}
+
 const styles = StyleSheet.create({
   fill: { flex: 1 },
+  hidden: { display: 'none' },
   backdrop: { flex: 1, backgroundColor: '#000000aa', justifyContent: 'flex-end', padding: S.pad },
   sheetHolder: { maxHeight: Dimensions.get('window').height * (2 / 3) },
   // Absolute so it never widens the tab and shifts the label off centre.

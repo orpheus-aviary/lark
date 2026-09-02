@@ -52,7 +52,7 @@ import {
 import { subscribeShareDraft, takeShareDraft } from '../share/draft';
 import { type AddDraft, shareArrived, submitted } from './add-draft';
 import { Chip } from './chip';
-import { useLibrary } from './library-context';
+import { useLibrary, useVisibleView } from './library-context';
 import { LinesPicker } from './lines-picker';
 import { ListPicker } from './list-picker';
 import { PartsPicker } from './parts-picker';
@@ -147,14 +147,17 @@ function useRecognition(
 }
 
 export function AddTab({
+  visible,
   draft,
   onDraft,
 }: {
+  visible: boolean;
   /** Lives in the shell, because this page does not (③, `add-draft.ts`). */
   draft: AddDraft;
   onDraft: Dispatch<SetStateAction<AddDraft>>;
 }) {
-  const { boot, view, changed } = useLibrary();
+  const { boot, changed } = useLibrary();
+  const view = useVisibleView(visible);
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   // ONCE PER MOUNT, not once per render (N4e-2). Until N4e-1 this read a
   // constant and was free; it is now a SQLite query plus a Keystore round trip,
@@ -189,6 +192,16 @@ export function AddTab({
   const [submitting, setSubmitting] = useState(false);
   /** What the last submission said, when it did not queue anything. */
   const [failed, setFailed] = useState<string | null>(null);
+  // A Modal outlives the pane behind it (`songs-tab.tsx` says why). The
+  // recognised text is deliberately NOT cleared: the draft it came from
+  // survives the switch, so what was read out of it should too.
+  useEffect(() => {
+    if (visible) return;
+    setPicking(false);
+    setPickingLines(false);
+    setExpanding(null);
+    setPickingParts(null);
+  }, [visible]);
 
   const playlists = view.playlists();
   const targetName = playlists.find((entry) => entry.id === playlistId)?.name ?? LIBRARY_ONLY;
@@ -327,6 +340,7 @@ export function AddTab({
           which brings its own resizing window. */}
       <KeyboardAvoidingView behavior="padding" style={styles.fill}>
         <TaskList
+          visible={visible}
           header={
             <View style={styles.form}>
               <TextInput

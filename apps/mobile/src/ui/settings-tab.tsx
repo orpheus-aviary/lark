@@ -53,17 +53,27 @@ import { clearApiKey, readApiKey, saveApiKey, saveLlmEndpoint, testLlm } from '.
 import { appVersion } from '../sync/context';
 import { Chip } from './chip';
 import { ConflictsScreen } from './conflicts-screen';
-import { useLibrary } from './library-context';
+import { useLibrary, useVisibleView } from './library-context';
 import { SyncSection } from './sync-section';
 import { C, S } from './theme';
 import { WorkspacesSection } from './workspaces-section';
 
-export function SettingsTab() {
-  const { boot, view } = useLibrary();
+export function SettingsTab({ visible }: { visible: boolean }) {
+  const { boot } = useLibrary();
+  // 🔴 THE ONE THAT MATTERS MOST (`library-context.tsx`). The cache figure
+  // below walks every song directory with a `statSync` per row, in EVERY
+  // workspace on the phone; this page is now mounted while you are looking at
+  // something else, and without the freeze a batch of forty downloads would
+  // run forty of those walks for a number nobody is reading.
+  const view = useVisibleView(visible);
   // The conflicts screen is a full-screen Modal, and it is owned HERE rather
   // than inside the sync section: a screen that unmounts with the section
   // that opened it would close itself the moment a round changed the status.
   const [conflictsOpen, setConflictsOpen] = useState(false);
+  // A Modal outlives the pane behind it (`songs-tab.tsx` says why).
+  useEffect(() => {
+    if (!visible) setConflictsOpen(false);
+  }, [visible]);
   // `limit: 0` fetches no rows and still reports the count.
   const total = view.songs({ limit: 0 }).total;
   return (
@@ -98,7 +108,7 @@ export function SettingsTab() {
         <View style={styles.rule} />
         <AutoRetry settings={boot.deviceSettings} />
         <View style={styles.rule} />
-        <Cache />
+        <Cache visible={visible} />
         <View style={styles.rule} />
         {/*
           0.1.1 ⑫: eight diagnostics went from here — the song-directory count,
@@ -491,8 +501,9 @@ function AutoRetry({ settings }: { settings: DeviceSettingsPort }) {
  * are fire-and-forget by design — a background drain that reported to a screen
  * would be a screen reporting on work nobody asked for.
  */
-function Cache() {
-  const { view, boot } = useLibrary();
+function Cache({ visible }: { visible: boolean }) {
+  const { boot } = useLibrary();
+  const view = useVisibleView(visible);
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   /** The saved limit, as this screen last read it BACK from the library. */
   const [limitMb, setLimitMb] = useState(() => readCacheLimitMb(boot.deviceSettings));

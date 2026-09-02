@@ -63,11 +63,19 @@ import { C, S } from './theme';
  * header — and the header holds a `TextInput`, so every keystroke would drop
  * the keyboard.
  */
-export function TaskList({ header }: { header?: ReactNode }) {
+export function TaskList({ visible, header }: { visible: boolean; header?: ReactNode }) {
   const { boot } = useLibrary();
   const runtime = useMemo(() => downloadRuntimeOnce(boot), [boot]);
   const engine = runtime.engine;
-  const { tasks, batches, foreground } = useDownloads();
+  // 🔴 FROZEN WHILE THE TAB IS HIDDEN (2026-09-02). The hub emits on every
+  // progress tick — twice a second per running task — and this page is now
+  // mounted whether or not anybody is on it. Same shape as `useVisibleView`,
+  // and for the same reason: the work is deferred to the moment somebody
+  // looks, not skipped.
+  const live = useDownloads();
+  const [shown, setShown] = useState(live);
+  if (visible && shown !== live) setShown(live);
+  const { tasks, batches, foreground } = shown;
   const history = useMemo(() => downloadHistoryOnce(boot), [boot]);
   const records = useDownloadHistory(boot);
   // What the last cancel or retry answered. Not a toast: this app has no toast
