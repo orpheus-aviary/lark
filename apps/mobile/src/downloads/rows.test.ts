@@ -64,19 +64,35 @@ const record = (id: string, patch: Partial<DownloadRecord> = {}): DownloadRecord
 const keys = (rows: readonly { key: string }[]) => rows.map((row) => row.key);
 
 describe('the page, top to bottom', () => {
-  it('shows what is running above what has finished', () => {
+  it('splits what is running from what is waiting, above what has finished', () => {
     const rows = downloadListRows(
-      [task('now', 'running'), task('done', 'succeeded', 9)],
+      [task('now', 'running'), task('next', 'queued'), task('done', 'succeeded', 9)],
       [record('r1')],
     );
-    expect(keys(rows)).toEqual(['head:tasks', 'task:now', 'head:records', 'record:r1']);
+    expect(keys(rows)).toEqual([
+      'head:running',
+      'task:now',
+      'head:queued',
+      'task:next',
+      'head:records',
+      'record:r1',
+    ]);
+  });
+
+  it('tells each row which group it landed in', () => {
+    const rows = downloadListRows([task('now', 'running'), task('next', 'queued')], []);
+    const tasks = rows.filter((row) => row.kind === 'task');
+    expect(tasks.map((row) => [row.task.id, row.section])).toEqual([
+      ['now', 'running'],
+      ['next', 'queued'],
+    ]);
   });
 
   it('takes finished work from the history and NOT from the engine', () => {
     // The engine's ring still holds `done`; the page must not draw it twice,
     // nor draw it at all except through a record.
     const rows = downloadListRows([task('done', 'succeeded', 9)], []);
-    expect(keys(rows)).toEqual(['head:tasks', 'empty:tasks']);
+    expect(keys(rows).filter((key) => key.startsWith('task:'))).toEqual([]);
   });
 
   it('keeps the queue in the order the engine gave it', () => {
@@ -86,35 +102,49 @@ describe('the page, top to bottom', () => {
       [task('a', 'running'), task('b', 'queued'), task('c', 'queued')],
       [],
     );
-    expect(keys(rows)).toEqual(['head:tasks', 'task:a', 'task:b', 'task:c']);
+    expect(keys(rows)).toEqual([
+      'head:running',
+      'task:a',
+      'head:queued',
+      'task:b',
+      'task:c',
+      'head:records',
+      'empty:records',
+    ]);
   });
 
   it('keeps records in the order the history gave them', () => {
     const rows = downloadListRows([], [record('new'), record('old')]);
+    expect(keys(rows).slice(-3)).toEqual(['head:records', 'record:new', 'record:old']);
+  });
+
+  it('draws every heading even with nothing under it, and says so', () => {
+    // 用户, 2026-09-02, and a divergence from the desktop: this page IS the
+    // screen, so 「没有排队的任务」 is an answer somebody came here for.
+    const rows = downloadListRows([], []);
     expect(keys(rows)).toEqual([
-      'head:tasks',
-      'empty:tasks',
+      'head:running',
+      'empty:running',
+      'head:queued',
+      'empty:queued',
       'head:records',
-      'record:new',
-      'record:old',
+      'empty:records',
     ]);
-  });
-
-  it('hides the 下载记录 heading when there is nothing under it', () => {
-    // Its heading carries 清空记录 and 全部重试; over an empty list both are
-    // buttons that cannot do anything.
-    const rows = downloadListRows([task('now', 'running')], []);
-    expect(keys(rows)).not.toContain('head:records');
-  });
-
-  it('says so when nothing is downloading, rather than showing an empty page', () => {
-    expect(keys(downloadListRows([], []))).toEqual(['head:tasks', 'empty:tasks']);
+    expect(rows.filter((row) => row.kind === 'empty').map((row) => row.text)).toEqual([
+      '没有正在下载的歌',
+      '没有排队的任务',
+      '还没有下载记录',
+    ]);
   });
 
   it('counts what is under each heading', () => {
     const rows = downloadListRows([task('a', 'queued'), task('b', 'queued')], [record('r')]);
     const heads = rows.filter((row) => row.kind === 'head');
-    expect(heads.map((row) => (row.kind === 'head' ? row.count : -1))).toEqual([2, 1]);
+    expect(heads.map((row) => [row.section, row.count])).toEqual([
+      ['running', 0],
+      ['queued', 2],
+      ['records', 1],
+    ]);
   });
 });
 
@@ -172,7 +202,8 @@ describe('a lyrics continuation', () => {
   };
 
   it('is listed with its own song, not under everything still running', () => {
-    // Insertion order, which is what the engine hands back.
+    // Insertion order, which is what the engine hands back. Both are running,
+    // so both are in the same group and the order between them is the point.
     const rows = downloadListRows([parent, stillGoing, lyrics], []);
     const tasks = rows.filter((row) => row.kind === 'task').map((row) => row.task.id);
     expect(tasks).toEqual(['ly', 'dl-late']);

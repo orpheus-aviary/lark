@@ -5,11 +5,18 @@
 // that asked on a timer would be a second source of truth that is sometimes
 // behind the first.
 //
-// TWO GROUPS, TWO SOURCES (0.1.1 ⑦). What is RUNNING is the engine's, live.
-// What has FINISHED comes from `downloads/history.ts` — a file, so it is still
-// there tomorrow — and the engine's own 100-task ring is no longer drawn at
-// all: it is the engine's memory rather than a record, and a download that
-// failed while the phone was in a pocket used to be gone before anyone looked.
+// THREE GROUPS, TWO SOURCES (0.1.1 ⑦; the third group 2026-09-02). What is
+// RUNNING and what is QUEUED are the engine's, live, and they are drawn apart
+// because they answer different questions — the desktop has split them since
+// 0.3.0 and the words here are its words. What has FINISHED comes from
+// `downloads/history.ts` — a file, so it is still there tomorrow — and the
+// engine's own 100-task ring is no longer drawn at all: it is the engine's
+// memory rather than a record, and a download that failed while the phone was
+// in a pocket used to be gone before anyone looked.
+//
+// Which rows land where, and what an empty group says, is `downloads/rows.ts`:
+// a group that renders in the wrong place is the one bug this screen cannot
+// show you.
 //
 // A ROW NAMES ITSELF WITH `taskTitle`, which falls back to the input. A queued
 // link genuinely has no name until `naming` runs, and inventing one would be
@@ -42,7 +49,7 @@ import type { ForegroundStatus } from '../downloads/foreground';
 import { downloadHistoryOnce } from '../downloads/history-runtime';
 import { replay, summariseReplays, supersededRecord } from '../downloads/replay';
 import { replayDepsOnce } from '../downloads/replay-runtime';
-import { downloadListRows, latestBatch } from '../downloads/rows';
+import { SECTION_TITLES, downloadListRows, latestBatch } from '../downloads/rows';
 import { useDownloads } from '../downloads/use-downloads';
 import { useDownloadHistory } from '../downloads/use-history';
 import { useLibrary } from './library-context';
@@ -149,30 +156,47 @@ export function TaskList({ visible, header }: { visible: boolean; header?: React
           {header}
           <Warning status={foreground} />
           <BatchLine batch={batch} />
+          {/* 🔴 THE TWO PAGE-WIDE BUTTONS LIVE HERE, under 下载 and above the
+              groups (用户, 2026-09-02) — the desktop keeps them in the
+              dialog's footer, and a phone has no footer to keep them in: the
+              bottom of this screen is the tab bar and the mini bar.
+              DISABLED RATHER THAN HIDDEN, also the desktop's: a button that
+              comes and goes moves everything under it. 全部取消 cannot sit on
+              a group heading, because it sweeps BOTH live groups. */}
+          <View style={styles.actions}>
+            <Pressable
+              style={[styles.headButton, active.length === 0 && styles.buttonOff]}
+              disabled={active.length === 0}
+              onPress={() => setSaid(summariseCancels(cancelActive(engine, tasks)))}
+              accessibilityRole="button"
+              accessibilityLabel="全部取消"
+            >
+              <Text style={styles.headButtonLabel}>全部取消</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.headButton, records.length === 0 && styles.buttonOff]}
+              disabled={records.length === 0}
+              onPress={() => history.clear()}
+              accessibilityRole="button"
+              accessibilityLabel="清除记录"
+            >
+              <Text style={styles.headButtonLabel}>清除记录</Text>
+            </Pressable>
+          </View>
           {said !== null && <Text style={styles.said}>{said}</Text>}
         </>
       }
       renderItem={({ item }) => {
         switch (item.kind) {
           case 'head':
-            return item.section === 'tasks' ? (
+            // 全部重试 stays ON its heading, because it is about that group
+            // only — the failures among the records. That is the desktop's
+            // split too.
+            return (
               <View style={styles.head}>
-                <Text style={styles.title}>下载任务</Text>
-                {active.length > 0 && (
-                  <Pressable
-                    style={styles.headButton}
-                    onPress={() => setSaid(summariseCancels(cancelActive(engine, tasks)))}
-                    accessibilityRole="button"
-                    accessibilityLabel="全部取消"
-                  >
-                    <Text style={styles.headButtonLabel}>全部取消</Text>
-                  </Pressable>
-                )}
-              </View>
-            ) : (
-              <View style={styles.head}>
-                <Text style={styles.title}>下载记录 {item.count} 条</Text>
-                {failed.length > 0 && (
+                <Text style={styles.title}>{SECTION_TITLES[item.section]}</Text>
+                <Text style={styles.headCount}>{item.count}</Text>
+                {item.section === 'records' && failed.length > 0 && (
                   <Pressable
                     style={[styles.headButton, busy && styles.buttonOff]}
                     onPress={() => void retryAll()}
@@ -183,20 +207,16 @@ export function TaskList({ visible, header }: { visible: boolean; header?: React
                     <Text style={styles.headButtonLabel}>全部重试 {failed.length}</Text>
                   </Pressable>
                 )}
-                <Pressable
-                  style={styles.headButton}
-                  onPress={() => history.clear()}
-                  accessibilityRole="button"
-                  accessibilityLabel="清空记录"
-                >
-                  <Text style={styles.headButtonLabel}>清空</Text>
-                </Pressable>
               </View>
             );
           case 'task':
             return (
               <TaskRow
                 task={item.task}
+                // The heading over a queued row already says 排队中; saying it
+                // again on the row is one of two lines on a narrow screen
+                // spent on nothing.
+                showState={item.section === 'running'}
                 onCancel={() => setSaid(describeCancel(cancelOne(engine, item.task)))}
               />
             );
@@ -218,7 +238,11 @@ export function TaskList({ visible, header }: { visible: boolean; header?: React
 }
 
 /** One task the engine is still working on. */
-function TaskRow({ task, onCancel }: { task: DownloadTaskData; onCancel: () => void }) {
+function TaskRow({
+  task,
+  showState,
+  onCancel,
+}: { task: DownloadTaskData; showState: boolean; onCancel: () => void }) {
   return (
     <View style={styles.row}>
       <View style={styles.rowText}>
@@ -227,7 +251,7 @@ function TaskRow({ task, onCancel }: { task: DownloadTaskData; onCancel: () => v
             ? taskTitle(task)
             : `${KIND_LABELS[task.kind]} · ${taskTitle(task)}`}
         </Text>
-        <Text style={styles.state}>{taskLabel(task)}</Text>
+        {showState && <Text style={styles.state}>{taskLabel(task)}</Text>}
         <Origin origin={task.origin} />
       </View>
       <Pressable
@@ -414,7 +438,15 @@ const styles = StyleSheet.create({
     paddingTop: S.pad,
     paddingBottom: S.gap,
   },
-  title: { color: C.text, fontSize: 15, fontWeight: '600', flex: 1 },
+  title: { color: C.text, fontSize: 15, fontWeight: '600' },
+  headCount: { color: C.faint, fontSize: 13, flex: 1 },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: S.gap,
+    paddingHorizontal: S.pad,
+    paddingTop: S.gap,
+  },
   headButton: {
     paddingHorizontal: 10,
     paddingVertical: 6,
